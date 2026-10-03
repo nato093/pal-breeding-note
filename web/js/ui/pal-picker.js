@@ -2,7 +2,6 @@ import pals from '../../data/pals.js';
 import { palMatches, normalizeQuery } from '../core/kana.js';
 import { el, button } from './dom.js';
 import { palTile, palsById } from './pal-icon.js';
-import { openDialog } from './dialog.js';
 
 const activePals = pals.filter((pal) => pal.active);
 
@@ -56,7 +55,6 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
 
   function open() {
     if (closePopup) return;
-    const mobile = matchMedia('(max-width: 767px)').matches;
     const popup = el('div', 'picker-popover');
     const input = el('input', 'picker-search');
     input.type = 'search';
@@ -84,12 +82,8 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
       trigger.setAttribute('aria-expanded', 'false');
       if (trigger.isConnected) trigger.focus();
     };
-    let modal;
-    if (mobile) {
-      modal = openDialog(`${label}を選ぶ`, { className: 'picker-sheet', onClose: cleanup });
-      modal.body.append(popup);
-    } else wrapper.append(popup);
-    closePopup = mobile ? modal.close : cleanup;
+    wrapper.append(popup);
+    closePopup = cleanup;
     trigger.setAttribute('aria-expanded', 'true');
 
     function highlight() {
@@ -134,19 +128,13 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
         else position = (position + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
         highlight();
       }
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        // 候補を矢印キーで選んでいなければ、絞り込み結果の先頭を選ぶ
-        const choice = position >= 0 ? choices[position] : choices[0];
-        if (choice) select(choice.id);
-      }
+      // 矢印キーで候補を選んでいないときの Enter は何もしない（ユーザー指定）
+      if (event.key === 'Enter') { event.preventDefault(); if (position >= 0) select(choices[position].id); }
     });
-    if (!mobile) {
-      document.addEventListener('pointerdown', (event) => { if (!wrapper.contains(event.target)) closePopup?.(); }, { signal: controller.signal });
-      popup.addEventListener('focusout', () => {
-        queueMicrotask(() => { if (closePopup && !wrapper.contains(document.activeElement)) closePopup(); });
-      });
-    }
+    document.addEventListener('pointerdown', (event) => { if (!wrapper.contains(event.target)) closePopup?.(); }, { signal: controller.signal });
+    popup.addEventListener('focusout', () => {
+      queueMicrotask(() => { if (closePopup && !wrapper.contains(document.activeElement)) closePopup(); });
+    });
     renderOptions();
     input.focus();
   }
