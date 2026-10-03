@@ -15,7 +15,8 @@ var BREEDING_HEADERS_ = [
 
 var LOG_HEADERS_ = ['at', 'action', 'recordId', 'before', 'after'];
 
-var LOCK_TIMEOUT_MS_ = 10000;
+// 少人数の同時書き込み（1 件約 2〜3 秒）を待てる長さ。クライアントのタイムアウト（35 秒）より短くする
+var LOCK_TIMEOUT_MS_ = 25000;
 
 function spreadsheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -38,20 +39,41 @@ function sheetFor_(env, kind) {
 function readTable_(sheet, requiredHeaders) {
   var lastRow = sheet.getLastRow();
   var lastCol = sheet.getLastColumn();
-  if (lastRow < 1 || lastCol < 1) throw new Error('header row is missing: ' + sheet.getName());
+  if (lastRow < 1 || lastCol < 1) throw sheetHeaderError_('header row is missing: ' + sheet.getName());
 
   var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
-  var headers = values[0].map(function (h) { return String(h).trim(); });
-  var index = {};
+  var table = headerTable_(values[0], requiredHeaders);
+  table.rows = values.slice(1);
+  return table;
+}
+
+/**
+ * ヘッダー行だけを読む。書き込み時に全行を読むと、追記され続ける Log シートで処理が遅くなっていくため。
+ */
+function readHeader_(sheet, requiredHeaders) {
+  var lastCol = sheet.getLastColumn();
+  if (sheet.getLastRow() < 1 || lastCol < 1) throw sheetHeaderError_('header row is missing: ' + sheet.getName());
+  return headerTable_(sheet.getRange(1, 1, 1, lastCol).getValues()[0], requiredHeaders);
+}
+
+function headerTable_(headerRow, requiredHeaders) {
+  var headers = headerRow.map(function (h) { return String(h).trim(); });
+  var index = Object.create(null);
   headers.forEach(function (h, i) {
     if (!h) return;
-    if (Object.prototype.hasOwnProperty.call(index, h)) throw new Error('duplicate header: ' + h);
+    if (Object.prototype.hasOwnProperty.call(index, h)) throw sheetHeaderError_('duplicate header: ' + h);
     index[h] = i;
   });
   (requiredHeaders || []).forEach(function (h) {
-    if (!Object.prototype.hasOwnProperty.call(index, h)) throw new Error('missing header: ' + h);
+    if (!Object.prototype.hasOwnProperty.call(index, h)) throw sheetHeaderError_('missing header: ' + h);
   });
-  return { headers: headers, index: index, rows: values.slice(1) };
+  return { headers: headers, index: index };
+}
+
+function sheetHeaderError_(message) {
+  var error = new Error(message);
+  error.code = 'SHEET_HEADER';
+  return error;
 }
 
 /**
@@ -66,10 +88,12 @@ function withLock_(fn) {
     throw busy;
   }
   try {
-    var result = fn();
-    SpreadsheetApp.flush();
-    return result;
+    return fn();
   } finally {
-    lock.releaseLock();
+    try {
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
   }
 }

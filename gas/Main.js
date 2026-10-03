@@ -44,9 +44,10 @@ function handleRequest_(body) {
     if (action.testOnly && auth.env !== 'test') return fail_('FORBIDDEN');
 
     var result = action.run(req, auth.env);
+    if (result.ok === false) return result;
     return Object.assign({ ok: true, env: auth.env, api: API_VERSION }, result);
   } catch (err) {
-    if (err && err.code === 'BUSY') return fail_('BUSY');
+    if (err && (err.code === 'BUSY' || err.code === 'SHEET_HEADER')) return fail_(err.code);
     // リクエスト本文（パスコードを含む）はログに出さない
     console.error('handleRequest_ failed: ' + (err && err.stack ? err.stack : err));
     return fail_('INTERNAL');

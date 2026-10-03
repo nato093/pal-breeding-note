@@ -1,6 +1,6 @@
 /**
  * API の操作一覧。
- * P1（縦串）では接続確認用の最小限だけを置く。業務ルール（登録・編集・削除など）は P4 で追加する。
+ * 業務ルールは Service.js、シート入出力は Repo.js に委ねる。
  * probe 系はテスト用パスコードでだけ使える診断用の操作で、テスト用の専用シートにしか書き込まない。
  */
 
@@ -8,6 +8,12 @@ function actions_() {
   return {
     ping: { run: actionPing_ },
     snapshot: { run: actionSnapshot_ },
+    create: { run: actionMutation_ },
+    confirm: { run: actionMutation_ },
+    update: { run: actionMutation_ },
+    merge: { run: actionMutation_ },
+    delete: { run: actionMutation_ },
+    restore: { run: actionMutation_ },
     probe: { run: actionProbe_, testOnly: true },
     probeStats: { run: actionProbeStats_, testOnly: true },
     probeReset: { run: actionProbeReset_, testOnly: true }
@@ -18,18 +24,9 @@ function actionPing_() {
   return { serverTime: new Date().toISOString() };
 }
 
-/** 有効レコードの全件（P1 では整合性検査なしの最小版。P4 で置き換える） */
+/** 整合性検査を通った有効レコードの全件を返す。 */
 function actionSnapshot_(req, env) {
-  var table = readTable_(sheetFor_(env, 'data'), BREEDING_HEADERS_);
-  var records = [];
-  table.rows.forEach(function (row) {
-    if (String(row[table.index.id]).trim() === '') return;
-    if (String(row[table.index.deletedAt]).trim() !== '') return;
-    var rec = {};
-    BREEDING_HEADERS_.forEach(function (h) { rec[h] = row[table.index[h]]; });
-    records.push(rec);
-  });
-  return { records: records };
+  return snapshot_(env);
 }
 
 var PROBE_SHEET_ = '_probe_test';

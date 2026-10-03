@@ -1,0 +1,300 @@
+palId,dexNo,variant,dexLabel,nameJa,nameEn,elements,icon,active
+SheepBall,1,false,1,モコロン,Lamball,Neutral,SheepBall.webp,true
+PinkCat,2,false,2,ツッパニャン,Cattiva,Neutral,PinkCat.webp,true
+ChickenPal,3,false,3,タマコッコ,Chikipi,Neutral,ChickenPal.webp,true
+Carbunclo,4,false,4,クルリス,Lifmunk,Grass,Carbunclo.webp,true
+BluePlatypus,5,false,5,カモノスケ,Fuack,Water,BluePlatypus.webp,true
+BluePlatypus_Fire,5,true,5B,モモノスケ,Fuack Ignis,Water|Fire,BluePlatypus_Fire.webp,true
+CuteFox,6,false,6,タマモ,Vixy,Neutral,CuteFox.webp,true
+FlyingManta,7,false,7,ルミカイト,Celaray,Water,FlyingManta.webp,true
+FlyingManta_Thunder,7,true,7B,エレカイト,Celaray Lux,Water|Electric,FlyingManta_Thunder.webp,true
+WoolFox,8,false,8,ミルフィー,Cremis,Neutral,WoolFox.webp,true
+KendoFrog,9,false,9,ブシガエル,Croajiro,Water,KendoFrog.webp,true
+KendoFrog_Dark,9,true,9B,ドスガエル,Croajiro Noct,Water|Dark,KendoFrog_Dark.webp,true
+LeafMomonga,10,false,10,モモンパ,Herbil,Grass|Neutral,LeafMomonga.webp,true
+Ganesha,11,false,11,チョロゾウ,Teafant,Water,Ganesha.webp,true
+PlantSlime,12,false,12,ナエモチ,Gumoss,Grass|Ground,PlantSlime.webp,true
+PlantSlime_Flower,12,true,12B,ナエモチ（花）,Gumoss (Flower),Grass|Ground,,false
+SamuraiDog,13,false,13,ポチムネ,Pupperai,Ground,SamuraiDog.webp,true
+CloverFairy,14,false,14,ポワワ,Clovee,Grass|Neutral,CloverFairy.webp,true
+Hedgehog,15,false,15,パチグリ,Jolthog,Electric,Hedgehog.webp,true
+Hedgehog_Ice,15,true,15B,コチグリ,Jolthog Cryst,Ice,Hedgehog_Ice.webp,true
+NegativeKoala,16,false,16,ンダコアラ,Depresso,Dark,NegativeKoala.webp,true
+Penguin,17,false,17,ペンタマ,Pengullet,Water|Ice,Penguin.webp,true
+Penguin_Electric,17,true,17B,デンタマ,Pengullet Lux,Water|Electric,Penguin_Electric.webp,true
+CaptainPenguin,18,false,18,キャプペン,Penking,Water|Ice,CaptainPenguin.webp,true
+CaptainPenguin_Black,18,true,18B,ペンキッド,Penking Lux,Water|Electric,CaptainPenguin_Black.webp,true
+WizardOwl,19,false,19,ホウロック,Hoocrates,Dark,WizardOwl.webp,true
+Alpaca,20,false,20,メルパカ,Melpaca,Neutral,Alpaca.webp,true
+KingAlpaca,21,false,21,アルパオー,Kingpaca,Neutral,KingAlpaca.webp,true
+KingAlpaca_Ice,21,true,21B,アオパオー,Kingpaca Cryst,Ice,KingAlpaca_Ice.webp,true
+DreamDemon,22,false,22,ネムラム,Daedream,Dark,DreamDemon.webp,true
+Monkey,23,false,23,エテッパ,Tanzee,Grass,Monkey.webp,true
+Monkey_Fire,23,true,23B,カレッパ,Tanzee Ignis,Fire,Monkey_Fire.webp,true
+NightFox,24,false,24,ルナティ,Nox,Dark,NightFox.webp,true
+LavaGirl,25,false,25,ラヴィ,Flambelle,Fire,LavaGirl.webp,true
+FlameBambi,26,false,26,ヒノコジカ,Rooby,Fire,FlameBambi.webp,true
+Bastet,27,false,27,ニャオテト,Mau,Dark,Bastet.webp,true
+Bastet_Ice,27,true,27B,チルテト,Mau Cryst,Ice,Bastet_Ice.webp,true
+Boar,28,false,28,イノボウ,Rushoar,Ground,Boar.webp,true
+Kitsunebi,29,false,29,キツネビ,Foxparks,Fire,Kitsunebi.webp,true
+Kitsunebi_Ice,29,true,29B,ユキツネ,Foxparks Cryst,Ice,Kitsunebi_Ice.webp,true
+NegativeOctopus,30,false,30,ヤミイカ,Killamari,Dark|Water,NegativeOctopus.webp,true
+NegativeOctopus_Neutral,30,true,30B,ユメイカ,Killamari Primo,Neutral|Water,NegativeOctopus_Neutral.webp,true
+CuteMole,31,false,31,モグルン,Fuddler,Ground,CuteMole.webp,true
+Deer,32,false,32,ツノガミ,Eikthyrdeer,Neutral,Deer.webp,true
+Deer_Ground,32,true,32B,ヤマガミ,Eikthyrdeer Terra,Ground,Deer_Ground.webp,true
+Garm,33,false,33,ガウルフ,Direhowl,Neutral,Garm.webp,true
+BerryGoat,34,false,34,ベリゴート,Caprity,Grass,BerryGoat.webp,true
+BerryGoat_Dark,34,true,34B,ベノゴート,Caprity Noct,Dark,BerryGoat_Dark.webp,true
+MopBaby,35,false,35,コモップ,Swee,Ice,MopBaby.webp,true
+MopKing,36,false,36,ドンモップ,Sweepa,Ice,MopKing.webp,true
+TentacleTurtle,37,false,37,ヘルメッコ,Turtacle,Water,TentacleTurtle.webp,true
+TentacleTurtle_Ground,37,true,37B,ゴルメッコ,Turtacle Terra,Water|Ground,TentacleTurtle_Ground.webp,true
+WindChimes,38,false,38,シメナワ,Hangyu,Ground,WindChimes.webp,true
+WindChimes_Ice,38,true,38B,オバケナワ,Hangyu Cryst,Ice,WindChimes_Ice.webp,true
+SweetsSheep,39,false,39,メリポップ,Woolipop,Neutral,SweetsSheep.webp,true
+SweetsSheep_Ground,39,true,39B,メリコロネ,Woolipop Terra,Ground,SweetsSheep_Ground.webp,true
+CowPal,40,false,40,ミルカルビ,Mozzarina,Neutral,CowPal.webp,true
+BlueDragon,41,false,41,アズレーン,Azurobe,Water|Dragon,BlueDragon.webp,true
+BlueDragon_Ice,41,true,41B,アズルーナ,Azurobe Cryst,Ice|Dragon,BlueDragon_Ice.webp,true
+ElecCat,42,false,42,ボルトラ,Sparkit,Electric,ElecCat.webp,true
+Kelpie,43,false,43,ケルピス,Kelpsea,Water,Kelpie.webp,true
+Kelpie_Fire,43,true,43B,マグピス,Kelpsea Ignis,Fire,Kelpie_Fire.webp,true
+PinkRabbit,44,false,44,ヒメウサ,Ribbuny,Neutral,PinkRabbit.webp,true
+PinkRabbit_Grass,44,true,44B,ヨモギウサ,Ribbuny Botan,Grass,PinkRabbit_Grass.webp,true
+JellyfishFairy,45,false,45,クララン,Jelliette,Water,JellyfishFairy.webp,true
+JellyfishGhost,46,false,46,ユララン,Jellroy,Water|Dark,JellyfishGhost.webp,true
+ClioneTwins,47,false,47,リオリネ,Amione,Water,ClioneTwins.webp,true
+OctopusGirl,48,false,48,ヒメンダコ,Gloopie,Water|Dark,OctopusGirl.webp,true
+OctopusGirl_Neutral,48,true,48B,ユメンダコ,Gloopie Primo,Water|Neutral,OctopusGirl_Neutral.webp,true
+Eagle,49,false,49,エアムルグ,Galeclaw,Neutral,Eagle.webp,true
+GhostBlackCat,50,false,50,ニャンシー,Wispaw,Dark,GhostBlackCat.webp,true
+HawkBird,51,false,51,ホークウィン,Nitewing,Neutral,HawkBird.webp,true
+CatBat,52,false,52,ニャンバット,Tombat,Dark,CatBat.webp,true
+ColorfulBird,53,false,53,クルットリ,Tocotoco,Neutral,ColorfulBird.webp,true
+Kirin,54,false,54,ライコーン,Univolt,Electric,Kirin.webp,true
+Kirin_Ice,54,true,54B,レイコーン,Univolt Cryst,Ice,Kirin_Ice.webp,true
+SharkKid,55,false,55,シャーキッド,Gobfin,Water,SharkKid.webp,true
+SharkKid_Fire,55,true,55B,シャーマンダー,Gobfin Ignis,Fire,SharkKid_Fire.webp,true
+Werewolf,56,false,56,ツキカゲ,Loupmoon,Dark,Werewolf.webp,true
+Werewolf_Ice,56,true,56B,ユキカゲ,Loupmoon Cryst,Ice,Werewolf_Ice.webp,true
+DarkCrow,57,false,57,マスクロウ,Cawgnito,Dark,DarkCrow.webp,true
+FlameBuffalo,58,false,58,ブルフェルノ,Arsox,Fire,FlameBuffalo.webp,true
+FluffyBird,59,false,59,モコチッチ,Muffly,Ice,FluffyBird.webp,true
+LittleBriarRose,60,false,60,イバラヒメ,Bristla,Grass,LittleBriarRose.webp,true
+CuteButterfly,61,false,61,パピテフ,Cinnamoth,Grass,CuteButterfly.webp,true
+ElecPomeranian,62,false,62,パチマル,Puffolt,Electric,ElecPomeranian.webp,true
+FairyDragon,63,false,63,シルフィア,Elphidran,Dragon,FairyDragon.webp,true
+FairyDragon_Water,63,true,63B,シルティア,Elphidran Aqua,Dragon|Water,FairyDragon_Water.webp,true
+BirdDragon,64,false,64,カバネドリ,Vanwyrm,Fire|Dark,BirdDragon.webp,true
+BirdDragon_Ice,64,true,64B,シロカバネ,Vanwyrm Cryst,Ice|Dark,BirdDragon_Ice.webp,true
+CatVampire,65,false,65,ヤミトバリ,Felbat,Dark,CatVampire.webp,true
+VioletFairy,66,false,66,ヴィオレッタ,Vaelet,Grass,VioletFairy.webp,true
+SoldierBee,67,false,67,ビーナイト,Beegarde,Grass,SoldierBee.webp,true
+QueenBee,68,false,68,クインビーナ,Elizabee,Grass,QueenBee.webp,true
+PinkLizard,69,false,69,ラブマンダー,Lovander,Dark,PinkLizard.webp,true
+NaughtyCat,70,false,70,ニャンギマリ,Grintale,Neutral,NaughtyCat.webp,true
+PurpleSpider,71,false,71,モモンチュラ,Tarantriss,Dark,PurpleSpider.webp,true
+IceSeal,72,false,72,バニザラシ,Polapup,Ice|Water,IceSeal.webp,true
+IceSeal_Ground,72,true,72B,チョコザラシ,Polapup Terra,Ice|Ground,IceSeal_Ground.webp,true
+LizardMan,73,false,73,ダリザード,Leezpunk,Dark,LizardMan.webp,true
+LizardMan_Fire,73,true,73B,チリザード,Leezpunk Ignis,Fire,LizardMan_Fire.webp,true
+Gorilla,74,false,74,ゴリレイジ,Gorirat,Neutral,Gorilla.webp,true
+Gorilla_Ground,74,true,74B,ゴリガイア,Gorirat Terra,Ground,Gorilla_Ground.webp,true
+Serpent,75,false,75,シーペント,Surfent,Water,Serpent.webp,true
+Serpent_Ground,75,true,75B,スナペント,Surfent Terra,Ground,Serpent_Ground.webp,true
+RobinHood,76,false,76,フェザーロ,Robinquill,Grass,RobinHood.webp,true
+RobinHood_Ground,76,true,76B,サンドロ,Robinquill Terra,Grass|Ground,RobinHood_Ground.webp,true
+FlowerRabbit,77,false,77,ポプリーナ,Flopie,Grass,FlowerRabbit.webp,true
+FoxMage,78,false,78,フォレーナ,Wixen,Fire,FoxMage.webp,true
+FoxMage_Dark,78,true,78B,フォレーオ,Wixen Noct,Fire|Dark,FoxMage_Dark.webp,true
+CatMage,79,false,79,クレメーオ,Katress,Dark,CatMage.webp,true
+CatMage_Fire,79,true,79B,クレメーナ,Katress Ignis,Dark|Fire,CatMage_Fire.webp,true
+HadesBird,80,false,80,ヘルガルダ,Helzephyr,Dark,HadesBird.webp,true
+HadesBird_Electric,80,true,80B,ライガルダ,Helzephyr Lux,Dark|Electric,HadesBird_Electric.webp,true
+GrassMinotaur,81,false,81,モリタロス,Elgrove,Grass,GrassMinotaur.webp,true
+GrassMinotaur_Ice,81,true,81B,ユキタロス,Elgrove Cryst,Ice,GrassMinotaur_Ice.webp,true
+Mutant,82,false,82,ミステリア,Lunaris,Neutral,Mutant.webp,true
+FengyunDeeper,83,false,83,ムラクモ,Fenglope,Neutral,FengyunDeeper.webp,true
+FengyunDeeper_Electric,83,true,83B,ムラサメ,Fenglope Lux,Electric,FengyunDeeper_Electric.webp,true
+FlowerDinosaur,84,false,84,アロアリュー,Dinossom,Grass|Dragon,FlowerDinosaur.webp,true
+FlowerDinosaur_Electric,84,true,84B,ビリビリュー,Dinossom Lux,Electric|Dragon,FlowerDinosaur_Electric.webp,true
+Ronin,85,false,85,ツジギリ,Bushi,Fire,Ronin.webp,true
+Ronin_Dark,85,true,85B,ヤミウチ,Bushi Noct,Fire|Dark,Ronin_Dark.webp,true
+IceCrocodile,86,false,86,コチワニ,Munchill,Ice|Water,IceCrocodile.webp,true
+GrassMammoth,87,false,87,グランモス,Mammorest,Grass|Ground,GrassMammoth.webp,true
+GrassMammoth_Ice,87,true,87B,ブリザモス,Mammorest Cryst,Ice|Ground,GrassMammoth_Ice.webp,true
+StuffedShark,88,false,88,ガブルミ,Finsider,Water,StuffedShark.webp,true
+StuffedShark_Fire,88,true,88B,ヒグルミ,Finsider Ignis,Water|Fire,StuffedShark_Fire.webp,true
+FlowerDoll,89,false,89,フラリーナ,Petallia,Grass,FlowerDoll.webp,true
+FlowerDoll_Fire,89,true,89B,チェリーナ,Petallia Ignis,Grass|Fire,FlowerDoll_Fire.webp,true
+PandaGirl,90,false,90,リーファン,Leafan,Grass,PandaGirl.webp,true
+Baphomet,91,false,91,ヘルゴート,Incineram,Fire|Dark,Baphomet.webp,true
+Baphomet_Dark,91,true,91B,アビスゴート,Incineram Noct,Dark,Baphomet_Dark.webp,true
+RaijinDaughter,92,false,92,カミナラシ,Dazzi,Electric,RaijinDaughter.webp,true
+RaijinDaughter_Water,92,true,92B,ヤミナラシ,Dazzi Noct,Dark|Electric,RaijinDaughter_Water.webp,true
+FireKirin,93,false,93,サラブレイズ,Pyrin,Fire,FireKirin.webp,true
+FireKirin_Dark,93,true,93B,サラブラック,Pyrin Noct,Fire|Dark,FireKirin_Dark.webp,true
+LazyDragon,94,false,94,ペコドン,Relaxaurus,Dragon|Water,LazyDragon.webp,true
+LazyDragon_Electric,94,true,94B,パリピドン,Relaxaurus Lux,Dragon|Electric,LazyDragon_Electric.webp,true
+IceFox,95,false,95,フブキツネ,Foxcicle,Ice,IceFox.webp,true
+ThunderBird,96,false,96,ライバード,Beakon,Electric,ThunderBird.webp,true
+ThunderBird_Ice,96,true,96B,チルバード,Beakon Cryst,Ice,ThunderBird_Ice.webp,true
+GhostAnglerfish,97,false,97,アンドーン,Ghangler,Dark|Water,GhostAnglerfish.webp,true
+GhostAnglerfish_Fire,97,true,97B,メラドーン,Ghangler Ignis,Fire|Water,GhostAnglerfish_Fire.webp,true
+ThunderDog,98,false,98,イヌズマ,Rayhound,Electric,ThunderDog.webp,true
+ThunderDog_Ice,98,true,98B,フリーズマ,Rayhound Cryst,Ice,ThunderDog_Ice.webp,true
+DarkScorpion,99,false,99,デスティング,Menasting,Dark|Ground,DarkScorpion.webp,true
+DarkScorpion_Ground,99,true,99B,ゴルディング,Menasting Terra,Ground,DarkScorpion_Ground.webp,true
+CactusDoll,100,false,100,ハグミー,Needoll,Grass,CactusDoll.webp,true
+CactusDoll_Dark,100,true,100B,ハグユー,Needoll Noct,Dark|Grass,CactusDoll_Dark.webp,true
+IceDeer,101,false,101,ツララジカ,Reindrix,Ice,IceDeer.webp,true
+GrassPanda,102,false,102,ササゾー,Mossanda,Grass,GrassPanda.webp,true
+GrassPanda_Electric,102,true,102B,ライゾー,Mossanda Lux,Electric,GrassPanda_Electric.webp,true
+WeaselDragon,103,false,103,オコチョ,Chillet,Ice|Dragon,WeaselDragon.webp,true
+WeaselDragon_Fire,103,true,103B,モモチョ,Chillet Ignis,Fire|Dragon,WeaselDragon_Fire.webp,true
+RedArmorBird,104,false,104,イグニクス,Ragnahawk,Fire,RedArmorBird.webp,true
+VolcanoDragon,105,false,105,マグマンダー,Moldron,Fire|Ground,VolcanoDragon.webp,true
+VolcanoDragon_Ice,105,true,105B,ブリザンダー,Moldron Cryst,Ice|Ground,VolcanoDragon_Ice.webp,true
+TropicalOstrich,106,false,106,ココヤンバ,Palumba,Grass,TropicalOstrich.webp,true
+DrillGame,107,false,107,ドリタス,Digtoise,Ground,DrillGame.webp,true
+SakuraSaurus,108,false,108,ラブラドン,Broncherry,Grass,SakuraSaurus.webp,true
+SakuraSaurus_Water,108,true,108B,スプラドン,Broncherry Aqua,Grass|Water,SakuraSaurus_Water.webp,true
+LazyCatfish,109,false,109,トドドドン,Dumud,Ground|Water,LazyCatfish.webp,true
+LazyCatfish_Gold,109,true,109B,ゴルドドン,Dumud Gild,Ground|Water,LazyCatfish_Gold.webp,true
+Plesiosaur,110,false,110,トコナッツ,Braloha,Grass|Ground,Plesiosaur.webp,true
+AmaterasuWolf,111,false,111,シラヌイ,Kitsun,Fire,AmaterasuWolf.webp,true
+AmaterasuWolf_Dark,111,true,111B,カゲヌイ,Kitsun Noct,Dark,AmaterasuWolf_Dark.webp,true
+Manticore,112,false,112,ゴクエンオ,Blazehowl,Fire,Manticore.webp,true
+Manticore_Dark,112,true,112B,シンエンオ,Blazehowl Noct,Fire|Dark,Manticore_Dark.webp,true
+HerculesBeetle,113,false,113,グラクレス,Warsect,Ground|Grass,HerculesBeetle.webp,true
+HerculesBeetle_Ground,113,true,113B,ゴルクレス,Warsect Terra,Ground,HerculesBeetle_Ground.webp,true
+SnowPeafowl,114,false,114,クジャンナ,Frostplume,Ice,SnowPeafowl.webp,true
+DarkFlameFox,115,false,115,マジョルナ,Majex,Dark|Fire,DarkFlameFox.webp,true
+WhiteMoth,116,false,116,シルキーヌ,Sibelyx,Ice,WhiteMoth.webp,true
+WhiteMoth_Neutral,116,true,116B,ソワレーヌ,Sibelyx Primo,Neutral,WhiteMoth_Neutral.webp,true
+GhostBeast,117,false,117,ソルレイス,Maraith,Dark,GhostBeast.webp,true
+MushroomDragon,118,false,118,キノッポ,Shroomer,Grass,MushroomDragon.webp,true
+MushroomDragon_Dark,118,true,118B,ベノッポ,Shroomer Noct,Grass|Dark,MushroomDragon_Dark.webp,true
+IceWitch,119,false,119,チルウィッチ,Icelyn,Ice,IceWitch.webp,true
+MummyPal,120,false,120,ヨミーラ,Gildra,Dark|Ground,MummyPal.webp,true
+Umihebi,121,false,121,レヴィドラ,Jormuntide,Dragon|Water,Umihebi.webp,true
+Umihebi_Fire,121,true,121B,アグニドラ,Jormuntide Ignis,Dragon|Fire,Umihebi_Fire.webp,true
+Suzaku,122,false,122,スザク,Suzaku,Fire,Suzaku.webp,true
+Suzaku_Water,122,true,122B,シヴァ,Suzaku Aqua,Water,Suzaku_Water.webp,true
+FeatherOstrich,123,false,123,トリステップ,Dazemu,Ground,FeatherOstrich.webp,true
+SkyDragon,124,false,124,フェスキー,Quivern,Dragon,SkyDragon.webp,true
+SkyDragon_Grass,124,true,124B,フォレスキー,Quivern Botan,Dragon|Grass,SkyDragon_Grass.webp,true
+LeafPrincess,125,false,125,フワフラワ,Lullu,Grass,LeafPrincess.webp,true
+SmallArmadillo,126,false,126,コロマジロ,Kikit,Ground,SmallArmadillo.webp,true
+GuardianDog,127,false,127,ヤクモマル,Yakumo,Neutral,GuardianDog.webp,true
+SwordCutlassfish,128,false,128,オオタチウオ,Skutlass,Water,SwordCutlassfish.webp,true
+SwordCutlassfish_Fire,128,true,128B,ヒノタチウオ,Skutlass Ignis,Water|Fire,SwordCutlassfish_Fire.webp,true
+VolcanicMonster,129,false,129,ボルカノン,Reptyro,Fire|Ground,VolcanicMonster.webp,true
+VolcanicMonster_Ice,129,true,129B,フロスカノン,Reptyro Cryst,Ice|Ground,VolcanicMonster_Ice.webp,true
+NightBlueHorse,130,false,130,ナイトロット,Starryon,Dark,NightBlueHorse.webp,true
+NightBlueHorse_Neutral,130,true,130B,ライトロット,Starryon Primo,Neutral,NightBlueHorse_Neutral.webp,true
+RockBeast,131,false,131,ジオルドン,Pierdon,Ground,RockBeast.webp,true
+RockBeast_Ice,131,true,131B,フロスドン,Pierdon Cryst,Ice,RockBeast_Ice.webp,true
+WhiteTiger,132,false,132,ツンドラー,Cryolinx,Ice,WhiteTiger.webp,true
+WhiteTiger_Ground,132,true,132B,グランドラー,Cryolinx Terra,Ground,WhiteTiger_Ground.webp,true
+SmallYeti,133,false,133,ユキボウ,Snugloo,Ice,SmallYeti.webp,true
+Yeti,134,false,134,ヒエティ,Wumpo,Ice,Yeti.webp,true
+Yeti_Grass,134,true,134B,トロピティ,Wumpo Botan,Grass,Yeti_Grass.webp,true
+CandleGhost,135,false,135,オドロクロ,Sootseer,Dark|Fire,CandleGhost.webp,true
+VenusFlytrap,136,false,136,カプリリス,Carnibora,Grass,VenusFlytrap.webp,true
+KingBahamut,137,false,137,ボルカイザー,Blazamut,Fire,KingBahamut.webp,true
+KingBahamut_Dragon,137,true,137B,ボルドラゴ,Blazamut Ryu,Dragon|Fire,KingBahamut_Dragon.webp,true
+GrassGolem,138,false,138,ウゴクゾー,Dualith,Ground|Grass,GrassGolem.webp,true
+GrassGolem_Dark,138,true,138B,ノロウゾー,Dualith Noct,Ground|Dark,GrassGolem_Dark.webp,true
+Anubis,139,false,139,アヌビス,Anubis,Ground,Anubis.webp,true
+Sekhmet,140,false,140,セクメト,Sekhmet,Ground,Sekhmet.webp,true
+ScorpionMan,141,false,141,ブッサソリ,Prixter,Dark|Ground,ScorpionMan.webp,true
+ScorpionMan_Electric,141,true,141B,ブッサンダー,Prixter Lux,Electric|Ground,ScorpionMan_Electric.webp,true
+CubeTurtle,142,false,142,オモシガメ,Tetroise,Ground,CubeTurtle.webp,true
+CubeTurtle_Neutral,142,true,142B,オシロガメ,Tetroise Primo,Neutral,CubeTurtle_Neutral.webp,true
+BadCatgirl,143,false,143,ニャニミテ,Nyafia,Dark,BadCatgirl.webp,true
+MimicDog,144,false,144,ミミドッグ,Mimog,Neutral,MimicDog.webp,true
+DarkAlien,145,false,145,ゼノベーダ,Xenovader,Dark,DarkAlien.webp,true
+WhiteAlienDragon,146,false,146,ゼノルーダ,Xenogard,Dragon,WhiteAlienDragon.webp,true
+BlueberryFairy,147,false,147,プラムルリム,Prunelia,Grass|Dark,BlueberryFairy.webp,true
+GhostRabbit,148,false,148,ナイトメアリ,Nitemary,Dark,GhostRabbit.webp,true
+GhostRabbit_Grass,148,true,148B,グラスメアリ,Nitemary Botan,Grass,GhostRabbit_Grass.webp,true
+BlackPuppy,149,false,149,クロマル,Smokie,Dark,BlackPuppy.webp,true
+BlackPuppy_Ice,149,true,149B,フユマル,Smokie Cryst,Dark|Ice,BlackPuppy_Ice.webp,true
+MysteryMask,150,false,150,オーメン,Omascul,Dark,MysteryMask.webp,true
+IceNarwhal,151,false,151,コゴエール,Whalaska,Ice|Water,IceNarwhal.webp,true
+IceNarwhal_Fire,151,true,151B,モモエール,Whalaska Ignis,Ice|Fire,IceNarwhal_Fire.webp,true
+GrassRabbitMan,152,false,152,ラベロット,Verdash,Grass,GrassRabbitMan.webp,true
+GrimGirl,153,false,153,ヤンデリナ,Splatterina,Dark,GrimGirl.webp,true
+GoldenHorse,154,false,154,キンガゼル,Gildane,Ground,GoldenHorse.webp,true
+SifuDog,155,false,155,ワンフー,Dogen,Neutral,SifuDog.webp,true
+SumoDog,156,false,156,ドスコイヌ,Bulldosu,Ground,SumoDog.webp,true
+WhiteDeer,157,false,157,セレスディア,Celesdir,Neutral,WhiteDeer.webp,true
+WhiteDeer_Dark,157,true,157B,コスモディア,Celesdir Noct,Dark,WhiteDeer_Dark.webp,true
+BlackMetalDragon,158,false,158,ジオラーヴァ,Astegon,Dragon|Dark,BlackMetalDragon.webp,true
+WingGolem,159,false,159,テラナイト,Knocklem,Ground,WingGolem.webp,true
+WingGolem_Fire,159,true,159B,マグナイト,Knocklem Ignis,Fire,WingGolem_Fire.webp,true
+WhiteShieldDragon,160,false,160,アイギルガ,Silvegis,Dragon,WhiteShieldDragon.webp,true
+BlueThunderHorse,161,false,161,オーマサンダ,Azurmane,Electric,BlueThunderHorse.webp,true
+LongCat,162,false,162,ニャルル,Valentail,Neutral,LongCat.webp,true
+ElecSnail,163,false,163,デンツム,Snock,Electric,ElecSnail.webp,true
+ElecSnail_Ground,163,true,163B,ドンツム,Snock Terra,Electric|Ground,ElecSnail_Ground.webp,true
+DandelionGirl,164,false,164,ポポフィア,Souffline,Grass,DandelionGirl.webp,true
+BrownRabbit,165,false,165,バトラビー,Lapiron,Ground,BrownRabbit.webp,true
+HoodGhost,166,false,166,フードール,Hoodle,Dark,HoodGhost.webp,true
+ElecLizard,167,false,167,ノンビリリ,Slowatt,Electric,ElecLizard.webp,true
+OniGhostGirl,168,false,168,ウラミィ,Bakemi,Dark,OniGhostGirl.webp,true
+KingSunfish,169,false,169,オーマンボ,Solmora,Water,KingSunfish.webp,true
+KingSunfish_Thunder,169,true,169B,トノサマンボ,Solmora Lux,Water|Electric,KingSunfish_Thunder.webp,true
+SleeveRabbit,170,false,170,ネモフィ,Lapure,Neutral,SleeveRabbit.webp,true
+GhostDragon,171,false,171,レイバーン,Eidrolon,Dragon|Dark,GhostDragon.webp,true
+GhostDragon_Fire,171,true,171B,ヘルバーン,Eidrolon Ignis,Dragon|Fire,GhostDragon_Fire.webp,true
+ThunderFluffyBird,172,false,172,ダイナモフ,Dynamoff,Electric,ThunderFluffyBird.webp,true
+RedFlowerBird,173,false,173,フラペック,Tropicaw,Grass,RedFlowerBird.webp,true
+FoxExorcist,174,false,174,センコ,Flaracle,Fire,FoxExorcist.webp,true
+LotusDragon,175,false,175,ハナミズチ,Ophydia,Grass|Water,LotusDragon.webp,true
+ClownRabbit,176,false,176,ラピエール,Dupin,Fire,ClownRabbit.webp,true
+ThiefBird,177,false,177,アルセーヴ,Roujay,Dark,ThiefBird.webp,true
+SnakeGirl,178,false,178,メドゥーナ,Venusa,Dark,SnakeGirl.webp,true
+MushroomLady,179,false,179,マシュリー,Mycora,Grass,MushroomLady.webp,true
+LanternButler,180,false,180,ヴィランタン,Loomen,Dark|Fire,LanternButler.webp,true
+MoonChild,181,false,181,ホシノコ,Wistella,Dark,MoonChild.webp,true
+MonochromeQueen,182,false,182,モノクローナ,Solenne,Dark|Neutral,MonochromeQueen.webp,true
+KabukiMan,183,false,183,ゴウカブキ,Renjishi,Fire,KabukiMan.webp,true
+DomeArmorDragon,184,false,184,シェルガドラ,Aegidron,Dragon|Ground,DomeArmorDragon.webp,true
+ElecPanda,185,false,185,エレパンダ,Grizzbolt,Electric,ElecPanda.webp,true
+LilyQueen,186,false,186,リリクイン,Lyleen,Grass,LilyQueen.webp,true
+LilyQueen_Dark,186,true,186B,ルナクイン,Lyleen Noct,Dark,LilyQueen_Dark.webp,true
+ThunderDragonMan,187,false,187,ボルゼクス,Orserk,Dragon|Electric,ThunderDragonMan.webp,true
+Horus,188,false,188,ホルス,Faleris,Fire,Horus.webp,true
+Horus_Water,188,true,188B,イシス,Faleris Aqua,Water,Horus_Water.webp,true
+BlackGriffon,189,false,189,ゼノグリフ,Shadowbeak,Dark,BlackGriffon.webp,true
+MoonQueen,190,false,190,セレムーン,Selyne,Dark|Neutral,MoonQueen.webp,true
+SnowTigerBeastman,191,false,191,ヒョウガオー,Bastigor,Ice,SnowTigerBeastman.webp,true
+BlueSkyDragon,192,false,192,シャオロン,Shaolong,Dragon|Water,BlueSkyDragon.webp,true
+Mothman,193,false,193,モスローン,Silvance,Grass,Mothman.webp,true
+FlowerPrince,194,false,194,ノクサージュ,Dandilord,Grass|Dark,FlowerPrince.webp,true
+NightLady,195,false,195,ベラノワール,Bellanoir,Dark,NightLady.webp,true
+NightLady_Dark,195,true,195B,ベラルージュ,Bellanoir Libero,Dark,NightLady_Dark.webp,true
+DarkMechaDragon,196,false,196,ゼノドラン,Xenolord,Dark|Dragon,DarkMechaDragon.webp,true
+LegendDeer,197,false,197,レジェンディア,Hartalis,Neutral,LegendDeer.webp,true
+SaintCentaur,198,false,198,セイントール,Paladius,Neutral,SaintCentaur.webp,true
+BlackCentaur,199,false,199,ベイントール,Necromus,Dark,BlackCentaur.webp,true
+IceHorse,200,false,200,グレイシャル,Frostallion,Ice,IceHorse.webp,true
+IceHorse_Dark,200,true,200B,グレイシャドウ,Frostallion Noct,Dark,IceHorse_Dark.webp,true
+PoseidonOrca,201,false,201,ネプティオス,Neptilius,Water,PoseidonOrca.webp,true
+JetDragon,202,false,202,ジェッドラン,Jetragon,Dragon,JetDragon.webp,true
+KingWhale,203,false,203,グランジーラ,Panthalus,Water,KingWhale.webp,true
+YakushimaBoss001,10000,false,コラボ,クトゥルフのめだま,Eye of Cthulhu,Dark,YakushimaBoss001.webp,true
+YakushimaBoss001_Small,10001,false,コラボ,あくまのめだま,Demon Eye,Dark,YakushimaBoss001_Small.webp,true
+YakushimaMonster001,10002,false,コラボ,グリーンスライム,Green Slime,Grass,YakushimaMonster001.webp,true
+YakushimaMonster001_Blue,10003,false,コラボ,ブルースライム,Blue Slime,Water,YakushimaMonster001_Blue.webp,true
+YakushimaMonster001_Pink,10004,false,コラボ,かがやくスライム,Illuminant Slime,Neutral,YakushimaMonster001_Pink.webp,true
+YakushimaMonster001_Purple,10005,false,コラボ,パープルスライム,Purple Slime,Dark,YakushimaMonster001_Purple.webp,true
+YakushimaMonster001_Rainbow,10006,false,コラボ,レインボースライム,Rainbow Slime,Neutral,YakushimaMonster001_Rainbow.webp,true
+YakushimaMonster001_Red,10007,false,コラボ,レッドスライム,Red Slime,Fire,YakushimaMonster001_Red.webp,true
+YakushimaMonster002,10008,false,コラボ,まほうのつるぎ,Enchanted Sword,Neutral,YakushimaMonster002.webp,true
+YakushimaMonster003,10009,false,コラボ,どうくつコウモリ,Cave Bat,Neutral,YakushimaMonster003.webp,true
+YakushimaMonster003_Purple,10010,false,コラボ,かがやくコウモリ,Illuminant Bat,Neutral,YakushimaMonster003_Purple.webp,true
