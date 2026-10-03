@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="robots" content="noindex">
+  <title>接続診断</title>
+  <link rel="stylesheet" href="css/diag.css">
+  <script type="module" src="js/diag.js"></script>
+</head>
+<body>
+  <main class="wrap">
+    <h1>接続診断</h1>
+    <p class="note">テスト用パスコード専用です。テスト用シートにだけ書き込みます。</p>
+    <label class="field">テスト用パスコード
+      <input id="passcode" type="password" autocomplete="off">
+    </label>
+    <button id="run" type="button">診断を実行</button>
+    <p id="summary" class="summary" role="status"></p>
+    <table id="results">
+      <thead><tr><th>項目</th><th>結果</th><th>詳細</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </main>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# OS / エディタ
+.DS_Store
+
+# 依存
+node_modules/
+
+# 認証・秘密（コミット禁止）
+.clasprc.json
+.clasp.json
+.env
+.env.*
+
+# ツールの作業ディレクトリ
+.eval-loop/
+.beads.gate.lock
+
+# 画像は配信時に取得する（リポジトリに含めない）
+web/img/pals/
+
+# 生成されたプレビュー
+preview/

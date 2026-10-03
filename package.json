@@ -1,0 +1,22 @@
+{
+  "name": "pal-breeding-note",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Palworld の配合結果を仲間内で記録・検索するツール（登録済みデータのみを検索対象とする）",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:perf": "node --test \"test/perf/*.perf.js\"",
+    "build:pals": "node scripts/import-pals.mjs",
+    "build:gas": "node scripts/build-gas.mjs",
+    "fetch:icons": "node scripts/fetch-icons.mjs",
+    "dev": "node scripts/dev-server.mjs",
+    "gas:push": "npm run build:gas && clasp push --force"
+  },
+  "devDependencies": {
+    "@google/clasp": "3.4.1"
+  }
+}
