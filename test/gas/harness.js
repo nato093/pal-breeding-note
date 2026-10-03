@@ -27,6 +27,7 @@ class FakeRange {
     if (values.length !== this.numRows || values.some((v) => v.length !== this.numCols)) {
       throw new Error('setValues: size mismatch');
     }
+    // 実機は数式対策の先頭の ' を外して返すが、この偽物は評価も除去もせず値をそのまま返す。
     this.sheet.log.push({ op: 'setValues', row: this.row });
     values.forEach((line, r) => line.forEach((v, c) => this.sheet.setCell(this.row + r, this.col + c, v)));
     return this;
@@ -34,7 +35,11 @@ class FakeRange {
   getValue() { return this.sheet.cell(this.row, this.col); }
   getDisplayValue() { return String(this.getValue()); }
   getFormula() { return ''; }
-  setNumberFormat(fmt) { this.sheet.formats.push({ row: this.row, numRows: this.numRows, fmt }); return this; }
+  setNumberFormat(fmt) {
+    this.sheet.log.push({ op: 'setNumberFormat', row: this.row, fmt });
+    this.sheet.formats.push({ row: this.row, numRows: this.numRows, fmt });
+    return this;
+  }
   protect() {
     const p = new FakeProtection();
     this.sheet.protections.push(p);
@@ -119,6 +124,17 @@ export function createGas({ properties = {}, lockAvailable = true, spreadsheet =
   const events = [];
   const logs = { log: [], error: [] };
   const props = createProperties(properties);
+  const cacheEntries = new Map();
+  const cache = {
+    get: (key) => cacheEntries.get(key) ?? null,
+    put: (key, value, seconds) => {
+      events.push('cachePut');
+      cacheEntries.set(key, String(value));
+      cache.puts.push({ key, seconds });
+    },
+    remove: (key) => cacheEntries.delete(key),
+    puts: [],
+  };
 
   const sandbox = {
     SpreadsheetApp: {
@@ -127,6 +143,7 @@ export function createGas({ properties = {}, lockAvailable = true, spreadsheet =
       ProtectionType: { RANGE: 'RANGE', SHEET: 'SHEET' },
     },
     PropertiesService: { getScriptProperties: () => props },
+    CacheService: { getScriptCache: () => cache },
     LockService: {
       getScriptLock: () => ({
         tryLock: () => { events.push('tryLock'); return lockAvailable; },
@@ -142,6 +159,7 @@ export function createGas({ properties = {}, lockAvailable = true, spreadsheet =
       DigestAlgorithm: { SHA_256: 'sha256' },
       // GAS は符号付きバイト（-128〜127）の配列を返す
       computeDigest: (alg, value) => Array.from(crypto.createHash(alg).update(String(value), 'utf8').digest(), (b) => (b > 127 ? b - 256 : b)),
+      base64EncodeWebSafe: (bytes) => Buffer.from(bytes.map((b) => b & 255)).toString('base64url'),
     },
     console: {
       log: (...a) => logs.log.push(a.join(' ')),
@@ -152,7 +170,7 @@ export function createGas({ properties = {}, lockAvailable = true, spreadsheet =
   for (const file of fs.readdirSync(GAS_DIR).filter((f) => f.endsWith('.js')).sort()) {
     vm.runInContext(fs.readFileSync(path.join(GAS_DIR, file), 'utf8'), context, { filename: file });
   }
-  return { gas: context, spreadsheet, props, events, logs };
+  return { gas: context, spreadsheet, props, events, logs, cache };
 }
 
 export { FakeSpreadsheet, FakeSheet };

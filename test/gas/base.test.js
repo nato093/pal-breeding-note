@@ -96,8 +96,8 @@ test('snapshot: ヘッダー名で列を対応付け、削除済みと空行を�
   const row = (over) => h.map((name) => (over[name] !== undefined ? over[name] : ''));
   sheet.seed([
     h.slice(),
-    row({ id: 'r1', parent1Id: 'A', parent2Id: 'B', childId: 'C', confirmCount: 1 }),
-    row({ id: 'r2', parent1Id: 'A', parent2Id: 'C', childId: 'D', deletedAt: '2026-10-03T00:00:00Z' }),
+    row({ id: 'r1', parent1Id: 'FlowerDoll', parent2Id: 'GuardianDog', childId: 'MoonQueen', confirmCount: 1 }),
+    row({ id: 'r2', parent1Id: 'FlowerDoll', parent2Id: 'MoonQueen', childId: 'SheepBall', confirmCount: 1, deletedAt: '2026-10-03T00:00:00Z' }),
     row({}),
   ]);
   const res = call(gas, { action: 'snapshot', passcode: PROPS.TEST_PASSCODE });
