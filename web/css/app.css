@@ -208,11 +208,10 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .pal-hero { background: var(--surface-soft); border-radius: 26px; padding: 25px; display: flex; flex-direction: row; justify-content: center; gap: 36px; align-items: center; }
 .pal-hero .pal-tile { flex-direction: row; gap: 28px; }
 .pal-hero .pal-label { align-items: flex-start; font-size: 25px; }
-.list-filters { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; align-items: start; }
+.list-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .list-filters .field { gap: 8px; margin-bottom: 0; }
 .list-filters .field-label { margin-bottom: 0; }
-.list-filters .picker > .field-label { margin-bottom: 8px; }
-.list-filters .picker-trigger, .list-filters input, .list-filters select { height: 56px; }
+.list-filters input, .list-filters select { height: 56px; }
 .pal-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0; }
 .section-title { margin-top: 24px; }
 .settings-view { max-width: 800px; margin: auto; }

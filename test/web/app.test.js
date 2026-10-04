@@ -8,6 +8,12 @@ const byClass = (name) => find((node) => node.className.split(' ').includes(name
 const byText = (text) => find((node) => node.tagName === 'button' && node.textContent === text);
 const input = (autocomplete) => find((node) => node.autocomplete === autocomplete);
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+// 親の並び順は 1 件を親ごとに展開するため、1 件 1 枚で数えたい確認では更新日順に切り替える。
+async function sortOneCardPerRecord() {
+  const sort = find((node) => node.tagName === 'select');
+  sort.value = 'updated';
+  await sort.dispatch('input');
+}
 let imports = 0;
 
 async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings' } = {}) {
@@ -140,6 +146,7 @@ test('画面: 一覧の削除アイコンから確認・キャンセル・削除
     api: createDevelopmentApi({ seed: '2' }), hash: '#/list',
   });
   const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
+  await sortOneCardPerRecord();
   const remove = () => find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除');
   assert.equal(cards().length, 2);
   assert.equal(byClass('app-footer'), undefined);
@@ -168,6 +175,7 @@ test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元
   const api = async (request) => request.action === 'delete' ? { ok: false, code: 'INTERNAL' } : development(request);
   const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
   const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
+  await sortOneCardPerRecord();
   const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
   await byText('削除').dispatch('click');
   await deletion;
@@ -190,6 +198,7 @@ test('画面: 削除は応答前に一覧から消し、送信待ちの間だけ
   };
   const { events } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
   const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
+  await sortOneCardPerRecord();
   const leave = () => {
     const event = { prevented: false, preventDefault() { this.prevented = true; } };
     events.get('beforeunload')(event);

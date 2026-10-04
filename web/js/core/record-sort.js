@@ -4,6 +4,15 @@ function compareId(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+// 親1・親2は保存時に ID 順で決まるため、どちらの親の位置からも引けるよう 1 件を親ごとの行に展開する。
+// 行の parent1Id が左に表示する親で、record は元の配合（同じ親同士は 1 行）。
+export function parentRows(records) {
+  return records.flatMap((record) => record.parent1Id === record.parent2Id ? [{ ...record, record }] : [
+    { ...record, record },
+    { ...record, parent1Id: record.parent2Id, parent2Id: record.parent1Id, record },
+  ]);
+}
+
 export function recordComparator(sort, palOrder, palsById) {
   if (sort === 'updated') {
     return (a, b) => compareId(b.updatedAt, a.updatedAt) || compareId(a.id, b.id);

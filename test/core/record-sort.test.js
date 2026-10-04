@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIndex } from '../../web/js/core/index.js';
-import { recordComparator } from '../../web/js/core/record-sort.js';
+import { parentRows, recordComparator } from '../../web/js/core/record-sort.js';
 
 const pals = [
   { id: 'A', no: 3, ja: 'ア', variant: false },
@@ -29,6 +29,19 @@ for (const [sort, expected] of [
     assert.deepEqual([...records].reverse().sort(compare).map((record) => record.id), expected);
     assert.deepEqual(records.map((record) => record.id), ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7']);
     assert.equal(compare(records[0], records[0]), 0);
+  });
+}
+
+for (const [sort, expected] of [
+  ['parent-dex', ['x:B+A', 'z:C+A', 'x:A+B', 'z:A+C', 'y:D+D']],
+  ['parent-name', ['z:A+C', 'x:A+B', 'z:C+A', 'x:B+A', 'y:D+D']],
+]) {
+  test(`一覧の並べ替え: ${sort} は 1 件を親ごとの行に展開し、どちらの親の位置からも引ける`, () => {
+    const input = [['x', 'A', 'B', 'C'], ['y', 'D', 'D', 'A'], ['z', 'C', 'A', 'B']]
+      .map(([id, parent1Id, parent2Id, childId]) => Object.freeze({ id, parent1Id, parent2Id, childId }));
+    const rows = parentRows(input).sort(recordComparator(sort, palOrder, palsById));
+    assert.deepEqual(rows.map((row) => `${row.id}:${row.parent1Id}+${row.parent2Id}`), expected);
+    assert.ok(rows.every((row) => input.includes(row.record) && row.childId === row.record.childId));
   });
 }
 
