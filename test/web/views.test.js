@@ -98,7 +98,7 @@ test('パル詳細: このパルを親に使う配合は相手 → 子を維持�
   view.destroy();
 });
 
-test('一覧: 5 種の並べ替えを選択でき、左の親を基準に並び、絞り込みと解除も働く', async (t) => {
+test('一覧: 5 種の並べ替えを選択でき、親の並び順は親ごとに展開して左の親を基準に並び、登録者名で絞り込める', async (t) => {
   installDom(t);
   const source = context().store.state.records[0];
   const app = context([
@@ -114,20 +114,18 @@ test('一覧: 5 種の並べ替えを選択でき、左の親を基準に並び�
   assert.equal(select.value, 'parent-dex');
   const firstNames = () => view.element.querySelector('.breeding-equation').querySelectorAll('strong').map((node) => node.textContent);
   assert.equal(firstNames()[2], 'セレムーン');
-  for (const [sort, child] of [['parent-dex', 'セレムーン'], ['parent-name', 'モコロン'],
+  // 親の並び順では 1 件を親ごとに展開し、その位置の親を左に出す。
+  const leftNames = () => view.element.querySelectorAll('.breeding-equation').map((node) => node.querySelector('strong').textContent);
+  assert.deepEqual(leftNames(), ['モコロン', 'モコロン', 'クレメーオ', 'フラリーナ']);
+  assert.equal(view.element.querySelector('.result-note').textContent, '2 件の配合 · 4 件を表示');
+  for (const [sort, child] of [['parent-dex', 'セレムーン'], ['parent-name', 'セレムーン'],
     ['child-dex', 'モコロン'], ['child-name', 'セレムーン'], ['updated', 'モコロン']]) {
     select.value = sort;
     await select.dispatch('input');
     assert.equal(firstNames()[2], child);
   }
-  const picker = view.element.querySelector('.picker');
-  await picker.querySelector('.picker-trigger').dispatch('click');
-  const input = picker.querySelector('input');
-  input.value = 'フラリーナ';
-  await input.dispatch('input');
-  await picker.querySelectorAll('[role="option"]')[0].dispatch('click');
-  assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
-  await picker.querySelector('.picker-clear').dispatch('click');
+  // パルでの絞り込みは配合検索・逆引き・パル詳細に任せ、一覧には置かない。
+  assert.equal(view.element.querySelector('.picker'), null);
   assert.equal(view.element.querySelectorAll('.breeding-card').length, 2);
   const registrant = view.element.querySelectorAll('input')[0];
   registrant.value = '該当なし';
