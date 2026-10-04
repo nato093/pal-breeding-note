@@ -1,22 +1,34 @@
 import pals from '../data/pals.js';
 import { userIdKey } from './core/user.js';
+import { pairKey } from './core/pair.js';
 import { buildHash } from './router.js';
 
 const palsById = new Map(pals.map((pal) => [pal.id, pal]));
 
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 
+// 親は形だけを確かめる。手元のマスターにないパル（マスター更新前のタブなど）の組み合わせも、捨てると次の判定で新しく見えて重ねて知らせるため残す。
+function cleanPair(value) {
+  const ids = typeof value === 'string' ? value.split('|') : [];
+  return ids.length === 2 && ids.every(Boolean) ? pairKey(ids[0], ids[1]) : '';
+}
+
 // craftable: 最後に判定した「作れるか」 / readyAt: 作れるようになったのを見た時刻（作れない間は空）
 // observedAt: 最後の判定に使ったデータの serverTime
+// pairs: これまでに見た、このパルが生まれる親の組み合わせ（null は未確認で、次の判定で通知せずに覚える）
+// found: 作れる間に新しく見つかった組み合わせと、その時刻（その組み合わせの配合がなくなったら外す）
 function cleanWish(value) {
   if (!value || typeof value !== 'object' || !palsById.has(value.palId)) return null;
   const craftable = value.craftable === true;
+  const found = craftable && Array.isArray(value.found) ? value.found : [];
   return {
     palId: value.palId,
     addedAt: validTime(value.addedAt) ? value.addedAt : '',
     craftable,
     readyAt: craftable && validTime(value.readyAt) ? value.readyAt : '',
     observedAt: validTime(value.observedAt) ? value.observedAt : '',
+    pairs: Array.isArray(value.pairs) ? [...new Set(value.pairs.map(cleanPair).filter(Boolean))] : null,
+    found: found.map((item) => ({ pair: cleanPair(item?.pair), at: item?.at })).filter((item) => item.pair && validTime(item.at)),
   };
 }
 
@@ -43,8 +55,8 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
   const listeners = new Set();
   const cache = new Map();
   let saveFailed = false;
-  let childSource = null;
-  let children = new Set();
+  let pairSource = null;
+  let pairsByChild = new Map();
   const emit = () => listeners.forEach((listener) => listener());
 
   function scope() {
@@ -78,13 +90,18 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
     return load(key);
   }
 
-  function confirmedChildren() {
+  // 子ごとの、生まれる親の組み合わせ（確定データから作る）。
+  function confirmedPairs() {
     const records = store.state.confirmedRecords;
-    if (records !== childSource) {
-      childSource = records;
-      children = new Set(records.map((record) => record.childId));
+    if (records !== pairSource) {
+      pairSource = records;
+      pairsByChild = new Map();
+      for (const record of records) {
+        if (!pairsByChild.has(record.childId)) pairsByChild.set(record.childId, new Set());
+        pairsByChild.get(record.childId).add(pairKey(record.parent1Id, record.parent2Id));
+      }
     }
-    return children;
+    return pairsByChild;
   }
 
   function observe() {
@@ -97,12 +114,21 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
     if (!load(key).some(stale)) return;
     const wishes = latest(key);
     if (!wishes.some(stale)) return;
-    const made = confirmedChildren();
+    const made = confirmedPairs();
     const time = new Date(now()).toISOString();
     save(key, wishes.map((wish) => {
       if (!stale(wish)) return wish;
-      const craftable = made.has(wish.palId);
-      return { ...wish, craftable, readyAt: craftable ? (wish.craftable ? wish.readyAt : time) : '', observedAt: serverTime };
+      const current = [...made.get(wish.palId) ?? []];
+      const craftable = current.length > 0;
+      // 作れる状態が続いている間に増えた組み合わせだけを知らせる（作れるようになったときは「作成可能」の通知だけにする）。
+      // 一度見た組み合わせは、消えてからまた登録されても知らせない（削除の元に戻すなどで重ねて知らせないため）。
+      const added = wish.craftable && craftable && wish.pairs ? current.filter((pair) => !wish.pairs.includes(pair)) : [];
+      return {
+        ...wish, craftable, readyAt: craftable ? (wish.craftable ? wish.readyAt : time) : '', observedAt: serverTime,
+        pairs: [...new Set([...wish.pairs ?? [], ...current])],
+        // 「作成可能」の通知と同じく、根拠の配合がなくなった通知は消す（作れなくなったらすべて消える）。
+        found: [...wish.found.filter((item) => current.includes(item.pair)), ...added.map((pair) => ({ pair, at: time }))],
+      };
     }));
   }
 
@@ -120,8 +146,10 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
       if (!key || !palsById.has(palId)) return null;
       const wishes = latest(key);
       if (wishes.some((wish) => wish.palId === palId)) return false;
+      const current = [...confirmedPairs().get(palId) ?? []];
       save(key, [{
-        palId, addedAt: new Date(now()).toISOString(), craftable: confirmedChildren().has(palId), readyAt: '', observedAt: store.state.serverTime,
+        palId, addedAt: new Date(now()).toISOString(), craftable: current.length > 0, readyAt: '', observedAt: store.state.serverTime,
+        pairs: current, found: [],
       }, ...wishes]);
       return true;
     },
@@ -150,15 +178,26 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
 }
 
 export function wishlistNotificationSource({ store, wishlist }) {
-  return () => wishlist.list().filter((wish) => wish.readyAt).map((wish) => {
+  return () => wishlist.list().flatMap((wish) => {
     const name = palsById.get(wish.palId).ja;
-    return {
-      // 既読の保存先は環境共通のため、環境を含める。
+    const href = buildHash('reverse', { c: wish.palId });
+    // 既読の保存先は環境共通のため、環境を含める。
+    const ready = wish.readyAt ? [{
       id: `wishlist:${store.state.env}:${wish.palId}:${wish.readyAt}`,
       date: wish.readyAt,
       title: `${name}が作成可能になりました`,
       body: 'ウィッシュリストのパルです。押すと逆引きで、生まれる配合を確認できます。',
-      href: buildHash('reverse', { c: wish.palId }),
-    };
+      href,
+    }] : [];
+    return [...ready, ...wish.found.map(({ pair, at }) => {
+      const [parent1, parent2] = pair.split('|').map((id) => palsById.get(id)?.ja ?? '不明なパル');
+      return {
+        id: `wishlist:${store.state.env}:${wish.palId}:${pair}:${at}`,
+        date: at,
+        title: `${name}の配合が増えました`,
+        body: `${parent1}＋${parent2}でも作れるようになりました。押すと逆引きで確認できます。`,
+        href,
+      };
+    })];
   });
 }
