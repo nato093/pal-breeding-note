@@ -24,6 +24,7 @@ test('静的サーバ: 公開画面、ES モジュール、開発用 API を正�
 test('静的サーバ: HEAD の本文は空、不明ファイルと配信範囲外は拒否する', async () => {
   assert.equal((await get('/js/app.js', 'HEAD')).body, undefined);
   assert.equal((await get('/missing')).status, 404);
+  assert.equal((await get('/credits.html')).status, 404);
   assert.equal((await get('/%2e%2e%2fpackage.json')).status, 404);
   assert.equal((await get('/dev/%2e%2e%2fAGENTS.md')).status, 404);
   assert.equal((await get('/.git/config')).status, 404);

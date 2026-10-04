@@ -1,13 +1,15 @@
 /**
  * API の操作一覧。
  * 業務ルールは Service.js、シート入出力は Repo.js に委ねる。
- * probe 系はテスト用パスコードでだけ使える診断用の操作で、テスト用の専用シートにしか書き込まない。
+ * probe 系はテスト用パスワードでだけ使える診断用の操作で、テスト用の専用シートにしか書き込まない。
  */
 
 function actions_() {
   return {
     ping: { run: actionPing_ },
     snapshot: { run: actionSnapshot_ },
+    login: { run: actionAccount_ },
+    signup: { run: actionAccount_ },
     create: { run: actionMutation_ },
     confirm: { run: actionMutation_ },
     update: { run: actionMutation_ },

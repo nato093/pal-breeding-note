@@ -64,7 +64,7 @@ async function run(passcode) {
     const { value, ms } = await timed(() => call(passcode, 'ping'));
     return [value.ok === true && value.env === 'test', { ms, ...value }];
   });
-  await step('誤ったパスコードは拒否', async () => {
+  await step('誤ったパスワードは拒否', async () => {
     const value = await call('WRONG-CODE', 'ping');
     return [value.ok === false && value.code === 'AUTH', value];
   });

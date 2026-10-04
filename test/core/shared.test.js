@@ -6,7 +6,7 @@ import { createGas } from '../gas/harness.js';
 
 test('GAS: 同じ入力を再変換した内容と Shared.js が一致する', async () => {
   const sources = [];
-  for (const name of ['pair.js', 'validate.js']) {
+  for (const name of ['pair.js', 'validate.js', 'user.js']) {
     sources.push({ name, source: await readFile(new URL(`../../web/js/core/${name}`, import.meta.url), 'utf8') });
   }
   const disk = await readFile(new URL('../../gas/Shared.js', import.meta.url), 'utf8');
@@ -31,14 +31,14 @@ test('GAS: 全ファイルの同一 vm 読み込みで衝突せず、共有関�
   assert.equal(gas.validateRecordInput({ parent1Id: 'A', parent2Id: 'B', childId: 'C' }, new Set(['A', 'B', 'C'])).ok, true);
   assert.equal(gas.needsSheetQuote('=1'), true);
   assert.equal(gas.quoteForSheet('=1'), "'=1");
-  assert.equal(typeof gas.normalizePasscode_, 'function');
+  assert.equal(typeof gas.trimPassword_, 'function');
   assert.equal(typeof gas.readTable_, 'function');
 });
 
 test('静的検査: core は API、状態保存、ブラウザ環境、通信を参照しない', async () => {
   const directory = new URL('../../web/js/core/', import.meta.url);
   const files = (await readdir(directory)).filter((file) => file.endsWith('.js'));
-  assert.equal(files.length, 6);
+  assert.ok(files.includes('record-sort.js'));
   for (const file of files) {
     const source = await readFile(new URL(file, directory), 'utf8');
     assert.doesNotMatch(source, /\b(?:api|store)\.js\b|\b(?:document|window|localStorage|fetch)\b/, file);

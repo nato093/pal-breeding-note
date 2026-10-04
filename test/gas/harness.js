@@ -27,7 +27,7 @@ class FakeRange {
     if (values.length !== this.numRows || values.some((v) => v.length !== this.numCols)) {
       throw new Error('setValues: size mismatch');
     }
-    // 実機は数式対策の先頭の ' を外して返すが、この偽物は評価も除去もせず値をそのまま返す。
+    // 保存値の検査を既定にし、往復を検証するテストだけ先頭の引用符を除去する。
     this.sheet.log.push({ op: 'setValues', row: this.row });
     values.forEach((line, r) => line.forEach((v, c) => this.sheet.setCell(this.row + r, this.col + c, v)));
     return this;
@@ -37,7 +37,7 @@ class FakeRange {
   getFormula() { return ''; }
   setNumberFormat(fmt) {
     this.sheet.log.push({ op: 'setNumberFormat', row: this.row, fmt });
-    this.sheet.formats.push({ row: this.row, numRows: this.numRows, fmt });
+    this.sheet.formats.push({ row: this.row, col: this.col, numRows: this.numRows, numCols: this.numCols, fmt });
     return this;
   }
   protect() {
@@ -55,8 +55,9 @@ class FakeProtection {
 }
 
 class FakeSheet {
-  constructor(name) {
+  constructor(name, { stripQuotes = false } = {}) {
     this.name = name;
+    this.stripQuotes = stripQuotes;
     this.data = [];
     this.formats = [];
     this.protections = [];
@@ -64,7 +65,10 @@ class FakeSheet {
     this.log = [];
   }
   getName() { return this.name; }
-  cell(r, c) { return (this.data[r - 1] && this.data[r - 1][c - 1] !== undefined) ? this.data[r - 1][c - 1] : ''; }
+  cell(r, c) {
+    const value = (this.data[r - 1] && this.data[r - 1][c - 1] !== undefined) ? this.data[r - 1][c - 1] : '';
+    return this.stripQuotes && typeof value === 'string' && value.startsWith("'") ? value.slice(1) : value;
+  }
   setCell(r, c, v) {
     while (this.data.length < r) this.data.push([]);
     const line = this.data[r - 1];
@@ -92,11 +96,11 @@ class FakeSheet {
 }
 
 class FakeSpreadsheet {
-  constructor() { this.sheets = [new FakeSheet('シート1')]; }
+  constructor(options = {}) { this.options = options; this.sheets = [new FakeSheet('シート1', options)]; }
   getSheetByName(name) { return this.sheets.find((s) => s.name === name) || null; }
   insertSheet(name) {
     if (this.getSheetByName(name)) throw new Error('sheet exists: ' + name);
-    const s = new FakeSheet(name);
+    const s = new FakeSheet(name, this.options);
     this.sheets.push(s);
     return s;
   }

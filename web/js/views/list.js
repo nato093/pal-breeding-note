@@ -1,20 +1,23 @@
 import { el, field, button, empty } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { breedingCard } from '../ui/breeding-card.js';
+import { palsById } from '../ui/pal-icon.js';
+import { recordComparator } from '../core/record-sort.js';
 import { viewHeading, watchView, dataPending } from './shared.js';
 
 export function listView(context) {
   const element = el('section', 'view');
-  element.append(viewHeading('みんなの配合ノート', '見つけた組み合わせを、一冊に。', { share: false }));
+  element.append(viewHeading('みんなの配合ノート'));
   let selected = '';
   let limit = 50;
-  const picker = palPicker({ label: 'パルで絞り込む（親・子）', storage: context.store.storage,
+  const picker = palPicker({ label: 'パルで絞り込む（親・子）',
     onChange: (id) => { selected = id; limit = 50; update(context.store.state); } });
   const registrant = el('input');
   registrant.type = 'search';
   registrant.placeholder = '登録者名で絞り込む';
   const sort = el('select');
-  for (const [key, label] of [['updated', '更新日の新しい順'], ['dex', '図鑑順']]) {
+  for (const [key, label] of [['parent-dex', '親の図鑑番号順'], ['parent-name', '親の五十音順'],
+    ['child-dex', '子の図鑑番号順'], ['child-name', '子の五十音順'], ['updated', '更新日の新しい順']]) {
     const option = el('option', '', label);
     option.value = key;
     sort.append(option);
@@ -31,14 +34,7 @@ export function listView(context) {
     if (dataPending(results, state)) return;
     const query = registrant.value.trim().toLocaleLowerCase('ja');
     const records = state.records.filter((record) => (!selected || [record.parent1Id, record.parent2Id, record.childId].includes(selected))
-      && record.registrant.toLocaleLowerCase('ja').includes(query)).sort((a, b) => {
-      if (sort.value === 'dex') {
-        const rank = (id) => state.index.palOrder.get(id) ?? Infinity;
-        return rank(a.childId) - rank(b.childId) || rank(a.parent1Id) - rank(b.parent1Id)
-          || rank(a.parent2Id) - rank(b.parent2Id) || a.id.localeCompare(b.id);
-      }
-      return b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id);
-    });
+      && record.registrant.toLocaleLowerCase('ja').includes(query)).sort(recordComparator(sort.value, state.index.palOrder, palsById));
     count.textContent = `${records.length} 件の配合 · ${Math.min(limit, records.length)} 件を表示`;
     results.replaceChildren();
     if (!records.length) results.append(empty('条件に合う登録はありません。見つけた配合を登録しましょう。',

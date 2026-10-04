@@ -1,33 +1,12 @@
-import { el, button, empty } from '../ui/dom.js';
+import { el, empty } from '../ui/dom.js';
 import { breedingCard } from '../ui/breeding-card.js';
-import { shareLink, buildHash } from '../router.js';
+import { buildHash } from '../router.js';
 import { palsById } from '../ui/pal-icon.js';
 import { toast } from '../ui/toast.js';
 
-export async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const input = el('textarea', 'clipboard-fallback');
-    input.value = text;
-    input.setAttribute('readonly', '');
-    document.body.append(input);
-    input.select();
-    const copied = document.execCommand('copy');
-    input.remove();
-    if (!copied) throw new Error('コピーできませんでした。ブラウザの共有機能をご利用ください。');
-  }
-  toast('リンクをコピーしました');
-}
-
-export function viewHeading(title, subtitle, { share = true } = {}) {
+export function viewHeading(title) {
   const header = el('header', 'view-heading');
-  const text = el('div');
-  text.append(el('p', 'eyebrow', '仲間とつくる、配合の記録'), el('h1', '', title), el('p', 'muted', subtitle));
-  header.append(text);
-  if (share) header.append(button('↗ 共有', async () => {
-    try { await copyText(shareLink(location.href)); } catch (error) { toast(error.message); }
-  }, 'button secondary share-button'));
+  header.append(el('h1', '', title));
   return header;
 }
 
@@ -62,7 +41,7 @@ export function watchView(store, element, update, pickers = []) {
   let lastIndex = store.state.index;
   let lastEnv = store.state.env;
   let lastError = store.state.error;
-  // 通信中というだけでカードを作り直すと、操作中のメニューやフォーカスを失う。
+  // 通信中というだけでカードを作り直すと、操作中のフォーカスを失う。
   const unsubscribe = store.subscribe((state) => {
     if (state.index === lastIndex && state.env === lastEnv && state.error === lastError) return;
     lastIndex = state.index;

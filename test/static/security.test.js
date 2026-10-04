@@ -56,3 +56,23 @@ test('静的検査: fetch は API クライアントと既存診断に限定す�
     assert.doesNotMatch(await readFile(file, 'utf8'), /\bfetch\s*\(/, file.pathname);
   }
 });
+
+test('静的検査: 廃止した共有・確認・登録者保存・権利ページの参照を残さない', async () => {
+  const files = await filesIn(new URL('../../web/', import.meta.url));
+  assert.ok(!files.some((file) => file.pathname.endsWith('/credits.html')));
+  for (const file of files.filter((url) => /\.(js|html|css)$/.test(url.pathname))) {
+    const source = await readFile(file, 'utf8');
+    assert.doesNotMatch(source, /credits\.html|credits-page|credits-link|shareLink|copyText|app-footer|share-button|pal-note\.registrant|context\.confirm|confirm-badge|card-menu|card-context|picker-value|toggle-field/, file.pathname);
+  }
+  const picker = await readFile(new URL('../../web/js/ui/pal-picker.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(picker, /\bmultiple\b/);
+  const user = await readFile(new URL('../../web/js/core/user.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(user, /\bvar\b/);
+});
+
+test('静的検査: 最近使ったパルの保存キー・表示・処理を残さない', async () => {
+  const files = await filesIn(new URL('../../web/', import.meta.url));
+  for (const file of files.filter((url) => /\.(js|html|css)$/.test(url.pathname))) {
+    assert.doesNotMatch(await readFile(file, 'utf8'), /pal-note\.recent|recent-marker|recentIds|recentOrder|最近使ったパル/, file.pathname);
+  }
+});

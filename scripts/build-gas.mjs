@@ -17,7 +17,7 @@ export function renderShared(sources) {
 
 export async function buildShared() {
   const sources = [];
-  for (const name of ['pair.js', 'validate.js']) {
+  for (const name of ['pair.js', 'validate.js', 'user.js']) {
     const source = await readFile(path.join(projectDir, 'web/js/core', name), 'utf8');
     sources.push({ name, source });
   }

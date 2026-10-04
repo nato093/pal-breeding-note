@@ -131,11 +131,116 @@ test('モック: 本物の API クライアントへ差し替えて同じ応答�
   assert.equal(created.snapshot.records.length, 1);
 });
 
-test('モック: セッションのパスコードと違う入力を AUTH として拒否する', async () => {
+test('モック: セッションのパスワードと違う入力を AUTH として拒否する', async () => {
   const api = createDevelopmentApi();
   assert.equal((await api(request('snapshot'))).ok, true);
   assert.equal((await api({ ...request('snapshot'), passcode: '別の入力' })).code, 'AUTH');
   const configured = createDevelopmentApi({ passcode: '試験用の入力' });
   assert.equal((await configured(request('snapshot'))).code, 'AUTH');
   assert.equal((await configured({ action: 'snapshot', passcode: '試験用の入力' })).ok, true);
+});
+
+const accountRequest = (action, userId, extra = {}) => ({
+  action, userId, passcode: 'ローカル動作確認', ...(action === 'signup' ? { opId: crypto.randomUUID() } : {}), ...extra,
+});
+
+test('モック: login/signup の正規化・重複・登録順・認証失敗を判定する', async () => {
+  const api = createApi({ transport: createDevelopmentApi() });
+  await assert.rejects(api.request('login', 'ローカル動作確認', { userId: 'ＡｂＣ' }), { code: 'USER_NOT_FOUND' });
+  const signup = await api.request('signup', 'ローカル動作確認', { userId: ' Ａ\u0000ｂＣ ' });
+  assert.equal(signup.userId, 'ＡｂＣ');
+  assert.deepEqual(signup.users, ['ＡｂＣ']);
+  assert.deepEqual(signup.records, []);
+  assert.equal((await api.request('login', ' ローカル動作確認 ', { userId: 'abc' })).userId, 'ＡｂＣ');
+  await assert.rejects(api.request('signup', 'ローカル動作確認', { userId: 'ABC' }), { code: 'USER_EXISTS' });
+  await assert.rejects(api.request('signup', '誤入力', { userId: '新しいID' }), { code: 'AUTH' });
+  await api.request('signup', 'ローカル動作確認', { userId: '次のID' });
+  assert.deepEqual((await api.request('snapshot', 'ローカル動作確認')).users, ['ＡｂＣ', '次のID']);
+  const created = await api.request('create', 'ローカル動作確認', { opId: crypto.randomUUID(), record: input() });
+  assert.deepEqual(created.snapshot.users, ['ＡｂＣ', '次のID']);
+});
+
+for (const action of ['login', 'signup']) {
+  test(`モック: ${action} の入力不備と未知の項目を拒否する`, async () => {
+    const api = createDevelopmentApi();
+    assert.deepEqual((await api(accountRequest(action, ' \u0000 '))).errors, [{ field: 'userId', code: 'REQUIRED' }]);
+    assert.deepEqual((await api(accountRequest(action, 'あ'.repeat(21)))).errors, [{ field: 'userId', code: 'TOO_LONG' }]);
+    assert.deepEqual((await api(accountRequest(action, 'ID', { extra: true }))).errors, [{ field: 'extra', code: 'UNKNOWN_FIELD' }]);
+    assert.equal((await api(accountRequest(action, '', { passcode: '誤入力' }))).code, 'AUTH');
+    assert.deepEqual((await api(request('snapshot'))).users, []);
+  });
+}
+
+test('モック: seed の登録者を ID としてログインできる', async () => {
+  const api = createApi({ transport: createDevelopmentApi({ seed: '5' }) });
+  const login = await api.request('login', '入力', { userId: '架空データ' });
+  assert.equal(login.userId, '架空データ');
+  assert.deepEqual(login.users, ['架空データ']);
+  assert.equal(login.records.length, 5);
+});
+
+test('モック: ID を登録者として保存し、新規の重複で確認回数を増やさず、データ形式を保持する', async () => {
+  const api = createApi({ transport: createDevelopmentApi() });
+  await api.request('signup', 'ローカル動作確認', { userId: '自分' });
+  await api.request('signup', 'ローカル動作確認', { userId: '仲間' });
+  const original = input({ registrant: '仲間' });
+  const created = await api.request('create', 'ローカル動作確認', { opId: crypto.randomUUID(), record: original });
+  assert.equal(created.record.registrant, '仲間');
+  assert.equal(created.record.parent1Gender, '');
+  assert.equal(created.record.parent2Gender, '');
+  assert.equal(created.record.confirmCount, 1);
+  await assert.rejects(api.request('create', 'ローカル動作確認', {
+    opId: crypto.randomUUID(), record: { ...original, id: crypto.randomUUID() },
+  }), { code: 'DUPLICATE' });
+  const snapshot = await api.request('snapshot', 'ローカル動作確認');
+  assert.equal(snapshot.records.length, 1);
+  assert.equal(snapshot.records[0].confirmCount, 1);
+  assert.deepEqual(snapshot.users, ['自分', '仲間']);
+});
+
+test('モック: signup の応答欠落後に同じ opId で再送すると、最新 snapshot を返す', async () => {
+  const transport = createDevelopmentApi();
+  const requests = [];
+  const record = input();
+  const api = createApi({ transport: async (request) => {
+    requests.push({ ...request });
+    const result = await transport(request);
+    if (requests.length === 1) {
+      assert.equal(result.ok, true);
+      await transport(accountRequest('signup', '別のID'));
+      await transport(requestForRecord);
+      throw new TypeError('応答が欠落しました');
+    }
+    return result;
+  } });
+  const requestForRecord = request('create', { record });
+  const result = await api.request('signup', 'ローカル動作確認', { userId: '再送ID' });
+  assert.deepEqual(requests[1], requests[0]);
+  assert.equal(result.userId, '再送ID');
+  assert.deepEqual(result.users, ['再送ID', '別のID']);
+  assert.deepEqual(result.records.map((item) => item.id), [record.id]);
+  const replay = await transport({ ...requests[0], opId: requests[0].opId.toUpperCase() });
+  assert.equal(replay.userId, '再送ID');
+  assert.deepEqual(replay.users, result.users);
+  assert.equal((await transport(accountRequest('signup', '再送ID'))).code, 'USER_EXISTS');
+});
+
+test('モック: signup は不正な opId を拒否し、失敗後は同じ opId で入力を修正できる', async () => {
+  const api = createDevelopmentApi();
+  for (const opId of [undefined, '', '不正', 123, {}]) {
+    assert.deepEqual((await api(accountRequest('signup', 'ID', { opId }))).errors, [{ field: 'opId', code: 'INVALID_UUID' }]);
+  }
+  const opId = crypto.randomUUID();
+  assert.equal((await api(accountRequest('signup', '', { opId }))).code, 'VALIDATION');
+  assert.equal((await api(accountRequest('signup', '修正したID', { opId }))).ok, true);
+  assert.deepEqual((await api(accountRequest('login', '修正したID', { opId }))).errors, [{ field: 'opId', code: 'UNKNOWN_FIELD' }]);
+});
+
+test('モック: 絵文字 ID の UTF-16 境界を判定し、登録者として保存できる', async () => {
+  const api = createApi({ transport: createDevelopmentApi() });
+  const userId = '😀'.repeat(10);
+  await api.request('signup', 'ローカル動作確認', { userId });
+  await assert.rejects(api.request('signup', 'ローカル動作確認', { userId: `${userId}あ` }), { code: 'VALIDATION' });
+  const result = await api.request('create', 'ローカル動作確認', { opId: crypto.randomUUID(), record: input({ registrant: userId }) });
+  assert.equal(result.record.registrant, userId);
 });

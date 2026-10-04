@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApi, ApiError, errorMessage, buildRequest } from '../../web/js/api.js';
 
-const snapshot = { records: [], warnings: [], serverTime: '2026-10-04T00:00:00Z' };
+const snapshot = { records: [], warnings: [], users: [], serverTime: '2026-10-04T00:00:00Z' };
 const success = { ok: true, env: 'test', api: 'v1', record: { id: 'A' }, snapshot };
 
 test('API: エラーコードを利用者向けの日本語へ変換する', () => {
   assert.equal(errorMessage('CONNECTION'), 'サーバに接続できません');
-  for (const code of ['AUTH', 'CONFIG', 'BUSY', 'INTERNAL', 'SHEET_HEADER', 'BAD_REQUEST', 'DUPLICATE', 'PAIR_CONFLICT',
+  for (const code of ['USER_NOT_FOUND', 'USER_EXISTS', 'AUTH', 'CONFIG', 'BUSY', 'INTERNAL', 'SHEET_HEADER', 'BAD_REQUEST', 'DUPLICATE', 'PAIR_CONFLICT',
     'ID_CONFLICT', 'VALIDATION', 'CONFLICT', 'NOT_FOUND', 'TIMEOUT', 'RESPONSE', 'UNKNOWN']) {
     assert.match(errorMessage(code), /[ぁ-んァ-ヶ一-龠]/);
     assert.doesNotMatch(errorMessage(code), new RegExp(code));
@@ -27,7 +27,7 @@ test('API: POST、JSON 文字列、Cookie 無送信、転送追従で送る', as
     calls.push(args);
     return { ok: true, json: async () => success };
   } });
-  await api.request('confirm', '入力', { opId: '同一操作', id: 'A' });
+  await api.request('delete', '入力', { opId: '同一操作', id: 'A' });
   const [url, options] = calls[0];
   assert.equal(url, 'https://script.google.com/example');
   assert.equal(options.method, 'POST');
@@ -51,7 +51,7 @@ for (const failure of ['CONNECTION', 'BUSY', 'JSON', 'ENV', 'SNAPSHOT']) {
         return { ...success, snapshot: undefined };
       } };
     } });
-    await api.request('confirm', '入力', { opId: '同一操作', id: 'A' });
+    await api.request('delete', '入力', { opId: '同一操作', id: 'A' });
     assert.equal(bodies.length, 2);
     assert.equal(bodies[0], bodies[1]);
   });
@@ -66,7 +66,7 @@ test('API: 35 秒の代わりに短い期限を注入し、本文読み取りの
     firstSignal = options.signal;
     return { ok: true, json: async () => new Promise(() => {}) };
   } });
-  await api.request('confirm', '入力', { opId: '同一操作', id: 'A' });
+  await api.request('delete', '入力', { opId: '同一操作', id: 'A' });
   assert.equal(calls, 2);
   assert.equal(firstSignal.aborted, true);
 });
@@ -80,4 +80,50 @@ test('API: 通信失敗が続いても二回まで、AUTH は再送しない', a
   const auth = createApi({ transport: async () => { calls++; return { ok: false, code: 'AUTH' }; } });
   await assert.rejects(auth.request('snapshot', '入力'), (error) => error instanceof ApiError && error.code === 'AUTH');
   assert.equal(calls, 1);
+});
+
+for (const action of ['login', 'signup']) {
+  test(`API: ${action} は ID を送り、snapshot と登録済み表記を受け取る`, async () => {
+    const opId = crypto.randomUUID();
+    const api = createApi({ transport: async (request) => {
+      assert.deepEqual(request, { action, passcode: '入力', userId: '入力ID', ...(action === 'signup' ? { opId } : {}) });
+      return { ok: true, env: 'test', api: 1, userId: '入力ID', ...snapshot, users: ['入力ID'] };
+    } });
+    const result = await api.request(action, '入力', { userId: '入力ID', extra: true, opId });
+    assert.equal(result.userId, '入力ID');
+    assert.deepEqual(result.users, ['入力ID']);
+  });
+  for (const change of [{ userId: 123 }, { userId: undefined }, { users: undefined }, { users: [123] }]) {
+    test(`API: ${action} の userId・users の不正応答を拒否する ${JSON.stringify(change)}`, async () => {
+      const api = createApi({ transport: async () => ({ ok: true, env: 'test', api: 1, userId: 'ID', ...snapshot, ...change }) });
+      await assert.rejects(api.request(action, '入力', { userId: 'ID' }), { code: 'RESPONSE' });
+    });
+  }
+}
+
+for (const action of ['snapshot', 'create']) {
+  test(`API: ${action} でも users が必要`, async () => {
+    const incomplete = { records: [], warnings: [], serverTime: '' };
+    const api = createApi({ transport: async () => ({ ...success, ...incomplete, snapshot: incomplete }) });
+    await assert.rejects(api.request(action, '入力'), { code: 'RESPONSE' });
+  });
+}
+
+test('API: 廃止した確認操作を送信しない', () => {
+  assert.throws(() => buildRequest('confirm', '入力', { id: 'A' }), { code: 'BAD_REQUEST' });
+});
+
+test('API: signup の自動再送は生成した UUID を再利用し、次の登録操作では新しく生成する', async () => {
+  const requests = [];
+  const api = createApi({ transport: async (request) => {
+    requests.push({ ...request });
+    if (requests.length === 1) throw new TypeError('応答が欠落しました');
+    return { ok: true, env: 'test', api: 1, userId: request.userId, ...snapshot, users: [request.userId] };
+  } });
+  await api.request('signup', '入力', { userId: '最初のID' });
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].opId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  assert.deepEqual(requests[0], requests[1]);
+  await api.request('signup', '入力', { userId: '次のID' });
+  assert.notEqual(requests[2].opId, requests[0].opId);
 });

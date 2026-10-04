@@ -1,6 +1,6 @@
 import { createApi } from './api.js';
 import { createStore, safeStorage } from './store.js';
-import { startRouter, extractInvitation, buildHash } from './router.js';
+import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
 import { confirmDialog, closeDialogs } from './ui/dialog.js';
@@ -52,14 +52,12 @@ async function boot() {
   main.id = 'main';
   const skip = link('メイン画面へ', '#main', 'skip-link');
   skip.addEventListener('click', (event) => { event.preventDefault(); main.tabIndex = -1; main.focus(); });
-  const footer = el('footer', 'app-footer');
-  footer.append(el('span', '', '登録された配合だけを検索します。'), link('出典と権利表記', 'credits.html'));
   const register = button('＋ 登録', () => {
-    if (!store.state.passcode) { toast('先にパスコードを入力してください'); return; }
+    if (!store.state.passcode || !store.state.userId) return;
     context.register();
   }, 'register-button');
   register.setAttribute('aria-label', '配合を登録');
-  root.append(skip, banner, header, nav, main, footer, register);
+  root.append(skip, banner, header, nav, main, register);
   let route;
   let currentView;
   let showingLogin = false;
@@ -84,16 +82,11 @@ async function boot() {
     navigate(hash) { location.hash = hash; },
     replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
     register(initial) { return openRecordEditor(context, initial); },
-    async confirm(record) {
-      const result = await mutation('confirm', { id: record.id });
-      toast('確認を追加しました');
-      return result;
-    },
     async merge(source, target, { ask = true } = {}) {
       if (ask) {
         const preview = el('div', 'card-stack');
         preview.append(breedingCard(source, {}, { preview: true }), breedingCard(target, {}, { preview: true }));
-        if (!await confirmDialog('登録を統合しますか？', '確認回数を既存の登録にまとめ、元の登録を削除します。', { preview, confirmText: '統合' })) return;
+        if (!await confirmDialog('登録を統合しますか？', '既存の登録に統合し、元の登録を削除します。', { preview, confirmText: '統合' })) return;
       }
       const result = await mutation('merge', { sourceId: source.id, targetId: target.id, expectedEtags: { source: source.etag, target: target.etag } });
       toast('既存の登録に統合しました');
@@ -113,34 +106,59 @@ async function boot() {
 
   const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, pal: palView, settings: settingsView };
 
-  function loginView() {
+  function loginView(signup = false, previousId = store.state.userId) {
     const panel = el('section', 'login-panel');
     panel.append(el('span', 'login-mark', '◇'), el('p', 'eyebrow', '仲間とつくる、配合の記録'),
-      el('h1', '', '冒険の発見を、\nみんなのノートに。'), el('p', 'muted', '招待リンクを開くか、仲間から受け取ったパスコードを入力してください。'));
+      el('h1', '', signup ? '新規登録' : '冒険の発見を、\nみんなのノートに。'),
+      el('p', 'muted', 'ID と共通パスワードを入力してください。'));
     const form = el('form', 'login-form');
-    const input = el('input');
-    input.type = 'password';
-    input.autocomplete = 'current-password';
-    input.required = true;
+    const userId = el('input');
+    userId.autocomplete = 'username';
+    userId.required = true;
+    userId.value = previousId;
+    const password = el('input');
+    password.type = 'password';
+    password.autocomplete = signup ? 'new-password' : 'current-password';
+    password.required = true;
     const errors = el('p', 'form-errors');
     errors.setAttribute('role', 'alert');
     errors.textContent = store.state.error;
-    const submit = button('ノートを開く', () => form.requestSubmit(), 'button primary');
-    form.append(field('パスコード', input), errors, submit);
+    const submit = button(signup ? '登録してログイン' : 'ログイン', () => form.requestSubmit(), 'button primary');
+    form.append(field('ID（1〜20文字）', userId), field('パスワード', password), errors, submit);
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (!input.value.trim()) return;
-      await runButton(submit, async () => { store.setPasscode(input.value); await store.refresh(); }, (error) => toast(error.message));
+      await runButton(submit, () => signup ? store.signup(userId.value, password.value) : store.login(userId.value, password.value),
+        (error) => {
+          const invalidId = error.response?.errors?.find((item) => item.field === 'userId');
+          if (invalidId) {
+            errors.textContent = invalidId.code === 'TOO_LONG' ? 'ID は20文字以内で入力してください。' : 'ID を入力してください。';
+            return;
+          }
+          errors.textContent = error.message;
+        });
     });
-    panel.append(form, el('p', 'login-note', 'このノートに載るのは、仲間が登録した配合だけ。'));
+    const switchForm = button(signup ? 'ログインに戻る' : '新規登録', () => {
+      store.state.error = '';
+      loginView(!signup, userId.value);
+    }, 'button secondary');
+    const switchPanel = el('div', 'login-switch');
+    if (!signup) switchPanel.append(el('p', 'muted', 'アカウントをお持ちでない方'));
+    switchPanel.append(switchForm);
+    panel.append(form, switchPanel, el('p', 'login-note', 'このノートに載るのは、仲間が登録した配合だけ。'));
     main.replaceChildren(panel);
   }
 
   function render() {
+    const needsLogin = !store.state.passcode || !store.state.userId;
+    if (showingLogin && needsLogin) return;
+    const pickerLabel = document.activeElement?.getAttribute('aria-haspopup') === 'listbox'
+      ? document.activeElement.getAttribute('aria-label') : null;
     currentView?.destroy();
     currentView = null;
-    showingLogin = !store.state.passcode;
+    showingLogin = needsLogin;
+    brand.inert = showingLogin;
     nav.hidden = showingLogin;
+    register.hidden = showingLogin;
     if (showingLogin) { loginView(); return; }
     for (const [view, tab] of tabLinks) {
       const active = route.view === view;
@@ -150,32 +168,22 @@ async function boot() {
     }
     currentView = views[route.view](context, route);
     main.replaceChildren(currentView.element);
-  }
-
-  function consumeInvitation() {
-    const invitation = extractInvitation(location.hash);
-    if (invitation.passcode !== null) {
-      store.setPasscode(invitation.passcode);
-      context.replace(invitation.hash);
-      return true;
+    // 選択の解除で URL が変わると部品も作り直されるため、同じ選択欄へフォーカスを引き継ぐ。
+    if (pickerLabel) {
+      Array.from(main.querySelectorAll('.picker-trigger')).find((picker) => picker.getAttribute('aria-label') === pickerLabel)?.focus();
     }
-    return false;
   }
 
-  consumeInvitation();
   startRouter((nextRoute) => {
-    const invited = consumeInvitation();
-    nextRoute.params.delete('k');
     route = nextRoute;
     render();
-    if (invited && store.state.passcode) refresh();
   });
   store.subscribe((state) => {
     banner.hidden = state.env !== 'test';
     status.textContent = state.loading ? '記録を更新中…' : state.error || (state.serverTime
       ? `${state.cached ? '前回取得' : '最新取得'} ${formatTime(state.serverTime)}${state.cached ? ' 時点' : ''} · ${state.records.length} 件` : '仲間だけの配合ノート');
-    if (showingLogin !== !state.passcode) {
-      if (!state.passcode) closeDialogs();
+    if (showingLogin !== (!state.passcode || !state.userId)) {
+      if (!state.passcode || !state.userId) closeDialogs();
       render();
     }
   });

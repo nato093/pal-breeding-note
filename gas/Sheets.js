@@ -3,9 +3,13 @@
  */
 
 var SHEET_NAMES_ = {
-  prod: { data: 'Breedings', log: 'Log' },
-  test: { data: 'Breedings_test', log: 'Log_test' }
+  prod: { data: 'Breedings', log: 'Log', users: 'Users' },
+  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test' }
 };
+
+var USER_HEADERS_ = ['userId', 'createdAt'];
+var SETTINGS_SHEET_ = '設定';
+var SETTINGS_HEADERS_ = ['項目', '値'];
 
 var BREEDING_HEADERS_ = [
   'id', 'parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender',

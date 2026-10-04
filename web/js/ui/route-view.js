@@ -1,28 +1,31 @@
 import { el } from './dom.js';
-import { palTile } from './pal-icon.js';
+import { breedingEquation } from './breeding-card.js';
 
-function optionView(option) {
-  const node = el('div', 'route-partner');
-  node.append(palTile(option.partner), el('span', 'confirm-badge', `確認 ${option.record.confirmCount} 回`));
+function optionView(step, option, index) {
+  const node = el('article', 'breeding-card route-breeding-card');
+  node.setAttribute('aria-label', `${index + 1} 回目の配合`);
+  node.append(el('span', 'step-number', `${index + 1}`), breedingEquation(option.record, { leftParent: step.from }));
   return node;
 }
 
 function chain(route) {
   const wrapper = el('div', 'route-chain');
-  wrapper.append(palTile(route.nodes[0]));
   route.steps.forEach((step, index) => {
     const node = el('div', 'route-step');
-    node.append(el('span', 'step-number', `${index + 1}`), el('p', 'field-label', '相手親を用意'), optionView(step.representative));
+    const representative = optionView(step, step.representative, index);
+    if (step.multiChild || step.options.some(({ record }) => record.parent1Gender || record.parent2Gender)) {
+      representative.append(el('span', 'route-warning', '性別条件は未検証'));
+    }
+    node.append(representative);
     if (step.options.length > 1) {
       const alternatives = el('details', 'route-alternatives');
       alternatives.append(el('summary', '', `他 ${step.options.length - 1} 件`));
-      for (const option of step.options) alternatives.append(optionView(option));
+      for (const option of step.options) {
+        if (option !== step.representative) alternatives.append(optionView(step, option, index));
+      }
       node.append(alternatives);
     }
-    if (step.multiChild || step.options.some(({ record }) => record.parent1Gender || record.parent2Gender)) {
-      node.append(el('span', 'warning-chip', '性別条件は未検証'));
-    }
-    wrapper.append(node, el('span', 'route-arrow', '↓'), palTile(step.to));
+    wrapper.append(node);
   });
   return wrapper;
 }
