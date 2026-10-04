@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { FakeElement, descendants } from '../helpers/dom.js';
 import releaseNotes from '../../web/js/release-notes.js';
+import pals from '../../web/data/pals.js';
 
 const find = (predicate) => descendants(document.body).find(predicate);
 const byClass = (name) => find((node) => node.className.split(' ').includes(name));
@@ -339,4 +340,54 @@ test('画面: 右上のベルに未読の数を出し、開くと既読にして
   assert.equal(badge.hidden, true);
   await byText('閉じる').dispatch('click');
   assert.equal(dialog.open, false);
+});
+
+test('画面: ウィッシュリストに追加したパルが作れるようになったらベルで知らせ、通知と一覧から逆引きへのリンクを出す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  let second = 0;
+  // 同じミリ秒の応答で判定が止まらないよう、サーバ時刻を 1 秒ずつ進める。
+  const api = async (request) => {
+    const response = await development(request);
+    if (typeof response.serverTime === 'string') response.serverTime = new Date(Date.UTC(2026, 9, 4, 0, 0, ++second)).toISOString();
+    if (response.snapshot) response.snapshot.serverTime = new Date(Date.UTC(2026, 9, 4, 0, 0, ++second)).toISOString();
+    return response;
+  };
+  const { values, changeHash } = await boot(t, {
+    initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/wishlist',
+  });
+  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.includes('ウィッシュリスト'));
+  assert.equal(tab.getAttribute('aria-current'), 'page');
+  const made = new Set(JSON.parse(values.get('pal-note.cache.test')).records.map((record) => record.childId));
+  const target = pals.find((pal) => pal.active && !made.has(pal.id));
+  const picker = byClass('wishlist-view').querySelector('.picker');
+  await picker.querySelector('.picker-trigger').dispatch('click');
+  const search = picker.querySelector('input');
+  search.value = target.ja;
+  await search.dispatch('input');
+  await picker.querySelectorAll('[role="option"]').find((option) => option.textContent.includes(target.ja)).dispatch('click');
+  assert.match(byClass('wishlist-row').textContent, /まだ作れません/);
+  assert.deepEqual(JSON.parse(values.get('pal-note.wishlist.test.架空データ')).map((wish) => wish.palId), [target.id]);
+  const badge = byClass('notification-badge');
+  const unread = Number(badge.textContent);
+  // 仲間がほかの端末で登録し、こちらは最新の記録を取り直す。
+  await development({ action: 'create', passcode: '入力', opId: crypto.randomUUID(), allowDifferentChild: true, record: {
+    id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: target.id,
+    parent1Gender: '', parent2Gender: '', registrant: '仲間', memo: '',
+  } });
+  changeHash('#/settings');
+  await byText('最新に更新').dispatch('click');
+  await flush();
+  assert.equal(badge.textContent, String(unread + 1));
+  await byClass('notification-button').dispatch('click');
+  const panel = byClass('notification-panel');
+  const link = panel.querySelector('.notification-link');
+  assert.equal(link.querySelector('.notification-title').textContent, `${target.ja}が作成可能になりました`);
+  assert.equal(link.href, `#/reverse?c=${target.id}`);
+  // fake DOM はリンクの既定動作（ハッシュの切り替え）を持たないため、閉じることまでを確かめ、遷移は実ブラウザで確かめる。
+  await link.dispatch('click');
+  assert.equal(byClass('notification-panel'), undefined);
+  changeHash('#/wishlist');
+  const row = byClass('wishlist-row');
+  assert.match(row.textContent, /作成可能/);
+  assert.equal(row.querySelector('a').href, `#/reverse?c=${target.id}`);
 });
