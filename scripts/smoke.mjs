@@ -1,4 +1,4 @@
-// 本番 API の疎通確認（Node から）。テスト用パスコードは .env.local から読み、画面やログには出さない。
+// 本番 API の疎通確認（Node から）。テスト用パスワードは .env.local から読み、画面やログには出さない。
 // CORS と CSP はブラウザでしか確かめられないので、ここでは認証と応答の形だけを見る。
 import fs from 'node:fs';
 import { API_URL } from '../web/js/config.js';
@@ -31,12 +31,12 @@ const health = await (await fetch(API_URL, { redirect: 'follow' })).json();
 check('GET はデータを返さず稼働状況だけを返す', health.ok === true && !('records' in health), `api=${health.api}`);
 
 const wrong = await post({ action: 'ping', passcode: 'WRONG-CODE-0000-0000' });
-check('誤ったパスコードは拒否される', wrong.ok === false && wrong.code === 'AUTH', wrong.code);
+check('誤ったパスワードは拒否される', wrong.ok === false && wrong.code === 'AUTH', wrong.code);
 
 if (passcode) {
   const ping = await post({ action: 'ping', passcode });
-  // 本番パスコードが入っていたら、AI が本番データに触れられる状態なので失敗にする（INV-4）
-  check('テスト用パスコードがテスト環境に届く', ping.ok === true && ping.env === 'test', ping.ok ? `env=${ping.env}` : ping.code);
+  // 本番パスワードが入っていたら、AI が本番データに触れられる状態なので失敗にする（INV-4）
+  check('テスト用パスワードがテスト環境に届く', ping.ok === true && ping.env === 'test', ping.ok ? `env=${ping.env}` : ping.code);
 }
 
 process.exit(checks.every(Boolean) ? 0 : 1);

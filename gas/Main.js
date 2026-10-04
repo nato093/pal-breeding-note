@@ -11,7 +11,7 @@ var API_VERSION = 1;
 var MAX_BODY_CHARS = 16 * 1024;
 
 function doGet() {
-  // データは返さない（パスコード付きの POST だけがデータに触れる）
+  // データは返さない（パスワード付きの POST だけがデータに触れる）
   return jsonOut_({ ok: true, service: 'pal-breeding-note', api: API_VERSION });
 }
 
@@ -48,7 +48,7 @@ function handleRequest_(body) {
     return Object.assign({ ok: true, env: auth.env, api: API_VERSION }, result);
   } catch (err) {
     if (err && (err.code === 'BUSY' || err.code === 'SHEET_HEADER')) return fail_(err.code);
-    // リクエスト本文（パスコードを含む）はログに出さない
+    // リクエスト本文（パスワードを含む）はログに出さない
     console.error('handleRequest_ failed: ' + (err && err.stack ? err.stack : err));
     return fail_('INTERNAL');
   }

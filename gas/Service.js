@@ -9,6 +9,41 @@ var MUTATION_FIELDS_ = {
   restore: ['id', 'expectedEtag']
 };
 
+function actionAccount_(req, env) {
+  var allowed = ['action', 'passcode', 'userId'];
+  if (req.action === 'signup') allowed.push('opId');
+  var unknown = Object.keys(req).find(function (field) { return allowed.indexOf(field) === -1; });
+  if (unknown) return validationFailure_(unknown, 'UNKNOWN_FIELD');
+  if (req.action === 'signup' && !isUuid_(req.opId)) return validationFailure_('opId', 'INVALID_UUID');
+  var checked = validateUserId(req.userId);
+  if (!checked.ok) return { ok: false, code: 'VALIDATION', errors: checked.errors };
+  var run = function () {
+    var cache;
+    var key;
+    if (req.action === 'signup') {
+      cache = CacheService.getScriptCache();
+      key = 'op:' + env + ':' + req.opId.toLowerCase();
+      var cached = cache.get(key);
+      if (cached) return Object.assign(JSON.parse(cached), snapshot_(env));
+    }
+    // 応答に必要なシートの不備で、登録だけが残ることを避ける。
+    var snapshot = snapshot_(env);
+    var existing = snapshot.users.find(function (userId) { return userIdKey(userId) === userIdKey(checked.value); });
+    if (req.action === 'login') {
+      return existing ? Object.assign({ userId: existing }, snapshot) : fail_('USER_NOT_FOUND');
+    }
+    if (existing) return fail_('USER_EXISTS');
+    appendUser_(env, checked.value);
+    snapshot.users.push(checked.value);
+    var result = { userId: checked.value };
+    // キャッシュを成功の証拠として使うため、シートの確定後に保存する。
+    SpreadsheetApp.flush();
+    cache.put(key, JSON.stringify(result), 21600);
+    return Object.assign({}, result, snapshot);
+  };
+  return req.action === 'signup' ? withLock_(run) : run();
+}
+
 function isUuid_(value) {
   return typeof value === 'string' && UUID_PATTERN_.test(value);
 }
@@ -203,12 +238,13 @@ function actionMutation_(req, env) {
     };
     var mutation = operations[req.action](req, data, new Date().toISOString());
     if (mutation.ok === false) return mutation;
+    var users = readUsers_(env);
     applyMutation_(req, env, mutation);
     var latest = readRecords_(env);
     var result = mutation.result;
     var row = validRow_(latest, result.record.id);
     result.record = clientRecord_(row.record, req.action === 'delete' || req.action === 'restore');
-    var snapshot = { records: latest.records, warnings: latest.warnings, serverTime: new Date().toISOString() };
+    var snapshot = { records: latest.records, warnings: latest.warnings, serverTime: new Date().toISOString(), users: users };
     // キャッシュを成功の証拠として使うため、シートの確定後に保存する。
     SpreadsheetApp.flush();
     cache.put(key, JSON.stringify(result), 21600);

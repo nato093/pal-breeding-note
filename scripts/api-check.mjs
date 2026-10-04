@@ -1,5 +1,5 @@
 // 本番の GAS API に対して、テスト用シートで業務ルールを一通り確かめる（Node から。CORS・CSP はブラウザ側で確認する）。
-// テスト用パスコードは .env.local から読み、表示しない。応答の env が test でなければ即中断する（本番データに触れない）。
+// テスト用パスワードは .env.local から読み、表示しない。応答の env が test でなければ即中断する（本番データに触れない）。
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { API_URL } from '../web/js/config.js';

@@ -72,7 +72,22 @@ function readRecords_(env) {
 
 function snapshot_(env) {
   var data = readRecords_(env);
-  return { records: data.records, warnings: data.warnings, serverTime: new Date().toISOString() };
+  return { records: data.records, warnings: data.warnings, serverTime: new Date().toISOString(), users: readUsers_(env) };
+}
+
+function readUsers_(env) {
+  var table = readTable_(sheetFor_(env, 'users'), USER_HEADERS_);
+  return table.rows.map(function (values) {
+    return String(values[table.index.userId] == null ? '' : values[table.index.userId]);
+  }).filter(function (userId) { return userId.trim() !== ''; });
+}
+
+function appendUser_(env, userId) {
+  var sheet = sheetFor_(env, 'users');
+  var table = readHeader_(sheet, USER_HEADERS_);
+  writeTableRow_(sheet, table, sheet.getLastRow() + 1, {
+    userId: quoteForSheet(userId), createdAt: new Date().toISOString()
+  });
 }
 
 function writeTableRow_(sheet, table, rowNumber, values) {

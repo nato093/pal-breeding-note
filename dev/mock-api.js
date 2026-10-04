@@ -1,10 +1,11 @@
 // Node のテストと /dev/ 配信で同じモジュールを使うため、公開 URL に合わせる。
 const webRoot = new URL(import.meta.url.startsWith('file:') ? '../web/' : '../', import.meta.url);
-const [{ default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }] = await Promise.all([
-  import(new URL('data/pals.js', webRoot)), import(new URL('js/core/pair.js', webRoot)), import(new URL('js/core/validate.js', webRoot)),
+const [{ default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }, { validateUserId, userIdKey }] = await Promise.all([
+  import(new URL('data/pals.js', webRoot)), import(new URL('js/core/pair.js', webRoot)), import(new URL('js/core/validate.js', webRoot)), import(new URL('js/core/user.js', webRoot)),
 ]);
 
 const fields = {
+  login: ['userId'], signup: ['userId', 'opId'],
   snapshot: [], create: ['opId', 'record', 'allowDifferentChild'], confirm: ['opId', 'id'],
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'], delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
@@ -16,10 +17,11 @@ const fail = (code, data = {}) => ({ ok: false, code, ...data });
 
 export function createDevelopmentApi({ seed, passcode } = {}) {
   const records = new Map();
+  const users = [];
   const operations = new Map();
   const palIds = new Set(pals.map((pal) => pal.id));
   let revision = 0;
-  let acceptedPasscode = passcode;
+  let acceptedPasscode = passcode?.trim();
   const active = () => [...records.values()].filter((record) => !record.deleted);
   const publish = (record) => {
     const updated = { ...record, etag: `local-${++revision}` };
@@ -36,7 +38,7 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
     }
     const warnings = visible.filter((record) => identities.get(identityKey(record)) > 1)
       .map((record) => ({ code: 'DUPLICATE_RECORD', id: record.id }));
-    return { records: visible, warnings, serverTime: new Date().toISOString() };
+    return { records: visible, warnings, serverTime: new Date().toISOString(), users: [...users] };
   }
 
   function duplicates(record, checkPair, allowDifferentChild) {
@@ -119,6 +121,7 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
   // 明示された件数だけ架空のランダム配合を用意し、既定では一件も作らない。
   const count = Number(seed);
   if (seed !== null && seed !== undefined && Number.isSafeInteger(count) && count > 0) {
+    users.push('架空データ');
     const available = pals.filter((pal) => pal.active);
     const max = available.length * (available.length + 1) / 2 * available.length;
     const identities = new Set();
@@ -138,12 +141,30 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
     if (!request || !fields[request.action]) return fail('BAD_REQUEST');
     if (typeof request.passcode !== 'string' || !request.passcode.trim()) return fail('AUTH');
     // ローカルの初回入力をセッションのコードとし、以後の誤入力も検証できるようにする。
-    if (acceptedPasscode === undefined) acceptedPasscode = request.passcode;
-    if (request.passcode !== acceptedPasscode) return fail('AUTH');
+    if (acceptedPasscode === undefined) acceptedPasscode = request.passcode.trim();
+    if (request.passcode.trim() !== acceptedPasscode) return fail('AUTH');
     const unknown = Object.keys(request).find((key) => !['action', 'passcode', ...fields[request.action]].includes(key));
     if (unknown) return invalid(unknown, 'UNKNOWN_FIELD');
     const base = { ok: true, env: 'test', api: 'pal-note-local-v1' };
     if (request.action === 'snapshot') return { ...base, ...snapshot() };
+    if (['login', 'signup'].includes(request.action)) {
+      if (request.action === 'signup' && !uuid.test(request.opId ?? '')) return invalid('opId', 'INVALID_UUID');
+      const checked = validateUserId(request.userId);
+      if (!checked.ok) return { ok: false, code: 'VALIDATION', errors: checked.errors };
+      const key = request.opId?.toLowerCase();
+      if (request.action === 'signup' && operations.has(key)) {
+        return structuredClone({ ...base, ...operations.get(key), ...snapshot() });
+      }
+      const existing = users.find((userId) => userIdKey(userId) === userIdKey(checked.value));
+      if (request.action === 'login') {
+        return existing ? { ...base, userId: existing, ...snapshot() } : fail('USER_NOT_FOUND');
+      }
+      if (existing) return fail('USER_EXISTS');
+      users.push(checked.value);
+      const result = { userId: checked.value };
+      operations.set(key, result);
+      return { ...base, ...result, ...snapshot() };
+    }
     if (!uuid.test(request.opId ?? '')) return invalid('opId', 'INVALID_UUID');
     const idFields = request.action === 'merge' ? ['sourceId', 'targetId'] : request.action === 'create' ? [] : ['id'];
     for (const key of idFields) if (!uuid.test(request[key] ?? '')) return invalid(key, 'INVALID_UUID');

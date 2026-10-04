@@ -12,7 +12,7 @@ export function palView(context, route) {
     element.append(empty('パルが見つかりません', link('配合検索へ', buildHash('search'), 'button primary')));
     return { element, destroy() {} };
   }
-  element.append(viewHeading('パルの配合ノート', 'このパルにつながる、みんなの記録。'));
+  element.append(viewHeading('パルの配合ノート'));
   const hero = el('div', 'pal-hero');
   hero.append(palTile(pal.id, { large: true, clickable: false }), elementChips(pal));
   const actions = el('div', 'pal-hero-actions');

@@ -5,9 +5,9 @@ import { viewHeading, validId, navigateSelection, renderCards, watchView, dataPe
 
 export function reverseView(context, route) {
   const element = el('section', 'view');
-  element.append(viewHeading('この子の親を探す', '生まれるパルから、登録済みの組み合わせを逆引き。'));
+  element.append(viewHeading('この子の親を探す'));
   const child = validId(route, 'c', context);
-  const picker = palPicker({ label: '生まれる子', value: child, storage: context.store.storage,
+  const picker = palPicker({ label: '生まれる子', value: child,
     onChange: (id) => navigateSelection(context, route, 'c', id) });
   const panel = el('div', 'selection-panel');
   panel.append(picker.element);

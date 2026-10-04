@@ -5,7 +5,9 @@ export function parseHash(hash = '') {
   const segments = path.split('/').filter(Boolean);
   let id = '';
   try { id = decodeURIComponent(segments[1] ?? ''); } catch { /* 不正な URL は空の入力として扱う。 */ }
-  return { view: views.has(segments[0]) ? segments[0] : 'search', id, params: new URLSearchParams(query) };
+  const params = new URLSearchParams(query);
+  params.delete('k');
+  return { view: views.has(segments[0]) ? segments[0] : 'search', id, params };
 }
 
 export function buildHash(view, params = {}, id = '') {
@@ -19,26 +21,23 @@ export function buildHash(view, params = {}, id = '') {
   return query.size ? `${path}?${query}` : path;
 }
 
-export function extractInvitation(hash) {
-  const route = parseHash(hash);
-  const passcode = route.params.get('k');
-  route.params.delete('k');
-  return { passcode, hash: buildHash(route.view, route.params, route.id) };
-}
-
-export function invitationLink(origin, pathname, passcode) {
-  return `${origin}${pathname}${buildHash('search', { k: passcode })}`;
-}
-
-export function shareLink(url) {
-  const result = new URL(url);
-  result.hash = extractInvitation(result.hash).hash;
-  result.searchParams.delete('k');
-  return result.href;
-}
-
 export function startRouter(onChange, browser = window) {
-  const change = () => onChange(parseHash(browser.location.hash));
+  const change = () => {
+    const { pathname, search, hash } = browser.location;
+    const [path, query = ''] = hash.split('?');
+    const params = new URLSearchParams(query);
+    const searchParams = new URLSearchParams(search);
+    if (params.has('k') || searchParams.has('k')) {
+      const cleanSearch = searchParams.has('k');
+      const cleanHash = params.has('k');
+      params.delete('k');
+      searchParams.delete('k');
+      const nextSearch = cleanSearch ? (searchParams.size ? `?${searchParams}` : '') : search;
+      const nextHash = cleanHash ? `${path}${params.size ? `?${params}` : ''}` : hash;
+      browser.history.replaceState(browser.history.state, '', `${pathname}${nextSearch}${nextHash}`);
+    }
+    onChange(parseHash(browser.location.hash));
+  };
   browser.addEventListener('hashchange', change);
   change();
   return () => browser.removeEventListener('hashchange', change);

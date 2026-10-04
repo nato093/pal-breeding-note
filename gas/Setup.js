@@ -1,5 +1,5 @@
 /**
- * 初期設定（所有者がスクリプトエディタから 1 回実行する）。何度実行しても既存のデータとパスコードは変えない。
+ * 初期設定（所有者がスクリプトエディタから 1 回実行する）。何度実行しても既存のデータとパスワードは変えない。
  */
 
 function setup() {
@@ -7,30 +7,35 @@ function setup() {
   ['prod', 'test'].forEach(function (env) {
     ensureSheet_(ss, SHEET_NAMES_[env].data, BREEDING_HEADERS_);
     ensureSheet_(ss, SHEET_NAMES_[env].log, LOG_HEADERS_);
+    ensureSheet_(ss, SHEET_NAMES_[env].users, USER_HEADERS_);
   });
-  removeEmptyDefaultSheet_(ss);
-
+  var settings = ensureSheet_(ss, SETTINGS_SHEET_, SETTINGS_HEADERS_);
+  var table = readTable_(settings, SETTINGS_HEADERS_);
+  settings.getRange(1, table.index['値'] + 1, settings.getMaxRows(), 1).setNumberFormat('@');
+  var index = table.rows.findIndex(function (row) { return row[table.index['項目']] === '共通パスワード'; });
   var props = PropertiesService.getScriptProperties();
-  if (!props.getProperty('PASSCODE')) props.setProperty('PASSCODE', generatePasscode_());
+  var current = index >= 0 ? table.rows[index][table.index['値']] : '';
+  var password = String(current == null ? '' : current);
+  if (!trimPassword_(password)) {
+    password = props.getProperty('PASSCODE') || generatePasscode_();
+    writeTableRow_(settings, table, index >= 0 ? index + 2 : settings.getLastRow() + 1, {
+      '項目': '共通パスワード', '値': quoteForSheet(password)
+    });
+  }
+  // 移行先の保存を確認できるまでは、復旧に使える旧プロパティを残す。
+  SpreadsheetApp.flush();
+  var savedTable = readTable_(settings, SETTINGS_HEADERS_);
+  var savedRow = savedTable.rows.find(function (row) { return row[savedTable.index['項目']] === '共通パスワード'; });
+  var saved = savedRow ? String(savedRow[savedTable.index['値']]) : '';
+  if (!trimPassword_(saved) || saved !== password) throw new Error('共通パスワードの移行を確認できませんでした。旧プロパティは保持しています。');
+  props.deleteProperty('PASSCODE');
   if (!props.getProperty('TEST_PASSCODE')) {
     var test = generatePasscode_();
-    while (normalizePasscode_(test) === normalizePasscode_(props.getProperty('PASSCODE'))) test = generatePasscode_();
+    while (trimPassword_(test) === productionPassword_()) test = generatePasscode_();
     props.setProperty('TEST_PASSCODE', test);
   }
-
-  console.log('セットアップ完了');
-  console.log('本番パスコード（友人に配る）: ' + props.getProperty('PASSCODE'));
-  console.log('テスト用パスコード（.env.local の PAL_TEST_PASSCODE に保存）: ' + props.getProperty('TEST_PASSCODE'));
-}
-
-/** 本番パスコードだけを作り直す。全端末が再入力になるので、新しい招待リンクを配り直すこと。 */
-function rotatePasscode() {
-  var props = PropertiesService.getScriptProperties();
-  var test = normalizePasscode_(props.getProperty('TEST_PASSCODE'));
-  var next = generatePasscode_();
-  while (normalizePasscode_(next) === test) next = generatePasscode_();
-  props.setProperty('PASSCODE', next);
-  console.log('新しい本番パスコード: ' + next);
+  removeEmptyDefaultSheet_(ss);
+  console.log('セットアップ完了。共通パスワードは設定シート、テスト用は Script Properties で確認してください。');
 }
 
 function ensureSheet_(ss, name, headers) {
@@ -54,9 +59,11 @@ function ensureSheet_(ss, name, headers) {
 
 function removeEmptyDefaultSheet_(ss) {
   var ours = {};
+  ours[SETTINGS_SHEET_] = true;
   Object.keys(SHEET_NAMES_).forEach(function (env) {
     ours[SHEET_NAMES_[env].data] = true;
     ours[SHEET_NAMES_[env].log] = true;
+    ours[SHEET_NAMES_[env].users] = true;
   });
   ss.getSheets().forEach(function (sheet) {
     if (ours[sheet.getName()]) return;

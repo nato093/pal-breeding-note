@@ -1,6 +1,6 @@
 import { el, button } from './dom.js';
 
-export function openDialog(title, { className = '', onClose } = {}) {
+export function openDialog(title, { className = '', onClose, closeOnBackdrop = true } = {}) {
   const previousFocus = document.activeElement;
   const dialog = el('dialog', `dialog ${className}`);
   const heading = el('h2', '', title);
@@ -20,7 +20,7 @@ export function openDialog(title, { className = '', onClose } = {}) {
     onClose?.();
     if (previousFocus?.isConnected) previousFocus.focus();
   }, { once: true });
-  dialog.addEventListener('click', (event) => { if (event.target === dialog) close(); });
+  dialog.addEventListener('click', (event) => { if (closeOnBackdrop && event.target === dialog) close(); });
   dialog.showModal();
   return { dialog, body, footer, close };
 }

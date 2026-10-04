@@ -1,7 +1,10 @@
 import pals from '../data/pals.js';
 import { buildIndex } from './core/index.js';
 import { buildCarrierGraph } from './core/route.js';
-import { ApiError } from './api.js';
+import { ApiError, validSnapshot } from './api.js';
+import { userIdKey } from './core/user.js';
+
+const mutationErrors = new Set(['DUPLICATE', 'PAIR_CONFLICT', 'ID_CONFLICT', 'VALIDATION', 'CONFLICT', 'NOT_FOUND']);
 
 export function cacheKey(env, namespace = 'pal-note') {
   if (!['prod', 'test'].includes(env)) throw new Error('環境を確認できません');
@@ -32,7 +35,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   let pending = 0;
   let lastRefresh = -Infinity;
   const state = {
-    passcode: storage.get(`${namespace}.passcode`) ?? '', env: null,
+    passcode: storage.get(`${namespace}.passcode`) ?? '', userId: storage.get(`${namespace}.userId`) ?? '', users: [], env: null,
     records: [], warnings: [], serverTime: '', cached: false, loading: false, error: '',
     index: buildIndex([], pals), graph: new Map(),
   };
@@ -42,6 +45,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.env = null;
     state.records = [];
     state.warnings = [];
+    state.users = [];
     state.serverTime = '';
     state.cached = false;
     state.index = buildIndex([], pals);
@@ -50,11 +54,27 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     for (const env of ['prod', 'test']) storage.remove(cacheKey(env, namespace));
   }
 
+  function logout(error = '') {
+    session++;
+    lastRefresh = -Infinity;
+    state.passcode = '';
+    state.error = error;
+    storage.remove(`${namespace}.passcode`);
+    clearData();
+    emit();
+  }
+
   function apply(snapshot, env, currentSequence, cached = false) {
     if (!shouldApplyResponse(currentSequence, appliedSequence)) return false;
+    if (!snapshot.users.some((userId) => userIdKey(userId) === userIdKey(state.userId))) {
+      const error = new ApiError('USER_NOT_FOUND');
+      logout(error.message);
+      throw error;
+    }
     appliedSequence = currentSequence;
     state.records = snapshot.records;
     state.warnings = snapshot.warnings;
+    state.users = snapshot.users;
     state.serverTime = snapshot.serverTime;
     state.env = env;
     state.cached = cached;
@@ -70,15 +90,15 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   }
 
   const authenticatedEnv = storage.get(`${namespace}.authenticated`);
-  if (state.passcode && ['prod', 'test'].includes(authenticatedEnv)) {
+  if (state.passcode && state.userId && ['prod', 'test'].includes(authenticatedEnv)) {
     const cached = readJson(storage, cacheKey(authenticatedEnv, namespace));
-    if (cached && Array.isArray(cached.records) && Array.isArray(cached.warnings) && cached.serverTime) {
-      apply(cached, authenticatedEnv, ++sequence, true);
+    if (validSnapshot(cached) && cached.serverTime) {
+      try { apply(cached, authenticatedEnv, ++sequence, true); } catch { /* 削除済みの ID ではキャッシュを利用しない。 */ }
     }
   }
 
   async function request(action, input) {
-    if (!state.passcode) throw new ApiError('AUTH');
+    if (!state.passcode || !state.userId) throw new ApiError('AUTH');
     const currentSequence = ++sequence;
     const currentSession = session;
     pending++;
@@ -91,14 +111,44 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
       return response;
     } catch (error) {
       if (currentSession !== session) throw error;
-      state.error = error.message;
+      if (action === 'snapshot' || !mutationErrors.has(error.code)) state.error = error.message;
       if (error.code === 'AUTH') {
-        session++;
-        state.passcode = '';
-        storage.remove(`${namespace}.passcode`);
-        clearData();
+        logout(error.message);
       }
       emit();
+      throw error;
+    } finally {
+      pending--;
+      state.loading = pending > 0;
+      emit();
+    }
+  }
+
+  async function authenticate(action, userId, passcode) {
+    const currentSession = ++session;
+    const currentSequence = ++sequence;
+    const password = passcode.trim();
+    pending++;
+    state.loading = true;
+    state.error = '';
+    emit();
+    try {
+      const response = await api.request(action, password, { userId });
+      if (currentSession !== session) throw new ApiError('AUTH');
+      if (!response.users.some((id) => userIdKey(id) === userIdKey(response.userId))) throw new ApiError('RESPONSE');
+      clearData();
+      state.passcode = password;
+      state.userId = response.userId;
+      storage.set(`${namespace}.passcode`, password);
+      storage.set(`${namespace}.userId`, state.userId);
+      lastRefresh = now();
+      apply(response, response.env, currentSequence);
+      return response;
+    } catch (error) {
+      if (currentSession === session) {
+        if (error.code === 'AUTH') logout(error.message);
+        else { state.error = error.message; emit(); }
+      }
       throw error;
     } finally {
       pending--;
@@ -110,17 +160,11 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   return {
     state, storage,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
-    setPasscode(passcode) {
-      const value = passcode.trim();
-      if (value !== state.passcode) { session++; clearData(); }
-      state.passcode = value;
-      state.error = '';
-      if (value) storage.set(`${namespace}.passcode`, value);
-      else storage.remove(`${namespace}.passcode`);
-      emit();
-    },
+    login(userId, passcode) { return authenticate('login', userId, passcode); },
+    signup(userId, passcode) { return authenticate('signup', userId, passcode); },
+    logout,
     async refresh({ throttled = false } = {}) {
-      if (!state.passcode || (throttled && now() - lastRefresh < 30000)) return;
+      if (!state.passcode || !state.userId || (throttled && now() - lastRefresh < 30000)) return;
       lastRefresh = now();
       return request('snapshot');
     },

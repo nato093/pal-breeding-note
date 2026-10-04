@@ -1,7 +1,9 @@
 import { API_URL } from './config.js';
 
 const messages = {
-  AUTH: 'パスコードが違います。もう一度入力してください。',
+  AUTH: 'パスワードが違います。もう一度入力してください。',
+  USER_NOT_FOUND: 'このIDは登録されていません（ID が見つかりません）。初めて使う方は新規登録してください。',
+  USER_EXISTS: 'このIDはすでに使われています。別のIDを入力するか、ログインしてください。',
   CONFIG: 'サーバの設定が完了していません。管理者に確認してください。',
   BUSY: 'サーバが混み合っています。少し待ってからお試しください。',
   INTERNAL: 'サーバでエラーが発生しました。時間をおいてお試しください。',
@@ -31,7 +33,8 @@ export class ApiError extends Error {
 }
 
 const actionFields = {
-  snapshot: [], create: ['opId', 'record', 'allowDifferentChild'], confirm: ['opId', 'id'],
+  login: ['userId'], signup: ['userId', 'opId'],
+  snapshot: [], create: ['opId', 'record', 'allowDifferentChild'],
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'],
   delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
@@ -50,8 +53,9 @@ export function buildRequest(action, passcode, input = {}) {
   return request;
 }
 
-function validSnapshot(value) {
-  return value && Array.isArray(value.records) && Array.isArray(value.warnings) && typeof value.serverTime === 'string';
+export function validSnapshot(value) {
+  return value && Array.isArray(value.records) && Array.isArray(value.warnings) && typeof value.serverTime === 'string'
+    && Array.isArray(value.users) && value.users.every((userId) => typeof userId === 'string');
 }
 
 export function validateResponse(response, action) {
@@ -60,9 +64,10 @@ export function validateResponse(response, action) {
     if (typeof response.code !== 'string') throw new ApiError('RESPONSE');
     throw new ApiError(response.code, response);
   }
+  const account = ['login', 'signup'].includes(action);
   if (!['prod', 'test'].includes(response.env) || !response.api
-    || !validSnapshot(action === 'snapshot' ? response : response.snapshot)
-    || (action !== 'snapshot' && !response.record)) throw new ApiError('RESPONSE');
+    || !validSnapshot(action === 'snapshot' || account ? response : response.snapshot)
+    || (account ? typeof response.userId !== 'string' : action !== 'snapshot' && !response.record)) throw new ApiError('RESPONSE');
   return response;
 }
 
@@ -102,6 +107,7 @@ export function createApi({ fetcher = globalThis.fetch, url = API_URL, timeoutMs
   }
   return {
     async request(action, passcode, input) {
+      if (action === 'signup') input = { ...input, opId: input?.opId ?? crypto.randomUUID() };
       const request = buildRequest(action, passcode, input);
       for (let attemptNumber = 0; attemptNumber < 2; attemptNumber++) {
         try { return await attempt(request); } catch (error) {

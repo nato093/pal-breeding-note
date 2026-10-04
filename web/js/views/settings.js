@@ -1,11 +1,10 @@
-import { el, button, field, link, formatTime, runButton } from '../ui/dom.js';
+import { el, button, link, formatTime, runButton } from '../ui/dom.js';
 import { palsById } from '../ui/pal-icon.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/dialog.js';
 import { toCsv } from '../core/csv.js';
 import { identityKey } from '../core/pair.js';
-import { invitationLink } from '../router.js';
-import { viewHeading, watchView, copyText } from './shared.js';
+import { viewHeading, watchView } from './shared.js';
 
 const warningMessages = {
   DUPLICATE_RECORD: '同じ配合が重複して登録されています。', DUPLICATE_ID: '登録の識別情報が重複しています。',
@@ -31,7 +30,7 @@ function exportCsv(records) {
 export function settingsView(context) {
   const { store } = context;
   const element = el('section', 'view settings-view');
-  element.append(viewHeading('ノートの設定', '仲間への招待と、大切な記録の持ち出し。', { share: false }));
+  element.append(viewHeading('ノートの設定'));
   const connection = el('section', 'settings-card');
   const env = el('p', 'environment-label');
   const time = el('p', 'muted');
@@ -39,42 +38,12 @@ export function settingsView(context) {
     await runButton(refresh, async () => { await store.refresh(); toast('最新の記録に更新しました'); }, (error) => toast(error.message));
   }, 'button secondary');
   connection.append(el('h2', '', 'データの状態'), env, time, refresh);
-  const invitation = el('section', 'settings-card');
-  const inviteUrl = el('textarea', 'invite-url');
-  inviteUrl.readOnly = true;
-  inviteUrl.rows = 3;
-  const create = button('招待リンクを作成', () => {
-    inviteUrl.value = invitationLink(location.origin, location.pathname, store.state.passcode);
-    inviteUrl.hidden = false;
-    copy.hidden = false;
-  }, 'button primary');
-  const copy = button('招待リンクをコピー', async () => {
-    try { await copyText(inviteUrl.value); } catch (error) { toast(error.message); }
-  }, 'button secondary');
-  inviteUrl.setAttribute('aria-label', '招待リンク');
-  inviteUrl.hidden = true;
-  copy.hidden = true;
-  invitation.append(el('h2', '', '仲間を招待'), el('p', 'muted', 'このリンクを知っている人は誰でも使えます'), create, inviteUrl, copy);
   const access = el('section', 'settings-card');
-  const passcode = el('input');
-  passcode.type = 'password';
-  passcode.autocomplete = 'off';
-  const save = button('パスコードを入れ直す', async () => {
-    if (!passcode.value.trim()) { toast('パスコードを入力してください'); return; }
-    await runButton(save, async () => {
-      store.setPasscode(passcode.value);
-      passcode.value = '';
-      inviteUrl.value = '';
-      inviteUrl.hidden = true;
-      copy.hidden = true;
-      await store.refresh();
-      toast('パスコードを更新しました');
-    }, (error) => toast(error.message));
-  }, 'button secondary');
-  access.append(el('h2', '', 'パスコード'), field('新しいパスコード', passcode), save,
-    button('パスコードを消去', async () => {
-      if (await confirmDialog('パスコードを消去しますか？', 'この端末のパスコードと配合キャッシュを消去します。次回は招待リンクかパスコードで開いてください。',
-        { confirmText: '消去', danger: true })) store.setPasscode('');
+  const accountId = el('p');
+  access.append(el('h2', '', 'アカウント'), accountId,
+    button('ログアウト', async () => {
+      if (await confirmDialog('ログアウトしますか？', 'この端末のパスワードと配合キャッシュを消去します。次回は ID と共通パスワードでログインしてください。',
+        { confirmText: 'ログアウト', danger: true })) store.logout();
     }, 'button quiet danger-text'));
   const backup = el('section', 'settings-card');
   backup.append(el('h2', '', '記録を書き出す'), el('p', 'muted', '有効な登録全件を、パルの名前付き CSV に保存します。'),
@@ -82,8 +51,9 @@ export function settingsView(context) {
   const warnings = el('section', 'settings-card');
   const warningList = el('div', 'warning-list');
   warnings.append(el('h2', '', '整合性の警告'), warningList);
-  element.append(connection, invitation, access, backup, warnings, link('出典と権利表記', 'credits.html', 'credits-link'));
+  element.append(connection, backup, warnings, access);
   return watchView(store, element, (state) => {
+    accountId.textContent = `ログイン中の ID: ${state.userId}`;
     env.textContent = `環境: ${state.env === 'test' ? 'テスト' : state.env === 'prod' ? '本番' : '確認中'}`;
     time.textContent = `前回取得: ${formatTime(state.serverTime, true)}${state.cached ? '（キャッシュ）' : ''}`;
     warningList.replaceChildren();

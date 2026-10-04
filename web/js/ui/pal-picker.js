@@ -5,51 +5,43 @@ import { palTile, palsById } from './pal-icon.js';
 
 const activePals = pals.filter((pal) => pal.active);
 
-export function filterPals(query, recent = []) {
+export function filterPals(query) {
   const normalized = normalizeQuery(query);
-  const recentOrder = new Map(recent.map((id, index) => [id, index]));
   return activePals.filter((pal) => palMatches(pal, query)).sort((a, b) => {
     const exact = (pal) => normalized !== '' && [pal.no, pal.label].some((value) => normalizeQuery(value) === normalized);
-    if (normalized) return Number(exact(b)) - Number(exact(a)) || a.no - b.no || Number(a.variant) - Number(b.variant);
-    return (recentOrder.get(a.id) ?? Infinity) - (recentOrder.get(b.id) ?? Infinity) || a.no - b.no;
+    return Number(exact(b)) - Number(exact(a)) || a.no - b.no || Number(a.variant) - Number(b.variant);
   });
 }
 
-export function palPicker({ label, value = '', onChange, storage, multiple = false }) {
+export function palPicker({ label, value = '', onChange, popupHost }) {
   let selected = value;
   let closePopup;
   const wrapper = el('div', 'picker');
   const labelNode = el('span', 'field-label', label);
-  const selectedCard = el('div', 'picker-value');
-  const trigger = button('パルを選ぶ', () => open(), 'picker-trigger');
+  const trigger = button('', () => open(), 'picker-trigger');
+  const clear = button('×', () => select(''), 'picker-clear');
+  clear.setAttribute('aria-label', `${label}の選択を解除`);
+  clear.title = `${label}の選択を解除`;
+  const control = el('div', 'picker-control');
   const listId = `pals-${crypto.randomUUID()}`;
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', 'false');
-  trigger.setAttribute('aria-label', `${label}を選ぶ`);
-  wrapper.append(labelNode, selectedCard, trigger);
-
-  function recentIds() {
-    try {
-      const ids = JSON.parse(storage?.get('pal-note.recent') ?? '[]');
-      return Array.isArray(ids) ? ids.filter((id) => palsById.get(id)?.active).slice(0, 8) : [];
-    } catch { return []; }
-  }
+  control.append(trigger, clear);
+  wrapper.append(labelNode, control);
 
   function renderSelected() {
-    selectedCard.replaceChildren();
     const pal = palsById.get(selected);
-    trigger.textContent = pal && !multiple ? '選び直す' : 'パルを選ぶ';
-    if (!pal) return;
-    const clear = button('×', () => { selected = ''; renderSelected(); onChange(''); }, 'icon-button');
-    clear.setAttribute('aria-label', `${label}の選択を解除`);
-    selectedCard.append(palTile(selected, { clickable: false }), clear);
+    trigger.replaceChildren(pal ? palTile(selected, { clickable: false }) : el('span', '', 'パルを選択'));
+    trigger.setAttribute('aria-label', `${label}: ${pal ? `No.${pal.label} ${pal.ja}` : 'パルを選択'}`);
+    trigger.classList.toggle('has-selection', Boolean(pal));
+    clear.hidden = !pal;
   }
 
   function select(id) {
-    selected = multiple ? '' : id;
-    storage?.set('pal-note.recent', JSON.stringify([id, ...recentIds().filter((other) => other !== id)].slice(0, 8)));
+    selected = id;
     closePopup?.();
     renderSelected();
+    trigger.focus();
     onChange(id);
   }
 
@@ -82,9 +74,36 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
       trigger.setAttribute('aria-expanded', 'false');
       if (trigger.isConnected) trigger.focus();
     };
-    wrapper.append(popup);
+    (popupHost ?? wrapper).append(popup);
     closePopup = cleanup;
     trigger.setAttribute('aria-expanded', 'true');
+
+    const contains = (node) => wrapper.contains(node) || popup.contains(node);
+
+    if (popupHost) {
+      // 本文のスクロール領域から外し、候補が縦方向に切れないようにする。
+      popup.classList.add('picker-popover-floating');
+      const rect = trigger.getBoundingClientRect();
+      const dialogRect = popupHost.tagName.toLowerCase() === 'dialog' ? popupHost.getBoundingClientRect() : null;
+      const minLeft = Math.max(12, dialogRect?.left ?? 12);
+      const maxRight = Math.min(window.innerWidth - 12, dialogRect ? dialogRect.left + dialogRect.width : window.innerWidth - 12);
+      const width = Math.min(Math.max(320, rect.width), maxRight - minLeft);
+      let left = rect.left;
+      if (dialogRect && left + width > maxRight) left = rect.left + rect.width - width;
+      left = Math.max(minLeft, Math.min(left, maxRight - width));
+      const below = Math.max(0, window.innerHeight - rect.bottom - 16);
+      const above = Math.max(0, rect.top - 16);
+      const upwards = below < 200 && above > below;
+      popup.style.setProperty('--picker-left', `${left}px`);
+      popup.style.setProperty('--picker-width', `${width}px`);
+      popup.style.setProperty('--picker-max-height', `${Math.min(400, upwards ? above : below)}px`);
+      popup.style.setProperty(upwards ? '--picker-bottom' : '--picker-top', `${upwards ? window.innerHeight - rect.top + 4 : rect.bottom + 4}px`);
+      document.addEventListener('scroll', (event) => {
+        if (!popup.contains(event.target)) cleanup();
+      }, { capture: true, signal: controller.signal });
+      window.addEventListener('resize', cleanup, { signal: controller.signal });
+      popupHost.addEventListener('cancel', (event) => { event.preventDefault(); cleanup(); }, { signal: controller.signal });
+    }
 
     function highlight() {
       const options = list.querySelectorAll('[role="option"]');
@@ -99,11 +118,11 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
     }
 
     function renderOptions() {
-      const recent = recentIds();
-      choices = filterPals(input.value, recent);
+      choices = filterPals(input.value);
+      if (!normalizeQuery(input.value)) choices.unshift({ id: '' });
       position = -1;
       list.replaceChildren();
-      status.textContent = input.value ? `${choices.length} 体のパル` : recent.length ? '最近使ったパル → 図鑑順' : '図鑑順で表示';
+      status.textContent = input.value ? `${choices.length} 体のパル` : '図鑑順で表示';
       choices.forEach((pal, index) => {
         const option = button('', () => select(pal.id), 'picker-option');
         // 押した瞬間に検索欄のフォーカスが外れると focusout で一覧が閉じ、click が届かない
@@ -112,8 +131,7 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
         option.id = `${listId}-${index}`;
         option.tabIndex = -1;
         option.setAttribute('role', 'option');
-        option.append(palTile(pal.id, { clickable: false }));
-        if (!input.value && recent.includes(pal.id)) option.append(el('small', 'recent-marker', '最近'));
+        option.append(pal.id ? palTile(pal.id, { clickable: false }) : el('span', '', 'パルを選択'));
         list.append(option);
       });
       highlight();
@@ -131,9 +149,9 @@ export function palPicker({ label, value = '', onChange, storage, multiple = fal
       // 矢印キーで候補を選んでいないときの Enter は何もしない（ユーザー指定）
       if (event.key === 'Enter') { event.preventDefault(); if (position >= 0) select(choices[position].id); }
     });
-    document.addEventListener('pointerdown', (event) => { if (!wrapper.contains(event.target)) closePopup?.(); }, { signal: controller.signal });
+    document.addEventListener('pointerdown', (event) => { if (!contains(event.target)) closePopup?.(); }, { signal: controller.signal });
     popup.addEventListener('focusout', () => {
-      queueMicrotask(() => { if (closePopup && !wrapper.contains(document.activeElement)) closePopup(); });
+      queueMicrotask(() => { if (closePopup && !contains(document.activeElement)) closePopup(); });
     });
     renderOptions();
     input.focus();
