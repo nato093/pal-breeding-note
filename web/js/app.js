@@ -1,5 +1,6 @@
 import { createApi } from './api.js';
 import { createStore, safeStorage } from './store.js';
+import { createDraftStore } from './drafts.js';
 import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
@@ -11,6 +12,7 @@ import { searchView } from './views/search.js';
 import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
 import { listView } from './views/list.js';
+import { draftsView } from './views/drafts.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
 
@@ -24,9 +26,11 @@ async function boot() {
     const development = await import(`/dev/${developmentKey}-api.js`);
     transport = development.createDevelopmentApi({ seed: new URLSearchParams(location.search).get('seed') });
   }
-  let storage;
-  try { storage = safeStorage(window.localStorage); } catch { storage = safeStorage(null); }
-  const store = createStore({ api: createApi({ transport }), storage, namespace: localDevelopment ? 'pal-note.local' : 'pal-note' });
+  let browserStorage = null;
+  try { browserStorage = window.localStorage; } catch { /* 保存できない端末でも画面は使える。 */ }
+  const namespace = localDevelopment ? 'pal-note.local' : 'pal-note';
+  const store = createStore({ api: createApi({ transport }), storage: safeStorage(browserStorage), namespace });
+  const drafts = createDraftStore({ store, storage: browserStorage, namespace });
   const root = document.getElementById('app');
   const banner = el('div', 'environment-banner', 'テスト環境');
   banner.hidden = true;
@@ -41,7 +45,7 @@ async function boot() {
   header.append(brand, status);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
-  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['settings', '設定', '⚙']];
+  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['settings', '設定', '⚙']];
   const tabLinks = new Map();
   for (const [view, label, symbol] of tabs) {
     const tab = link('', buildHash(view), 'nav-tab');
@@ -65,9 +69,10 @@ async function boot() {
 
   const context = {
     store,
+    drafts,
     navigate(hash) { location.hash = hash; },
     replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
-    register(initial) { return openRecordEditor(context, initial); },
+    register(initial, options) { return openRecordEditor(context, initial, options); },
     async merge(source, target, { ask = true, retry } = {}) {
       if (ask) {
         const preview = el('div', 'card-stack');
@@ -94,7 +99,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, pal: palView, settings: settingsView };
+  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, drafts: draftsView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     const panel = el('section', 'login-panel');
@@ -186,6 +191,8 @@ async function boot() {
     event.preventDefault();
     event.returnValue = true;
   });
+  // 別のタブで下書きを書き換えたら読み直す。
+  window.addEventListener('storage', (event) => drafts.reload(event.key));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refresh({ throttled: true });
   });

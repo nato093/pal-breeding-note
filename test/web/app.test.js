@@ -274,3 +274,32 @@ for (const signup of [false, true]) {
     }
   });
 }
+
+test('画面: 下書きタブで下書きを作って端末に保存し、登録すると一覧の記録に加わる', async (t) => {
+  const { values, calls, events } = await boot(t, {
+    initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' },
+    api: createDevelopmentApi({ seed: '2' }), hash: '#/drafts',
+  });
+  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.includes('下書き'));
+  assert.equal(tab.getAttribute('aria-current'), 'page');
+  assert.ok(byClass('drafts-view'));
+  const key = 'pal-note.drafts.test.架空データ';
+  await byText('＋ 下書きに登録').dispatch('click');
+  const dialog = find((node) => node.tagName === 'dialog' && node.open);
+  assert.equal(dialog.querySelector('h2').textContent, '下書きに登録');
+  dialog.querySelector('textarea').value = 'あとで確認';
+  await byText('下書きに保存').dispatch('click');
+  assert.equal(JSON.parse(values.get(key))[0].memo, 'あとで確認');
+  assert.equal(calls.filter((call) => call.action === 'create').length, 0);
+  // 別のタブで書き換わった下書きを読み直す。
+  const id = crypto.randomUUID();
+  values.set(key, JSON.stringify([{ id, parent1Id: 'Alpaca', parent2Id: 'Boar', childId: 'Deer', registrant: '架空データ', memo: '' }]));
+  events.get('storage')({ key });
+  const rows = () => descendants(document.body).filter((node) => node.className.split(' ').includes('draft-row'));
+  assert.equal(rows().length, 1);
+  await byText('登録').dispatch('click');
+  assert.equal(rows().length, 0);
+  assert.deepEqual(JSON.parse(values.get(key)), []);
+  assert.equal(calls.at(-1).action, 'create');
+  assert.ok(JSON.parse(values.get('pal-note.cache.test')).records.some((record) => record.parent1Id === 'Alpaca' && record.childId === 'Deer'));
+});

@@ -25,13 +25,13 @@ export function openDialog(title, { className = '', onClose, closeOnBackdrop = t
   return { dialog, body, footer, close };
 }
 
-export function confirmDialog(title, text, { preview, confirmText = '続ける', danger = false } = {}) {
+export function confirmDialog(title, text, { preview, confirmText = '続ける', cancelText = 'キャンセル', danger = false } = {}) {
   return new Promise((resolve) => {
     let accepted = false;
     const modal = openDialog(title, { onClose: () => resolve(accepted) });
     modal.body.append(el('p', '', text));
     if (preview) modal.body.append(preview);
-    modal.footer.append(button('キャンセル', modal.close, 'button secondary'), button(confirmText, () => {
+    modal.footer.append(button(cancelText, modal.close, 'button secondary'), button(confirmText, () => {
       accepted = true;
       modal.close();
     }, danger ? 'button danger' : 'button primary'));
