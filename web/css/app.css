@@ -248,7 +248,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .wishlist-status.ready { background: var(--accent); color: var(--accent-ink); }
 .wishlist-hint { margin-left: auto; color: var(--accent); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .draft-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; align-items: center; gap: 4px 14px; border-bottom: 1px solid var(--line); padding: 9px 0; min-width: 0; }
-.draft-row.sending { opacity: .7; }
 .draft-equation .picker > .field-label { display: none; }
 .draft-equation .picker-trigger { min-height: 46px; padding: 2px 30px 2px 6px; border-color: transparent; background: transparent; }
 .draft-equation .picker-trigger.has-selection { padding-right: 62px; }

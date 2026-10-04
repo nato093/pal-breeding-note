@@ -94,21 +94,22 @@ async function boot() {
       }
       syncInBackground(store, store.mutate('merge', {
         sourceId: source.id, targetId: target.id, expectedEtags: { source: source.etag, target: target.etag },
-      }), { notice: toast('既存の登録に統合しました'), failure: '統合できませんでした', retry });
+      }), { done: () => toast('既存の登録に統合しました'), failure: '統合できませんでした', retry });
     },
     async remove(record) {
       if (!await confirmDialog('この配合を削除しますか？', '削除後、3 秒間は元に戻せます。', {
         preview: breedingCard(record, {}, { preview: true }), confirmText: '削除', danger: true,
       })) return;
-      const deleting = store.mutate('delete', { id: record.id, expectedEtag: record.etag });
-      const notice = toast('削除しました', { action: () => {
-        // 削除前の版を渡すと、store が削除後の版に引き継いで送る。
-        syncInBackground(store, store.mutate('restore', { id: record.id, expectedEtag: record.etag }), {
-          notice: toast('元に戻しました'), failure: '元に戻せませんでした',
-          done: (restored) => { if (restored.mergedInto) toast('既存の登録に統合しました'); },
-        });
-      } });
-      syncInBackground(store, deleting, { notice, failure: '削除できませんでした' });
+      syncInBackground(store, store.mutate('delete', { id: record.id, expectedEtag: record.etag }), {
+        failure: '削除できませんでした',
+        done: () => toast('削除しました', { action: () => {
+          // 削除前の版を渡すと、store が削除後の版に引き継いで送る。
+          syncInBackground(store, store.mutate('restore', { id: record.id, expectedEtag: record.etag }), {
+            failure: '元に戻せませんでした',
+            done: (restored) => toast(restored.mergedInto ? '既存の登録に統合しました' : '元に戻しました'),
+          });
+        } }),
+      });
     },
   };
 

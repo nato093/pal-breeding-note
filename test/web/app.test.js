@@ -164,15 +164,47 @@ test('画面: 一覧の削除アイコンから確認・キャンセル・削除
   await byText('削除').dispatch('click');
   await deletion;
   assert.equal(cards().length, 1);
-  assert.ok(byText('元に戻す'));
+  // 成功の知らせ（と元に戻す）は、サーバの応答を受けてから出す。
+  assert.equal(byText('元に戻す'), undefined);
+  await flush();
+  assert.match(document.body.textContent, /削除しました/);
   await byText('元に戻す').dispatch('click');
   assert.equal(cards().length, 2);
+  assert.doesNotMatch(document.body.textContent, /元に戻しました/);
   await flush();
   assert.equal(cards().length, 2);
+  assert.match(document.body.textContent, /元に戻しました/);
   assert.deepEqual(calls.map((call) => call.action), ['snapshot', 'delete', 'restore']);
 });
 
-test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元に戻すを消して失敗だけを知らせる', async (t) => {
+test('画面: 元に戻す前に他の人が同じ配合を登録していたら、統合の知らせだけを応答後に出す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  let deleted;
+  const api = async (request) => {
+    const { passcode } = request;
+    if (request.action === 'delete') deleted = (await development({ action: 'snapshot', passcode })).records.find((record) => record.id === request.id);
+    if (request.action === 'restore') {
+      const fields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
+      const record = Object.fromEntries(fields.map((field) => [field, deleted[field]]));
+      await development({ action: 'create', passcode, opId: crypto.randomUUID(), record: { id: crypto.randomUUID(), ...record } });
+    }
+    return development(request);
+  };
+  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
+  await sortOneCardPerRecord();
+  const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
+  await byText('削除').dispatch('click');
+  await deletion;
+  await flush();
+  await byText('元に戻す').dispatch('click');
+  assert.doesNotMatch(document.body.textContent, /既存の登録に統合しました/);
+  await flush();
+  assert.match(document.body.textContent, /既存の登録に統合しました/);
+  assert.doesNotMatch(document.body.textContent, /元に戻しました/);
+  assert.deepEqual(calls.map((call) => call.action), ['snapshot', 'delete', 'restore']);
+});
+
+test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元に戻すは出さずに失敗だけを知らせる', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   const api = async (request) => request.action === 'delete' ? { ok: false, code: 'INTERNAL' } : development(request);
   const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
@@ -182,7 +214,7 @@ test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元
   await byText('削除').dispatch('click');
   await deletion;
   assert.equal(cards().length, 1);
-  assert.ok(byText('元に戻す'));
+  assert.equal(byText('元に戻す'), undefined);
   await flush();
   assert.equal(cards().length, 2);
   assert.equal(byText('元に戻す'), undefined);

@@ -107,11 +107,13 @@ function draftRow(context, draft, onRemove) {
   equation.append(pickers[0].element, el('span', 'equation-symbol', '＋'), pickers[1].element,
     el('span', 'equation-symbol arrow', '→'), pickers[2].element);
   const meta = el('div', 'card-meta');
-  const register = button('登録', () => registerDrafts(context, [current.id]), 'button primary small');
+  // 押した行はすぐ消えて次の行が詰まるため、ダブルクリックの 2 回目（detail が 2 以上）は次の行に当てない。
+  const singleClick = (action) => (event) => (event?.detail > 1 ? undefined : action());
+  const register = button('登録', singleClick(() => registerDrafts(context, [current.id])), 'button primary small');
   register.setAttribute('aria-label', 'この下書きを登録');
   const actions = el('div', 'card-actions draft-actions');
   actions.append(register, actionIcon('編集', icons.edit, () => context.register(current, { draft: true })),
-    actionIcon('削除', icons.remove, () => onRemove(current.id), 'danger-text'));
+    actionIcon('削除', icons.remove, singleClick(() => onRemove(current.id)), 'danger-text'));
   const memo = el('p', 'draft-memo');
   const message = el('p', 'draft-message');
   message.setAttribute('aria-live', 'polite');
@@ -126,14 +128,10 @@ function draftRow(context, draft, onRemove) {
       meta.replaceChildren(el('span', '', next.registrant || '登録者未指定'));
       memo.textContent = next.memo;
       memo.hidden = !next.memo;
-      register.disabled = status.sending || DRAFT_PALS.some((field) => !next[field]);
-      // 送信中は送った内容と下書きを一致させておくため、選択・編集・削除を止める。
-      equation.inert = status.sending;
-      actions.inert = status.sending;
-      row.classList.toggle('sending', status.sending);
-      message.textContent = status.sending ? '登録中…' : status.error;
-      message.classList.toggle('draft-error', !status.sending && Boolean(status.error));
-      message.hidden = !message.textContent;
+      register.disabled = DRAFT_PALS.some((field) => !next[field]);
+      message.textContent = status.error;
+      message.classList.toggle('draft-error', Boolean(status.error));
+      message.hidden = !status.error;
     },
     destroy() { pickers.forEach((picker) => picker.destroy()); },
   };
@@ -172,6 +170,8 @@ export function draftsView(context) {
   }, 'button secondary drafts-add');
   element.append(heading, toolbar, storageWarning, list, addEmpty);
   const rows = new Map();
+  // 送信中の下書きは登録済みとして隠す。端末には成功するまで残し、失敗したら理由を付けて行に戻す。
+  const visible = (key) => drafts.list(key).filter((draft) => !drafts.status(draft.id).sending);
 
   function removeOne(id) {
     const key = drafts.scope();
@@ -182,13 +182,14 @@ export function draftsView(context) {
 
   async function removeAll() {
     const key = drafts.scope();
-    const total = drafts.list(key).length;
-    if (!total) return;
-    if (!await confirmDialog('すべての下書きを削除しますか？', `${total} 件の下書きを削除します。この操作は元に戻せません。`,
+    // 確認で見せた件数の下書きだけを消す（確認の間に送信に失敗して戻った下書きは消さない）。
+    const ids = visible(key).map((draft) => draft.id);
+    if (!ids.length) return;
+    if (!await confirmDialog('すべての下書きを削除しますか？', `${ids.length} 件の下書きを削除します。この操作は元に戻せません。`,
       { confirmText: '削除', danger: true })) return;
     if (drafts.scope() !== key) return;
     // 確認の間に送信が始まった下書きは残る。
-    const removed = drafts.removeMany(drafts.list(key).map((draft) => draft.id), key);
+    const removed = drafts.removeMany(ids, key);
     if (removed) toast(`${removed} 件の下書きを削除しました`);
   }
 
@@ -203,10 +204,9 @@ export function draftsView(context) {
     addWithDialog.disabled = !ready;
     addEmpty.disabled = !ready;
     storageWarning.hidden = !drafts.saveFailed;
-    const items = drafts.list();
-    const sending = items.some((draft) => drafts.status(draft.id).sending);
+    const items = visible();
     bulkRegister.disabled = bulkRunning || !items.length;
-    bulkRemove.disabled = bulkRunning || sending || !items.length;
+    bulkRemove.disabled = bulkRunning || !items.length;
     if (dataPending(list, store.state)) {
       clearRows();
       count.textContent = '';
@@ -214,27 +214,39 @@ export function draftsView(context) {
     }
     count.textContent = `${items.length} 件の下書き`;
     const ids = new Set(items.map((draft) => draft.id));
+    const order = Array.from(list.children);
+    let lost = null;
     for (const [id, row] of rows) {
       if (ids.has(id)) continue;
+      // 操作した行（登録・削除）が消えるときは、フォーカスの移し先を並べ終えてから決める。
+      if (row.element.contains(document.activeElement)) lost = row.element;
       row.destroy();
       row.element.remove();
       rows.delete(id);
     }
     for (const draft of items) {
-      if (!rows.has(draft.id)) {
-        rows.set(draft.id, draftRow(context, draft, removeOne));
-        list.append(rows.get(draft.id).element);
-      }
+      if (!rows.has(draft.id)) rows.set(draft.id, draftRow(context, draft, removeOne));
       rows.get(draft.id).update(draft, drafts.status(draft.id));
     }
-    if (!items.length) {
-      list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに登録」から作れます。'));
-      return;
+    if (!items.length) list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに登録」から作れます。'));
+    else {
+      // 付け直すとフォーカスと開いている候補が外れるため、位置の違う行（新しい行・送信に失敗して戻った行・元に戻した行）だけを差し込む。
+      items.forEach((draft, index) => {
+        const node = rows.get(draft.id).element;
+        if (list.children[index] !== node) list.insertBefore(node, list.children[index] ?? null);
+      });
+      while (list.children.length > items.length) list.lastElementChild.remove();
     }
-    // 付け直すとフォーカスと開いている候補が外れるため、並びが変わったとき（元に戻すなど）だけ並べ直す。
-    const nodes = items.map((draft) => rows.get(draft.id).element);
-    const children = Array.from(list.children);
-    if (children.length !== nodes.length || children.some((node, index) => node !== nodes[index])) list.replaceChildren(...nodes);
+    if (lost) moveFocus(order, lost);
+  }
+
+  // キーボードの位置を見失わないよう、消えた行の次の行（なければ前の行）の最初のパル選択へ移す。
+  // 同じボタンへ移すと、Enter の長押しで次の行まで続けて登録・削除してしまう。
+  function moveFocus(order, gone) {
+    const position = order.indexOf(gone);
+    const kept = (node) => node.parentElement === list;
+    const target = order.slice(position + 1).find(kept) ?? order.slice(0, position).reverse().find(kept);
+    (target?.querySelector('.picker-trigger') ?? addEmpty).focus();
   }
 
   const unsubscribe = drafts.subscribe(update);
