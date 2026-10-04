@@ -58,11 +58,14 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     passcode: storage.get(`${namespace}.passcode`) ?? '', userId: storage.get(`${namespace}.userId`) ?? '', users: [], env: null,
     records: [], warnings: [], serverTime: '', cached: false, loading: false, syncing: false, error: '',
     index: buildIndex([], pals), graph: new Map(),
+    // サーバで確定した全件（送信待ちを重ねる前）。確定した変化だけを見たいときに使う。
+    confirmedRecords: [],
   };
   const emit = () => listeners.forEach((listener) => listener(state));
 
   function render() {
     state.records = queue.reduce((records, operation) => operation.apply(records), confirmed);
+    state.confirmedRecords = confirmed;
     state.syncing = queue.length > 0;
     state.index = buildIndex(state.records, pals);
     state.graph = buildCarrierGraph(state.index);
@@ -78,6 +81,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.syncing = false;
     state.env = null;
     state.records = [];
+    state.confirmedRecords = [];
     state.warnings = [];
     state.users = [];
     state.serverTime = '';

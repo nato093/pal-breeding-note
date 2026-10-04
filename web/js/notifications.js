@@ -20,12 +20,15 @@ export function notificationTime(date) {
 
 // どの種類の通知も、この形にそろえて通知欄に出す。
 // id: 既読の判定に使う変わらない文字列 / date: 'YYYY-MM-DD' か ISO 日時 / title・body: 表示する文
+// href: 押したときに開く画面（任意）。外部の URL や script を開かないよう、画面内のハッシュ（#/…）だけを受け付ける。
 export function cleanNotification(value) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id) return null;
   const time = notificationTime(value.date);
   const title = clip(value.title, TITLE_MAX);
   if (!Number.isFinite(time) || !title) return null;
-  return { id: value.id, date: value.date, time, title, body: clip(value.body, BODY_MAX) };
+  const notification = { id: value.id, date: value.date, time, title, body: clip(value.body, BODY_MAX) };
+  if (typeof value.href === 'string' && value.href.startsWith('#/')) notification.href = value.href;
+  return notification;
 }
 
 export const releaseNoteSource = () => releaseNotes.map((note) => ({ ...note, id: `release:${note.id}` }));
@@ -87,6 +90,8 @@ export function createNotificationStore({ store, storage, namespace = 'pal-note'
       emit();
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    // 通知の元（記録・ウィッシュリスト）が変わったら、未読の数と開いている通知を描き直させる。
+    changed: emit,
     // 別のタブで既読にしたら読み直す。
     reload(key) {
       if (cache.delete(key)) emit();

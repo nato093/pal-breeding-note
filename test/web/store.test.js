@@ -418,3 +418,24 @@ test('ログアウト: 送信待ちの操作を破棄し、遅れて届いた応
   assert.deepEqual(store.state.records, []);
   await assert.rejects(store.mutate('create', { record: { id: '新規', ...fields } }), { code: 'AUTH' });
 });
+
+test('状態: 確定データは送信待ちを含まず、応答で更新し、ログアウトで空にする', async () => {
+  let finish;
+  const created = { id: '新規', ...fields };
+  const store = createStore({ storage: memoryStorage(true), api: { request: async (action) => {
+    if (action === 'snapshot') return response([record]);
+    await new Promise((resolve) => { finish = resolve; });
+    return { ...response(), record: created, snapshot: snapshot([record, created]) };
+  } } });
+  await store.refresh();
+  assert.deepEqual(store.state.confirmedRecords, [record]);
+  const saving = store.mutate('create', inputs.create);
+  await flush();
+  assert.equal(store.state.records.length, 2);
+  assert.deepEqual(store.state.confirmedRecords, [record]);
+  finish();
+  await saving;
+  assert.deepEqual(store.state.confirmedRecords, [record, created]);
+  store.logout();
+  assert.deepEqual(store.state.confirmedRecords, []);
+});

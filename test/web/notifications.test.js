@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { installDom } from '../helpers/dom.js';
 import releaseNotes from '../../web/js/release-notes.js';
 import { TITLE_MAX, BODY_MAX, notificationTime, cleanNotification, createNotificationStore } from '../../web/js/notifications.js';
-import { notificationMenu } from '../../web/js/ui/notifications.js';
+import { notificationMenu, openNotificationList } from '../../web/js/ui/notifications.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -127,4 +127,70 @@ test('ベル: 未読の数を出し、外側を押すか Esc で閉じる', asyn
   assert.equal(menu.element.querySelector('.notification-title').tagName, 'strong');
   menu.close();
   assert.equal(menu.element.querySelector('.notification-panel'), null);
+});
+
+test('通知: 開く先は画面内のハッシュだけを残す', () => {
+  const { notifications } = setup({ sources: [() => [
+    { id: 'a', date: '2026-10-04', title: '画面内', href: '#/reverse?c=MoonQueen' },
+    { id: 'b', date: '2026-10-03', title: '外部', href: 'https://example.com/' },
+    { id: 'c', date: '2026-10-02', title: 'スクリプト', href: 'javascript:alert(1)' },
+  ]] });
+  assert.deepEqual(notifications.list().map((item) => item.href), ['#/reverse?c=MoonQueen', undefined, undefined]);
+});
+
+const linked = () => [
+  { id: 'a', date: '2026-10-04', title: '作れる', href: '#/reverse?c=MoonQueen' },
+  { id: 'b', date: '2026-10-03', title: 'お知らせ' },
+  { id: 'c', date: '2026-10-02', title: '消える通知' },
+];
+const titles = (node) => node.querySelectorAll('.notification-title').map((title) => title.textContent);
+
+test('ベル: 開いている間に元が消えた通知を外し、開く先のある通知を押すと閉じる', async (t) => {
+  const { body } = installDom(t);
+  const items = linked();
+  const { notifications } = setup({ sources: [() => items] });
+  const menu = notificationMenu(notifications);
+  body.append(menu.element);
+  await menu.element.children[0].dispatch('click');
+  const panel = menu.element.querySelector('.notification-panel');
+  assert.deepEqual(titles(panel), ['作れる', 'お知らせ', '消える通知']);
+  assert.equal(panel.querySelectorAll('.notification-link').length, 1);
+  items.pop();
+  notifications.changed();
+  assert.deepEqual(titles(panel), ['作れる', 'お知らせ']);
+  const link = panel.querySelector('.notification-link');
+  assert.equal(link.href, '#/reverse?c=MoonQueen');
+  await link.dispatch('click');
+  assert.equal(menu.element.querySelector('.notification-panel'), null);
+});
+
+test('ベル: 開いている間に通知が全部消えたら、新しい通知がないと出す', async (t) => {
+  const { body } = installDom(t);
+  const items = linked();
+  const { notifications } = setup({ sources: [() => items] });
+  const menu = notificationMenu(notifications);
+  body.append(menu.element);
+  await menu.element.children[0].dispatch('click');
+  items.length = 0;
+  notifications.changed();
+  assert.match(menu.element.querySelector('.notification-panel').textContent, /新しい通知はありません/);
+});
+
+test('通知一覧: 開いている間に元が消えた通知を外し、開く先のある通知を押すと閉じる', async (t) => {
+  installDom(t);
+  const items = linked();
+  const { notifications } = setup({ sources: [() => items] });
+  notifications.markRead(['b']);
+  const modal = openNotificationList(notifications);
+  assert.deepEqual(titles(modal.dialog), ['作れる', 'お知らせ', '消える通知']);
+  items.pop();
+  notifications.changed();
+  assert.deepEqual(titles(modal.dialog), ['作れる', 'お知らせ']);
+  // 未読の印は開いた時点のまま残す。
+  assert.equal(modal.dialog.querySelectorAll('.unread-chip').length, 1);
+  await modal.dialog.querySelector('.notification-link').dispatch('click');
+  assert.equal(modal.dialog.open, false);
+  items.pop();
+  notifications.changed();
+  assert.deepEqual(titles(modal.dialog), ['作れる', 'お知らせ']);
 });

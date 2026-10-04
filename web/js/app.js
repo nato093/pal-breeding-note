@@ -1,7 +1,8 @@
 import { createApi } from './api.js';
 import { createStore, safeStorage } from './store.js';
 import { createDraftStore } from './drafts.js';
-import { createNotificationStore } from './notifications.js';
+import { createNotificationStore, releaseNoteSource } from './notifications.js';
+import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
@@ -15,6 +16,7 @@ import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
 import { listView } from './views/list.js';
 import { draftsView } from './views/drafts.js';
+import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
 
@@ -33,7 +35,10 @@ async function boot() {
   const namespace = localDevelopment ? 'pal-note.local' : 'pal-note';
   const store = createStore({ api: createApi({ transport }), storage: safeStorage(browserStorage), namespace });
   const drafts = createDraftStore({ store, storage: browserStorage, namespace });
-  const notifications = createNotificationStore({ store, storage: browserStorage, namespace });
+  const wishlist = createWishlistStore({ store, storage: browserStorage, namespace });
+  const notifications = createNotificationStore({
+    store, storage: browserStorage, namespace, sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist })],
+  });
   const root = document.getElementById('app');
   const banner = el('div', 'environment-banner', 'テスト環境');
   banner.hidden = true;
@@ -48,7 +53,7 @@ async function boot() {
   header.append(brand, status);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
-  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['settings', '設定', '⚙']];
+  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['wishlist', 'ウィッシュリスト', '☆'], ['settings', '設定', '⚙']];
   const tabLinks = new Map();
   for (const [view, label, symbol] of tabs) {
     const tab = link('', buildHash(view), 'nav-tab');
@@ -76,6 +81,7 @@ async function boot() {
   const context = {
     store,
     drafts,
+    wishlist,
     notifications,
     navigate(hash) { location.hash = hash; },
     replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
@@ -106,7 +112,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, drafts: draftsView, pal: palView, settings: settingsView };
+  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     const panel = el('section', 'login-panel');
@@ -183,8 +189,8 @@ async function boot() {
   });
   store.subscribe((state) => {
     banner.hidden = state.env !== 'test';
-    // ログイン中の ID が変わると既読の保存先も変わる。
-    bell.update();
+    // ログイン中の ID が変わると既読の保存先が、記録が変わるとウィッシュリストの通知が変わる。
+    notifications.changed();
     status.textContent = state.loading ? '記録を更新中…' : state.error || (state.serverTime
       ? `${state.cached ? '前回取得' : '最新取得'} ${formatTime(state.serverTime)}${state.cached ? ' 時点' : ''} · ${state.records.length} 件` : '仲間だけの配合ノート');
     if (showingLogin !== (!state.passcode || !state.userId)) {
@@ -201,9 +207,11 @@ async function boot() {
     event.preventDefault();
     event.returnValue = true;
   });
-  // 別のタブで下書き・既読を書き換えたら読み直す。
+  wishlist.subscribe(notifications.changed);
+  // 別のタブで下書き・ウィッシュリスト・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {
     drafts.reload(event.key);
+    wishlist.reload(event.key);
     notifications.reload(event.key);
   });
   document.addEventListener('visibilitychange', () => {

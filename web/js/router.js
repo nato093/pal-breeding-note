@@ -1,4 +1,4 @@
-const views = new Set(['search', 'reverse', 'route', 'list', 'drafts', 'pal', 'settings']);
+const views = new Set(['search', 'reverse', 'route', 'list', 'drafts', 'wishlist', 'pal', 'settings']);
 
 export function parseHash(hash = '') {
   const [path, query = ''] = hash.replace(/^#/, '').split('?');

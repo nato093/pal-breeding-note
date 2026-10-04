@@ -112,6 +112,9 @@ img, svg { max-width: 100%; }
 .unread-chip { border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; padding: 0 6px; }
 .notification-title { font-size: 14px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 .notification-body { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.notification-link { display: flex; flex-direction: column; gap: 2px; min-width: 0; color: inherit; }
+.notification-link:hover { text-decoration: none; }
+.notification-link:hover .notification-title { color: var(--accent); }
 .notification-dialog { width: min(560px, calc(100% - 24px)); }
 .selection-panel { padding: 12px 0; margin-bottom: 12px; }
 .search-selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -234,6 +237,16 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .drafts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .drafts-toolbar .result-note { margin: 0; }
 .drafts-warning { margin: 8px 0; }
+.wishlist-explanation { color: var(--muted); font-size: 13px; }
+.wishlist-warning { margin: 8px 0; }
+.wishlist { list-style: none; margin: 0; padding: 0; }
+.wishlist-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding: 6px 0; min-width: 0; }
+.wishlist-main { display: flex; flex: 1; align-items: center; gap: 14px; min-width: 0; min-height: 64px; color: var(--ink); }
+a.wishlist-main:hover { text-decoration: none; }
+a.wishlist-main:hover .pal-tile { color: var(--accent); }
+.wishlist-status { border-radius: 6px; background: var(--surface-soft); color: var(--muted); font-size: 12px; font-weight: 700; padding: 0 8px; white-space: nowrap; }
+.wishlist-status.ready { background: var(--accent); color: var(--accent-ink); }
+.wishlist-hint { margin-left: auto; color: var(--accent); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .draft-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; align-items: center; gap: 4px 14px; border-bottom: 1px solid var(--line); padding: 9px 0; min-width: 0; }
 .draft-row.sending { opacity: .7; }
 .draft-equation .picker > .field-label { display: none; }
