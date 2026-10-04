@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildIndex, findByPair, findByChild, findByParent } from '../../web/js/core/index.js';
+import { buildIndex, findByPair, findByChild, findByParent, findConflict } from '../../web/js/core/index.js';
 
 const pals = [
   { id: 'D', no: 3, variant: false },
@@ -49,4 +49,16 @@ test('INV-1: レコード 0 件ならマスターがあっても全検索が空'
   assert.deepEqual(findByPair(index, 'A', 'B'), []);
   assert.deepEqual(findByChild(index, 'D'), []);
   assert.deepEqual(findByParent(index, 'A'), []);
+});
+
+test('findConflict: 親の順序によらず重複を優先し、別の子は確認するときだけ返す', () => {
+  const ab = record('ab', 'A', 'B', 'C');
+  const ab2 = record('ab2', 'B', 'A', 'D');
+  const index = buildIndex([ab, ab2], pals);
+  assert.deepEqual(findConflict(index, record('new', 'B', 'A', 'C')), { code: 'DUPLICATE', existing: ab });
+  assert.deepEqual(findConflict(index, record('new', 'A', 'B', 'A')), { code: 'PAIR_CONFLICT', existing: [ab, ab2] });
+  assert.equal(findConflict(index, record('new', 'A', 'B', 'A'), { checkPair: false }), null);
+  assert.deepEqual(findConflict(index, record('ab', 'A', 'B', 'C')), { code: 'PAIR_CONFLICT', existing: [ab2] });
+  assert.equal(findConflict(index, record('ab', 'A', 'B', 'C'), { checkPair: false }), null);
+  assert.equal(findConflict(index, record('new', 'A', 'C', 'C')), null);
 });

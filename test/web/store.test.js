@@ -8,6 +8,14 @@ const snapshot = (records = [], users = ['登録者']) => ({ records, users, war
 const response = (records = [], env = 'test', users) => ({ ok: true, env, api: 'v1', ...snapshot(records, users) });
 const account = (records = [], env = 'test') => ({ ...response(records, env), userId: '登録者' });
 const record = { id: '登録', parent1Id: pals[0].id, parent2Id: pals[1].id, childId: pals[2].id };
+const fields = { parent1Id: pals[3].id, parent2Id: pals[1].id, childId: pals[2].id, parent1Gender: '', parent2Gender: '', registrant: '登録者', memo: '' };
+// 画面から渡すのと同じ形の入力。
+const inputs = {
+  create: { record: { id: '新規', ...fields } }, update: { id: record.id, expectedEtag: 'e1', record: fields },
+  merge: { sourceId: record.id, targetId: '統合先', expectedEtags: { source: 'e1', target: 'e2' } },
+  delete: { id: record.id, expectedEtag: 'e1' }, restore: { id: record.id, expectedEtag: 'e1' },
+};
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 function memoryStorage(credentials = false) {
   const data = new Map(credentials ? [['pal-note.passcode', '入力'], ['pal-note.userId', '登録者']] : []);
   return safeStorage({ getItem: (key) => data.get(key), setItem: (key, value) => data.set(key, value), removeItem: (key) => data.delete(key) });
@@ -56,7 +64,7 @@ for (const action of ['create', 'update', 'merge', 'delete', 'restore']) {
         const cached = storage.get(cacheKey('test'));
         const errors = [];
         store.subscribe((state) => errors.push(state.error));
-        await assert.rejects(store.mutate(action, { id: record.id }), (caught) => caught === error);
+        await assert.rejects(store.mutate(action, inputs[action]), (caught) => caught === error);
         assert.equal(store.state.error, previousError);
         assert.ok(errors.every((message) => message === previousError));
         assert.equal(store.state.loading, false);
@@ -83,7 +91,7 @@ for (const code of ['CONNECTION', 'TIMEOUT', 'RESPONSE', 'INTERNAL', 'AUTH', 'US
     for (const action of ['snapshot', 'create', 'update', 'merge', 'delete', 'restore']) {
       const error = new ApiError(code);
       const store = createStore({ storage: memoryStorage(true), api: { request: async () => { throw error; } } });
-      await assert.rejects(action === 'snapshot' ? store.refresh() : store.mutate(action, {}), { code });
+      await assert.rejects(action === 'snapshot' ? store.refresh() : store.mutate(action, inputs[action]), { code });
       assert.equal(store.state.error, error.message);
       assert.equal(store.state.loading, false);
       if (code === 'AUTH') assert.equal(store.state.passcode, '');
@@ -176,7 +184,7 @@ for (const action of ['snapshot', 'delete']) {
   test(`認証: ${action} の users から ID が消えたらログアウトする`, async () => {
     const storage = memoryStorage(true);
     const store = createStore({ storage, api: { request: async () => ({ ...response([], 'test', []), record, snapshot: snapshot([], []) }) } });
-    await assert.rejects(action === 'snapshot' ? store.refresh() : store.mutate(action, { id: record.id }), { code: 'USER_NOT_FOUND' });
+    await assert.rejects(action === 'snapshot' ? store.refresh() : store.mutate(action, inputs[action]), { code: 'USER_NOT_FOUND' });
     assert.equal(store.state.passcode, '');
     assert.match(store.state.error, /ID が見つかりません/);
     assert.equal(storage.get('pal-note.userId'), '登録者');
@@ -260,4 +268,153 @@ test('認証: AUTH のログイン失敗でも旧端末のパスワードとキ�
   await assert.rejects(store.login('誤入力ID', '誤入力'), { code: 'AUTH' });
   assert.equal(storage.get('pal-note.passcode'), null);
   assert.equal(storage.get(cacheKey('prod')), null);
+});
+
+// 送った順に応答を返せる API。sent[i].resolve / reject で i 番目の要求に応答する。
+async function controlled(records = [{ ...record, etag: 'e1' }], now = Date.now) {
+  const sent = [];
+  const api = { request: (action, password, input) => new Promise((resolve, reject) => sent.push({ action, input, resolve, reject })) };
+  const store = createStore({ storage: memoryStorage(true), api, now });
+  const refreshing = store.refresh();
+  sent[0].resolve(response(records));
+  await refreshing;
+  return { store, sent };
+}
+const ids = (store) => store.state.records.map((item) => item.id);
+const done = (records, saved) => ({ ...response(), record: saved, snapshot: snapshot(records) });
+
+test('楽観的更新: 応答を待たずに反映し、応答の全件で置き換える', async () => {
+  const { store, sent } = await controlled(undefined, () => Date.parse('2026-10-04T01:00:00Z'));
+  const [low, high] = [pals[1].id, pals[3].id].sort();
+  const created = store.mutate('create', { record: { id: '新規', ...fields, parent1Id: high, parent2Id: low } });
+  const optimistic = store.state.records.find((item) => item.id === '新規');
+  assert.equal(optimistic.parent1Id, low);
+  assert.match(optimistic.etag, /^pending:/);
+  assert.equal(optimistic.updatedAt, '2026-10-04T01:00:00.000Z');
+  assert.equal(store.state.index.byChild.get(fields.childId).length, 2);
+  assert.equal(store.state.syncing, true);
+  assert.equal(store.state.loading, false);
+  assert.equal(sent[1].action, 'create');
+  const saved = { ...optimistic, etag: 'サーバ' };
+  sent[1].resolve(done([record, saved], saved));
+  assert.equal((await created).record, saved);
+  assert.deepEqual(store.state.records, [record, saved]);
+  assert.equal(store.state.syncing, false);
+});
+
+test('楽観的更新: 編集・削除・元に戻す・統合も応答前に反映し、1 件ずつ送る', async () => {
+  const other = { ...record, id: '統合先', childId: pals[4].id, etag: 'e2' };
+  const { store, sent } = await controlled([{ ...record, etag: 'e1' }, other]);
+  store.mutate('update', { id: record.id, expectedEtag: 'e1', record: { ...fields, memo: '書き換え' } });
+  assert.equal(store.state.records.find((item) => item.id === record.id).memo, '書き換え');
+  store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  assert.deepEqual(ids(store), ['統合先']);
+  store.mutate('restore', { id: record.id, expectedEtag: 'e1' });
+  assert.equal(store.state.records.find((item) => item.id === record.id).memo, '書き換え');
+  store.mutate('merge', { sourceId: '統合先', targetId: record.id, expectedEtags: { source: 'e2', target: 'e1' } });
+  assert.deepEqual(ids(store), [record.id]);
+  assert.deepEqual(sent.map((item) => item.action), ['snapshot', 'update']);
+});
+
+test('順番送信: 前の応答を待って送り、自分の操作で新しくなった etag を引き継ぐ', async () => {
+  const { store, sent } = await controlled();
+  const deleted = store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  const restored = store.mutate('restore', { id: record.id, expectedEtag: 'e1' });
+  assert.equal(sent.length, 2);
+  sent[1].resolve(done([], { ...record, etag: 'e2', deleted: true }));
+  await deleted;
+  await flush();
+  assert.equal(sent[2].action, 'restore');
+  assert.equal(sent[2].input.expectedEtag, 'e2');
+  assert.notEqual(sent[2].input.opId, sent[1].input.opId);
+  // 応答の全件では削除済みでも、送信中の元に戻すを重ねて表示し続ける。
+  assert.deepEqual(ids(store), [record.id]);
+  sent[2].resolve(done([{ ...record, etag: 'e3' }], { ...record, etag: 'e3' }));
+  await restored;
+  const created = store.mutate('create', { record: { id: '新規', ...fields } });
+  const pendingEtag = store.state.records.find((item) => item.id === '新規').etag;
+  const edited = store.mutate('update', { id: '新規', expectedEtag: pendingEtag, record: { ...fields, memo: '追記' } });
+  const merged = store.mutate('merge', { sourceId: record.id, targetId: '新規', expectedEtags: { source: 'e1', target: pendingEtag } });
+  await flush();
+  sent[3].resolve(done([{ ...record, etag: 'e3' }, { id: '新規', ...fields, etag: 'n1' }], { id: '新規', etag: 'n1' }));
+  await created;
+  await flush();
+  assert.equal(sent[4].input.expectedEtag, 'n1');
+  sent[4].resolve(done([{ ...record, etag: 'e3' }, { id: '新規', ...fields, etag: 'n2' }], { id: '新規', etag: 'n2' }));
+  await edited;
+  await flush();
+  assert.deepEqual(sent[5].input.expectedEtags, { source: 'e3', target: 'n2' });
+  sent[5].resolve(done([{ id: '新規', ...fields, etag: 'n3' }], { id: '新規', etag: 'n3' }));
+  await merged;
+  assert.equal(store.state.syncing, false);
+});
+
+test('etag の引き継ぎ: 冪等な応答は他の人の版を返すため引き継がない', async () => {
+  const { store, sent } = await controlled();
+  const removed = store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  const restored = store.mutate('restore', { id: record.id, expectedEtag: 'e1' });
+  const edited = store.mutate('update', { id: record.id, expectedEtag: 'e1', record: fields });
+  sent[1].reject(new ApiError('CONFLICT', { latest: { ...record, etag: 'e2' } }));
+  await assert.rejects(removed, { code: 'CONFLICT' });
+  await flush();
+  assert.equal(sent[2].action, 'restore');
+  sent[2].resolve({ ...done([{ ...record, etag: 'e2' }], { ...record, etag: 'e2' }), idempotent: true });
+  await restored;
+  await flush();
+  assert.equal(sent[3].action, 'update');
+  assert.equal(sent[3].input.expectedEtag, 'e1');
+  sent[3].reject(new ApiError('CONFLICT'));
+  await assert.rejects(edited, { code: 'CONFLICT' });
+});
+
+test('失敗: その操作だけを取り消し、登録に失敗した配合への続きの操作は送らない', async () => {
+  const { store, sent } = await controlled();
+  const created = store.mutate('create', { record: { id: '新規', ...fields } });
+  const pendingEtag = store.state.records.find((item) => item.id === '新規').etag;
+  const edited = store.mutate('update', { id: '新規', expectedEtag: pendingEtag, record: { ...fields, memo: '追記' } });
+  const removed = store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  assert.deepEqual(ids(store), ['新規']);
+  const error = new ApiError('PAIR_CONFLICT');
+  sent[1].reject(error);
+  await assert.rejects(created, (caught) => caught === error);
+  await assert.rejects(edited, { code: 'CANCELED' });
+  await flush();
+  assert.deepEqual(ids(store), []);
+  assert.deepEqual(sent.map((item) => item.action), ['snapshot', 'create', 'delete']);
+  assert.equal(store.state.syncing, true);
+  assert.equal(store.state.error, '');
+  sent[2].resolve(done([], { ...record, etag: 'e2', deleted: true }));
+  await removed;
+  assert.equal(store.state.syncing, false);
+});
+
+test('全件取得: 送信中の操作を待ってから取得し、書き込み前の全件で巻き戻さない', async () => {
+  const { store, sent } = await controlled();
+  const created = store.mutate('create', { record: { id: '新規', ...fields } });
+  const refreshing = store.refresh();
+  await flush();
+  assert.deepEqual(sent.map((item) => item.action), ['snapshot', 'create']);
+  sent[1].resolve(done([record, { id: '新規', ...fields }], { id: '新規', etag: 'n1' }));
+  await created;
+  await flush();
+  assert.equal(sent[2].action, 'snapshot');
+  sent[2].resolve(response([record, { id: '新規', ...fields }]));
+  await refreshing;
+  assert.deepEqual(ids(store), [record.id, '新規']);
+});
+
+test('ログアウト: 送信待ちの操作を破棄し、遅れて届いた応答を反映しない', async () => {
+  const { store, sent } = await controlled();
+  const first = store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  const second = store.mutate('restore', { id: record.id, expectedEtag: 'e1' });
+  store.logout();
+  await assert.rejects(second, { code: 'AUTH' });
+  assert.equal(store.state.syncing, false);
+  assert.deepEqual(store.state.records, []);
+  sent[1].resolve(done([record], { ...record, etag: 'e2', deleted: true }));
+  await assert.rejects(first, { code: 'AUTH' });
+  await flush();
+  assert.equal(sent.length, 2);
+  assert.deepEqual(store.state.records, []);
+  await assert.rejects(store.mutate('create', { record: { id: '新規', ...fields } }), { code: 'AUTH' });
 });

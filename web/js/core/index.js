@@ -52,3 +52,12 @@ export function findByChild(index, c) {
 export function findByParent(index, p) {
   return index.byParent.get(p) ?? [];
 }
+
+// サーバと同じ規則で、保存前に重複と同じ組み合わせの別の子を調べる。
+export function findConflict(index, record, { checkPair = true } = {}) {
+  const others = findByPair(index, record.parent1Id, record.parent2Id).filter((other) => other.id !== record.id);
+  const duplicate = others.find((other) => other.childId === record.childId);
+  if (duplicate) return { code: 'DUPLICATE', existing: duplicate };
+  const conflicts = checkPair ? others.filter((other) => other.childId !== record.childId) : [];
+  return conflicts.length ? { code: 'PAIR_CONFLICT', existing: conflicts } : null;
+}
