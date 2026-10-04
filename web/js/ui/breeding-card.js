@@ -7,17 +7,21 @@ export const icons = {
   remove: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
 };
 
-export function actionIcon(label, path, action, className = '') {
-  const node = button('', action, `icon-button card-action ${className}`.trim());
-  node.setAttribute('aria-label', label);
-  node.title = label;
+export function svgIcon(path) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
   const drawing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   drawing.setAttribute('d', path);
   svg.append(drawing);
-  node.append(svg);
+  return svg;
+}
+
+export function actionIcon(label, path, action, className = '') {
+  const node = button('', action, `icon-button card-action ${className}`.trim());
+  node.setAttribute('aria-label', label);
+  node.title = label;
+  node.append(svgIcon(path));
   return node;
 }
 

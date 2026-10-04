@@ -139,8 +139,8 @@ test('設定: アカウントを末尾に移し、他の順序とログイン ID
   const view = settingsView(context());
   const sections = view.element.querySelectorAll('.settings-card');
   assert.deepEqual(sections.map((node) => node.querySelector('h2').textContent), [
-    'データの状態', '記録を書き出す', '整合性の警告', 'アカウント',
+    'データの状態', '記録を書き出す', '整合性の警告', '通知', 'アカウント',
   ]);
-  assert.match(sections[3].textContent, /ログイン中の ID: 仲間.*ログアウト/);
+  assert.match(sections[4].textContent, /ログイン中の ID: 仲間.*ログアウト/);
   view.destroy();
 });

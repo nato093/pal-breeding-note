@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { FakeElement, descendants } from '../helpers/dom.js';
+import releaseNotes from '../../web/js/release-notes.js';
 
 const find = (predicate) => descendants(document.body).find(predicate);
 const byClass = (name) => find((node) => node.className.split(' ').includes(name));
@@ -62,7 +63,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
 function assertLoginOnly() {
   assert.ok(byClass('login-form'));
   assert.equal(byClass('app-footer'), undefined);
-  for (const name of ['navigation', 'register-button']) assert.equal(byClass(name).hidden, true);
+  for (const name of ['navigation', 'register-button', 'notification-menu']) assert.equal(byClass(name).hidden, true);
   assert.equal(byClass('brand').inert, true);
 }
 
@@ -100,7 +101,7 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   input('username').value = 'ＡｂＣ';
   await byText('登録してログイン').dispatch('click');
   assert.equal(byClass('login-form'), undefined);
-  for (const name of ['navigation', 'register-button']) assert.equal(byClass(name).hidden, false);
+  for (const name of ['navigation', 'register-button', 'notification-menu']) assert.equal(byClass(name).hidden, false);
   assert.equal(byClass('brand').inert, false);
   const settings = byClass('settings-view');
   assert.match(settings.textContent, /ログイン中の ID: ＡｂＣ/);
@@ -302,4 +303,40 @@ test('画面: 下書きタブで下書きを作って端末に保存し、登録
   assert.deepEqual(JSON.parse(values.get(key)), []);
   assert.equal(calls.at(-1).action, 'create');
   assert.ok(JSON.parse(values.get('pal-note.cache.test')).records.some((record) => record.parent1Id === 'Alpaca' && record.childId === 'Deer'));
+});
+
+test('画面: 右上のベルに未読の数を出し、開くと既読にして、既読も設定タブの通知一覧で見られる', async (t) => {
+  const { values, events } = await boot(t, {
+    initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }),
+  });
+  const key = 'pal-note.notifications.read.架空データ';
+  const bell = byClass('notification-button');
+  const badge = byClass('notification-badge');
+  const titles = (node) => node.querySelectorAll('.notification-title').map((title) => title.textContent);
+  assert.equal(badge.hidden, false);
+  assert.equal(badge.textContent, String(releaseNotes.length));
+  assert.equal(bell.getAttribute('aria-label'), `通知（未読 ${releaseNotes.length} 件）`);
+  await bell.dispatch('click');
+  assert.equal(bell.getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(titles(byClass('notification-panel')), releaseNotes.map((note) => note.title));
+  assert.equal(badge.hidden, true);
+  assert.equal(bell.getAttribute('aria-label'), '通知');
+  assert.equal(JSON.parse(values.get(key)).length, releaseNotes.length);
+  await bell.dispatch('click');
+  assert.equal(byClass('notification-panel'), undefined);
+  assert.equal(bell.getAttribute('aria-expanded'), 'false');
+  await bell.dispatch('click');
+  assert.match(byClass('notification-panel').textContent, /新しい通知はありません/);
+  await bell.dispatch('click');
+  // 別のタブで既読が書き換わったら読み直す。
+  values.set(key, JSON.stringify([`release:${releaseNotes[0].id}`]));
+  events.get('storage')({ key });
+  assert.equal(badge.textContent, String(releaseNotes.length - 1));
+  await byText('通知一覧').dispatch('click');
+  const dialog = find((node) => node.tagName === 'dialog' && node.open);
+  assert.deepEqual(titles(dialog), releaseNotes.map((note) => note.title));
+  assert.equal(dialog.querySelectorAll('.unread-chip').length, releaseNotes.length - 1);
+  assert.equal(badge.hidden, true);
+  await byText('閉じる').dispatch('click');
+  assert.equal(dialog.open, false);
 });

@@ -2,6 +2,7 @@ import { el, button, link, formatTime, runButton } from '../ui/dom.js';
 import { palsById } from '../ui/pal-icon.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/dialog.js';
+import { openNotificationList } from '../ui/notifications.js';
 import { toCsv } from '../core/csv.js';
 import { identityKey } from '../core/pair.js';
 import { viewHeading, watchView } from './shared.js';
@@ -51,7 +52,10 @@ export function settingsView(context) {
   const warnings = el('section', 'settings-card');
   const warningList = el('div', 'warning-list');
   warnings.append(el('h2', '', '整合性の警告'), warningList);
-  element.append(connection, backup, warnings, access);
+  const notices = el('section', 'settings-card');
+  notices.append(el('h2', '', '通知'), el('p', 'muted', '既読になったものも含めて、これまでの通知を確認できます。'),
+    button('通知一覧', () => openNotificationList(context.notifications), 'button secondary'));
+  element.append(connection, backup, warnings, notices, access);
   return watchView(store, element, (state) => {
     accountId.textContent = `ログイン中の ID: ${state.userId}`;
     env.textContent = `環境: ${state.env === 'test' ? 'テスト' : state.env === 'prod' ? '本番' : '確認中'}`;

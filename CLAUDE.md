@@ -10,3 +10,12 @@
 - Codex を使う前に目的を説明して許可を得るルールは、グローバルのとおり維持する
 
 > 変更記録（2026-10-04）: ユーザー指示により oracle 優先 → Codex 優先へ変更し、実装の Codex 依頼も可とした。影響: このプロジェクトでは Codex の 5h/1w 枠の消費が増える。
+
+## 更新内容の通知
+
+- 機能を追加・変更したら、`web/js/release-notes.js` の先頭に通知を 1 件足す（右上のベルの通知欄と、設定タブの「通知一覧」に出る）
+- 内容は通知欄に収まるよう簡潔に書く。**title は 20 字以内・body は 60 字以内**（上限は `web/js/notifications.js` の `TITLE_MAX`・`BODY_MAX`。超えると `npm test` が失敗する）
+- `id` は既読の判定に使うため、一度出したら変えない
+- 更新内容以外の種類の通知を作るときは、`createNotificationStore` の `sources` に通知の配列を返す関数を足す（通知の形は `web/js/notifications.js` の `cleanNotification` を参照）
+
+> 変更記録（2026-10-04）: ユーザー指示により通知機能の追加に合わせて新設。影響: 機能追加のたびに `release-notes.js` への追記が必要になる。
