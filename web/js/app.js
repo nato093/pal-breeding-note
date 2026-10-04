@@ -1,6 +1,7 @@
 import { createApi } from './api.js';
 import { createStore, safeStorage } from './store.js';
 import { createDraftStore } from './drafts.js';
+import { createNotificationStore } from './notifications.js';
 import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
@@ -8,6 +9,7 @@ import { syncInBackground } from './ui/sync.js';
 import { confirmDialog, closeDialogs } from './ui/dialog.js';
 import { breedingCard } from './ui/breeding-card.js';
 import { openRecordEditor } from './ui/record-editor.js';
+import { notificationMenu } from './ui/notifications.js';
 import { searchView } from './views/search.js';
 import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
@@ -31,6 +33,7 @@ async function boot() {
   const namespace = localDevelopment ? 'pal-note.local' : 'pal-note';
   const store = createStore({ api: createApi({ transport }), storage: safeStorage(browserStorage), namespace });
   const drafts = createDraftStore({ store, storage: browserStorage, namespace });
+  const notifications = createNotificationStore({ store, storage: browserStorage, namespace });
   const root = document.getElementById('app');
   const banner = el('div', 'environment-banner', 'テスト環境');
   banner.hidden = true;
@@ -62,7 +65,10 @@ async function boot() {
     context.register();
   }, 'register-button');
   register.setAttribute('aria-label', '配合を登録');
-  root.append(skip, banner, header, nav, main, register);
+  const bell = notificationMenu(notifications);
+  const actions = el('div', 'header-actions');
+  actions.append(bell.element, register);
+  root.append(skip, banner, header, nav, main, actions);
   let route;
   let currentView;
   let showingLogin = false;
@@ -70,6 +76,7 @@ async function boot() {
   const context = {
     store,
     drafts,
+    notifications,
     navigate(hash) { location.hash = hash; },
     replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
     register(initial, options) { return openRecordEditor(context, initial, options); },
@@ -154,7 +161,8 @@ async function boot() {
     brand.inert = showingLogin;
     nav.hidden = showingLogin;
     register.hidden = showingLogin;
-    if (showingLogin) { loginView(); return; }
+    bell.element.hidden = showingLogin;
+    if (showingLogin) { bell.close(); loginView(); return; }
     for (const [view, tab] of tabLinks) {
       const active = route.view === view;
       tab.classList.toggle('active', active);
@@ -175,6 +183,8 @@ async function boot() {
   });
   store.subscribe((state) => {
     banner.hidden = state.env !== 'test';
+    // ログイン中の ID が変わると既読の保存先も変わる。
+    bell.update();
     status.textContent = state.loading ? '記録を更新中…' : state.error || (state.serverTime
       ? `${state.cached ? '前回取得' : '最新取得'} ${formatTime(state.serverTime)}${state.cached ? ' 時点' : ''} · ${state.records.length} 件` : '仲間だけの配合ノート');
     if (showingLogin !== (!state.passcode || !state.userId)) {
@@ -191,8 +201,11 @@ async function boot() {
     event.preventDefault();
     event.returnValue = true;
   });
-  // 別のタブで下書きを書き換えたら読み直す。
-  window.addEventListener('storage', (event) => drafts.reload(event.key));
+  // 別のタブで下書き・既読を書き換えたら読み直す。
+  window.addEventListener('storage', (event) => {
+    drafts.reload(event.key);
+    notifications.reload(event.key);
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refresh({ throttled: true });
   });
