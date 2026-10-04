@@ -7,6 +7,7 @@ const find = (predicate) => descendants(document.body).find(predicate);
 const byClass = (name) => find((node) => node.className.split(' ').includes(name));
 const byText = (text) => find((node) => node.tagName === 'button' && node.textContent === text);
 const input = (autocomplete) => find((node) => node.autocomplete === autocomplete);
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 let imports = 0;
 
 async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings' } = {}) {
@@ -49,7 +50,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   };
   await import(`../../web/js/app.js?case=${++imports}`);
   assert.equal(byClass('startup-error'), undefined);
-  return { values, calls, replacements, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
+  return { values, calls, replacements, events, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
 }
 
 function assertLoginOnly() {
@@ -157,7 +158,56 @@ test('画面: 一覧の削除アイコンから確認・キャンセル・削除
   assert.ok(byText('元に戻す'));
   await byText('元に戻す').dispatch('click');
   assert.equal(cards().length, 2);
+  await flush();
+  assert.equal(cards().length, 2);
   assert.deepEqual(calls.map((call) => call.action), ['snapshot', 'delete', 'restore']);
+});
+
+test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元に戻すを消して失敗だけを知らせる', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const api = async (request) => request.action === 'delete' ? { ok: false, code: 'INTERNAL' } : development(request);
+  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
+  const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
+  const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
+  await byText('削除').dispatch('click');
+  await deletion;
+  assert.equal(cards().length, 1);
+  assert.ok(byText('元に戻す'));
+  await flush();
+  assert.equal(cards().length, 2);
+  assert.equal(byText('元に戻す'), undefined);
+  assert.doesNotMatch(document.body.textContent, /削除しました/);
+  assert.match(document.body.textContent, /削除できませんでした。サーバでエラーが発生しました/);
+  assert.deepEqual(calls.map((call) => call.action), ['snapshot', 'delete', 'snapshot']);
+});
+
+test('画面: 削除は応答前に一覧から消し、送信待ちの間だけページを閉じる前に確認する', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  let release;
+  const api = async (request) => {
+    if (request.action === 'delete') await new Promise((resolve) => { release = resolve; });
+    return development(request);
+  };
+  const { events } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
+  const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
+  const leave = () => {
+    const event = { prevented: false, preventDefault() { this.prevented = true; } };
+    events.get('beforeunload')(event);
+    return event;
+  };
+  assert.equal(leave().prevented, false);
+  const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
+  await byText('削除').dispatch('click');
+  await deletion;
+  assert.equal(cards().length, 1);
+  const event = leave();
+  assert.equal(event.prevented, true);
+  assert.equal(event.returnValue, true);
+  await flush();
+  release();
+  await flush();
+  assert.equal(cards().length, 1);
+  assert.equal(leave().prevented, false);
 });
 
 for (const [hash, next, label] of [

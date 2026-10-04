@@ -5,17 +5,22 @@ import { openRecordEditor } from '../../web/js/ui/record-editor.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, ApiError } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
+import { toast } from '../../web/js/ui/toast.js';
 
 const initial = { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen' };
 const buttonNamed = (node, text) => descendants(node).find((child) => child.tagName === 'button' && child.textContent === text);
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 async function setup(t, { records = [], mutate } = {}) {
   const { body, events, windowEvents } = installDom(t);
-  const api = createApi({ transport: createDevelopmentApi() });
+  const development = createDevelopmentApi();
+  let held = null;
+  let serve = (request) => development(request);
+  const api = createApi({ transport: async (request) => { await held; return serve(request, development); } });
   const store = createStore({ api, storage: safeStorage(null) });
   await store.signup('自分', '画面試験用の入力');
   await api.request('signup', '画面試験用の入力', { userId: '仲間' });
-  for (const record of records) await store.mutate('create', { record: { id: crypto.randomUUID(), ...record } });
+  for (const record of records) await store.mutate('create', { record: { id: crypto.randomUUID(), ...record }, allowDifferentChild: true });
   await store.refresh();
   const calls = [];
   const originalMutate = store.mutate;
@@ -24,8 +29,17 @@ async function setup(t, { records = [], mutate } = {}) {
     return mutate ? mutate(action, payload) : originalMutate(action, payload);
   };
   const merges = [];
-  const context = { store, async merge(...args) { merges.push(args); } };
-  return { body, events, windowEvents, store, calls, merges, context };
+  const context = { store, async merge(...args) { merges.push(args); }, register: (initial) => openRecordEditor(context, initial) };
+  return {
+    body, events, windowEvents, store, api, calls, merges, context,
+    // 以降のサーバ応答を止め、返した関数で再開する。
+    hold() {
+      let release;
+      held = new Promise((resolve) => { release = resolve; });
+      return () => { held = null; release(); };
+    },
+    serve(next) { serve = next; },
+  };
 }
 
 async function selectPal(modal, index, query) {
@@ -185,28 +199,52 @@ test('登録画面: 未選択から始まり、登録者とメモを常時表示
   assert.equal(modal.dialog.open, false);
 });
 
-for (const serverValidation of [false, true]) {
-  test(`登録画面: ${serverValidation ? 'サーバーの登録者' : 'メモの文字数'}エラーでも入力欄と入力内容を保つ`, async (t) => {
-    const { context, calls } = await setup(t, { mutate: serverValidation ? () => {
-      throw new ApiError('VALIDATION', { errors: [{ field: 'registrant', code: 'TOO_LONG' }] });
-    } : undefined });
-    const modal = openRecordEditor(context, initial);
-    const registrant = modal.body.querySelector('select');
-    const memo = modal.body.querySelector('textarea');
-    registrant.value = '仲間';
-    memo.value = serverValidation ? '入力したメモ' : 'あ'.repeat(201);
-    await buttonNamed(modal.footer, '登録').dispatch('click');
-    assert.equal(calls.length, serverValidation ? 1 : 0);
-    assert.equal(modal.dialog.open, true);
-    assert.equal(modal.body.querySelector('details'), null);
-    assert.equal(modal.body.querySelector('select'), registrant);
-    assert.equal(modal.body.querySelector('textarea'), memo);
-    assert.equal(registrant.value, '仲間');
-    assert.equal(memo.value, serverValidation ? '入力したメモ' : 'あ'.repeat(201));
-    assert.match(modal.body.querySelector('.form-errors').textContent, serverValidation ? /登録者:.*上限/ : /メモ:.*上限/);
-    await modal.close();
-  });
-}
+test('登録画面: メモの文字数エラーでも入力欄と入力内容を保つ', async (t) => {
+  const { context, calls } = await setup(t);
+  const modal = openRecordEditor(context, initial);
+  const registrant = modal.body.querySelector('select');
+  const memo = modal.body.querySelector('textarea');
+  registrant.value = '仲間';
+  memo.value = 'あ'.repeat(201);
+  await buttonNamed(modal.footer, '登録').dispatch('click');
+  assert.equal(calls.length, 0);
+  assert.equal(modal.dialog.open, true);
+  assert.equal(modal.body.querySelector('details'), null);
+  assert.equal(modal.body.querySelector('select'), registrant);
+  assert.equal(modal.body.querySelector('textarea'), memo);
+  assert.equal(registrant.value, '仲間');
+  assert.equal(memo.value, 'あ'.repeat(201));
+  assert.match(modal.body.querySelector('.form-errors').textContent, /メモ:.*上限/);
+  await modal.close();
+});
+
+test('登録画面: サーバに断られたら登録を取り消し、「入力し直す」で入力内容のまま開き直す', async (t) => {
+  const { context, store, body, hold, serve } = await setup(t);
+  serve((request, next) => request.action === 'create'
+    ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
+  const release = hold();
+  const modal = openRecordEditor(context, initial);
+  modal.body.querySelector('select').value = '仲間';
+  modal.body.querySelector('textarea').value = '入力したメモ';
+  await buttonNamed(modal.footer, '登録').dispatch('click');
+  assert.equal(modal.dialog.open, false);
+  assert.equal(store.state.records.length, 1);
+  assert.match(body.textContent, /配合を登録しました/);
+  release();
+  await flush();
+  assert.equal(store.state.records.length, 0);
+  // 成功の知らせは消し、失敗の知らせだけを残す。
+  assert.doesNotMatch(body.textContent, /配合を登録しました/);
+  assert.match(body.textContent, /配合を登録できませんでした。入力内容を確認してください。/);
+  await buttonNamed(body, '入力し直す').dispatch('click');
+  const reopened = body.querySelector('dialog');
+  assert.equal(reopened.open, true);
+  assert.deepEqual(reopened.querySelectorAll('.picker-trigger').map((node) => node.textContent.match(/モコロン|フラリーナ|セレムーン/)?.[0]),
+    ['モコロン', 'フラリーナ', 'セレムーン']);
+  assert.equal(reopened.querySelector('select').value, '仲間');
+  assert.equal(reopened.querySelector('textarea').value, '入力したメモ');
+  await reopened.close();
+});
 
 test('登録画面: 続けて登録は親1・登録者を保ち、残りを消し、別 ID で次を登録する', async (t) => {
   const { context, calls, body } = await setup(t);
@@ -238,24 +276,25 @@ test('登録画面: 続けて登録は親1・登録者を保ち、残りを消�
   assert.equal(calls[1].payload.record.registrant, '仲間');
 });
 
-test('登録画面: 保存中は両ボタンと Enter の二重送信を防ぐ', async (t) => {
-  let finish;
-  const { context, calls } = await setup(t, { mutate: () => new Promise((resolve) => { finish = resolve; }) });
+test('登録画面: 保存はサーバの応答を待たずに閉じ、登録済みの配合にすぐ反映する', async (t) => {
+  const { context, store, calls, hold } = await setup(t);
+  const release = hold();
   const modal = openRecordEditor(context, initial);
-  const continuous = buttonNamed(modal.footer, '続けて登録');
-  const submit = buttonNamed(modal.footer, '登録');
-  const saving = continuous.dispatch('click');
-  assert.equal(submit.disabled, true);
-  assert.equal(continuous.disabled, true);
-  await submit.dispatch('click');
-  await continuous.dispatch('click');
-  await modal.body.querySelector('form').dispatch('submit');
-  assert.equal(calls.length, 1);
-  finish({});
-  await saving;
-  assert.equal(submit.disabled, false);
-  assert.equal(continuous.disabled, false);
-  await modal.close();
+  await buttonNamed(modal.footer, '続けて登録').dispatch('click');
+  assert.equal(modal.dialog.open, true);
+  assert.equal(store.state.records.length, 1);
+  assert.equal(store.state.syncing, true);
+  await selectPal(modal, 1, 'ツッパニャン');
+  await selectPal(modal, 2, 'セレムーン');
+  await buttonNamed(modal.footer, '登録').dispatch('click');
+  assert.equal(modal.dialog.open, false);
+  assert.equal(store.state.records.length, 2);
+  assert.equal(calls.length, 2);
+  release();
+  await flush();
+  assert.equal(store.state.syncing, false);
+  assert.equal(store.state.records.length, 2);
+  assert.ok(store.state.records.every((record) => !record.etag.startsWith('pending:')));
 });
 
 test('登録画面: 新規の重複はフォーム内に表示し、閉じずに入力を残す', async (t) => {
@@ -268,7 +307,7 @@ test('登録画面: 新規の重複はフォーム内に表示し、閉じずに
   assert.equal(modal.dialog.open, true);
   assert.equal(body.querySelectorAll('dialog').length, 1);
   assert.equal(modal.body.querySelector('.form-errors').textContent, '同じ配合がすでに登録されています。');
-  assert.deepEqual(calls.map((call) => call.action), ['create']);
+  assert.deepEqual(calls, []);
   assert.match(modal.body.querySelectorAll('.picker-trigger')[2].textContent, /セレムーン/);
   await modal.close();
 });
@@ -316,22 +355,41 @@ test('登録画面: × で親を解除すると未選択に戻り、保存時に
   await modal.close();
 });
 
-test('登録画面: 編集の重複は確認回数の文言なしで統合を提案する', async (t) => {
-  const { context, store, merges, body } = await setup(t, { records: [initial], mutate: () => {
-    throw new ApiError('DUPLICATE', { existing: store.state.records[0] });
-  } });
-  const original = store.state.records[0];
+test('登録画面: 編集の重複は確認回数の文言なしで統合を提案し、閉じてから統合して知らせを残す', async (t) => {
+  const { context, store, body, calls } = await setup(t, { records: [initial, { ...initial, childId: 'CatMage' }] });
+  const merges = [];
+  context.merge = async (...args) => { merges.push(args); toast('統合の知らせ'); };
+  const existing = store.state.records.find((record) => record.childId === initial.childId);
+  const original = store.state.records.find((record) => record.childId === 'CatMage');
   const modal = openRecordEditor(context, original);
+  await selectPal(modal, 2, 'セレムーン');
+  modal.body.querySelector('textarea').value = '統合前の入力';
   const saving = buttonNamed(modal.footer, '変更を保存').dispatch('click');
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   const confirm = body.querySelectorAll('dialog')[1];
   assert.ok(confirm);
   assert.match(confirm.textContent, /編集中の登録を既存の登録に統合/);
   assert.doesNotMatch(confirm.textContent, /確認回数|\+1/);
   await buttonNamed(confirm, '統合').dispatch('click');
   await saving;
-  assert.deepEqual(merges[0], [original, original, { ask: false }]);
+  const [source, target, options] = merges[0];
+  assert.deepEqual([source, target, options.ask], [original, existing, false]);
+  assert.deepEqual(calls, []);
   assert.equal(modal.dialog.open, false);
+  assert.match(body.textContent, /統合の知らせ/);
+  // 裏で送った統合が失敗したら、入力し直しで開く。競合時は応答の最新の内容を使う。
+  // 登録が消えていたら（NOT_FOUND）、入力内容を新しい登録として開く。
+  for (const [error, title, child, memo] of [
+    [new ApiError('INTERNAL'), '配合を編集', /セレムーン/, '統合前の入力'],
+    [new ApiError('NOT_FOUND'), '見つけた配合を登録', /セレムーン/, '統合前の入力'],
+    [new ApiError('CONFLICT', { latest: { source: { ...original, memo: '他の人のメモ' }, target: existing } }), '配合を編集', /クレメーオ/, '他の人のメモ'],
+  ]) {
+    const reopened = options.retry(error);
+    assert.equal(reopened.dialog.querySelector('h2').textContent, title);
+    assert.match(reopened.body.querySelectorAll('.picker-trigger')[2].textContent, child);
+    assert.equal(reopened.body.querySelector('textarea').value, memo);
+    await reopened.close();
+  }
 });
 
 test('登録画面: 別の子の確認を承認すると連続登録のまま保存する', async (t) => {
@@ -345,26 +403,41 @@ test('登録画面: 別の子の確認を承認すると連続登録のまま保
   await buttonNamed(confirm, '別の結果として保存').dispatch('click');
   await saving;
   assert.equal(modal.dialog.open, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].payload.allowDifferentChild, true);
-  assert.equal(calls[0].payload.record.id, calls[1].payload.record.id);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].payload.allowDifferentChild, true);
   assert.equal(store.state.records.length, 2);
   await modal.close();
 });
 
-test('登録画面: 競合の読み直しで最新の登録者と性別を保持する', async (t) => {
-  const { context, body, calls, store } = await setup(t, { records: [{ ...initial, registrant: '古い登録者', parent1Gender: 'M' }] });
+test('登録画面: 他の人の更新と競合したら元に戻し、全件取得を待たずに「入力し直す」で最新の内容を開く', async (t) => {
+  const { context, body, calls, store, api, hold } = await setup(t, { records: [{ ...initial, registrant: '古い登録者', parent1Gender: 'M' }] });
   const original = store.state.records[0];
-  const modal = openRecordEditor(context, { ...original, etag: '古い値' });
-  const saving = buttonNamed(modal.footer, '変更を保存').dispatch('click');
-  await new Promise((resolve) => setImmediate(resolve));
-  const confirm = body.querySelectorAll('dialog')[1];
-  await buttonNamed(confirm, '最新の内容を読み込む').dispatch('click');
-  await saving;
-  assert.equal(modal.body.querySelector('select').value, '古い登録者');
-  modal.body.querySelector('textarea').value = '再編集';
+  // 他の人が登録者とメモを変更する。この端末の全件はまだ古い。
+  const { record: latest } = await api.request('update', '画面試験用の入力', {
+    opId: crypto.randomUUID(), id: original.id, expectedEtag: original.etag,
+    record: { ...initial, parent1Gender: 'M', parent2Gender: '', registrant: '仲間', memo: '他の人のメモ' },
+  });
+  const modal = openRecordEditor(context, original);
+  modal.body.querySelector('textarea').value = '競合した入力';
   await buttonNamed(modal.footer, '変更を保存').dispatch('click');
-  assert.equal(calls[1].payload.expectedEtag, original.etag);
+  assert.equal(modal.dialog.open, false);
+  assert.equal(store.state.records[0].memo, '競合した入力');
+  const release = hold();
+  await flush();
+  assert.equal(store.state.records[0].memo, '');
+  assert.equal(store.state.records[0].etag, original.etag);
+  assert.match(body.textContent, /変更を保存できませんでした。他の人が先に更新しました/);
+  await buttonNamed(body, '入力し直す').dispatch('click');
+  const reopened = body.querySelector('dialog');
+  assert.equal(reopened.querySelector('select').value, '仲間');
+  assert.equal(reopened.querySelector('textarea').value, '他の人のメモ');
+  reopened.querySelector('textarea').value = '再編集';
+  await buttonNamed(reopened, '変更を保存').dispatch('click');
+  assert.equal(calls[1].payload.expectedEtag, latest.etag);
   assert.equal(calls[1].payload.record.parent1Gender, original.parent1Gender);
   assert.equal(calls[1].payload.record.parent2Gender, original.parent2Gender);
+  release();
+  await flush();
+  assert.equal(store.state.records[0].memo, '再編集');
+  assert.equal(store.state.syncing, false);
 });

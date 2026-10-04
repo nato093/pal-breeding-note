@@ -4,7 +4,9 @@ import { palPicker } from './pal-picker.js';
 import { breedingCard } from './breeding-card.js';
 import { palsById } from './pal-icon.js';
 import { toast } from './toast.js';
-import { findByPair } from '../core/index.js';
+import { syncInBackground } from './sync.js';
+import { findByPair, findConflict } from '../core/index.js';
+import { identityKey } from '../core/pair.js';
 import { validateRecordInput } from '../core/validate.js';
 
 const fieldNames = {
@@ -17,9 +19,21 @@ const validationMessages = {
   INVALID_UUID: '識別情報が正しくありません。画面を開き直してください。',
 };
 
+// 裏で送った保存が失敗したら、入力内容で開き直す。他の人の更新と競合したときは最新の内容で開く。
+function reopen(context, original, input, error) {
+  // 登録が消えていたら（他の人の削除や、元に戻した登録の統合）、入力内容を新しい登録として開く。
+  if (!original || error.code === 'NOT_FOUND') return context.register(input);
+  const conflict = error.code === 'CONFLICT';
+  // 競合時は全件取得の完了を待たず、サーバが返した最新の内容を使う（統合の競合は元の登録の分）。
+  const latest = (conflict && [error.response?.latest, error.response?.latest?.source].find((record) => record?.id === original.id))
+    || context.store.state.records.find((record) => record.id === original.id);
+  if (!latest) return context.register(input);
+  return context.register(conflict ? latest : { ...latest, ...input });
+}
+
 export function openRecordEditor(context, initial = {}) {
   const { store } = context;
-  let original = initial.id ? initial : null;
+  const original = initial.id ? initial : null;
   let createId = crypto.randomUUID();
   const pickers = [];
   let unsubscribe = () => {};
@@ -47,7 +61,7 @@ export function openRecordEditor(context, initial = {}) {
     }
     registrant.value = value;
   }
-  setRegistrant(original ? original.registrant ?? '' : store.state.userId);
+  setRegistrant(original ? original.registrant ?? '' : initial.registrant ?? store.state.userId);
   const memo = el('textarea');
   memo.maxLength = 200;
   memo.rows = 3;
@@ -100,66 +114,55 @@ export function openRecordEditor(context, initial = {}) {
   }
 
   async function send(input, keepOpen, allowDifferentChild = false) {
-    const action = original ? 'update' : 'create';
+    // 確認が要る重複と別の子は、閉じる前に手元の登録で判定する。
+    const identityChanged = !original || identityKey(input) !== identityKey(original);
+    const conflict = findConflict(store.state.index, { id: original?.id ?? createId, ...input },
+      { checkPair: identityChanged && !allowDifferentChild });
+    if (conflict?.code === 'PAIR_CONFLICT') {
+      const preview = el('div', 'card-stack');
+      for (const record of conflict.existing) preview.append(breedingCard(record, {}, { preview: true }));
+      const accepted = await confirmDialog('別の結果として登録しますか？',
+        '本当に結果が違う場合だけ登録してください。',
+        { preview, confirmText: '別の結果として保存' });
+      if (accepted) await send(input, keepOpen, true);
+      return;
+    }
+    if (conflict?.code === 'DUPLICATE') {
+      if (!original) { errors.replaceChildren(el('p', '', '同じ配合がすでに登録されています。')); return; }
+      const accepted = await confirmDialog('同じ配合が登録済みです', '編集中の登録を既存の登録に統合しますか？', {
+        preview: breedingCard(conflict.existing, {}, { preview: true }), confirmText: '統合',
+      });
+      if (!accepted) return;
+      // 統合の知らせが編集画面と一緒に消えないよう、先に閉じる。
+      modal.close();
+      await context.merge(original, conflict.existing, { ask: false, retry: (error) => reopen(context, original, input, error) });
+      return;
+    }
     const payload = original
       ? { id: original.id, expectedEtag: original.etag, record: input }
       : { record: { id: createId, ...input } };
     if (allowDifferentChild) payload.allowDifferentChild = true;
-    try {
-      await store.mutate(action, payload);
-      if (!original && keepOpen) {
-        createId = crypto.randomUUID();
-        pickers[0].setValue(input.parent1Id);
-        pickers[1].setValue('');
-        pickers[2].setValue('');
-        setRegistrant(input.registrant);
-        memo.value = '';
-        errors.replaceChildren();
-        renderWarnings();
-        toast('配合を登録しました。続けて登録できます');
-        pickers[1].element.querySelector('button').focus();
-      } else {
-        modal.close();
-        toast(original ? '変更を保存しました' : '配合を登録しました');
-      }
-    } catch (error) {
-      const response = error.response ?? {};
-      if (error.code === 'VALIDATION') { showErrors(response.errors ?? []); return; }
-      if (error.code === 'PAIR_CONFLICT') {
-        const preview = el('div', 'card-stack');
-        for (const record of response.existing ?? []) preview.append(breedingCard(record, {}, { preview: true }));
-        const accepted = await confirmDialog('別の結果として登録しますか？',
-          '本当に結果が違う場合だけ登録してください。',
-          { preview, confirmText: '別の結果として保存' });
-        if (accepted) await send(input, keepOpen, true);
-        return;
-      }
-      if (error.code === 'DUPLICATE') {
-        if (!original) { errors.replaceChildren(el('p', '', '同じ配合がすでに登録されています。')); return; }
-        const accepted = await confirmDialog('同じ配合が登録済みです', '編集中の登録を既存の登録に統合しますか？', {
-          preview: breedingCard(response.existing, {}, { preview: true }), confirmText: '統合',
-        });
-        if (!accepted) return;
-        await context.merge(original, response.existing, { ask: false });
-        modal.close();
-        return;
-      }
-      if (error.code === 'CONFLICT') {
-        await confirmDialog('他の人が先に更新しました', '最新の内容を読み込みます。入力内容を確認して、もう一度保存してください。', {
-          preview: response.latest ? breedingCard(response.latest, {}, { preview: true }) : null, confirmText: '最新の内容を読み込む',
-        });
-        await store.refresh();
-        const latest = store.state.records.find((record) => record.id === original?.id);
-        if (!latest) { modal.close(); toast('この登録は見つかりません'); return; }
-        original = latest;
-        pickers.forEach((picker, index) => picker.setValue(latest[['parent1Id', 'parent2Id', 'childId'][index]]));
-        setRegistrant(latest.registrant ?? '');
-        memo.value = latest.memo;
-        renderWarnings();
-        return;
-      }
-      throw error;
+    const pending = store.mutate(original ? 'update' : 'create', payload);
+    let notice;
+    if (!original && keepOpen) {
+      createId = crypto.randomUUID();
+      pickers[0].setValue(input.parent1Id);
+      pickers[1].setValue('');
+      pickers[2].setValue('');
+      setRegistrant(input.registrant);
+      memo.value = '';
+      errors.replaceChildren();
+      renderWarnings();
+      notice = toast('配合を登録しました。続けて登録できます');
+      pickers[1].element.querySelector('button').focus();
+    } else {
+      modal.close();
+      notice = toast(original ? '変更を保存しました' : '配合を登録しました');
     }
+    syncInBackground(store, pending, {
+      notice, failure: original ? '変更を保存できませんでした' : '配合を登録できませんでした',
+      retry: (error) => reopen(context, original, input, error),
+    });
   }
 
   async function save(keepOpen = false) {

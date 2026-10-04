@@ -1,7 +1,7 @@
 import { el, button } from './dom.js';
 
 let region;
-export function toast(message, { action, actionLabel = '元に戻す', duration = 5000 } = {}) {
+export function toast(message, { action, actionLabel = '元に戻す', duration = 3000 } = {}) {
   const host = [...document.querySelectorAll('dialog[open]')].at(-1) ?? document.body;
   if (!region?.isConnected || region.parentElement !== host) {
     region = el('div', 'toast-region');

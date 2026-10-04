@@ -3,6 +3,7 @@ import { createStore, safeStorage } from './store.js';
 import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
+import { syncInBackground } from './ui/sync.js';
 import { confirmDialog, closeDialogs } from './ui/dialog.js';
 import { breedingCard } from './ui/breeding-card.js';
 import { openRecordEditor } from './ui/record-editor.js';
@@ -62,45 +63,34 @@ async function boot() {
   let currentView;
   let showingLogin = false;
 
-  async function mutation(action, input) {
-    try { return await store.mutate(action, input); } catch (error) {
-      if (error.code === 'CONFLICT') {
-        const latest = error.response.latest;
-        const preview = el('div', 'card-stack');
-        for (const record of latest?.id ? [latest] : Object.values(latest ?? {})) {
-          if (record?.id) preview.append(breedingCard(record, {}, { preview: true }));
-        }
-        await confirmDialog('他の人が先に更新しました', '最新の内容を読み込みます。確認してからもう一度操作してください。', { preview, confirmText: '最新に更新' });
-        await store.refresh();
-      }
-      throw error;
-    }
-  }
-
   const context = {
     store,
     navigate(hash) { location.hash = hash; },
     replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
     register(initial) { return openRecordEditor(context, initial); },
-    async merge(source, target, { ask = true } = {}) {
+    async merge(source, target, { ask = true, retry } = {}) {
       if (ask) {
         const preview = el('div', 'card-stack');
         preview.append(breedingCard(source, {}, { preview: true }), breedingCard(target, {}, { preview: true }));
         if (!await confirmDialog('登録を統合しますか？', '既存の登録に統合し、元の登録を削除します。', { preview, confirmText: '統合' })) return;
       }
-      const result = await mutation('merge', { sourceId: source.id, targetId: target.id, expectedEtags: { source: source.etag, target: target.etag } });
-      toast('既存の登録に統合しました');
-      return result;
+      syncInBackground(store, store.mutate('merge', {
+        sourceId: source.id, targetId: target.id, expectedEtags: { source: source.etag, target: target.etag },
+      }), { notice: toast('既存の登録に統合しました'), failure: '統合できませんでした', retry });
     },
     async remove(record) {
-      if (!await confirmDialog('この配合を削除しますか？', '削除後、5 秒間は元に戻せます。', {
+      if (!await confirmDialog('この配合を削除しますか？', '削除後、3 秒間は元に戻せます。', {
         preview: breedingCard(record, {}, { preview: true }), confirmText: '削除', danger: true,
       })) return;
-      const result = await mutation('delete', { id: record.id, expectedEtag: record.etag });
-      toast('削除しました', { duration: 5000, action: async () => {
-        const restored = await mutation('restore', { id: result.record.id, expectedEtag: result.record.etag });
-        toast(restored.mergedInto ? '既存の登録に統合しました' : '元に戻しました');
+      const deleting = store.mutate('delete', { id: record.id, expectedEtag: record.etag });
+      const notice = toast('削除しました', { action: () => {
+        // 削除前の版を渡すと、store が削除後の版に引き継いで送る。
+        syncInBackground(store, store.mutate('restore', { id: record.id, expectedEtag: record.etag }), {
+          notice: toast('元に戻しました'), failure: '元に戻せませんでした',
+          done: (restored) => { if (restored.mergedInto) toast('既存の登録に統合しました'); },
+        });
       } });
+      syncInBackground(store, deleting, { notice, failure: '削除できませんでした' });
     },
   };
 
@@ -190,6 +180,12 @@ async function boot() {
   async function refresh(options) {
     try { await store.refresh(options); } catch (error) { toast(error.message); }
   }
+  // 送信待ちの操作は、サーバに届く前にページを閉じると失われる。
+  window.addEventListener('beforeunload', (event) => {
+    if (!store.state.syncing) return;
+    event.preventDefault();
+    event.returnValue = true;
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refresh({ throttled: true });
   });
