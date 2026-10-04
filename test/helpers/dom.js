@@ -12,6 +12,12 @@ function matches(node, selector) {
     ? node.attributes.has(attribute) || Boolean(node[attribute]) : node.getAttribute(attribute) === value));
 }
 
+// ブラウザと同じく、フォーカスのある要素を外す（付け直しも含む）とフォーカスは body に戻る。
+function blurIfInside(node) {
+  const active = globalThis.document?.activeElement;
+  if (active && active !== globalThis.document.body && node.contains(active)) globalThis.document.activeElement = globalThis.document.body;
+}
+
 export class FakeElement {
   constructor(tagName) {
     this.tagName = tagName;
@@ -48,8 +54,18 @@ export class FakeElement {
       this.children.push(node);
     }
   }
+  insertBefore(node, reference) {
+    if (node.parentElement) node.remove();
+    node.parentElement = this;
+    const index = reference ? this.children.indexOf(reference) : -1;
+    this.children.splice(index < 0 ? this.children.length : index, 0, node);
+    return node;
+  }
   replaceChildren(...nodes) {
-    for (const child of this.children) child.parentElement = null;
+    for (const child of this.children) {
+      blurIfInside(child);
+      child.parentElement = null;
+    }
     this.children = [];
     this.text = '';
     if (this.tagName === 'select') this.inputValue = undefined;
@@ -87,6 +103,7 @@ export class FakeElement {
   get isConnected() { return this === document.body || Boolean(this.parentElement?.isConnected); }
   get lastElementChild() { return this.children.at(-1) ?? null; }
   remove() {
+    blurIfInside(this);
     if (this.parentElement) this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
     this.parentElement = null;
   }

@@ -145,7 +145,7 @@ test('下書き: 追加した空の行でパル名から直接選び、3 つ揃�
   assert.equal(app.calls.length, 0);
 });
 
-test('下書き: 登録は通常の登録と同じ内容で送り、送信中は行を操作できず、成功したら行を消す', async (t) => {
+test('下書き: 登録は通常の登録と同じ内容で送り、応答を待たずに行を隠し、成功したら下書きを消す', async (t) => {
   const app = await setup(t);
   const draft = app.drafts.add({ ...complete, memo: 'メモ' });
   const view = mount(t, app);
@@ -153,10 +153,10 @@ test('下書き: 登録は通常の登録と同じ内容で送り、送信中は
   const release = app.hold();
   const done = buttonNamed(row, '登録').dispatch('click');
   await flush();
-  assert.equal(message(row).textContent, '登録中…');
-  assert.equal(row.querySelector('.draft-equation').inert, true);
-  assert.equal(row.querySelector('.draft-actions').inert, true);
-  assert.equal(buttonNamed(view.element, '一括削除').disabled, true);
+  // 行はすぐ隠すが、端末の下書きは成功するまで残し、送信中は書き換えさせない。
+  assert.equal(rows(view).length, 0);
+  assert.match(view.element.textContent, /下書きはありません/);
+  assert.equal(app.drafts.list().length, 1);
   assert.equal(app.drafts.update(draft.id, { memo: '変更' }), false);
   assert.equal(app.drafts.remove(draft.id), null);
   assert.equal(app.drafts.removeMany([draft.id]), 0);
@@ -195,8 +195,9 @@ test('下書き: サーバに断られたら行に理由を出して残し、送
     ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
   const draft = app.drafts.add(complete);
   const view = mount(t, app);
+  await buttonNamed(rows(view)[0], '登録').dispatch('click');
+  // 隠していた行を戻して理由を出す。
   const [row] = rows(view);
-  await buttonNamed(row, '登録').dispatch('click');
   assert.equal(message(row).textContent, '登録者: 文字数が上限を超えています。');
   assert.match(app.body.textContent, /配合を登録できませんでした。登録者: 文字数が上限を超えています。/);
   assert.equal(app.store.state.records.length, 0);
@@ -322,6 +323,120 @@ test('下書き: 別の行の送信が終わっても、開いている候補と
   assert.ok(editing.querySelector('.picker-popover'));
   view.destroy();
   assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+});
+
+test('下書き: 別の行の送信に失敗して行が戻っても、開いている候補と行を保つ', async (t) => {
+  const app = await setup(t);
+  app.serve((request, next) => request.action === 'create'
+    ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
+  app.drafts.add(complete);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  const view = mount(t, app);
+  const [sending, editing] = rows(view);
+  const release = app.hold();
+  const done = buttonNamed(sending, '登録').dispatch('click');
+  await flush();
+  assert.deepEqual(rows(view), [editing]);
+  const trigger = editing.querySelector('.picker-trigger');
+  await trigger.dispatch('click');
+  const search = editing.querySelector('.picker-search');
+  assert.equal(document.activeElement, search);
+  release();
+  await done;
+  const [returned, kept] = rows(view);
+  assert.equal(kept, editing);
+  assert.equal(message(returned).textContent, '登録者: 文字数が上限を超えています。');
+  // 戻った行だけを差し込み、入力中の行は付け直さない（付け直すとフォーカスが外れる）。
+  assert.equal(document.activeElement, search);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  assert.ok(editing.querySelector('.picker-popover'));
+  view.destroy();
+});
+
+test('下書き: 送信中で隠れている下書きは、一括削除の件数にも対象にも含めない', async (t) => {
+  const app = await setup(t);
+  const sending = app.drafts.add(complete);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  const view = mount(t, app);
+  const release = app.hold();
+  const registering = buttonNamed(rows(view)[0], '登録').dispatch('click');
+  await flush();
+  assert.equal(view.element.querySelector('.result-note').textContent, '1 件の下書き');
+  const removing = buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.match(openDialogs()[0].textContent, /1 件の下書きを削除します/);
+  await buttonNamed(openDialogs()[0], '削除').dispatch('click');
+  await removing;
+  assert.deepEqual(app.drafts.list().map((draft) => draft.id), [sending.id]);
+  release();
+  await registering;
+  assert.deepEqual(app.drafts.list(), []);
+  assert.equal(app.store.state.records.length, 1);
+});
+
+test('下書き: 一括削除の確認中に送信に失敗して戻った下書きは消さない', async (t) => {
+  const app = await setup(t);
+  app.serve((request, next) => request.action === 'create'
+    ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
+  const failing = app.drafts.add(complete);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  const view = mount(t, app);
+  const release = app.hold();
+  const registering = buttonNamed(rows(view)[0], '登録').dispatch('click');
+  await flush();
+  const removing = buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.match(openDialogs()[0].textContent, /1 件の下書きを削除します/);
+  release();
+  await registering;
+  await buttonNamed(openDialogs()[0], '削除').dispatch('click');
+  await removing;
+  assert.deepEqual(app.drafts.list().map((draft) => draft.id), [failing.id]);
+  assert.equal(message(rows(view)[0]).textContent, '登録者: 文字数が上限を超えています。');
+  assert.match(app.body.textContent, /1 件の下書きを削除しました/);
+});
+
+test('下書き: 登録・削除で行が消えたら、次の行（なければ前の行）の最初のパル選択へフォーカスを移す', async (t) => {
+  const app = await setup(t);
+  app.drafts.add(complete);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  app.drafts.add({ parent1Id: 'Boar' });
+  app.drafts.add({ parent1Id: 'Deer' });
+  const view = mount(t, app);
+  const [first, second, third, fourth] = rows(view);
+  const trigger = (row) => row.querySelector('.picker-trigger');
+  const release = app.hold();
+  buttonNamed(first, '登録').focus();
+  const registering = buttonNamed(first, '登録').dispatch('click');
+  await flush();
+  assert.equal(document.activeElement, trigger(second));
+  // 前後に行があるときは次の行へ移す。
+  iconNamed(third, '削除').focus();
+  await iconNamed(third, '削除').dispatch('click');
+  assert.equal(document.activeElement, trigger(fourth));
+  // 最後の行なら前の行へ、行がなくなったら空の下書きの追加へ移す。
+  iconNamed(fourth, '削除').focus();
+  await iconNamed(fourth, '削除').dispatch('click');
+  assert.equal(document.activeElement, trigger(second));
+  iconNamed(second, '削除').focus();
+  await iconNamed(second, '削除').dispatch('click');
+  assert.equal(document.activeElement, buttonNamed(view.element, '＋ 空の下書きを追加'));
+  release();
+  await registering;
+  assert.deepEqual(app.drafts.list(), []);
+});
+
+test('下書き: ダブルクリックの 2 回目は、詰まってきた次の行の登録・削除に当てない', async (t) => {
+  const app = await setup(t);
+  const next = { parent1Id: 'Alpaca', parent2Id: 'Boar', childId: 'Deer' };
+  app.drafts.add(complete);
+  app.drafts.add(next);
+  const view = mount(t, app);
+  const [first, second] = rows(view);
+  await buttonNamed(first, '登録').dispatch('click', { detail: 1 });
+  assert.deepEqual(rows(view), [second]);
+  await buttonNamed(second, '登録').dispatch('click', { detail: 2 });
+  await iconNamed(second, '削除').dispatch('click', { detail: 2 });
+  assert.deepEqual(app.drafts.list().map(pals), [next]);
+  assert.equal(app.calls.length, 1);
 });
 
 test('下書き: 下書きに登録はモーダルの下書き版で、サーバに送らずに登録者とメモも保存する', async (t) => {

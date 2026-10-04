@@ -141,7 +141,7 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
         preview: breedingCard(conflict.existing, {}, { preview: true }), confirmText: '統合',
       });
       if (!accepted) return;
-      // 統合の知らせが編集画面と一緒に消えないよう、先に閉じる。
+      // 統合は既存の登録に移る操作なので、編集画面は閉じてから送る。
       modal.close();
       await context.merge(original, conflict.existing, { ask: false, retry: (error) => reopen(context, original, input, error) });
       return;
@@ -151,17 +151,12 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
       : { record: { id: createId, ...input } };
     if (allowDifferentChild) payload.allowDifferentChild = true;
     const pending = store.mutate(original ? 'update' : 'create', payload);
-    let notice;
-    if (!original && keepOpen) {
-      prepareNext(input);
-      notice = toast('配合を登録しました。続けて登録できます');
-    } else {
-      modal.close();
-      notice = toast(original ? '変更を保存しました' : '配合を登録しました');
-    }
+    if (!original && keepOpen) prepareNext(input);
+    else modal.close();
     syncInBackground(store, pending, {
-      notice, failure: original ? '変更を保存できませんでした' : '配合を登録できませんでした',
+      failure: original ? '変更を保存できませんでした' : '配合を登録できませんでした',
       retry: (error) => reopen(context, original, input, error),
+      done: () => toast(original ? '変更を保存しました' : '配合を登録しました'),
     });
   }
 

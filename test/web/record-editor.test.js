@@ -229,11 +229,11 @@ test('登録画面: サーバに断られたら登録を取り消し、「入力
   await buttonNamed(modal.footer, '登録').dispatch('click');
   assert.equal(modal.dialog.open, false);
   assert.equal(store.state.records.length, 1);
-  assert.match(body.textContent, /配合を登録しました/);
+  assert.doesNotMatch(body.textContent, /配合を登録しました/);
   release();
   await flush();
   assert.equal(store.state.records.length, 0);
-  // 成功の知らせは消し、失敗の知らせだけを残す。
+  // 成功の知らせは出さず、失敗の知らせだけを出す。
   assert.doesNotMatch(body.textContent, /配合を登録しました/);
   assert.match(body.textContent, /配合を登録できませんでした。入力内容を確認してください。/);
   await buttonNamed(body, '入力し直す').dispatch('click');
@@ -261,7 +261,8 @@ test('登録画面: 続けて登録は親1・登録者を保ち、残りを消�
   assert.equal(registrant.value, '仲間');
   assert.equal(modal.body.querySelector('textarea').value, '');
   assert.equal(document.activeElement, pickers[1]);
-  assert.match(body.textContent, /続けて登録できます/);
+  await flush();
+  assert.match(body.textContent, /配合を登録しました/);
   await selectPal(modal, 1, 'ツッパニャン');
   await selectPal(modal, 2, 'セレムーン');
   const form = modal.body.querySelector('form');
@@ -276,8 +277,8 @@ test('登録画面: 続けて登録は親1・登録者を保ち、残りを消�
   assert.equal(calls[1].payload.record.registrant, '仲間');
 });
 
-test('登録画面: 保存はサーバの応答を待たずに閉じ、登録済みの配合にすぐ反映する', async (t) => {
-  const { context, store, calls, hold } = await setup(t);
+test('登録画面: 保存はサーバの応答を待たずに閉じ、登録済みの配合にすぐ反映し、成功の知らせは応答後に出す', async (t) => {
+  const { context, store, calls, hold, body } = await setup(t);
   const release = hold();
   const modal = openRecordEditor(context, initial);
   await buttonNamed(modal.footer, '続けて登録').dispatch('click');
@@ -290,8 +291,10 @@ test('登録画面: 保存はサーバの応答を待たずに閉じ、登録済
   assert.equal(modal.dialog.open, false);
   assert.equal(store.state.records.length, 2);
   assert.equal(calls.length, 2);
+  assert.doesNotMatch(body.textContent, /配合を登録しました/);
   release();
   await flush();
+  assert.match(body.textContent, /配合を登録しました/);
   assert.equal(store.state.syncing, false);
   assert.equal(store.state.records.length, 2);
   assert.ok(store.state.records.every((record) => !record.etag.startsWith('pending:')));
@@ -427,6 +430,7 @@ test('登録画面: 他の人の更新と競合したら元に戻し、全件取
   assert.equal(store.state.records[0].memo, '');
   assert.equal(store.state.records[0].etag, original.etag);
   assert.match(body.textContent, /変更を保存できませんでした。他の人が先に更新しました/);
+  assert.doesNotMatch(body.textContent, /変更を保存しました/);
   await buttonNamed(body, '入力し直す').dispatch('click');
   const reopened = body.querySelector('dialog');
   assert.equal(reopened.querySelector('select').value, '仲間');
@@ -436,8 +440,10 @@ test('登録画面: 他の人の更新と競合したら元に戻し、全件取
   assert.equal(calls[1].payload.expectedEtag, latest.etag);
   assert.equal(calls[1].payload.record.parent1Gender, original.parent1Gender);
   assert.equal(calls[1].payload.record.parent2Gender, original.parent2Gender);
+  assert.doesNotMatch(body.textContent, /変更を保存しました/);
   release();
   await flush();
+  assert.match(body.textContent, /変更を保存しました/);
   assert.equal(store.state.records[0].memo, '再編集');
   assert.equal(store.state.syncing, false);
 });
