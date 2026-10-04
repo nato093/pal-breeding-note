@@ -90,7 +90,7 @@ test('ウィッシュリスト: ID・環境ごとに保存し、重複・不正�
   storage.values.set(KEY, JSON.stringify([{ palId: TARGET, craftable: 'yes', readyAt: '2026-10-04', observedAt: 'いつか' },
     { palId: TARGET }, { palId: '存在しないパル' }, null]));
   // 判定したことがないウィッシュは、最新のデータで判定し直す。
-  assert.deepEqual(setup({ storage }).wishlist.list(), [{ palId: TARGET, addedAt: '', craftable: false, readyAt: '', observedAt: time(0) }]);
+  assert.deepEqual(setup({ storage }).wishlist.list(), [{ palId: TARGET, addedAt: '', craftable: false, readyAt: '', observedAt: time(0), pairs: [], found: [] }]);
   storage.values.set(KEY, '壊れた値');
   assert.deepEqual(setup({ storage }).wishlist.list(), []);
 });
@@ -136,6 +136,71 @@ test('ウィッシュリスト: 追加後に作れるようになったら通知
     href: '#/reverse?c=MoonQueen',
   }]);
   assert.equal(app.storage.writes, writes + 1);
+});
+
+test('ウィッシュリスト: 作れる状態で別の組み合わせが増えたら、パル名と親を付けて別の文言で知らせる', () => {
+  const first = breeding();
+  const other = { ...breeding(), parent1Id: 'Alpaca', parent2Id: 'Boar' };
+  const app = setup({ records: [first] });
+  app.wishlist.add(TARGET);
+  app.tick();
+  app.store.receive([first, other], 1);
+  const at = new Date(2000).toISOString();
+  assert.deepEqual(app.wishlist.list()[0].found, [{ pair: 'Alpaca|Boar', at }]);
+  assert.deepEqual(app.notifications.list(), [{
+    id: `wishlist:test:${TARGET}:Alpaca|Boar:${at}`, date: at, time: 2000,
+    title: 'セレムーンの配合が増えました', body: `${palName('Alpaca')}＋${palName('Boar')}でも作れるようになりました。押すと逆引きで確認できます。`,
+    href: '#/reverse?c=MoonQueen',
+  }]);
+  // 親の左右を入れ替えただけの登録は、同じ組み合わせとして扱う。
+  app.tick();
+  app.store.receive([first, other, { ...breeding(), parent1Id: 'FlowerDoll', parent2Id: 'SheepBall' }, { ...other, parent1Id: 'Boar', parent2Id: 'Alpaca' }], 2);
+  assert.equal(app.wishlist.list()[0].found.length, 1);
+  // 根拠の配合が消えたら通知も消し、また登録されても重ねて知らせない。
+  app.tick();
+  app.store.receive([first], 3);
+  assert.deepEqual(ids(app.notifications), []);
+  app.tick();
+  app.store.receive([first, other], 4);
+  assert.deepEqual(app.wishlist.list()[0].found, []);
+  assert.deepEqual(ids(app.notifications), []);
+});
+
+test('ウィッシュリスト: 手元のマスターにないパルが親の組み合わせも覚え、通知は落とさずに出して、読み直しても重ねて知らせない', () => {
+  const app = setup({ records: [breeding()] });
+  app.wishlist.add(TARGET);
+  app.tick();
+  const unknown = { ...breeding(), parent1Id: 'Boar', parent2Id: '未来のパル' };
+  app.store.receive([breeding(), unknown], 1);
+  assert.deepEqual(app.notifications.list().map((notification) => notification.body),
+    [`${palName('Boar')}＋不明なパルでも作れるようになりました。押すと逆引きで確認できます。`]);
+  const reloaded = setup({ storage: app.storage, records: [breeding(), unknown] });
+  reloaded.store.receive([breeding(), unknown], 2);
+  assert.deepEqual(ids(reloaded.notifications), ids(app.notifications));
+});
+
+test('ウィッシュリスト: 作れるようになったときは「作成可能」だけを知らせ、作れなくなったら増えた配合の通知も消す', () => {
+  const app = setup();
+  app.wishlist.add(TARGET);
+  app.store.receive([breeding(), { ...breeding(), parent1Id: 'Alpaca', parent2Id: 'Boar' }], 1);
+  assert.deepEqual(app.notifications.list().map((notification) => notification.title), ['セレムーンが作成可能になりました']);
+  app.tick();
+  app.store.receive([breeding(), { ...breeding(), parent1Id: 'Alpaca', parent2Id: 'Boar' }, { ...breeding(), parent1Id: 'Deer', parent2Id: 'Boar' }], 2);
+  assert.deepEqual(app.notifications.list().map((notification) => notification.title), ['セレムーンの配合が増えました', 'セレムーンが作成可能になりました']);
+  app.store.receive([], 3);
+  assert.deepEqual(ids(app.notifications), []);
+  assert.deepEqual(app.wishlist.list()[0].found, []);
+});
+
+test('ウィッシュリスト: 組み合わせを覚える前の保存内容は、次の判定で今の組み合わせを覚えるだけで知らせない', () => {
+  const storage = memoryStorage();
+  storage.values.set(KEY, JSON.stringify([{ palId: TARGET, addedAt: time(0), craftable: true, readyAt: '', observedAt: time(0) }]));
+  const app = setup({ storage, records: [breeding()] });
+  app.store.receive([breeding(), { ...breeding(), parent1Id: 'Alpaca', parent2Id: 'Boar' }], 1);
+  assert.deepEqual(ids(app.notifications), []);
+  assert.deepEqual(app.wishlist.list()[0].pairs, ['FlowerDoll|SheepBall', 'Alpaca|Boar']);
+  app.store.receive([breeding(), { ...breeding(), parent1Id: 'Alpaca', parent2Id: 'Boar' }, { ...breeding(), parent1Id: 'Deer', parent2Id: 'Boar' }], 2);
+  assert.equal(ids(app.notifications).length, 1);
 });
 
 for (const [name, change] of [
