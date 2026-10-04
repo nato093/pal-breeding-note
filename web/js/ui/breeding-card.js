@@ -2,7 +2,12 @@ import { el, button, formatTime, runButton } from './dom.js';
 import { palTile } from './pal-icon.js';
 import { toast } from './toast.js';
 
-function actionIcon(label, path, action, className = '') {
+export const icons = {
+  edit: 'M14 5l5 5M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z',
+  remove: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
+};
+
+export function actionIcon(label, path, action, className = '') {
   const node = button('', action, `icon-button card-action ${className}`.trim());
   node.setAttribute('aria-label', label);
   node.title = label;
@@ -44,8 +49,8 @@ export function breedingCard(record, context = {}, { preview = false, focusParen
   if (record.memo) card.append(el('p', 'card-memo', record.memo));
   if (preview) return card;
   const actions = el('div', 'card-actions');
-  const edit = actionIcon('編集', 'M14 5l5 5M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z', () => context.register(record));
-  const remove = actionIcon('削除', 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7', async () => {
+  const edit = actionIcon('編集', icons.edit, () => context.register(record));
+  const remove = actionIcon('削除', icons.remove, async () => {
     await runButton(remove, () => context.remove(record), (error) => toast(error.message));
   }, 'danger-text');
   actions.append(edit, remove);

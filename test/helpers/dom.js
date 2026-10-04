@@ -40,7 +40,14 @@ export class FakeElement {
   get textContent() { return this.text + this.children.map((child) => child.textContent).join(''); }
   set value(value) { this.inputValue = value; }
   get value() { return this.inputValue ?? (this.tagName === 'select' ? this.children[0]?.value ?? '' : ''); }
-  append(...nodes) { for (const node of nodes) { node.parentElement = this; this.children.push(node); } }
+  // ブラウザと同じく、すでに付いている要素は元の場所から移す。
+  append(...nodes) {
+    for (const node of nodes) {
+      if (node.parentElement) node.remove();
+      node.parentElement = this;
+      this.children.push(node);
+    }
+  }
   replaceChildren(...nodes) {
     for (const child of this.children) child.parentElement = null;
     this.children = [];

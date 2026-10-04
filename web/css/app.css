@@ -212,6 +212,29 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .list-filters .field { gap: 8px; margin-bottom: 0; }
 .list-filters .field-label { margin-bottom: 0; }
 .list-filters input, .list-filters select { height: 56px; }
+.button.small { min-height: 36px; padding: 6px 14px; border-radius: 10px; font-size: 13px; }
+.drafts-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.heading-actions { display: flex; gap: 8px; }
+.drafts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.drafts-toolbar .result-note { margin: 0; }
+.drafts-warning { margin: 8px 0; }
+.draft-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; align-items: center; gap: 4px 14px; border-bottom: 1px solid var(--line); padding: 9px 0; min-width: 0; }
+.draft-row.sending { opacity: .7; }
+.draft-equation .picker > .field-label { display: none; }
+.draft-equation .picker-trigger { min-height: 46px; padding: 2px 30px 2px 6px; border-color: transparent; background: transparent; }
+.draft-equation .picker-trigger.has-selection { padding-right: 62px; }
+.draft-equation .picker-trigger:not(.has-selection) { border: 1px dashed var(--line); }
+.draft-equation .picker-trigger:hover, .draft-equation .picker-trigger[aria-expanded="true"] { border-color: var(--line); background: var(--surface); }
+.draft-equation .picker-clear { background: transparent; }
+.draft-equation .picker-trigger .pal-tile { min-height: 36px; font-size: 13px; color: var(--ink); }
+.draft-equation .picker-trigger .pal-icon { width: 36px; height: 36px; }
+.draft-equation > .picker:last-child .picker-trigger .pal-tile { color: var(--accent); }
+.draft-equation > .picker:last-child .picker-popover { left: auto; right: 0; }
+.draft-actions { align-items: center; gap: 4px; }
+.draft-actions .button:disabled { cursor: not-allowed; }
+.draft-memo, .draft-message { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.draft-message.draft-error { color: var(--danger); }
+.drafts-add { display: flex; margin: 16px auto 0; }
 .pal-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0; }
 .section-title { margin-top: 24px; }
 .settings-view { max-width: 800px; margin: auto; }

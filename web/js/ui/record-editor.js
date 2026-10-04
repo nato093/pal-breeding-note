@@ -19,6 +19,10 @@ const validationMessages = {
   INVALID_UUID: '識別情報が正しくありません。画面を開き直してください。',
 };
 
+export function validationText(item) {
+  return `${fieldNames[item.field] ?? '入力内容'}: ${validationMessages[item.code] ?? '入力を確認してください。'}`;
+}
+
 // 裏で送った保存が失敗したら、入力内容で開き直す。他の人の更新と競合したときは最新の内容で開く。
 function reopen(context, original, input, error) {
   // 登録が消えていたら（他の人の削除や、元に戻した登録の統合）、入力内容を新しい登録として開く。
@@ -31,13 +35,17 @@ function reopen(context, original, input, error) {
   return context.register(conflict ? latest : { ...latest, ...input });
 }
 
-export function openRecordEditor(context, initial = {}) {
+export function openRecordEditor(context, initial = {}, { draft = false } = {}) {
   const { store } = context;
-  const original = initial.id ? initial : null;
+  const original = !draft && initial.id ? initial : null;
+  // 下書き版はサーバへ送らず、開いたときの ID・環境の下書きに保存する。
+  const draftId = draft ? initial.id ?? '' : '';
+  const draftKey = draft ? context.drafts.scope() : '';
   let createId = crypto.randomUUID();
   const pickers = [];
   let unsubscribe = () => {};
-  const modal = openDialog(original ? '配合を編集' : '見つけた配合を登録', {
+  const title = draft ? (draftId ? '下書きを編集' : '下書きに登録') : original ? '配合を編集' : '見つけた配合を登録';
+  const modal = openDialog(title, {
     className: 'record-dialog', closeOnBackdrop: false,
     onClose: () => { unsubscribe(); pickers.forEach((picker) => picker.destroy()); },
   });
@@ -97,10 +105,10 @@ export function openRecordEditor(context, initial = {}) {
     pickers.push(picker);
     selections.append(picker.element);
   }
-  const submit = button(original ? '変更を保存' : '登録', null, 'button primary');
+  const submit = button(draft ? '下書きに保存' : original ? '変更を保存' : '登録', null, 'button primary');
   submit.type = 'submit';
   submit.setAttribute('form', form.id);
-  const continuous = original ? null : button('続けて登録', () => save(true), 'button secondary');
+  const continuous = original || draftId ? null : button(draft ? '続けて下書きに登録' : '続けて登録', () => save(true), 'button secondary');
   form.append(selections, warning, field('登録者', registrant), field('メモ（200文字まで）', memo), errors);
   modal.body.append(form);
   modal.footer.append(button('キャンセル', modal.close, 'button secondary'));
@@ -109,7 +117,7 @@ export function openRecordEditor(context, initial = {}) {
 
   function showErrors(items) {
     errors.replaceChildren();
-    for (const item of items) errors.append(el('p', '', `${fieldNames[item.field] ?? '入力内容'}: ${validationMessages[item.code] ?? '入力を確認してください。'}`));
+    for (const item of items) errors.append(el('p', '', validationText(item)));
     errors.scrollIntoView({ block: 'nearest' });
   }
 
@@ -145,16 +153,8 @@ export function openRecordEditor(context, initial = {}) {
     const pending = store.mutate(original ? 'update' : 'create', payload);
     let notice;
     if (!original && keepOpen) {
-      createId = crypto.randomUUID();
-      pickers[0].setValue(input.parent1Id);
-      pickers[1].setValue('');
-      pickers[2].setValue('');
-      setRegistrant(input.registrant);
-      memo.value = '';
-      errors.replaceChildren();
-      renderWarnings();
+      prepareNext(input);
       notice = toast('配合を登録しました。続けて登録できます');
-      pickers[1].element.querySelector('button').focus();
     } else {
       modal.close();
       notice = toast(original ? '変更を保存しました' : '配合を登録しました');
@@ -165,11 +165,42 @@ export function openRecordEditor(context, initial = {}) {
     });
   }
 
+  // 続けて登録するときは親1と登録者を残し、次の入力に備える。
+  function prepareNext(input) {
+    createId = crypto.randomUUID();
+    pickers[0].setValue(input.parent1Id);
+    pickers[1].setValue('');
+    pickers[2].setValue('');
+    setRegistrant(input.registrant);
+    memo.value = '';
+    errors.replaceChildren();
+    renderWarnings();
+    pickers[1].element.querySelector('button').focus();
+  }
+
+  function saveDraft(keepOpen) {
+    // 下書きはパルの未選択を許し、登録者とメモは通常の登録と同じ規則で確かめる。
+    const checked = validateRecordInput(value(), new Set(['', ...palsById.keys()]));
+    if (!checked.ok) { showErrors(checked.errors); return; }
+    const { parent1Id, parent2Id, childId, registrant: name, memo: text } = checked.value;
+    const fields = { parent1Id, parent2Id, childId, registrant: name, memo: text };
+    const saved = draftId ? context.drafts.update(draftId, fields, draftKey) : context.drafts.add(fields, draftKey);
+    if (!saved) { errors.replaceChildren(el('p', '', '下書きを保存できませんでした。画面を開き直してください。')); return; }
+    if (keepOpen) {
+      prepareNext(checked.value);
+      toast('下書きに登録しました。続けて登録できます');
+      return;
+    }
+    modal.close();
+    toast(draftId ? '下書きを保存しました' : '下書きに登録しました');
+  }
+
   async function save(keepOpen = false) {
     await runButton(submit, async () => {
       if (continuous) continuous.disabled = true;
       try {
         errors.replaceChildren();
+        if (draft) { saveDraft(keepOpen); return; }
         const checked = validateRecordInput(value(), new Set(palsById.keys()));
         if (!checked.ok) { showErrors(checked.errors); return; }
         await send(checked.value, keepOpen);
