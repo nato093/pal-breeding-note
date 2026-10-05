@@ -253,6 +253,41 @@ test('画面: 削除は応答前に一覧から消し、送信待ちの間だけ
   assert.equal(leave().prevented, false);
 });
 
+test('画面: 裏で送っている間はヘッダーに保存中の件数とバーを出し、送り終えたらすぐ消す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  let release;
+  const api = async (request) => {
+    if (request.action === 'delete') await new Promise((resolve) => { release = resolve; });
+    return development(request);
+  };
+  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
+  await sortOneCardPerRecord();
+  const status = byClass('sync-status');
+  const bar = byClass('sync-progress');
+  assert.equal(bar.hidden, true);
+  assert.match(status.textContent, /最新取得/);
+  for (let count = 0; count < 2; count++) {
+    const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
+    await byText('削除').dispatch('click');
+    await deletion;
+  }
+  assert.equal(status.textContent, 'サーバに保存中… 0 / 2 件');
+  assert.equal(bar.hidden, false);
+  assert.equal(bar.getAttribute('aria-valuenow'), '0');
+  assert.equal(bar.getAttribute('aria-valuemax'), '2');
+  assert.equal(bar.style.getPropertyValue('--progress'), '0%');
+  await flush();
+  release();
+  await flush();
+  assert.equal(status.textContent, 'サーバに保存中… 1 / 2 件');
+  assert.equal(bar.getAttribute('aria-valuenow'), '1');
+  assert.equal(bar.style.getPropertyValue('--progress'), '50%');
+  release();
+  await flush();
+  assert.equal(bar.hidden, true);
+  assert.match(status.textContent, /最新取得/);
+});
+
 for (const [hash, next, label] of [
   ['#/search?p1=SheepBall&p2=FlowerDoll', '#/search?p2=FlowerDoll', '親1'],
   ['#/reverse?c=SheepBall', '#/reverse', '生まれる子'],

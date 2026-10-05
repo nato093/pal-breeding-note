@@ -7,6 +7,7 @@ import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
 import { syncInBackground } from './ui/sync.js';
+import { syncProgress } from './ui/sync-progress.js';
 import { confirmDialog, closeDialogs } from './ui/dialog.js';
 import { breedingCard } from './ui/breeding-card.js';
 import { openRecordEditor } from './ui/record-editor.js';
@@ -50,7 +51,10 @@ async function boot() {
   brand.append(mark, brandText);
   const status = el('p', 'sync-status');
   status.setAttribute('aria-live', 'polite');
-  header.append(brand, status);
+  const progress = syncProgress();
+  const headerStatus = el('div', 'header-status');
+  headerStatus.append(status, progress.element);
+  header.append(brand, headerStatus);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
   const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['wishlist', 'ウィッシュリスト', '☆'], ['settings', '設定', '⚙']];
@@ -192,7 +196,9 @@ async function boot() {
     banner.hidden = state.env !== 'test';
     // ログイン中の ID が変わると既読の保存先が、記録が変わるとウィッシュリストの通知が変わる。
     notifications.changed();
-    status.textContent = state.loading ? '記録を更新中…' : state.error || (state.serverTime
+    progress.update(state);
+    status.textContent = state.syncing ? `サーバに保存中… ${state.syncDone} / ${state.syncTotal} 件`
+      : state.loading ? '記録を更新中…' : state.error || (state.serverTime
       ? `${state.cached ? '前回取得' : '最新取得'} ${formatTime(state.serverTime)}${state.cached ? ' 時点' : ''} · ${state.records.length} 件` : '仲間だけの配合ノート');
     if (showingLogin !== (!state.passcode || !state.userId)) {
       if (!state.passcode || !state.userId) closeDialogs();

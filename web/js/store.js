@@ -50,6 +50,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   // サーバで確定した全件と、送信待ちの操作。画面には確定分に送信待ちを重ねて出す。
   let confirmed = [];
   const queue = [];
+  // 送信待ちが空のときから数えた操作の数。済んだ数は、ここから送信待ちの残りを引いて出す。
+  let queued = 0;
   let worker = null;
   // 自分の操作で新しくなった版（見えていた etag → 次の etag）。続けて操作したときの etag を引き継ぐ。
   const successors = new Map();
@@ -57,6 +59,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   const state = {
     passcode: storage.get(`${namespace}.passcode`) ?? '', userId: storage.get(`${namespace}.userId`) ?? '', users: [], env: null,
     records: [], warnings: [], serverTime: '', cached: false, loading: false, syncing: false, error: '',
+    // 送信の進み具合（失敗して取り消した操作も済んだ数に入れる）。送信待ちが空なら両方 0。
+    syncDone: 0, syncTotal: 0,
     index: buildIndex([], pals), graph: new Map(),
     // サーバで確定した全件（送信待ちを重ねる前）。確定した変化だけを見たいときに使う。
     confirmedRecords: [],
@@ -67,6 +71,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.records = queue.reduce((records, operation) => operation.apply(records), confirmed);
     state.confirmedRecords = confirmed;
     state.syncing = queue.length > 0;
+    state.syncTotal = queue.length ? queued : 0;
+    state.syncDone = state.syncTotal - queue.length;
     state.index = buildIndex(state.records, pals);
     state.graph = buildCarrierGraph(state.index);
     emit();
@@ -79,6 +85,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     successors.clear();
     removedRecords.clear();
     state.syncing = false;
+    state.syncDone = 0;
+    state.syncTotal = 0;
     state.env = null;
     state.records = [];
     state.confirmedRecords = [];
@@ -274,6 +282,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
         etag: operation.etag, time: new Date(now()).toISOString(), removed: removedRecords.get(input.id),
       });
       const done = new Promise((resolve, reject) => Object.assign(operation, { resolve, reject }));
+      if (!queue.length) queued = 0;
+      queued++;
       queue.push(operation);
       render();
       worker ??= drain();
