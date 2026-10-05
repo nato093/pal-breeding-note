@@ -49,13 +49,23 @@ export function elementChips(pal) {
   return wrapper;
 }
 
-export function palTile(id, { gender = '', clickable = true, large = false } = {}) {
+/** genderFirst: 性別を名前の左に置く（所持パルの一覧） */
+export function palTile(id, { gender = '', clickable = true, large = false, genderFirst = false } = {}) {
   const pal = palsById.get(id);
   if (!pal) return el('span', 'muted', 'パルが見つかりません');
   const wrapper = clickable ? link('', buildHash('pal', {}, id), 'pal-tile') : el('span', 'pal-tile');
   const label = el('span', 'pal-label');
-  label.append(el('small', 'dex-label', `No.${pal.label}`), el('strong', '', pal.ja));
-  if (gender) label.append(el('span', `gender gender-${gender}`, gender === 'M' ? '♂' : '♀'));
+  const name = el('strong', '', pal.ja);
+  const mark = gender ? el('span', `gender gender-${gender}`, gender === 'M' ? '♂' : '♀') : null;
+  label.append(el('small', 'dex-label', `No.${pal.label}`));
+  if (mark && genderFirst) {
+    const line = el('span', 'pal-name-line');
+    line.append(mark, name);
+    label.append(line);
+  } else {
+    label.append(name);
+    if (mark) label.append(mark);
+  }
   wrapper.append(palIcon(pal, { large }), label);
   return wrapper;
 }

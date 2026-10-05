@@ -51,14 +51,16 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   };
   window.history = history;
   const calls = [];
+  // 所持パルの共有（owned*）は配合の操作と別に数える
+  const ownedCalls = [];
   globalThis.fetch = async (url, options) => {
     const request = JSON.parse(options.body);
-    calls.push(request);
+    (request.action.startsWith('owned') ? ownedCalls : calls).push(request);
     return { ok: true, json: async () => api(request) };
   };
   await import(`../../web/js/app.js?case=${++imports}`);
   assert.equal(byClass('startup-error'), undefined);
-  return { values, calls, replacements, events, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
+  return { values, calls, ownedCalls, replacements, events, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
 }
 
 function assertLoginOnly() {

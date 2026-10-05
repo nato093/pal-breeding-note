@@ -9,6 +9,7 @@ const messages = {
   INTERNAL: 'サーバでエラーが発生しました。時間をおいてお試しください。',
   SHEET_HEADER: '保存先の項目に問題があります。管理者に確認してください。',
   BAD_REQUEST: 'リクエストを処理できませんでした。',
+  TOO_LARGE: '送る内容が大きすぎます。',
   DUPLICATE: '同じ配合がすでに登録されています。',
   PAIR_CONFLICT: '同じ組み合わせで別の子が登録されています。',
   ID_CONFLICT: '登録の識別情報が重複しています。登録画面を開き直してください。',
@@ -38,7 +39,11 @@ const actionFields = {
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'],
   delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
+  ownedWorlds: [], owned: ['worldId'], ownedDelete: ['worldId'],
+  ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'columns', 'rows'],
 };
+// 所持パルの共有（スプレッドシート）。配合の全件（snapshot）は返さない
+const ownedActions = new Set(['ownedWorlds', 'owned', 'ownedUpload', 'ownedDelete']);
 const recordFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 
 function pick(source, fields) {
@@ -64,10 +69,23 @@ export function validateResponse(response, action) {
     if (typeof response.code !== 'string') throw new ApiError('RESPONSE');
     throw new ApiError(response.code, response);
   }
+  if (ownedActions.has(action)) return validateOwnedResponse(response, action);
   const account = ['login', 'signup'].includes(action);
   if (!['prod', 'test'].includes(response.env) || !response.api
     || !validSnapshot(action === 'snapshot' || account ? response : response.snapshot)
     || (account ? typeof response.userId !== 'string' : action !== 'snapshot' && !response.record)) throw new ApiError('RESPONSE');
+  return response;
+}
+
+function validateOwnedResponse(response, action) {
+  const world = (value) => value && typeof value === 'object' && typeof value.worldId === 'string';
+  const ok = ['prod', 'test'].includes(response.env) && response.api && typeof response.serverTime === 'string' && ({
+    ownedWorlds: () => Array.isArray(response.worlds) && response.worlds.every(world),
+    owned: () => (response.world === null || world(response.world)) && Array.isArray(response.columns) && Array.isArray(response.rows),
+    ownedUpload: () => typeof response.stored === 'boolean' && world(response.world),
+    ownedDelete: () => typeof response.deleted === 'boolean',
+  })[action]();
+  if (!ok) throw new ApiError('RESPONSE');
   return response;
 }
 
