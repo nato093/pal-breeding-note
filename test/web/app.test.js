@@ -440,7 +440,8 @@ test('画面: 右上のベルに未読の数を出し、開くと既読にして
   assert.deepEqual(titles(dialog), releaseNotes.map((note) => note.title));
   assert.equal(dialog.querySelectorAll('.unread-chip').length, releaseNotes.length - 1);
   assert.equal(badge.hidden, true);
-  await byText('閉じる').dispatch('click');
+  // 画面には更新の帯の「閉じる」もあるため、通知一覧の中のボタンを押す
+  await dialog.querySelectorAll('button').find((node) => node.textContent === '閉じる').dispatch('click');
   assert.equal(dialog.open, false);
 });
 

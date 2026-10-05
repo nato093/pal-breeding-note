@@ -7,7 +7,7 @@ export const TITLE_MAX = 20;
 export const BODY_MAX = 60;
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-function clip(value, max) {
+export function clip(value, max) {
   const text = sanitizeText(typeof value === 'string' ? value : '', Infinity);
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
