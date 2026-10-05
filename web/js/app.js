@@ -4,7 +4,7 @@ import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { createOwnedStore, idbPersist } from './owned.js';
-import { startRouter, buildHash } from './router.js';
+import { startRouter, buildHash, parseHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
 import { syncInBackground } from './ui/sync.js';
@@ -78,6 +78,20 @@ async function boot() {
     nav.append(tab);
     tabLinks.set(view, tab);
   }
+  // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。メモリにだけ持つため、ページを読み込み直すと消える。
+  const viewStates = new Map();
+  function remember(next) {
+    const href = buildHash(next.view, next.params, next.id);
+    const tab = tabLinks.get(next.view);
+    if (tab) tab.href = href;
+    if (next.view === 'search') brand.href = href;
+  }
+  // ログアウトしたら、次にログインする人へ前の人の選択を引き継がない。
+  function forget() {
+    viewStates.clear();
+    for (const [view, tab] of tabLinks) tab.href = buildHash(view);
+    brand.href = buildHash('search');
+  }
   const main = el('main', 'app-main');
   main.id = 'main';
   const skip = link('メイン画面へ', '#main', 'skip-link');
@@ -102,7 +116,15 @@ async function boot() {
     notifications,
     owned,
     navigate(hash) { location.hash = hash; },
-    replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
+    replace(hash) {
+      history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);
+      if (!showingLogin) remember(parseHash(hash));
+    },
+    // 画面ごとの入力を残す入れ物（画面を作り直しても同じものを返す）
+    viewState(view) {
+      if (!viewStates.has(view)) viewStates.set(view, {});
+      return viewStates.get(view);
+    },
     register(initial, options) { return openRecordEditor(context, initial, options); },
     async merge(source, target, { ask = true, retry } = {}) {
       if (ask) {
@@ -189,7 +211,9 @@ async function boot() {
     nav.hidden = showingLogin;
     register.hidden = showingLogin;
     bell.element.hidden = showingLogin;
-    if (showingLogin) { bell.close(); loginView(); return; }
+    if (showingLogin) { bell.close(); forget(); loginView(); return; }
+    // 画面の部品が URL を書き換える（不正な ID を消すなど）ときは context.replace が覚え直す。
+    remember(route);
     for (const [view, tab] of tabLinks) {
       const active = route.view === view;
       tab.classList.toggle('active', active);
