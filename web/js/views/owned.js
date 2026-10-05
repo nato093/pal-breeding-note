@@ -1,12 +1,10 @@
-import { el, button, field, empty } from '../ui/dom.js';
-import { palTile } from '../ui/pal-icon.js';
+import { el, field, empty } from '../ui/dom.js';
+import { palTile, humanIcon } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { viewHeading } from './shared.js';
 import { filterOwned, sortOwned, passiveCounts, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
-
-const PAGE = 100;
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -25,8 +23,17 @@ function palCell(pal) {
   const cell = el('div', 'owned-pal');
   if (pal.known) cell.append(palTile(pal.palId, { gender: pal.gender, genderFirst: true }));
   else {
+    // 人間のキャラクターなど、パルのマスターにないもの。ゲームから取り出した名前とアイコンがあれば出す
     const unknown = el('span', 'pal-tile owned-unknown');
-    unknown.append(el('strong', '', pal.characterId), el('small', 'muted', 'マスターにないキャラクター'));
+    if (pal.human?.icon) unknown.append(humanIcon(pal.human.icon));
+    const label = el('span', 'pal-label');
+    const name = el('strong', '', pal.name);
+    if (pal.gender) {
+      const line = el('span', 'pal-name-line');
+      line.append(el('span', `gender gender-${pal.gender}`, pal.gender === 'M' ? '♂' : '♀'), name);
+      label.append(line);
+    } else label.append(name);
+    unknown.append(label);
     cell.append(unknown);
   }
   const badges = el('span', 'owned-badges');
@@ -61,7 +68,6 @@ export function ownedView(context, route) {
     passives: (route.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4), query: '', sort: 'dex', eggs: true, globals: false,
     stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   };
-  let limit = PAGE;
 
   // 表示しているデータのワールドと更新時刻、連携の案内（設定の操作は設定タブで行う）
   const summary = el('section', 'owned-summary');
@@ -84,7 +90,7 @@ export function ownedView(context, route) {
     input.checked = checked;
     const wrapper = el('label', 'owned-toggle');
     wrapper.append(input, el('span', '', label));
-    input.addEventListener('change', () => { filter[key] = input.checked; limit = PAGE; renderFilters(owned.state); renderResults(); });
+    input.addEventListener('change', () => { filter[key] = input.checked; renderFilters(owned.state); renderResults(); });
     return wrapper;
   };
   const toggles = el('div', 'owned-toggles');
@@ -97,7 +103,7 @@ export function ownedView(context, route) {
   };
   const stars = el('select');
   for (const [value, label] of STAR_FILTERS) stars.append(option(value, label));
-  stars.addEventListener('change', () => { filter.stars = Number(stars.value) || 0; limit = PAGE; renderResults(); });
+  stars.addEventListener('change', () => { filter.stars = Number(stars.value) || 0; renderResults(); });
   const talents = el('div', 'owned-talent-filter');
   for (const [key, label] of TALENT_FILTERS) {
     const input = el('input');
@@ -110,26 +116,25 @@ export function ownedView(context, route) {
     input.setAttribute('aria-label', `${label}の個体値（以上）`);
     input.addEventListener('input', () => {
       filter.talent[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
-      limit = PAGE;
+     
       renderResults();
     });
     const wrapper = el('label');
     wrapper.append(el('span', '', label), input);
     talents.append(wrapper);
   }
-  const picker = palPicker({ label: 'パル', value: filter.palId, onChange: (id) => { filter.palId = id; limit = PAGE; renderResults(); } });
+  const picker = palPicker({ label: 'パル', value: filter.palId, onChange: (id) => { filter.palId = id; renderResults(); } });
   const passiveSlot = el('div', 'owned-passive-slot');
   filters.append(field('所持者', holder), field('場所', place), picker.element, field('キーワード', query), field('並べ替え', sort),
     field('パル濃縮（★）', stars), group('個体値（以上）', talents), group('表示', toggles), passiveSlot);
   const count = el('p', 'result-note');
   const results = el('div', 'owned-list');
-  const more = button('もっと見る', () => { limit += PAGE; renderResults(); }, 'button secondary load-more');
-  element.append(summary, filters, count, results, more);
+  element.append(summary, filters, count, results);
 
   for (const [node, key] of [[holder, 'holder'], [place, 'place'], [sort, 'sort']]) {
-    node.addEventListener('change', () => { filter[key] = node.value; limit = PAGE; renderResults(); });
+    node.addEventListener('change', () => { filter[key] = node.value; renderResults(); });
   }
-  query.addEventListener('input', () => { filter.query = query.value; limit = PAGE; renderResults(); });
+  query.addEventListener('input', () => { filter.query = query.value; renderResults(); });
 
   function renderSummary(state) {
     const meta = state.meta;
@@ -163,7 +168,7 @@ export function ownedView(context, route) {
       label: 'パッシブ（すべて持つ個体）', selected: filter.passives, counts: passiveCounts(state.owned?.pals ?? []),
       onChange: (ids) => {
         filter.passives = ids;
-        limit = PAGE;
+       
         renderPassives(owned.state);
         renderResults();
         // 作り直した選択欄にフォーカスを戻す（続けて選べるように）
@@ -174,18 +179,17 @@ export function ownedView(context, route) {
 
   function renderResults() {
     const state = owned.state;
-    more.hidden = true;
     if (!state.owned) {
       count.textContent = '';
       results.replaceChildren(empty(state.ready ? '表示できる所持パルがありません。' : '読み込み中…'));
       return;
     }
     const list = sortOwned(filterOwned(state.owned.pals, filter), filter.sort);
-    count.textContent = `${list.length} 体 · ${Math.min(limit, list.length)} 体を表示`;
+    count.textContent = `${list.length} 体`;
     results.replaceChildren();
     if (!list.length) results.append(empty('条件に合うパルはいません。'));
-    for (const pal of list.slice(0, limit)) results.append(ownedRow(pal));
-    more.hidden = list.length <= limit;
+    // 件数が多くても、最初からすべて出す
+    for (const pal of list) results.append(ownedRow(pal));
   }
 
   let renderedOwned;
