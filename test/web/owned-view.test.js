@@ -67,7 +67,7 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.match(rows.find((row) => /タマゴ/.test(row.textContent)).textContent, /孵化前/);
   assert.equal(view.element.querySelector('.owned-world').textContent, '「テスト」（ホスト Alice） · 4 体');
   assert.match(view.element.querySelector('.owned-times').textContent, /セーブの更新: .*共有: .*（ホスト）/);
-  assert.equal(view.element.querySelector('.result-note').textContent, '3 体 · 3 体を表示');
+  assert.equal(view.element.querySelector('.result-note').textContent, '3 体');
   assert.doesNotMatch(view.element.textContent, /セーブ連携ツールから自動で読み込む|フォルダを選んで読み込む|データを消す/);
   const labels = view.element.querySelectorAll('.owned-toggle').map((node) => [node.textContent, node.children[0].checked]);
   assert.deepEqual(labels, [['タマゴも表示', true], ['グローバルボックスを表示', false]]);
@@ -114,6 +114,22 @@ test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体
   await hp.dispatch('input');
   assert.equal(rows(), 0);
   assert.match(view.element.textContent, /条件に合うパルはいません/);
+  view.destroy();
+});
+
+test('所持パル画面: 人間のキャラクターはゲームの名前とアイコンで出し、件数が多くても全部出す', (t) => {
+  installDom(t);
+  const many = Array.from({ length: 250 }, (_, i) => ({ instanceId: `s${i}`, characterId: 'SheepBall', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }));
+  const humans = [{ instanceId: 'h', characterId: 'BOSS_Believer_CrossBow', gender: 'Male', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }];
+  const data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'bridge', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: [...humans, ...many] } };
+  const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  const rows = view.element.querySelectorAll('.owned-row');
+  assert.equal(rows.length, 251);
+  assert.equal(view.element.querySelectorAll('.load-more').length, 0);
+  const human = rows.find((row) => /賞金首 エゴ/.test(row.textContent));
+  assert.ok(human);
+  assert.doesNotMatch(human.textContent, /マスターにない|BOSS_Believer_CrossBow/);
+  assert.match(human.querySelector('img').src, /img\/humans\/T_BOSS_NPC_Believer\.png$/);
   view.destroy();
 });
 

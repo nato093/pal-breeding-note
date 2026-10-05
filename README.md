@@ -31,6 +31,7 @@ npm run save-bridge   # セーブ連携ツール（所持パルの自動読み�
 npm run check:save    # 手元のセーブで所持パルの読み込みを確かめる
 npm run build:passives  # パッシブ名のマスターを生成
 npm run extract:passive-icons  # パッシブの画像をゲーム本体から取り出す
+npm run extract:humans  # 人間のキャラクターの名前とアイコンをゲーム本体から取り出す
 ```
 
 ## 権利表記
