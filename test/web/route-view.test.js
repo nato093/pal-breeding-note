@@ -41,35 +41,37 @@ test('継承ルート表示: 前の子を左親につなぎ、性別を保って
   assert.doesNotMatch(view.textContent, /相手親を用意|↓|登録者|更新|メモ/);
 });
 
-test('継承ルート表示: 他 N 件には代表以外だけを同じ配合行で表示する', (t) => {
+test('継承ルート表示: 同じ段の配合は折りたたまず、段番号1つの枠に全部同じ扱いで並べる', (t) => {
   installDom(t);
   const view = renderRoutes([
     { id: 'a', parent1Id: 'SheepBall', parent2Id: 'SheepBall', childId: 'MoonQueen', confirmCount: 1, parent1Gender: 'M' },
     { id: 'b', parent1Id: 'FlowerDoll', parent2Id: 'SheepBall', childId: 'MoonQueen', confirmCount: 10 },
     { id: 'c', parent1Id: 'SheepBall', parent2Id: 'CatMage', childId: 'MoonQueen', confirmCount: 1 },
   ], 'SheepBall', 'MoonQueen');
-  const alternatives = view.querySelector('.route-alternatives');
-  assert.equal(alternatives.querySelector('summary').textContent, '他 2 件');
-  assert.ok(!alternatives.open);
-  assert.equal(alternatives.querySelectorAll('.breeding-equation').length, 2);
+  assert.equal(view.querySelector('details'), null);
   const rows = view.querySelectorAll('.route-breeding-card');
-  assert.equal(rows.length, 3);
-  assert.deepEqual(rows.map((row) => row.querySelectorAll('strong')[1].textContent), ['フラリーナ', 'モコロン', 'クレメーオ']);
-  assert.ok(rows.every((row) => row.querySelector('.step-number').textContent === '1'));
-  assert.equal(rows[0].querySelector('.route-warning').textContent, '性別条件は未検証');
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].querySelectorAll('.step-number').map((node) => node.textContent), ['1']);
+  const options = rows[0].querySelector('.route-options');
+  assert.equal(options.querySelector('.route-options-label').textContent, '3 通り・どれか 1 つ');
+  const equations = options.querySelectorAll('.breeding-equation');
+  // 確認回数の多い配合（フラリーナ）を先頭に寄せず、相手親の並び順のままにする
+  assert.deepEqual(equations.map((equation) => equation.querySelectorAll('strong')[1].textContent), ['モコロン', 'クレメーオ', 'フラリーナ']);
+  assert.ok(equations.every((equation) => equation.querySelectorAll('strong')[0].textContent === 'モコロン'));
+  assert.deepEqual(rows[0].querySelectorAll('.route-warning').map((node) => node.textContent), ['性別条件は未検証']);
 });
 
-test('継承ルート表示: multiChild の警告と最短先頭・他ルートの折りたたみを保つ', (t) => {
+test('継承ルート表示: multiChild の警告と最短先頭を保ち、他ルートも折りたたまない', (t) => {
   installDom(t);
   const view = renderRoutes([
     { id: 'a', parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen', confirmCount: 10 },
     { id: 'b', parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'CatMage', confirmCount: 10 },
     { id: 'c', parent1Id: 'MoonQueen', parent2Id: 'FlowerDoll', childId: 'CatMage', confirmCount: 10 },
   ]);
-  assert.deepEqual(view.children.map((node) => node.tagName), ['section', 'details']);
+  assert.deepEqual(view.children.map((node) => node.tagName), ['section', 'section']);
   assert.equal(view.children[0].querySelector('h3').textContent, '最短 1 回の配合');
-  assert.equal(view.children[1].querySelector('summary').textContent, '候補 2 · 2 回の配合');
-  assert.ok(!view.children[1].open);
+  assert.equal(view.children[1].querySelector('h3').textContent, '候補 2 · 2 回の配合');
+  assert.equal(view.querySelector('details'), null);
   assert.equal(view.children[0].querySelector('.route-warning').textContent, '性別条件は未検証');
-  assert.equal(view.children[0].querySelector('.route-alternatives'), null);
+  assert.equal(view.children[0].querySelector('.route-options'), null);
 });

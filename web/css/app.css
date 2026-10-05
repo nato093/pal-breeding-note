@@ -223,7 +223,11 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .route-card { padding: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 24px; }
 .route-breeding-card { grid-template-columns: 26px minmax(0, 1fr); }
 .step-number { display: grid; place-items: center; width: 26px; height: 26px; background: var(--accent); color: var(--accent-ink); border-radius: 50%; font-size: 12px; font-weight: 700; }
-.route-alternatives > summary { margin-left: 40px; }
+.route-breeding-card:has(> .route-options) > .step-number { align-self: start; margin-top: 10px; }
+.route-options { display: grid; min-width: 0; border: 1px solid var(--line); border-radius: 16px; padding: 4px 14px; }
+.route-options-label { margin: 6px 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.route-options > .breeding-equation { padding: 8px 0; }
+.route-options > .breeding-equation + .breeding-equation { border-top: 1px dashed var(--line); }
 .route-warning { grid-column: 2; color: var(--warning); font-size: 12px; }
 .warning-chip { display: inline-block; border-radius: 8px; background: var(--warning-bg); color: var(--warning); font-size: 12px; padding: 5px 9px; margin-top: 10px; }
 .load-more { display: flex; margin: 24px auto 0; }
