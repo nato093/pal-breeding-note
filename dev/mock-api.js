@@ -1,7 +1,8 @@
 // Node のテストと /dev/ 配信で同じモジュールを使うため、公開 URL に合わせる。
 const webRoot = new URL(import.meta.url.startsWith('file:') ? '../web/' : '../', import.meta.url);
-const [{ default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }, { validateUserId, userIdKey }] = await Promise.all([
+const [{ default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }, { validateUserId, userIdKey }, { OWNED_FIELDS, validateOwnedUpload, ownedWorldId }] = await Promise.all([
   import(new URL('data/pals.js', webRoot)), import(new URL('js/core/pair.js', webRoot)), import(new URL('js/core/validate.js', webRoot)), import(new URL('js/core/user.js', webRoot)),
+  import(new URL('js/core/owned-shared.js', webRoot)),
 ]);
 
 const fields = {
@@ -9,6 +10,8 @@ const fields = {
   snapshot: [], create: ['opId', 'record', 'allowDifferentChild'], confirm: ['opId', 'id'],
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'], delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
+  ownedWorlds: [], owned: ['worldId'], ownedDelete: ['worldId'],
+  ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'columns', 'rows'],
 };
 const inputFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,6 +22,8 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
   const records = new Map();
   const users = [];
   const operations = new Map();
+  // 所持パルの共有（ワールド ID → { world, rows }）。GAS の OwnedPals / OwnedWorlds と同じ規則で扱う
+  const ownedWorlds = new Map();
   const palIds = new Set(pals.map((pal) => pal.id));
   let revision = 0;
   let acceptedPasscode = passcode?.trim();
@@ -137,6 +142,35 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
     }
   }
 
+  function owned(request) {
+    const serverTime = new Date().toISOString();
+    if (request.action === 'ownedWorlds') return { worlds: [...ownedWorlds.values()].map((entry) => entry.world), serverTime };
+    if (request.action === 'ownedUpload') {
+      const checked = validateOwnedUpload(request);
+      if (!checked.ok) return { ok: false, code: 'VALIDATION', errors: checked.errors };
+      const input = checked.value;
+      const existing = ownedWorlds.get(input.worldId);
+      if (existing && Date.parse(existing.world.saveUpdatedAt) > Date.parse(input.saveUpdatedAt)) {
+        return { stored: false, reason: 'STALE', world: existing.world, serverTime };
+      }
+      const world = {
+        worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
+        uploadedAt: serverTime, uploadedBy: String(request.userId ?? '').slice(0, 20), palCount: input.rows.length, players: input.players, bases: input.bases,
+      };
+      ownedWorlds.set(input.worldId, { world, rows: input.rows });
+      return { stored: true, world, serverTime };
+    }
+    const worldId = ownedWorldId(request.worldId);
+    if (!worldId) return invalid('worldId', 'INVALID_WORLD');
+    if (request.action === 'ownedDelete') {
+      const existing = ownedWorlds.get(worldId);
+      ownedWorlds.delete(worldId);
+      return { deleted: Boolean(existing), removed: existing?.rows.length ?? 0, serverTime };
+    }
+    const entry = ownedWorlds.get(worldId);
+    return { world: entry?.world ?? null, columns: OWNED_FIELDS, rows: entry?.rows ?? [], serverTime };
+  }
+
   return async (request) => {
     if (!request || !fields[request.action]) return fail('BAD_REQUEST');
     if (typeof request.passcode !== 'string' || !request.passcode.trim()) return fail('AUTH');
@@ -147,6 +181,7 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
     if (unknown) return invalid(unknown, 'UNKNOWN_FIELD');
     const base = { ok: true, env: 'test', api: 'pal-note-local-v1' };
     if (request.action === 'snapshot') return { ...base, ...snapshot() };
+    if (request.action.startsWith('owned')) return structuredClone({ ...base, ...owned(request) });
     if (['login', 'signup'].includes(request.action)) {
       if (request.action === 'signup' && !uuid.test(request.opId ?? '')) return invalid('opId', 'INVALID_UUID');
       const checked = validateUserId(request.userId);

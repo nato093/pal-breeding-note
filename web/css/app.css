@@ -90,9 +90,9 @@ img, svg { max-width: 100%; }
 .sync-progress { position: relative; width: 200px; max-width: 100%; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .sync-progress-fill { height: 100%; width: var(--progress, 0%); background: var(--accent); }
 .navigation { display: flex; max-width: 1072px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 5px; }
-.nav-tab { display: flex; flex: 1; flex-direction: row; align-items: center; justify-content: center; gap: 8px; min-height: 48px; color: var(--muted); border-radius: 12px; font-size: 14px; font-weight: 700; }
+.nav-tab { display: flex; flex: 1; flex-direction: row; align-items: center; justify-content: center; gap: 6px; min-height: 48px; color: var(--muted); border-radius: 12px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .nav-tab:hover { text-decoration: none; }
-.tab-symbol { font-size: 23px; line-height: 1.1; }
+.tab-symbol { font-size: 20px; line-height: 1.1; }
 .nav-tab.active { color: var(--accent); background: var(--surface-soft); }
 .app-main { max-width: 1120px; padding: 20px 24px; margin: auto; min-height: 65dvh; }
 .view-heading { margin-bottom: 14px; }
@@ -174,6 +174,7 @@ a.pal-tile:hover { color: var(--accent); text-decoration: none; }
 .pal-label { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .pal-label strong { font-size: inherit; }
 .gender { font-weight: 800; }
+.pal-name-line { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
 .gender-M { color: var(--Water); }
 .gender-F { color: var(--danger); }
 .card-stack { display: grid; }
@@ -296,3 +297,135 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   .sync-progress::after { content: ''; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .6; animation: sync-progress 1.2s ease-in-out infinite; }
 }
 @keyframes sync-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+/* 所持パル */
+.owned-import { padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; margin-bottom: 14px; }
+.owned-status { font-weight: 700; margin-bottom: 10px; overflow-wrap: anywhere; }
+.owned-import-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 8px 0; }
+.owned-import-row .owned-world, .owned-folder-worlds select { width: auto; max-width: 520px; min-height: 44px; }
+.owned-help { font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
+.owned-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; }
+.owned-toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; }
+.owned-bridge-state { font-size: 12px; color: var(--muted); }
+.owned-bridge-state.state-ready { color: var(--accent); }
+.owned-bridge-state.state-offline { color: var(--warning); }
+.owned-drop { flex: 1; min-width: 240px; padding: 12px 16px; border: 2px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; font-size: 13px; }
+.owned-drop.dragging { border-color: var(--accent); color: var(--accent); background: var(--surface-soft); }
+.owned-folder-worlds { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.owned-folder-worlds p { margin: 0; width: 100%; font-size: 13px; }
+.owned-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 16px; align-items: start; }
+.owned-filters .picker { margin-bottom: 12px; }
+.owned-filters .owned-toggle { align-self: center; }
+.owned-filter-group { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-bottom: 12px; min-width: 0; }
+.owned-filter-group .field-label { margin-bottom: 0; }
+.owned-talent-filter { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.owned-talent-filter label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+.owned-talent-filter input { width: 5.5em; }
+.owned-passive-slot { grid-column: 1 / -1; }
+.owned-list { display: grid; }
+.owned-row { display: grid; grid-template-columns: minmax(180px, 1.3fr) 80px minmax(0, 2fr) 150px minmax(0, 1fr); align-items: center; gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.owned-pal { min-width: 0; }
+.owned-pal .pal-tile { min-height: 44px; gap: 8px; font-size: 14px; }
+.owned-pal .pal-icon { width: 44px; height: 44px; }
+.owned-unknown { flex-direction: column; align-items: flex-start; gap: 0; }
+.owned-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.owned-badge { font-size: 11px; border-radius: 6px; padding: 0 6px; background: var(--surface-soft); color: var(--muted); }
+.badge-lucky { background: var(--warning-bg); color: var(--warning); font-weight: 700; }
+.badge-alpha { background: var(--Dark); color: #fff; font-weight: 700; }
+.badge-egg { background: var(--surface-soft); color: var(--accent); font-weight: 700; }
+.owned-level { display: flex; flex-direction: column; font-size: 13px; }
+.owned-stars { color: var(--warning); }
+.owned-talent { font-size: 13px; font-weight: 700; color: var(--ink); }
+.owned-where { display: flex; flex-direction: column; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.owned-where small { font-size: 11px; }
+.passive-list { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 所持パルの一覧では、ゲームと同じく 2 列に並べる */
+.owned-passives .passive-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 6px; }
+.owned-passives .passive-chip { min-width: 0; width: 100%; }
+.owned-passives .passive-name { white-space: normal; overflow-wrap: anywhere; }
+.passive-selector .passive-list { margin-bottom: 8px; }
+.passive-selector .passive-list:empty { display: none; }
+.passive-add { max-width: 420px; }
+.route-passives { margin-bottom: 4px; }
+.route-owned-box { padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; margin-bottom: 16px; }
+.route-owned-box h3 { font-size: 15px; margin-bottom: 10px; }
+.route-starts { display: grid; }
+.route-start { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.route-start:last-child { border-bottom: 0; }
+.route-start .pal-icon { width: 44px; height: 44px; }
+.route-start .pal-tile { min-height: 44px; }
+.route-start-info { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.route-carriers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.route-carrier { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; }
+.route-carrier-where { color: var(--muted); }
+.route-owned-note { grid-column: 2; font-size: 12px; color: var(--accent); }
+.route-owned-note.unowned { color: var(--muted); }
+.route-options > .route-owned-note { display: block; padding-bottom: 6px; }
+.route-options > .route-owned-note + .breeding-equation { border-top: 1px dashed var(--line); }
+.owned-bridge-state.state-error, .owned-bridge-state.state-empty { color: var(--danger); }
+.owned-bridge-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
+.owned-warnings { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 12px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }
+.owned-drop.disabled { opacity: .5; }
+
+/* パッシブ（ゲームのパル詳細画面の表示に合わせる）
+   左の帯・枠・板の色はランクの区分（通常・金・水色・最上位・マイナス）ごとにゲーム画面から測った値。
+   三角模様と矢印の画像は scripts/extract-passive-icons.mjs でゲームから取り出したもの。 */
+.passive-chip {
+  --tier: #cdedf4; --tier-frame: rgba(205, 237, 244, .22); --tier-corner: rgba(205, 237, 244, .32); --tier-text: #e5fbff; --tier-icon: #e5fbff;
+  --tier-bg: linear-gradient(90deg, #1b2427, #212829 30%, #242d2f); --tier-pattern: 0;
+  position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 10px;
+  min-height: 32px; min-width: 9.5em; padding: 3px 9px 3px 13px; box-sizing: border-box;
+  background: var(--tier-bg); color: var(--tier-text); font-size: 14px; font-weight: 700; line-height: 1.25;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3);
+}
+/* 左の帯と枠、右の角の印 */
+.passive-chip::before { content: ''; position: absolute; inset: 1px; z-index: -1; pointer-events: none;
+  border: 2px solid var(--tier-frame); border-left: 5px solid var(--tier);
+  background: linear-gradient(var(--tier-corner), var(--tier-corner)) right top / 7px 2px,
+    linear-gradient(var(--tier-corner), var(--tier-corner)) right top / 2px 7px,
+    linear-gradient(var(--tier-corner), var(--tier-corner)) right bottom / 7px 2px,
+    linear-gradient(var(--tier-corner), var(--tier-corner)) right bottom / 2px 7px;
+  background-repeat: no-repeat; background-origin: border-box; }
+/* 三角模様（金・水色・最上位だけ） */
+.passive-chip::after { content: ''; position: absolute; inset: 3px 3px 3px 6px; z-index: -2; pointer-events: none;
+  background: url('../img/passive/pattern.png') left center / auto 100% repeat-x; opacity: var(--tier-pattern); }
+.passive-name { white-space: nowrap; }
+.passive-rank { flex: none; width: 20px; height: 20px; margin-left: auto; background: var(--tier-icon);
+  -webkit-mask: var(--rank-icon) center / contain no-repeat; mask: var(--rank-icon) center / contain no-repeat; }
+.passive-rank-1 { --rank-icon: url('../img/passive/rank-1.png'); }
+.passive-rank-2 { --rank-icon: url('../img/passive/rank-2.png'); }
+.passive-rank-3 { --rank-icon: url('../img/passive/rank-3.png');
+  --tier: #e4d100; --tier-frame: rgba(228, 209, 0, .45); --tier-corner: rgba(228, 209, 0, .65); --tier-text: #ffd83f; --tier-icon: #ffe13f;
+  --tier-bg: linear-gradient(90deg, #3b3a0f, #353516 40%, #323216); --tier-pattern: .1; }
+.passive-rank-4 { --rank-icon: url('../img/passive/rank-4.png');
+  --tier: #5cf1e2; --tier-frame: rgba(92, 241, 226, .45); --tier-corner: rgba(92, 241, 226, .6); --tier-text: #68ffd8; --tier-icon: #68ffd8;
+  --tier-bg: linear-gradient(90deg, #134545, #1b4149 45%, #304083); --tier-pattern: .12; }
+/* ランク 5 は手元に見本がないため、ゲームの設定にある紫・青・水色の組み合わせで描いた推定 */
+.passive-rank-5 { --rank-icon: url('../img/passive/rank-5.png');
+  --tier: #9c3fff; --tier-frame: rgba(156, 63, 255, .45); --tier-corner: rgba(63, 216, 255, .6); --tier-text: #e5fbff;
+  --tier-icon: linear-gradient(135deg, #ba58ff, #3fd8ff 55%, #3fffbd);
+  --tier-bg: linear-gradient(90deg, #2a1747, #1d2a5a 50%, #123f4a); --tier-pattern: .12; }
+.passive-rank-5::before { border-left: 0; }
+.passive-rank-5::after { inset: 3px 3px 3px 6px; }
+.passive-rank-5 { background: linear-gradient(#9c3fff, #3fa3ff, #3fffd8) 1px 1px / 5px calc(100% - 2px) no-repeat, var(--tier-bg); }
+.passive-rank-m1, .passive-rank-m2, .passive-rank-m3 {
+  --tier: #df393a; --tier-frame: rgba(223, 57, 58, .2); --tier-corner: rgba(223, 57, 58, .34); --tier-text: #e3eced; --tier-icon: #f93d3d;
+  --tier-bg: linear-gradient(90deg, #172629, #1b2931 40%, #1a2931); }
+.passive-rank-m1 { --rank-icon: url('../img/passive/rank-down.png'); }
+/* 下がるランクの矢印は、上向きの矢印を上下に返して数を表す */
+.passive-rank-m2 { --rank-icon: url('../img/passive/rank-2.png'); }
+.passive-rank-m3 { --rank-icon: url('../img/passive/rank-3.png'); }
+.passive-rank-m2 .passive-rank, .passive-rank-m3 .passive-rank { transform: scaleY(-1); }
+.passive-remove { border: 0; background: transparent; padding: 0 2px; font-size: 16px; line-height: 1; color: inherit; min-height: 0; }
+/* 所持パル */
+.owned-summary { margin-bottom: 12px; }
+.owned-world { font-weight: 700; margin: 0 0 2px; }
+.owned-times { font-size: 12px; margin: 0 0 8px; }
+.owned-notices { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.owned-notice { padding: 8px 12px; border-radius: 12px; background: var(--surface-soft); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.owned-notice.notice-warning { background: var(--warning-bg); color: var(--warning); }
+.owned-toggles { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px 18px; min-height: 44px; align-items: center; }
+.owned-settings-status { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; margin: 0 0 12px; font-size: 13px; }
+.owned-settings-status dt { color: var(--muted); font-weight: 700; }
+.owned-settings-status dd { margin: 0; overflow-wrap: anywhere; }
+.owned-settings .owned-world { font-weight: normal; }

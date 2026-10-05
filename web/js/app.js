@@ -3,6 +3,7 @@ import { createStore, safeStorage } from './store.js';
 import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
+import { createOwnedStore, idbPersist } from './owned.js';
 import { startRouter, buildHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
@@ -16,6 +17,7 @@ import { searchView } from './views/search.js';
 import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
 import { listView } from './views/list.js';
+import { ownedView } from './views/owned.js';
 import { draftsView } from './views/drafts.js';
 import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
@@ -37,6 +39,17 @@ async function boot() {
   const store = createStore({ api: createApi({ transport }), storage: safeStorage(browserStorage), namespace });
   const drafts = createDraftStore({ store, storage: browserStorage, namespace });
   const wishlist = createWishlistStore({ store, storage: browserStorage, namespace });
+  // 所持パル（セーブから読み込んだ一覧）はログインと関係なく、このブラウザに保存する。
+  const owned = createOwnedStore({
+    persist: idbPersist(namespace), settings: safeStorage(browserStorage), namespace,
+    // 共有（スプレッドシート）はログイン中の環境ごと
+    server: {
+      scope: () => (store.state.passcode && store.state.userId && store.state.env ? store.state.env : ''),
+      userId: () => store.state.userId,
+      request: (action, input) => store.call(action, input),
+    },
+  });
+  let ownedScope = '';
   const notifications = createNotificationStore({
     store, storage: browserStorage, namespace, sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist })],
   });
@@ -57,7 +70,7 @@ async function boot() {
   header.append(brand, headerStatus);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
-  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['wishlist', 'ウィッシュリスト', '☆'], ['settings', '設定', '⚙']];
+  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['owned', '所持パル', '◎'], ['wishlist', 'ウィッシュリスト', '☆'], ['settings', '設定', '⚙']];
   const tabLinks = new Map();
   for (const [view, label, symbol] of tabs) {
     const tab = link('', buildHash(view), 'nav-tab');
@@ -87,6 +100,7 @@ async function boot() {
     drafts,
     wishlist,
     notifications,
+    owned,
     navigate(hash) { location.hash = hash; },
     replace(hash) { history.replaceState(null, '', `${location.pathname}${location.search}${hash}`); },
     register(initial, options) { return openRecordEditor(context, initial, options); },
@@ -117,7 +131,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
+  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, owned: ownedView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     const panel = el('section', 'login-panel');
@@ -166,6 +180,8 @@ async function boot() {
     if (showingLogin && needsLogin) return;
     const pickerLabel = document.activeElement?.getAttribute('aria-haspopup') === 'listbox'
       ? document.activeElement.getAttribute('aria-label') : null;
+    const passiveLabel = String(document.activeElement?.className ?? '').split(' ').includes('passive-add')
+      ? document.activeElement.getAttribute('aria-label') : null;
     currentView?.destroy();
     currentView = null;
     showingLogin = needsLogin;
@@ -186,6 +202,10 @@ async function boot() {
     if (pickerLabel) {
       Array.from(main.querySelectorAll('.picker-trigger')).find((picker) => picker.getAttribute('aria-label') === pickerLabel)?.focus();
     }
+    // パッシブを選ぶと URL が変わって画面が作り直されるため、続けて選べるよう同じ選択欄へフォーカスを戻す。
+    if (passiveLabel) {
+      Array.from(main.querySelectorAll('.passive-add')).find((select) => select.getAttribute('aria-label') === passiveLabel)?.focus();
+    }
   }
 
   startRouter((nextRoute) => {
@@ -194,6 +214,11 @@ async function boot() {
   });
   store.subscribe((state) => {
     banner.hidden = state.env !== 'test';
+    const scope = state.passcode && state.userId && state.env ? state.env : '';
+    if (scope !== ownedScope) {
+      ownedScope = scope;
+      owned.scopeChanged().catch(() => {});
+    }
     // ログイン中の ID が変わると既読の保存先が、記録が変わるとウィッシュリストの通知が変わる。
     notifications.changed();
     progress.update(state);
@@ -222,7 +247,11 @@ async function boot() {
     notifications.reload(event.key);
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refresh({ throttled: true });
+    if (document.visibilityState === 'visible') {
+      refresh({ throttled: true });
+      // セーブ連携ツールを使っていれば、ゲームで進んだ分を読み直す。
+      owned.autoRefresh().catch(() => {});
+    }
   });
   await refresh();
 }

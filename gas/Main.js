@@ -9,6 +9,8 @@
 
 var API_VERSION = 1;
 var MAX_BODY_CHARS = 16 * 1024;
+// 所持パルのアップロード（1 ワールド分の全個体）だけは大きい本文を受ける
+var MAX_UPLOAD_CHARS = 4 * 1024 * 1024;
 
 function doGet() {
   // データは返さない（パスワード付きの POST だけがデータに触れる）
@@ -23,7 +25,8 @@ function doPost(e) {
 function handleRequest_(body) {
   try {
     if (typeof body !== 'string' || body.length === 0) return fail_('BAD_REQUEST');
-    if (body.length > MAX_BODY_CHARS) return fail_('TOO_LARGE');
+    // 所持パルのアップロード以外は、読む前に大きさで断る
+    if (body.length > MAX_UPLOAD_CHARS || (body.length > MAX_BODY_CHARS && body.indexOf('"ownedUpload"') === -1)) return fail_('TOO_LARGE');
 
     var req;
     try {
@@ -32,6 +35,7 @@ function handleRequest_(body) {
       return fail_('BAD_JSON');
     }
     if (!req || typeof req !== 'object' || Array.isArray(req)) return fail_('BAD_REQUEST');
+    if (req.action !== 'ownedUpload' && body.length > MAX_BODY_CHARS) return fail_('TOO_LARGE');
 
     var auth = authenticate_(req.passcode);
     if (!auth.ok) return fail_(auth.code);

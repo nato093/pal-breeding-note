@@ -8,6 +8,8 @@ function setup() {
     ensureSheet_(ss, SHEET_NAMES_[env].data, BREEDING_HEADERS_);
     ensureSheet_(ss, SHEET_NAMES_[env].log, LOG_HEADERS_);
     ensureSheet_(ss, SHEET_NAMES_[env].users, USER_HEADERS_);
+    ensureSheet_(ss, SHEET_NAMES_[env].ownedPals, ownedPalHeaders_());
+    ensureSheet_(ss, SHEET_NAMES_[env].ownedWorlds, OWNED_WORLD_HEADERS_);
   });
   var settings = ensureSheet_(ss, SETTINGS_SHEET_, SETTINGS_HEADERS_);
   var table = readTable_(settings, SETTINGS_HEADERS_);
@@ -64,6 +66,8 @@ function removeEmptyDefaultSheet_(ss) {
     ours[SHEET_NAMES_[env].data] = true;
     ours[SHEET_NAMES_[env].log] = true;
     ours[SHEET_NAMES_[env].users] = true;
+    ours[SHEET_NAMES_[env].ownedPals] = true;
+    ours[SHEET_NAMES_[env].ownedWorlds] = true;
   });
   ss.getSheets().forEach(function (sheet) {
     if (ours[sheet.getName()]) return;

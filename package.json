@@ -11,9 +11,13 @@
     "test": "node --test \"test/**/*.test.js\"",
     "test:perf": "node --test \"test/perf/*.perf.js\"",
     "build:pals": "node scripts/import-pals.mjs",
+    "build:passives": "node scripts/import-passives.mjs",
+    "extract:passive-icons": "node scripts/extract-passive-icons.mjs",
     "build:gas": "node scripts/build-gas.mjs",
     "fetch:icons": "node scripts/fetch-icons.mjs",
     "dev": "node scripts/dev-server.mjs",
+    "save-bridge": "node scripts/save-bridge.mjs",
+    "check:save": "node scripts/check-save.mjs",
     "gas:push": "npm run build:gas && clasp push --force"
   },
   "devDependencies": {

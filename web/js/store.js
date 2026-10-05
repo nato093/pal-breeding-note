@@ -261,6 +261,19 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     login(userId, passcode) { return authenticate('login', userId, passcode); },
     signup(userId, passcode) { return authenticate('signup', userId, passcode); },
     logout,
+    // 配合の全件を返さない操作（所持パルの共有など）。認証が外れたときはログアウトする。
+    async call(action, input) {
+      if (!state.passcode || !state.userId) throw new ApiError('AUTH');
+      const currentSession = session;
+      try {
+        const response = await api.request(action, state.passcode, input);
+        if (currentSession !== session) throw new ApiError('AUTH');
+        return response;
+      } catch (error) {
+        if (error.code === 'AUTH' && currentSession === session) logout(error.message);
+        throw error;
+      }
+    },
     async refresh({ throttled = false } = {}) {
       if (!state.passcode || !state.userId || (throttled && now() - lastRefresh < 30000)) return;
       lastRefresh = now();

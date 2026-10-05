@@ -12,7 +12,7 @@ test('INV-2: pals.js の各パルは許可リストの項目だけを持つ', ()
 });
 
 test('INV-2: pals.csv の列は許可リストどおり', () => {
-  const header = fs.readFileSync('data/pals.csv', 'utf8').split('\n')[0];
+  const header = fs.readFileSync('data/pals.csv', 'utf8').split(/\r?\n/)[0];
   assert.equal(header, CSV_COLUMNS.join(','));
 });
 
