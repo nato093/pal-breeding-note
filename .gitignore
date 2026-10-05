@@ -17,5 +17,8 @@ node_modules/
 # 画像は配信時に取得する（リポジトリに含めない）
 web/img/pals/
 
+# 配信時に書き出す版情報（scripts/build-release.mjs）
+web/version.json
+
 # 生成されたプレビュー
 preview/

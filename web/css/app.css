@@ -95,6 +95,10 @@ img, svg { max-width: 100%; }
 .tab-symbol { font-size: 20px; line-height: 1.1; }
 .nav-tab.active { color: var(--accent); background: var(--surface-soft); }
 .app-main { max-width: 1120px; padding: 20px 24px; margin: auto; min-height: 65dvh; }
+.update-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; max-width: 1072px; margin: 12px auto 0; padding: 12px 16px; border: 1px solid var(--accent); border-radius: 16px; background: var(--surface-soft); }
+.update-banner-message { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
+.update-banner-hint { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.update-banner-actions { display: flex; gap: 8px; }
 .view-heading { margin-bottom: 14px; }
 .view-heading h1 { font-size: 24px; margin: 0; white-space: nowrap; }
 .header-actions { position: absolute; z-index: 6; top: 18px; right: max(24px, calc((100% - 1072px) / 2)); display: flex; align-items: center; gap: 10px; }
