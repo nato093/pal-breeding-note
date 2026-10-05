@@ -3,8 +3,8 @@
  */
 
 var SHEET_NAMES_ = {
-  prod: { data: 'Breedings', log: 'Log', users: 'Users' },
-  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test' }
+  prod: { data: 'Breedings', log: 'Log', users: 'Users', ownedPals: 'OwnedPals', ownedWorlds: 'OwnedWorlds' },
+  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test', ownedPals: 'OwnedPals_test', ownedWorlds: 'OwnedWorlds_test' }
 };
 
 var USER_HEADERS_ = ['userId', 'createdAt'];
@@ -18,6 +18,15 @@ var BREEDING_HEADERS_ = [
 ];
 
 var LOG_HEADERS_ = ['at', 'action', 'recordId', 'before', 'after'];
+
+// 所持パル（ホストのセーブから読み込んだもの）。1 行 1 体、ワールドごとに丸ごと置き換える
+// OWNED_FIELDS は Shared.js にある。ファイルの読み込み順に左右されないよう関数にする
+function ownedPalHeaders_() {
+  return ['worldId'].concat(OWNED_FIELDS, ['updatedAt']);
+}
+var OWNED_WORLD_HEADERS_ = [
+  'worldId', 'worldName', 'hostName', 'saveUpdatedAt', 'uploadedAt', 'uploadedBy', 'palCount', 'players', 'bases'
+];
 
 // 少人数の同時書き込み（1 件約 2〜3 秒）を待てる長さ。クライアントのタイムアウト（35 秒）より短くする
 var LOCK_TIMEOUT_MS_ = 25000;

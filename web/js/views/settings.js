@@ -6,6 +6,7 @@ import { openNotificationList } from '../ui/notifications.js';
 import { toCsv } from '../core/csv.js';
 import { identityKey } from '../core/pair.js';
 import { viewHeading, watchView } from './shared.js';
+import { ownedSettingsCard } from './owned-settings.js';
 
 const warningMessages = {
   DUPLICATE_RECORD: '同じ配合が重複して登録されています。', DUPLICATE_ID: '登録の識別情報が重複しています。',
@@ -55,8 +56,10 @@ export function settingsView(context) {
   const notices = el('section', 'settings-card');
   notices.append(el('h2', '', '通知'), el('p', 'muted', '既読になったものも含めて、これまでの通知を確認できます。'),
     button('通知一覧', () => openNotificationList(context.notifications), 'button secondary'));
-  element.append(connection, backup, warnings, notices, access);
-  return watchView(store, element, (state) => {
+  // 所持パルのセーブ連携（所持パルの画面がない環境・テストでは出さない）
+  const ownedCard = context.owned ? ownedSettingsCard(context) : null;
+  element.append(connection, ...(ownedCard ? [ownedCard.element] : []), backup, warnings, notices, access);
+  const view = watchView(store, element, (state) => {
     accountId.textContent = `ログイン中の ID: ${state.userId}`;
     env.textContent = `環境: ${state.env === 'test' ? 'テスト' : state.env === 'prod' ? '本番' : '確認中'}`;
     time.textContent = `前回取得: ${formatTime(state.serverTime, true)}${state.cached ? '（キャッシュ）' : ''}`;
@@ -78,4 +81,5 @@ export function settingsView(context) {
       warningList.append(row);
     }
   });
+  return { element, destroy() { view.destroy(); ownedCard?.destroy(); } };
 }

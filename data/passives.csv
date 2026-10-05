@@ -1,0 +1,422 @@
+passiveId,nameJa,nameEn,rank,standard,descriptionJa
+WorldTree_ATK,諸刃の聖剣,Twin-Edged Holy Blade,5,true,攻撃+50% 防御-30% 世界樹の木・岩に近づいても消滅しない
+WorldTree_ATK_DEF,破壊神,God of Destruction,5,true,攻撃+40% 防御+20% 最大HP-50% 世界樹の木・岩に近づいても消滅しない
+WorldTree_CraftSpeed,悪魔の手,Demon’s Hand,5,true,作業速度 +90% SAN値が減りやすい +15.0% 世界樹の木・岩に近づいても消滅しない
+WorldTree_DEF,聖域の肉壁,Sanctified Meat Shield,5,true,防御+50% 攻撃-30% 世界樹の木・岩に近づいても消滅しない
+WorldTree_FullStomach,神樹の苗床,World Tree's Bounty,5,true,満腹度が減りにくい +50.0% HP -20% 世界樹の木・岩に近づいても消滅しない
+WorldTree_MoveSpeed,次元跳躍,Dimensional Leap,5,true,移動速度上昇 +50% 満腹度が減りやすい +15.0% 世界樹の木・岩に近づいても消滅しない
+WorldTree_Sanity,仙人,Hermit Sage,5,true,SAN値が減りにくい +50.0% 作業速度 -20% 世界樹の木・岩に近づいても消滅しない
+Attack_ACC_up4,攻撃増加Lv4,Attack Up Lv. 4,4,false,
+Attack_ACC_up4_Armor,攻撃増加(小)Lv4,Attack Up (S) Lv. 4,4,false,
+Attack_ACC_up4_Otomo_Only_Equip,パルの攻撃増加Lv4,Pal Attack Up Lv. 4,4,false,
+CoolTimeReduction_Up_3,疾風怒涛,Tempest Fury,4,false,
+CraftSpeed_up3,超絶技巧,Remarkable Craftsmanship,4,true,作業速度 +75%
+Defense_ACC_up4_Otomo_Only_Equip,パルの防御増加Lv4,Pal Defense Up Lv. 4,4,false,
+Deffence_up3,ダイヤモンドボディ,Diamond Body,4,true,防御+30% ひるみ無効 吹き飛び無効
+ElementBoost_Dark_4_Otomo_Only_Equip,パルの闇属性ダメージ強化Lv4,Pal Dark Damage Enhancement Lv. 4,4,false,
+ElementBoost_Dragon_4_Otomo_Only_Equip,パルの竜属性ダメージ強化Lv4,Pal Dragon Damage Enhancement Lv. 4,4,false,
+ElementBoost_Earth_4_Otomo_Only_Equip,パルの地属性ダメージ強化Lv4,Pal Ground Damage Enhancement Lv. 4,4,false,
+ElementBoost_Electricity_4_Otomo_Only_Equip,パルの雷属性ダメージ強化Lv4,Pal Electric Damage Enhancement Lv. 4,4,false,
+ElementBoost_Fire_4_Otomo_Only_Equip,パルの炎属性ダメージ強化Lv4,Pal Fire Damage Enhancement Lv. 4,4,false,
+ElementBoost_Ice_4_Otomo_Only_Equip,パルの氷属性ダメージ強化Lv4,Pal Ice Damage Enhancement Lv. 4,4,false,
+ElementBoost_Leaf_4_Otomo_Only_Equip,パルの草属性ダメージ強化Lv4,Pal Grass Damage Enhancement Lv. 4,4,false,
+ElementBoost_Normal_4_Otomo_Only_Equip,パルの無属性ダメージ強化Lv4,Pal Neutral Damage Enhancement Lv. 4,4,false,
+ElementBoost_Water_4_Otomo_Only_Equip,パルの水属性ダメージ強化Lv4,Pal Water Damage Enhancement Lv. 4,4,false,
+ElementResist_Aqua_4,水属性ダメージ軽減Lv4,Water Damage Reduction Lv. 4,4,false,
+ElementResist_Dark_4,闇属性ダメージ軽減Lv4,Dark Damage Reduction Lv. 4,4,false,
+ElementResist_Dragon_4,竜属性ダメージ軽減Lv4,Dragon Damage Reduction Lv. 4,4,false,
+ElementResist_Earth_4,地属性ダメージ軽減Lv4,Ground Damage Reduction Lv. 4,4,false,
+ElementResist_Fire_4,炎属性ダメージ軽減Lv4,Fire Damage Reduction Lv. 4,4,false,
+ElementResist_Ice_4,氷属性ダメージ軽減Lv4,Ice Damage Reduction Lv. 4,4,false,
+ElementResist_Leaf_4,草属性ダメージ軽減Lv4,Grass Damage Reduction Lv. 4,4,false,
+ElementResist_Normal_4,無属性ダメージ軽減Lv4,Neutral Damage Reduction Lv. 4,4,false,
+ElementResist_Thunder_4,雷属性ダメージ軽減Lv4,Electric Damage Reduction Lv. 4,4,false,
+EternalFlame,永炎,Eternal Flame,4,true,炎属性攻撃ダメージ増加30% 雷属性攻撃ダメージ増加30%
+HP_ACC_up4,HP増加Lv4,Health Up Lv. 4,4,false,
+Invader,侵略者,Invader,4,true,闇属性攻撃ダメージ増加30% 竜属性攻撃ダメージ増加30%
+Legend,伝説,Legend,4,true,攻撃+20% 防御+20% 移動速度上昇20%
+MoveSpeed_up_3,神速,Swift,4,true,移動速度上昇30%
+MutationPal_Babysitter,ベビーシッター,Babysitter,4,true,拠点にいる間、配合牧場にアサインしたパルの タマゴ生成速度+30%、孵化速度+30%
+MutationPal_ExplosionResist,重装甲,Heavily Armored,4,true,爆破ダメージ無効
+MutationPal_Immortal,不死身,Immortality,4,true,与えたダメージの5%を吸収し、HPを回復する。 パルのHP自然回復量+100% 攻撃+15%
+MutationPal_Mutant,特異体質,Idiosyncratic,4,true,パルとプレイヤーのHP自然回復量+50% 防御+25% 毒状態異常ダメージ無効 炎上状態異常ダメージ無効
+Nushi,ヌシ,Lunker,4,true,水属性攻撃ダメージ増加20% 氷属性攻撃ダメージ増加20% 防御+20%
+OctaviaArmorVampire,ブラッドフュエル,Blood Is Fuel,4,false,
+PAL_ALLAttack_up3,鬼神,Demon God,4,true,攻撃 +30% 防御 +5%
+PAL_FullStomach_Down_3,絶食の極み,Mastery of Fasting,4,true,満腹度が減りにくい +20.0%
+PAL_Sanity_Down_3,不動明王の心,Heart of the Immovable King,4,true,SAN値が減りにくい +20.0%
+Rare,希少,Lucky,4,true,攻撃 +15% 防御 +15% 作業速度 +20%
+RideJumpCount_Increase1,軽身,Lightfooted,4,true,ライド中のジャンプ回数+1
+RideJumpCount_Increase2,空渡り,Sky Strider,4,true,ライド中のジャンプ回数+2
+Salvation,救世主,Savior,4,true,無属性攻撃ダメージ増加30% 草属性攻撃ダメージ増加30%
+SelfDeathAddItemDrop_up_3,大盤振る舞い,Lavish Hospitality,4,true,このパルのドロップアイテム+100%
+Stamina_Up_3,永久機関,Eternal Engine,4,true,最大スタミナ+75% ※ライド可能なパルのみ有効
+StonDrop_Boost_5,採掘量増加Lv5,Mining Yield Up Lv. 5,4,false,
+SwimSpeed_up_3,波乗り王,King of the Waves,4,true,水上の移動速度上昇50%
+Vampire,吸血鬼,Vampiric,4,true,与えたダメージの5%を吸収し、HPを回復する。 夜になっても眠らず、働き続ける。
+Witch,魔女,Siren of the Void,4,true,闇属性攻撃ダメージ増加30% 氷属性攻撃ダメージ増加30%
+WoodDrop_Boost_5,伐採量増加Lv5,Logging Yield Up Lv. 5,4,false,
+WorkSpeed_ACC_up4,高速作業Lv4,Speedy Worker Lv. 4,4,false,
+WorkSuitabilityAddRank_MonsterFarm_2,牧場の主,Ranch Master,4,true,牧場の作業適性+2
+defense_ACC_up4,防御増加Lv4,Defense Up Lv. 4,4,false,
+Attack_ACC_up3,攻撃増加Lv3,Attack Up Lv. 3,3,false,
+Attack_ACC_up3_Armor,攻撃増加(小)Lv3,Attack Up (S) Lv. 3,3,false,
+Attack_ACC_up3_Otomo_Only_Equip,パルの攻撃増加Lv3,Pal Attack Up Lv. 3,3,false,
+AutoHPRegeneRate_Passive,ヒーリングコーチ,Healing Coach,3,true,プレイヤーのHP自然回復量+5%
+CoolTimeReduction_Up_1,冷静沈着,Serenity,3,true,アクティブスキルのクールタイム短縮30% 攻撃+10%
+CraftSpeed_up2,職人気質,Artisan,3,true,作業速度 +50%
+Defense_ACC_up3_Otomo_Only_Equip,パルの防御増加Lv3,Pal Defense Up Lv. 3,3,false,
+Deffence_up2,屈強な肉体,Burly Body,3,true,防御+20% ひるみ無効
+ElementBoost_Aqua_2_PAL,海皇,Lord of the Sea,3,true,水属性攻撃ダメージ増加30%
+ElementBoost_Dark_2_PAL,冥王,Lord of the Underworld,3,true,闇属性攻撃ダメージ増加30%
+ElementBoost_Dark_3_Otomo_Only_Equip,パルの闇属性ダメージ強化Lv3,Pal Dark Damage Enhancement Lv. 3,3,false,
+ElementBoost_Dragon_2_PAL,神龍,Divine Dragon,3,true,竜属性攻撃ダメージ増加30%
+ElementBoost_Dragon_3_Otomo_Only_Equip,パルの竜属性ダメージ強化Lv3,Pal Dragon Damage Enhancement Lv. 3,3,false,
+ElementBoost_Earth_2_PAL,地帝,Earth Emperor,3,true,地属性攻撃ダメージ増加30%
+ElementBoost_Earth_3_Otomo_Only_Equip,パルの地属性ダメージ強化Lv3,Pal Ground Damage Enhancement Lv. 3,3,false,
+ElementBoost_Electricity_3_Otomo_Only_Equip,パルの雷属性ダメージ強化Lv3,Pal Electric Damage Enhancement Lv. 3,3,false,
+ElementBoost_Fire_2_PAL,炎帝,Flame Emperor,3,true,炎属性攻撃ダメージ増加30%
+ElementBoost_Fire_3_Otomo_Only_Equip,パルの炎属性ダメージ強化Lv3,Pal Fire Damage Enhancement Lv. 3,3,false,
+ElementBoost_Ice_2_PAL,氷帝,Ice Emperor,3,true,氷属性攻撃ダメージ増加30%
+ElementBoost_Ice_3_Otomo_Only_Equip,パルの氷属性ダメージ強化Lv3,Pal Ice Damage Enhancement Lv. 3,3,false,
+ElementBoost_Leaf_2_PAL,精霊王,Spirit Emperor,3,true,草属性攻撃ダメージ増加30%
+ElementBoost_Leaf_3_Otomo_Only_Equip,パルの草属性ダメージ強化Lv3,Pal Grass Damage Enhancement Lv. 3,3,false,
+ElementBoost_Normal_2_PAL,聖天,Celestial Emperor,3,true,無属性攻撃ダメージ増加30%
+ElementBoost_Normal_3_Otomo_Only_Equip,パルの無属性ダメージ強化Lv3,Pal Neutral Damage Enhancement Lv. 3,3,false,
+ElementBoost_Thunder_2_PAL,雷帝,Lord of Lightning,3,true,雷属性攻撃ダメージ増加30%
+ElementBoost_Water_3_Otomo_Only_Equip,パルの水属性ダメージ強化Lv3,Pal Water Damage Enhancement Lv. 3,3,false,
+ElementResist_Aqua_3,水属性ダメージ軽減Lv3,Water Damage Reduction Lv. 3,3,false,
+ElementResist_Dark_3,闇属性ダメージ軽減Lv3,Dark Damage Reduction Lv. 3,3,false,
+ElementResist_Dragon_3,竜属性ダメージ軽減Lv3,Dragon Damage Reduction Lv. 3,3,false,
+ElementResist_Earth_3,地属性ダメージ軽減Lv3,Earth Damage Reduction Lv. 3,3,false,
+ElementResist_Fire_3,炎属性ダメージ軽減Lv3,Fire Damage Reduction Lv. 3,3,false,
+ElementResist_Ice_3,氷属性ダメージ軽減Lv3,Ice Damage Reduction Lv. 3,3,false,
+ElementResist_Leaf_3,草属性ダメージ軽減Lv3,Grass Damage Reduction Lv. 3,3,false,
+ElementResist_Normal_3,無属性ダメージ軽減Lv3,Neutral Damage Reduction Lv. 3,3,false,
+ElementResist_Thunder_3,雷属性ダメージ軽減Lv3,Electric Damage Reduction Lv. 3,3,false,
+GYM_NAME_Desert,パルパゴス島自警団の幹部,PIDF Commander,3,false,
+GYM_NAME_Forest,パル愛護団体 創始者,Free Pal Alliance Founder,3,false,
+GYM_NAME_Meadow,レイン密猟団の幹部,Rayne Syndicate Boss,3,false,
+GYM_NAME_Sakurajima,月花衆の長,Leader of the Moonflowers,3,false,
+GYM_NAME_Snow,パル遺伝子研究部隊 隊長,PAL Genetic Research Unit Commander,3,false,
+GYM_NAME_Viking,天落の民 首領,Jarl of Feybreak,3,false,
+GYM_NAME_Volcano,永炎の同志 ソウルリーダー,Brothers of the Eternal Pyre Soul Leader,3,false,
+HP_ACC_up3,HP増加Lv3,Health Up Lv. 3,3,false,
+MaxInventoryWeight_up3,最大所持重量増加Lv3,Max Carrying Capacity Lv. 3,3,false,
+MiniNushi,大物,Whopper,3,true,水属性攻撃ダメージ増加5% 氷属性攻撃ダメージ増加5% 防御+5%
+MoveSpeed_up_2,走るのが得意,Runner,3,true,移動速度上昇20%
+PAL_ALLAttack_up2,獰猛,Ferocious,3,true,攻撃 +20%
+PAL_FullStomach_Down_2,ダイエットマスター,Diet Lover,3,true,満腹度が減りにくい +15.0%
+PAL_Sanity_Down_2,ワーカーホリック,Workaholic,3,true,SAN値が減りにくい +15.0%
+PalExp_Increase_3_Otomo_Only_Equip,パルの経験値量増加Lv3,Pal EXP Up Lv. 3,3,false,
+PlayerSP_DecreaseRate_Passive,バテ防止係,Wellness Watcher,3,true,プレイヤーのスタミナ消費量軽減+5.0%
+ReloadSpeedUp_Passive,リロードマスター,Reload Master,3,true,プレイヤーのリロード速度上昇+4%
+SalePrice_Up_1,高貴,Noble,3,true,取引価格が改善+5%
+SelfDeathAddItemDrop_up_2,サービス精神,Service-Minded,3,true,このパルのドロップアイテム+50%
+Stamina_Up_1,無限のスタミナ,Infinite Stamina,3,true,最大スタミナ+50% ※ライド可能なパルのみ有効
+StonDrop_Boost_3,採掘量増加Lv3,Mining Yield Up Lv. 3,3,false,
+StonDrop_Boost_4,採掘量増加Lv4,Mining Yield Up Lv. 4,3,false,
+StonWoodDrop_Boost,採掘・伐採量増加,Logging/Mining Yield Up,3,false,
+SwimSpeed_up_2,泳ぐのが得意,Ace Swimmer,3,true,水上の移動速度上昇40%
+TemperatureResist_Cold3,耐寒Lv3,Cold Resistance Lv. 3,3,false,
+TemperatureResist_Heat3,耐熱Lv3,Heat Resistance Lv. 3,3,false,
+TemperatureResist_Heat3Cold3,耐熱Lv3 / 耐寒Lv3,Heat Resistance Lv. 3 / Cold Resistance Lv. 3,3,false,
+Test_PalEgg_HatchingSpeed_Up,博愛主義者,Philanthropist,3,true,配合牧場にアサインされてる間、タマゴ生成速度が100%増加する
+TrainerATK_UP_1,突撃指揮者,Vanguard,3,true,プレイヤーの攻撃増加10%
+TrainerDEF_UP_1,堅城の軍師,Stronghold Strategist,3,true,プレイヤーの防御増加10%
+TrainerLogging_up1,伐採リーダー,Logging Foreman,3,true,プレイヤーの伐採効率増加25%
+TrainerMining_up1,鉱山のチーフ,Mine Foreman,3,true,プレイヤーの採掘効率増加25%
+TrainerWorkSpeed_UP_1,モチベーター,Motivational Leader,3,true,プレイヤーの作業速度増加25%
+WoodDrop_Boost_3,伐採量増加Lv3,Logging Yield Up Lv. 3,3,false,
+WoodDrop_Boost_4,伐採量増加Lv4,Logging Yield Up Lv. 4,3,false,
+WorkSpeed_ACC_up3,高速作業Lv3,Speedy Worker Lv. 3,3,false,
+WorkSuitabilityAddRank_MonsterFarm_1,牧場っ子,Farmhand,3,true,牧場の作業適性+1
+defense_ACC_up3,防御増加Lv3,Defense Up Lv. 3,3,false,
+Attack_ACC_up2,攻撃増加Lv2,Attack Up Lv. 2,2,false,
+Attack_ACC_up2_Armor,攻撃増加(小)Lv2,Attack Up (S) Lv. 2,2,false,
+Attack_ACC_up2_Otomo_Only_Equip,パルの攻撃増加Lv2,Pal Attack Up Lv. 2,2,false,
+Defense_ACC_up2_Otomo_Only_Equip,パルの防御増加Lv2,Pal Defense Up Lv. 2,2,false,
+Deffence_up2_2,ヘビー級,Heavyweight,2,true,防御+20% 吹き飛び無効
+ElementBoost_Dark_2_Otomo_Only_Equip,パルの闇属性ダメージ強化Lv2,Pal Dark Damage Enhancement Lv. 2,2,false,
+ElementBoost_Dragon_2_Otomo_Only_Equip,パルの竜属性ダメージ強化Lv2,Pal Dragon Damage Enhancement Lv. 2,2,false,
+ElementBoost_Earth_2_Otomo_Only_Equip,パルの地属性ダメージ強化Lv2,Pal Ground Damage Enhancement Lv. 2,2,false,
+ElementBoost_Electricity_2_Otomo_Only_Equip,パルの雷属性ダメージ強化Lv2,Pal Electric Damage Enhancement Lv. 2,2,false,
+ElementBoost_Fire_2_Otomo_Only_Equip,パルの炎属性ダメージ強化Lv2,Pal Fire Damage Enhancement Lv. 2,2,false,
+ElementBoost_Ice_2_Otomo_Only_Equip,パルの氷属性ダメージ強化Lv2,Pal Ice Damage Enhancement Lv. 2,2,false,
+ElementBoost_Leaf_2_Otomo_Only_Equip,パルの草属性ダメージ強化Lv2,Pal Grass Damage Enhancement Lv. 2,2,false,
+ElementBoost_Normal_2_Otomo_Only_Equip,パルの無属性ダメージ強化Lv2,Pal Neutral Damage Enhancement Lv. 2,2,false,
+ElementBoost_Water_2_Otomo_Only_Equip,パルの水属性ダメージ強化Lv2,Pal Water Damage Enhancement Lv. 2,2,false,
+ElementResist_Aqua_2,水属性ダメージ軽減Lv2,Water Damage Reduction Lv. 2,2,false,
+ElementResist_Dark_2,闇属性ダメージ軽減Lv2,Dark Damage Reduction Lv. 2,2,false,
+ElementResist_Dragon_2,竜属性ダメージ軽減Lv2,Dragon Damage Reduction Lv. 2,2,false,
+ElementResist_Earth_2,地属性ダメージ軽減Lv2,Earth Damage Reduction Lv. 2,2,false,
+ElementResist_Fire_2,炎属性ダメージ軽減Lv2,Fire Damage Reduction Lv. 2,2,false,
+ElementResist_Ice_2,氷属性ダメージ軽減Lv2,Ice Damage Reduction Lv. 2,2,false,
+ElementResist_Leaf_2,草属性ダメージ軽減Lv2,Grass Damage Reduction Lv. 2,2,false,
+ElementResist_Normal_2,無属性ダメージ軽減Lv2,Neutral Damage Reduction Lv. 2,2,false,
+ElementResist_Thunder_2,雷属性ダメージ軽減Lv2,Electric Damage Reduction Lv. 2,2,false,
+HP_ACC_up2,HP増加Lv2,Health Up Lv. 2,2,false,
+Noukin,脳筋,Musclehead,2,true,攻撃 +30% 作業速度 -50%
+PalExp_Increase_2_Otomo_Only_Equip,パルの経験値量増加Lv2,Pal EXP Up Lv. 2,2,false,
+TemperatureResist_Cold2,耐寒Lv2,Cold Resistance Lv. 2,2,false,
+TemperatureResist_Heat2,耐熱Lv2,Heat Resistance Lv. 2,2,false,
+TemperatureResist_Heat2Cold2,耐熱Lv2 / 耐寒Lv2,Heat Resistance Lv. 2 / Cold Resistance Lv. 2,2,false,
+WorkSpeed_ACC_up2,高速作業Lv2,Speedy Worker Lv. 2,2,false,
+defense_ACC_up2,防御増加Lv2,Defense Up Lv. 2,2,false,
+AirDash_1,空中ダッシュ+1,Aerial Dash +1,1,false,
+AirDash_2,空中ダッシュ+2,Aerial Dash +2,1,false,
+AirDash_3,空中ダッシュ+3,Aerial Dash +3,1,false,
+AirDash_4,空中ダッシュ+4,Aerial Dash +4,1,false,
+Alien,未知の生体細胞,Otherworldly Cells,1,true,攻撃+10% 炎属性ダメージ軽減15% 雷属性ダメージ軽減15%
+Attack_ACC_up1,攻撃増加Lv1,Attack Up Lv. 1,1,false,
+Attack_ACC_up1_Armor,攻撃増加(小)Lv1,Attack Up (S) Lv. 1,1,false,
+Attack_ACC_up1_Otomo_Only_Equip,パルの攻撃増加Lv1,Pal Attack Up Lv. 1,1,false,
+AvoidDurationUp_EquipSkill_2,回避時の無敵時間延長,Extended Dodge Invincibility,1,false,
+BossDefeatReward_AmaterasuWolf_Dark,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_Anubis,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_BadCatgirl,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_BerryGoat_Dark,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+BossDefeatReward_BlackMetalDragon,竜属性ダメージ強化（中）,Dragon Damage Enhancement (Medium),1,false,
+BossDefeatReward_BlackPuppy,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_BlueDragon,水属性ダメージ強化（小）,Water Damage Enhancement (Small),1,false,
+BossDefeatReward_BlueThunderHorse,雷属性ダメージ強化（中）,Electric Damage Enhancement (Medium),1,false,
+BossDefeatReward_BlueberryFairy,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+BossDefeatReward_CactusDoll,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+BossDefeatReward_CaptainPenguin,水属性ダメージ強化（小）,Water Damage Enhancement (Small),1,false,
+BossDefeatReward_CatMage,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_CatVampire,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_CubeTurtle,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_CubeTurtle_Neutral,無属性ダメージ強化（中）,Neutral Damage Enhancement (Medium),1,false,
+BossDefeatReward_DarkScorpion,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_DarkScorpion_Ground,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_DomeArmorDragon,竜属性ダメージ強化（大）,Dragon Damage Enhancement (Large),1,false,
+BossDefeatReward_ElecLizard,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_ElecPanda,雷属性ダメージ強化（中）,Electric Damage Enhancement (Medium),1,false,
+BossDefeatReward_ElecSnail,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_FairyDragon,竜属性ダメージ強化（小）,Dragon Damage Enhancement (Small),1,false,
+BossDefeatReward_FengyunDeeper,無属性ダメージ強化（小）,Neutral Damage Enhancement (Small),1,false,
+BossDefeatReward_FengyunDeeper_Electric,雷属性ダメージ強化（中）,Electric Damage Enhancement (Medium),1,false,
+BossDefeatReward_FireKirin,炎属性ダメージ強化（小）,Fire Damage Enhancement (Small),1,false,
+BossDefeatReward_FlameBuffalo,炎属性ダメージ強化（小）,Fire Damage Enhancement (Small),1,false,
+BossDefeatReward_FlowerDinosaur_Electric,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_FlowerDoll,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+BossDefeatReward_FoxExorcist,炎属性ダメージ強化（中）,Fire Damage Enhancement (Medium),1,false,
+BossDefeatReward_FoxMage,炎属性ダメージ強化（小）,Fire Damage Enhancement (Small),1,false,
+BossDefeatReward_GhostDragon,竜属性ダメージ強化（中）,Dragon Damage Enhancement (Medium),1,false,
+BossDefeatReward_GhostRabbit,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_GoldenHorse,地属性ダメージ強化（中）,Ground Damage Enhancement (Medium),1,false,
+BossDefeatReward_GrassGolem,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+BossDefeatReward_GrassGolem_Dark,闇属性ダメージ強化（中）,Dark Damage Enhancement (Medium),1,false,
+BossDefeatReward_GrassMammoth,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+BossDefeatReward_GrassPanda_Electric,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_GrassRabbitMan,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+BossDefeatReward_GrimGirl,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_HawkBird,無属性ダメージ強化（小）,Neutral Damage Enhancement (Small),1,false,
+BossDefeatReward_HerculesBeetle,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_HerculesBeetle_Ground,地属性ダメージ強化（中）,Ground Damage Enhancement (Medium),1,false,
+BossDefeatReward_Horus_Water,水属性ダメージ強化（中）,Water Damage Enhancement (Medium),1,false,
+BossDefeatReward_IceFox,氷属性ダメージ強化（小）,Ice Damage Enhancement (Small),1,false,
+BossDefeatReward_IceHorse,氷属性ダメージ強化（大）,Ice Damage Enhancement (Large),1,false,
+BossDefeatReward_IceHorse_Dark,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_IceNarwhal,氷属性ダメージ強化（大）,Ice Damage Enhancement (Large),1,false,
+BossDefeatReward_IceNarwhal_Fire,炎属性ダメージ強化（大）,Fire Damage Enhancement (Large),1,false,
+BossDefeatReward_JetDragon,竜属性ダメージ強化（大）,Dragon Damage Enhancement (Large),1,false,
+BossDefeatReward_KabukiMan,炎属性ダメージ強化（中）,Fire Damage Enhancement (Medium),1,false,
+BossDefeatReward_KingAlpaca,無属性ダメージ強化（小）,Neutral Damage Enhancement (Small),1,false,
+BossDefeatReward_KingAlpaca_Ice,氷属性ダメージ強化（中）,Ice Damage Enhancement (Medium),1,false,
+BossDefeatReward_KingBahamut,炎属性ダメージ強化（大）,Fire Damage Enhancement (Large),1,false,
+BossDefeatReward_Kirin,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_Kitsunebi_Ice,氷属性ダメージ強化（大）,Ice Damage Enhancement (Large),1,false,
+BossDefeatReward_LazyCatfish,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_LazyDragon_Electric,竜属性ダメージ強化（小）,Dragon Damage Enhancement (Small),1,false,
+BossDefeatReward_LilyQueen,草属性ダメージ強化（大）,Grass Damage Enhancement (Large),1,false,
+BossDefeatReward_LilyQueen_Dark,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_LotusDragon,水属性ダメージ強化（中）,Water Damage Enhancement (Medium),1,false,
+BossDefeatReward_Manticore,炎属性ダメージ強化（小）,Fire Damage Enhancement (Small),1,false,
+BossDefeatReward_MoonChild,闇属性ダメージ強化（中）,Dark Damage Enhancement (Medium),1,false,
+BossDefeatReward_MopKing,氷属性ダメージ強化（小）,Ice Damage Enhancement (Small),1,false,
+BossDefeatReward_MushroomLady,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+BossDefeatReward_Mutant,無属性ダメージ強化（小）,Neutral Damage Enhancement (Small),1,false,
+BossDefeatReward_MysteryMask,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_NaughtyCat,無属性ダメージ強化（小）,Neutral Damage Enhancement (Small),1,false,
+BossDefeatReward_NightBlueHorse,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_PinkRabbit_Grass,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+BossDefeatReward_PlantSlime,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_PoseidonOrca,水属性ダメージ強化（大）,Water Damage Enhancement (Large),1,false,
+BossDefeatReward_PurpleSpider,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_QueenBee,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+BossDefeatReward_RaijinDaughter_Water,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_RockBeast,地属性ダメージ強化（中）,Ground Damage Enhancement (Medium),1,false,
+BossDefeatReward_RockBeast_Ice,氷属性ダメージ強化（中）,Ice Damage Enhancement (Medium),1,false,
+BossDefeatReward_Ronin,炎属性ダメージ強化（中）,Fire Damage Enhancement (Medium),1,false,
+BossDefeatReward_SaintCentaur_1,無属性ダメージ強化（大）,Neutral Damage Enhancement (Large),1,false,
+BossDefeatReward_SaintCentaur_2,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+BossDefeatReward_SakuraSaurus,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+BossDefeatReward_SakuraSaurus_Water,水属性ダメージ強化（小）,Water Damage Enhancement (Small),1,false,
+BossDefeatReward_ScorpionMan_Electric,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_SkyDragon,竜属性ダメージ強化（小）,Dragon Damage Enhancement (Small),1,false,
+BossDefeatReward_Suzaku,炎属性ダメージ強化（大）,Fire Damage Enhancement (Large),1,false,
+BossDefeatReward_ThunderBird,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_ThunderFluffyBird,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+BossDefeatReward_Umihebi,水属性ダメージ強化（中）,Water Damage Enhancement (Medium),1,false,
+BossDefeatReward_VioletFairy,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+BossDefeatReward_VolcanicMonster,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_VolcanoDragon,炎属性ダメージ強化（小）,Fire Damage Enhancement (Small),1,false,
+BossDefeatReward_VolcanoDragon_Ice,氷属性ダメージ強化（中）,Ice Damage Enhancement (Medium),1,false,
+BossDefeatReward_WeaselDragon,氷属性ダメージ強化（小）,Ice Damage Enhancement (Small),1,false,
+BossDefeatReward_Werewolf_Ice,氷属性ダメージ強化（大）,Ice Damage Enhancement (Large),1,false,
+BossDefeatReward_WhiteDeer,無属性ダメージ強化（中）,Neutral Damage Enhancement (Medium),1,false,
+BossDefeatReward_WhiteDeer_Dark,闇属性ダメージ強化（中）,Dark Damage Enhancement (Medium),1,false,
+BossDefeatReward_WhiteMoth,氷属性ダメージ強化（小）,Ice Damage Enhancement (Small),1,false,
+BossDefeatReward_WhiteShieldDragon,竜属性ダメージ強化（中）,Dragon Damage Enhancement (Medium),1,false,
+BossDefeatReward_WhiteTiger_Ground,地属性ダメージ強化（中）,Ground Damage Enhancement (Medium),1,false,
+BossDefeatReward_WingGolem,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+BossDefeatReward_Yeti_Grass,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+CaptureLevel_Up_1,捕獲力強化+1,Capture Strength +1,1,false,
+CaptureLevel_Up_2,捕獲力強化+2,Capture Strength +2,1,false,
+CaptureLevel_Up_3,捕獲力強化+3,Capture Strength +3,1,false,
+CaptureLevel_Up_4,捕獲力強化+4,Capture Strength +4,1,false,
+CaptureLevel_Up_5,捕獲力強化+5,Capture Strength +5,1,false,
+CaptureLevel_Up_6,捕獲力強化+6,Capture Strength +6,1,false,
+CollectItem_Berries,ベリー摘み,Berry Picker,1,false,
+CollectItem_Egg,タマゴ産出,Egg Layer,1,false,
+CollectItem_Milk,ミルク産出,Milk Maker,1,false,
+CollectItem_Money,猫に小判,Gold Digger,1,false,
+CollectItem_Sweets,お菓子生産,Confectioner,1,false,
+CollectItem_Wool_Alpaca,羊毛産出,Wool Maker,1,false,
+CollectItem_Wool_SheepBall,羊毛産出,Wool Maker,1,false,
+CollectItem_Wool_WhiteMoth,シルク織り,Silk Spinner,1,false,
+CoolTimeReduction_Up_2,せっかち,Impatient,1,true,アクティブスキルのクールタイム短縮15%
+CraftSpeed_up1,まじめ,Serious,1,true,作業速度 +20%
+Defense_ACC_up1_Otomo_Only_Equip,パルの防御増加Lv1,Pal Defense Up Lv. 1,1,false,
+Deffence_up1,硬い皮膚,Hard Skin,1,true,防御 +10%
+Defuser_ExplosiveSpore_EquipSkill,爆発ダメージ無効,Explosion Immunity,1,false,
+ElementBoost_Aqua_1_PAL,水遊び好き,Hydromaniac,1,true,水属性攻撃ダメージ増加10%
+ElementBoost_Dark_1_BossDefeat,闇属性ダメージ強化（小）,Dark Damage Enhancement (Small),1,false,
+ElementBoost_Dark_1_Otomo_Only_Equip,パルの闇属性ダメージ強化Lv1,Pal Dark Damage Enhancement Lv. 1,1,false,
+ElementBoost_Dark_1_PAL,夜の帳,Veil of Darkness,1,true,闇属性攻撃ダメージ増加10%
+ElementBoost_Dark_2_BossDefeat,闇属性ダメージ強化（中）,Dark Damage Enhancement (Medium),1,false,
+ElementBoost_Dark_3_BossDefeat,闇属性ダメージ強化（大）,Dark Damage Enhancement (Large),1,false,
+ElementBoost_Dragon_1_BossDefeat,竜属性ダメージ強化（小）,Dragon Damage Enhancement (Small),1,false,
+ElementBoost_Dragon_1_Otomo_Only_Equip,パルの竜属性ダメージ強化Lv1,Pal Dragon Damage Enhancement Lv. 1,1,false,
+ElementBoost_Dragon_1_PAL,竜の血族,Blood of the Dragon,1,true,竜属性攻撃ダメージ増加10%
+ElementBoost_Dragon_2_BossDefeat,竜属性ダメージ強化（中）,Dragon Damage Enhancement (Medium),1,false,
+ElementBoost_Dragon_3_BossDefeat,竜属性ダメージ強化（大）,Dragon Damage Enhancement (Large),1,false,
+ElementBoost_Earth_1_BossDefeat,地属性ダメージ強化（小）,Ground Damage Enhancement (Small),1,false,
+ElementBoost_Earth_1_Otomo_Only_Equip,パルの地属性ダメージ強化Lv1,Pal Ground Damage Enhancement Lv. 1,1,false,
+ElementBoost_Earth_1_PAL,大地の力,Power of Gaia,1,true,地属性攻撃ダメージ増加10%
+ElementBoost_Earth_2_BossDefeat,地属性ダメージ強化（中）,Ground Damage Enhancement (Medium),1,false,
+ElementBoost_Earth_3_BossDefeat,地属性ダメージ強化（大）,Ground Damage Enhancement (Large),1,false,
+ElementBoost_Electricity_1_BossDefeat,雷属性ダメージ強化（小）,Electric Damage Enhancement (Small),1,false,
+ElementBoost_Electricity_1_Otomo_Only_Equip,パルの雷属性ダメージ強化Lv1,Pal Electric Damage Enhancement Lv. 1,1,false,
+ElementBoost_Electricity_2_BossDefeat,雷属性ダメージ強化（中）,Electric Damage Enhancement (Medium),1,false,
+ElementBoost_Electricity_3_BossDefeat,雷属性ダメージ強化（大）,Electric Damage Enhancement (Large),1,false,
+ElementBoost_Fire_1_BossDefeat,炎属性ダメージ強化（小）,Fire Damage Enhancement (Small),1,false,
+ElementBoost_Fire_1_Otomo_Only_Equip,パルの炎属性ダメージ強化Lv1,Pal Fire Damage Enhancement Lv. 1,1,false,
+ElementBoost_Fire_1_PAL,火遊び好き,Pyromaniac,1,true,炎属性攻撃ダメージ増加10%
+ElementBoost_Fire_2_BossDefeat,炎属性ダメージ強化（中）,Fire Damage Enhancement (Medium),1,false,
+ElementBoost_Fire_3_BossDefeat,炎属性ダメージ強化（大）,Fire Damage Enhancement (Large),1,false,
+ElementBoost_Ice_1_BossDefeat,氷属性ダメージ強化（小）,Ice Damage Enhancement (Small),1,false,
+ElementBoost_Ice_1_Otomo_Only_Equip,パルの氷属性ダメージ強化Lv1,Pal Ice Damage Enhancement Lv. 1,1,false,
+ElementBoost_Ice_1_PAL,冷血,Coldblooded,1,true,氷属性攻撃ダメージ増加10%
+ElementBoost_Ice_2_BossDefeat,氷属性ダメージ強化（中）,Ice Damage Enhancement (Medium),1,false,
+ElementBoost_Ice_3_BossDefeat,氷属性ダメージ強化（大）,Ice Damage Enhancement (Large),1,false,
+ElementBoost_Leaf_1_BossDefeat,草属性ダメージ強化（小）,Grass Damage Enhancement (Small),1,false,
+ElementBoost_Leaf_1_Otomo_Only_Equip,パルの草属性ダメージ強化Lv1,Pal Grass Damage Enhancement Lv. 1,1,false,
+ElementBoost_Leaf_1_PAL,草木の香り,Fragrant Foliage,1,true,草属性攻撃ダメージ増加10%
+ElementBoost_Leaf_2_BossDefeat,草属性ダメージ強化（中）,Grass Damage Enhancement (Medium),1,false,
+ElementBoost_Leaf_3_BossDefeat,草属性ダメージ強化（大）,Grass Damage Enhancement (Large),1,false,
+ElementBoost_Normal_1_BossDefeat,無属性ダメージ強化（小）,Neutral Damage Enhancement (Small),1,false,
+ElementBoost_Normal_1_Otomo_Only_Equip,パルの無属性ダメージ強化Lv1,Pal Neutral Damage Enhancement Lv. 1,1,false,
+ElementBoost_Normal_1_PAL,無の境地,Spirit of Zen,1,true,無属性攻撃ダメージ増加10%
+ElementBoost_Normal_2_BossDefeat,無属性ダメージ強化（中）,Neutral Damage Enhancement (Medium),1,false,
+ElementBoost_Normal_3_BossDefeat,無属性ダメージ強化（大）,Neutral Damage Enhancement (Large),1,false,
+ElementBoost_Thunder_1_PAL,コンデンサ,Capacitor,1,true,雷属性攻撃ダメージ増加10%
+ElementBoost_Water_1_BossDefeat,水属性ダメージ強化（小）,Water Damage Enhancement (Small),1,false,
+ElementBoost_Water_1_Otomo_Only_Equip,パルの水属性ダメージ強化Lv1,Pal Water Damage Enhancement Lv. 1,1,false,
+ElementBoost_Water_2_BossDefeat,水属性ダメージ強化（中）,Water Damage Enhancement (Medium),1,false,
+ElementBoost_Water_3_BossDefeat,水属性ダメージ強化（大）,Water Damage Enhancement (Large),1,false,
+ElementResist_Aqua_1,水属性ダメージ軽減Lv1,Water Damage Reduction Lv. 1,1,false,
+ElementResist_Aqua_1_PAL,防水加工,Waterproof,1,true,水属性ダメージ軽減10%
+ElementResist_Dark_1,闇属性ダメージ軽減Lv1,Dark Damage Reduction Lv. 1,1,false,
+ElementResist_Dark_1_PAL,陽キャラ,Cheery,1,true,闇属性ダメージ軽減10%
+ElementResist_Dragon_1,竜属性ダメージ軽減Lv1,Dragon Damage Reduction Lv. 1,1,false,
+ElementResist_Dragon_1_PAL,ドラゴンキラー,Dragonkiller,1,true,竜属性ダメージ軽減10%
+ElementResist_Earth_1,地属性ダメージ軽減Lv1,Earth Damage Reduction Lv. 1,1,false,
+ElementResist_Earth_1_PAL,耐震構造,Earthquake Resistant,1,true,地属性ダメージ軽減10%
+ElementResist_Fire_1,炎属性ダメージ軽減Lv1,Fire Damage Reduction Lv. 1,1,false,
+ElementResist_Fire_1_PAL,日焼け好き,Suntan Lover,1,true,炎属性ダメージ軽減10%
+ElementResist_Ice_1,氷属性ダメージ軽減Lv1,Ice Damage Reduction Lv. 1,1,false,
+ElementResist_Ice_1_PAL,高温体質,Heated Body,1,true,氷属性ダメージ軽減10%
+ElementResist_Leaf_1,草属性ダメージ軽減Lv1,Grass Damage Reduction Lv. 1,1,false,
+ElementResist_Leaf_1_PAL,防草効果,Botanical Barrier,1,true,草属性ダメージ軽減10%
+ElementResist_Normal_1,無属性ダメージ軽減Lv1,Neutral Damage Reduction Lv. 1,1,false,
+ElementResist_Normal_1_PAL,アブノーマル,Abnormal,1,true,無属性ダメージ軽減10%
+ElementResist_Thunder_1,雷属性ダメージ軽減Lv1,Electric Damage Reduction Lv. 1,1,false,
+ElementResist_Thunder_1_PAL,絶縁体,Insulated Body,1,true,雷属性ダメージ軽減10%
+HP_ACC_up1,HP増加Lv1,Health Up Lv. 1,1,false,
+Invalid_ToxicGas_EquipSkill,毒ガスダメージ無効,Toxic Gas Immunity,1,false,
+JumpCount_Increase1,ジャンプ回数増加+1,Jump Count Increase +1,1,false,
+JumpCount_Increase2,ジャンプ回数増加+2,Jump Count Increase +2,1,false,
+JumpCount_Increase3,ジャンプ回数増加+3,Jump Count Increase +3,1,false,
+JumpPower_Increase,ジャンプ力強化,Jump Power Boost,1,false,
+MaxInventoryWeight_up,最大所持重量増加Lv1,Max Carrying Capacity Lv. 1,1,false,
+MaxInventoryWeight_up2,最大所持重量増加Lv2,Max Carrying Capacity Lv. 2,1,false,
+MoveSpeed_up_1,すばしこい,Nimble,1,true,移動速度上昇10%
+Nocturnal,不眠,Insomnia,1,true,夜になっても眠らず、働き続ける。
+PAL_ALLAttack_up1,勇敢,Brave,1,true,攻撃 +10%
+PAL_CorporateSlave,社畜,Work Slave,1,true,作業速度 +30% 攻撃 -30%
+PAL_ElementPassive_Test,パートナースキル：属性パッシブ,en Text,1,false,
+PAL_FullStomach_Down_1,小食,Dainty Eater,1,true,満腹度が減りにくい +10.0%
+PAL_Sanity_Down_1,ポジティブ思考,Positive Thinker,1,true,SAN値が減りにくい +10.0%
+PAL_TribePassive_Test,パートナースキル：種族パッシブ,en Text,1,false,
+PAL_conceited,うぬぼれ屋,Conceited,1,true,作業速度 +10% 防御 -10%
+PAL_masochist,マゾヒスト,Masochist,1,true,防御 +15% 攻撃 -15%
+PAL_oraora,オラオラ系,Aggressive,1,true,攻撃 +10% 防御 -10%
+PAL_rude,粗暴,Hooligan,1,true,攻撃 +15% 作業速度 -10%
+PAL_sadist,サディスト,Sadist,1,true,攻撃 +15% 防御 -15%
+PalExp_Increase_1_Otomo_Only_Equip,パルの経験値量増加Lv1,Pal EXP Up Lv. 1,1,false,
+SalePrice_Up_2,良い毛並み,Fine Furs,1,true,取引価格が改善+3%
+SelfDeathAddItemDrop_up_1,おすそわけ,Sharing is Caring,1,false,
+SphereModule_Curve,スフィアカーブ+1,Sphere Curve +1,1,false,
+SphereModule_Curve2,スフィアスライダー,Sphere Slider,1,false,
+SphereModule_Heavy,スフィア重量+1,Sphere Weight +1,1,false,
+SphereModule_Homing,スフィアホーミング,Sphere Homing,1,false,
+SphereModule_Sniper,スフィア飛距離+1,Sphere Range +1,1,false,
+SphereModule_Sniper2,スフィア飛距離+2,Sphere Range +2,1,false,
+Stamina_Up_2,健康優良児,Fit as a Fiddle,1,true,最大スタミナ+25% ※ライド可能なパルのみ有効
+StonDrop_Boost_1,採掘量増加Lv1,Mining Yield Up Lv. 1,1,false,
+StonDrop_Boost_2,採掘量増加Lv2,Mining Yield Up Lv. 2,1,false,
+SwimSpeed_up_1,しなやかスイム,Sleek Stroke,1,true,水上の移動速度上昇30%
+TemperatureResist_Cold1,耐寒Lv1,Cold Resistance Lv. 1,1,false,
+TemperatureResist_Heat1,耐熱Lv1,Heat Resistance Lv. 1,1,false,
+TemperatureResist_Heat1Cold1,耐熱Lv1 / 耐寒Lv1,Heat Resistance Lv. 1 / Cold Resistance Lv. 1,1,false,
+WoodDrop_Boost_1,伐採量増加Lv1,Logging Yield Up Lv. 1,1,false,
+WoodDrop_Boost_2,伐採量増加Lv2,Logging Yield Up Lv. 2,1,false,
+WorkSpeed_ACC_up1,高速作業Lv1,Speedy Worker Lv. 1,1,false,
+defense_ACC_up1,防御増加Lv1,Defense Up Lv. 1,1,false,
+CoolTimeReduction_Down_1,のんびり屋さん,Easygoing,-1,true,アクティブスキルのクールタイム延長-15%
+CraftSpeed_down1,不器用,Clumsy,-1,true,作業速度 -10%
+Deffence_down1,うたれ弱い,Downtrodden,-1,true,防御 -10%
+FriendshipPoint_Increase_EquipSkill,手持ちパルの信頼度上昇量増加,Party Pal Trust Boost,-1,false,
+MaxInventoryWeight_up_Equip_1,最大所持重量増加Lv1,Max Carrying Capacity Lv. 1,-1,false,
+MaxInventoryWeight_up_Equip_2,最大所持重量増加Lv2,Max Carrying Capacity Lv. 2,-1,false,
+MaxInventoryWeight_up_Equip_3,最大所持重量増加Lv3,Max Carrying Capacity Lv. 3,-1,false,
+MaxInventoryWeight_up_Equip_4,最大所持重量増加Lv4,Max Carrying Capacity Lv. 4,-1,false,
+NightOwl,夜更かし,Night Owl,-1,true,夜中まで起きているせいか、昼寝をしがち。
+NonKilling,手加減,Mercy Hit,-1,true,平和主義者。 攻撃対象のHPを1未満にできない。
+PAL_ALLAttack_down1,ビビり,Coward,-1,true,攻撃 -10%
+PAL_FullStomach_Up_1,食いしんぼ,Glutton,-1,true,満腹度が減りやすい +10.0%
+PAL_Sanity_Up_1,精神が不安定,Unstable,-1,true,SAN値が減りやすい +10.0%
+SalePrice_Down_1,みすぼらしい,Shabby,-1,true,取引価格が悪化-10%
+Stamina_Down_1,引きこもり,Sickly,-1,true,最大スタミナ-25% ※ライド可能なパルのみ有効
+YakushimaDagameBoost_Magic_Equip,神聖なる力・魔法,Hallowed Power: Magic,-1,false,
+YakushimaDagameBoost_Melee_Equip,神聖なる力・近接,Hallowed Power: Close Range,-1,false,
+YakushimaDagameBoost_Ranged_Equip,神聖なる力・遠距離,Hallowed Power: Ranged,-1,false,
+YakushimaDagameBoost_Summon_Equip,神聖なる力・召喚,Hallowed Power: Summon,-1,false,
+YakushimaProtection_Equip,神聖なる守護,Hallowed Guard,-1,false,
+PAL_FullStomach_Up_2,無限の胃袋,Bottomless Stomach,-2,true,満腹度が減りやすい +15.0%
+PAL_Sanity_Up_2,破滅願望,Destructive,-2,true,SAN値が減りやすい +15.0%
+CraftSpeed_down2,サボり癖,Slacker,-3,true,作業速度 -30%
+Deffence_down2,すぐ骨折する,Brittle,-3,true,防御 -20%
+PAL_ALLAttack_down2,ことなかれ主義者,Pacifist,-3,true,攻撃 -20%

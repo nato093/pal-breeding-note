@@ -1,15 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
-import { renderShared } from '../../scripts/build-gas.mjs';
+import { renderShared, SHARED_FILES } from '../../scripts/build-gas.mjs';
 import { createGas } from '../gas/harness.js';
 
 test('GAS: 同じ入力を再変換した内容と Shared.js が一致する', async () => {
   const sources = [];
-  for (const name of ['pair.js', 'validate.js', 'user.js']) {
+  for (const name of SHARED_FILES) {
     sources.push({ name, source: await readFile(new URL(`../../web/js/core/${name}`, import.meta.url), 'utf8') });
   }
-  const disk = await readFile(new URL('../../gas/Shared.js', import.meta.url), 'utf8');
+  // Windows では git が改行を CRLF にして取り出すため、改行の違いは比べない
+  const disk = (await readFile(new URL('../../gas/Shared.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   assert.equal(disk, renderShared(sources));
   assert.match(disk, /^\/\/ 自動生成・手で編集しない/);
   assert.doesNotMatch(disk, /^export /m);
