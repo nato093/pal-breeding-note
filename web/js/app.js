@@ -13,6 +13,9 @@ import { confirmDialog, closeDialogs } from './ui/dialog.js';
 import { breedingCard } from './ui/breeding-card.js';
 import { openRecordEditor } from './ui/record-editor.js';
 import { notificationMenu } from './ui/notifications.js';
+import { updateBanner } from './ui/update-banner.js';
+import { runningVersion, createVersionWatcher, servedVersion, CHECK_INTERVAL } from './version.js';
+import releaseNotes from './release-notes.js';
 import { searchView } from './views/search.js';
 import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
@@ -104,7 +107,19 @@ async function boot() {
   const bell = notificationMenu(notifications);
   const actions = el('div', 'header-actions');
   actions.append(bell.element, register);
-  root.append(skip, banner, header, nav, main, actions);
+  // 新しい版の配信を知らせる帯。再読み込みすると、送信待ちの操作や読み込み中のセーブが失われる。
+  const version = runningVersion();
+  const update = updateBanner({
+    current: version,
+    busy: () => {
+      if (store.state.syncing) return 'サーバへの保存が終わってから、もう一度押してください。';
+      if (owned.state.busy || owned.state.upload.status === 'sending') return '所持パルの読み込み・共有が終わってから、もう一度押してください。';
+      return '';
+    },
+    served: () => servedVersion(location.href),
+    reload: () => location.reload(),
+  });
+  root.append(skip, banner, header, nav, update.element, main, actions);
   let route;
   let currentView;
   let showingLogin = false;
@@ -270,8 +285,17 @@ async function boot() {
     wishlist.reload(event.key);
     notifications.reload(event.key);
   });
+  // 配信された版（version.json）を 5 分ごとと、タブに戻ったときに確かめる。版の無いローカルでは確かめない。
+  const watcher = createVersionWatcher({
+    current: version, bundledNoteIds: releaseNotes.map((note) => note.id), onUpdate: update.show,
+  });
+  if (version) {
+    setInterval(() => { if (document.visibilityState === 'visible') watcher.check(); }, CHECK_INTERVAL);
+    watcher.check();
+  }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
+      watcher.check();
       refresh({ throttled: true });
       // セーブ連携ツールを使っていれば、ゲームで進んだ分を読み直す。
       owned.autoRefresh().catch(() => {});
