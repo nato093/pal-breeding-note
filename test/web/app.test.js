@@ -312,6 +312,39 @@ for (const [hash, next, label] of [
   });
 }
 
+test('画面: タブを切り替えても選んだパルと絞り込みを残し、ログアウトすると忘れる', async (t) => {
+  const { changeHash } = await boot(t, {
+    initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' },
+    api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall',
+  });
+  const tab = (label) => find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.endsWith(label));
+  const registrant = () => find((node) => node.placeholder === '登録者名で絞り込む');
+  changeHash(tab('一覧').href);
+  assert.equal(location.hash, '#/list');
+  registrant().value = '該当なし';
+  await registrant().dispatch('input');
+  assert.match(document.body.textContent, /条件に合う登録はありません/);
+  // 配合検索のタブとロゴは、前に選んだ親のままの画面へ戻る
+  assert.equal(tab('配合検索').href, '#/search?p1=SheepBall');
+  assert.equal(byClass('brand').href, '#/search?p1=SheepBall');
+  changeHash(tab('配合検索').href);
+  assert.ok(find((node) => node.getAttribute('aria-label') === '親1の選択を解除'));
+  changeHash(tab('一覧').href);
+  assert.equal(registrant().value, '該当なし');
+  assert.match(document.body.textContent, /条件に合う登録はありません/);
+  // 不正な ID を URL から消したら、タブにも消した後の URL を覚える
+  changeHash('#/reverse?c=存在しない');
+  assert.equal(tab('逆引き').href, '#/reverse');
+  changeHash('#/settings');
+  const logout = byText('ログアウト').dispatch('click');
+  const confirm = find((node) => node.tagName === 'dialog');
+  await descendants(confirm).find((node) => node.tagName === 'button' && node.textContent === 'ログアウト').dispatch('click');
+  await logout;
+  assertLoginOnly();
+  assert.equal(tab('配合検索').href, '#/search');
+  assert.equal(tab('一覧').href, '#/list');
+});
+
 for (const signup of [false, true]) {
   test(`画面: 未ログインのハッシュ変更でも ${signup ? '新規登録' : 'ログイン'} フォームの入力とエラーを保持する`, async (t) => {
     const { changeHash, calls, replacements } = await boot(t, { hash: '#/search?p1=A&k=旧値&p2=B' });

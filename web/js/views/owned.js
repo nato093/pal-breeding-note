@@ -4,6 +4,7 @@ import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { viewHeading } from './shared.js';
+import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
 
 function option(value, label) {
@@ -63,11 +64,22 @@ export function ownedView(context, route) {
   const owned = context.owned;
   const element = el('section', 'view owned-view');
   element.append(viewHeading('所持パル'));
-  const filter = {
-    holder: route.params.get('holder') ?? '', place: route.params.get('place') ?? '', palId: route.params.get('pal') ?? '',
-    passives: (route.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4), query: '', sort: 'dex', eggs: true, globals: false,
+  // タブを切り替えて戻ってきても、前の絞り込みのまま出す（ページを読み込み直すと既定に戻る）。
+  const memory = context.viewState?.('owned');
+  const filter = memory?.filter ?? {
+    holder: '', place: '', palId: '', passives: [], query: '', sort: 'dex', eggs: true, globals: false,
     stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   };
+  if (memory) memory.filter = filter;
+  // URL で指定された絞り込みは、覚えている絞り込みより優先する。
+  if (['holder', 'place', 'pal', 'p'].some((key) => route.params.has(key))) {
+    filter.holder = route.params.get('holder') ?? '';
+    filter.place = route.params.get('place') ?? '';
+    filter.palId = route.params.get('pal') ?? '';
+    filter.passives = (route.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
+    // 画面内で変えた絞り込みは URL に出ないため、戻ってきたときに古い URL の指定で上書きしないよう外しておく。
+    if (memory) context.replace(buildHash('owned'));
+  }
 
   // 表示しているデータのワールドと更新時刻、連携の案内（設定の操作は設定タブで行う）
   const summary = el('section', 'owned-summary');
@@ -82,6 +94,7 @@ export function ownedView(context, route) {
   const query = el('input');
   query.type = 'search';
   query.placeholder = '名前・ニックネーム・パッシブ名';
+  query.value = filter.query;
   const sort = el('select');
   for (const [key, label] of OWNED_SORTS) sort.append(option(key, label));
   const checkbox = (label, checked, key) => {
@@ -94,7 +107,7 @@ export function ownedView(context, route) {
     return wrapper;
   };
   const toggles = el('div', 'owned-toggles');
-  toggles.append(checkbox('タマゴも表示', true, 'eggs'), checkbox('グローバルボックスを表示', false, 'globals'));
+  toggles.append(checkbox('タマゴも表示', filter.eggs, 'eggs'), checkbox('グローバルボックスを表示', filter.globals, 'globals'));
   // 複数の入力をまとめた欄（label で包むと最初の入力にしか結びつかないため div にする）
   const group = (label, control, className = '') => {
     const wrapper = el('div', `owned-filter-group ${className}`.trim());
@@ -103,6 +116,7 @@ export function ownedView(context, route) {
   };
   const stars = el('select');
   for (const [value, label] of STAR_FILTERS) stars.append(option(value, label));
+  stars.value = filter.stars ? String(filter.stars) : '';
   stars.addEventListener('change', () => { filter.stars = Number(stars.value) || 0; renderResults(); });
   const talents = el('div', 'owned-talent-filter');
   for (const [key, label] of TALENT_FILTERS) {
@@ -113,6 +127,7 @@ export function ownedView(context, route) {
     input.step = '1';
     input.inputMode = 'numeric';
     input.placeholder = '0';
+    if (filter.talent[key]) input.value = String(filter.talent[key]);
     input.setAttribute('aria-label', `${label}の個体値（以上）`);
     input.addEventListener('input', () => {
       filter.talent[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
@@ -145,21 +160,26 @@ export function ownedView(context, route) {
     noticeList(ownedNotices(state), notices);
   }
 
+  // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。
+  function keepChoice(select, key, state) {
+    const valid = [...select.children].some((node) => node.value === filter[key]);
+    if (!valid && state.owned) filter[key] = '';
+    select.value = valid ? filter[key] : '';
+  }
+
   function renderFilters(state) {
     const list = state.owned?.pals ?? [];
     holder.replaceChildren(option('', 'すべて'));
     for (const player of state.owned?.players ?? []) holder.append(option(`player:${player.uid}`, player.name));
     for (const base of state.owned?.bases ?? []) holder.append(option(`base:${base.id}`, base.label));
     if (filter.globals && list.some((pal) => pal.place === 'global')) holder.append(option('global', 'グローバルパルボックス'));
-    if (![...holder.children].some((node) => node.value === filter.holder)) filter.holder = '';
-    holder.value = filter.holder;
+    keepChoice(holder, 'holder', state);
     place.replaceChildren(option('', 'すべて'));
     for (const group of PLACE_ORDER) {
       if ((group === 'global' && !filter.globals) || (group === 'egg' && !filter.eggs)) continue;
       if (list.some((pal) => pal.placeGroup === group)) place.append(option(group, placeGroupLabel(group)));
     }
-    if (![...place.children].some((node) => node.value === filter.place)) filter.place = '';
-    place.value = filter.place;
+    keepChoice(place, 'place', state);
     sort.value = filter.sort;
   }
 

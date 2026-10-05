@@ -17,13 +17,23 @@ export function listView(context) {
     option.value = key;
     sort.append(option);
   }
+  // タブを切り替えて戻ってきても、前の絞り込みと並べ替えのまま出す。
+  const memory = context.viewState?.('list') ?? {};
+  if (memory.registrant) registrant.value = memory.registrant;
+  if (memory.sort) sort.value = memory.sort;
   const filters = el('div', 'selection-panel list-filters');
   filters.append(field('登録者名', registrant), field('並べ替え', sort));
   const count = el('p', 'result-note');
   const results = el('div', 'card-stack');
   // 件数が多くても、最初からすべて出す
   element.append(filters, count, results);
-  for (const input of [registrant, sort]) input.addEventListener('input', () => update(context.store.state));
+  for (const input of [registrant, sort]) {
+    input.addEventListener('input', () => {
+      memory.registrant = registrant.value;
+      memory.sort = sort.value;
+      update(context.store.state);
+    });
+  }
   function update(state) {
     if (dataPending(results, state)) return;
     const query = registrant.value.trim().toLocaleLowerCase('ja');

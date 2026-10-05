@@ -93,6 +93,49 @@ test('所持パル画面: グローバルボックスとタマゴの表示を切
   all.destroy();
 });
 
+test('所持パル画面: タブを切り替えて作り直しても絞り込みを残し、URL の指定は優先してから URL から外す', async (t) => {
+  installDom(t);
+  const states = new Map();
+  const replaced = [];
+  const memoryContext = () => Object.assign(context(fakeOwned()), {
+    viewState(view) { if (!states.has(view)) states.set(view, {}); return states.get(view); },
+    replace: (hash) => replaced.push(hash),
+  });
+  const rows = (view) => view.element.querySelectorAll('.owned-row').length;
+  const keyword = (view) => view.element.querySelectorAll('input').find((node) => node.type === 'search');
+  const first = ownedView(memoryContext(), parseHash('#/owned'));
+  const query = keyword(first);
+  query.value = 'もこ';
+  await query.dispatch('input');
+  const [eggs] = first.element.querySelectorAll('.owned-toggle').map((node) => node.children[0]);
+  eggs.checked = false;
+  await eggs.dispatch('change');
+  const hp = first.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
+  hp.value = '5';
+  await hp.dispatch('input');
+  assert.equal(rows(first), 1);
+  first.destroy();
+  const again = ownedView(memoryContext(), parseHash('#/owned'));
+  assert.equal(rows(again), 1);
+  assert.equal(keyword(again).value, 'もこ');
+  assert.equal(again.element.querySelectorAll('.owned-toggle')[0].children[0].checked, false);
+  assert.equal(again.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）').value, '5');
+  assert.deepEqual(replaced, []);
+  again.destroy();
+  // URL でパッシブを指定して開いたら、その指定で絞り込み、URL からは外す（キーワードなどは残す）
+  const linked = ownedView(memoryContext(), parseHash('#/owned?p=Rare'));
+  assert.deepEqual(states.get('owned').filter.passives, ['Rare']);
+  assert.deepEqual(replaced, ['#/owned']);
+  assert.equal(rows(linked), 1);
+  linked.destroy();
+  // 作り直していない新しい入れ物（ページの読み込み直し）では既定に戻る
+  states.clear();
+  const fresh = ownedView(memoryContext(), parseHash('#/owned'));
+  assert.equal(rows(fresh), 3);
+  assert.equal(keyword(fresh).value, '');
+  fresh.destroy();
+});
+
 test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体値で絞り込む', async (t) => {
   installDom(t);
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
