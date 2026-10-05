@@ -30,6 +30,8 @@ jobs:
           if [ -f scripts/fetch-icons.mjs ]; then
             node scripts/fetch-icons.mjs || echo "::warning::パル画像の取得に失敗しました。SVG アバターで配信します"
           fi
+      - name: 版の書き込み（開いているページが新しい版に気づけるようにする）
+        run: node scripts/build-release.mjs web
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

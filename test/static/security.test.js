@@ -21,11 +21,11 @@ test('静的検査: web の描画に HTML 文字列や禁止された style 属�
   }
 });
 
-test('静的検査: index の CSP 接続先は GAS の二つのオリジンと、この PC のセーブ連携ツールだけ', async () => {
+test('静的検査: index の CSP 接続先は自身（配信中の版の確認）、GAS の二つのオリジン、この PC のセーブ連携ツールだけ', async () => {
   const source = await readFile(new URL('../../web/index.html', import.meta.url), 'utf8');
   const csp = source.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
   const connect = csp.split(';').map((value) => value.trim()).find((value) => value.startsWith('connect-src '));
-  assert.equal(connect, 'connect-src https://script.google.com https://script.googleusercontent.com http://127.0.0.1:5175');
+  assert.equal(connect, "connect-src 'self' https://script.google.com https://script.googleusercontent.com http://127.0.0.1:5175");
   assert.match(source, /name="robots" content="noindex"/);
   assert.match(source, /name="viewport"/);
   assert.doesNotMatch(source, /rel="manifest"/);
@@ -61,11 +61,16 @@ test('静的検査: セーブ連携ツールへの通信は save/bridge.js だ�
   }
 });
 
-test('静的検査: fetch は API クライアントと既存診断に限定する', async () => {
+test('静的検査: fetch は API クライアント・既存診断・版の確認に限定する', async () => {
   const files = await filesIn(new URL('../../web/js/', import.meta.url));
-  for (const file of files.filter((url) => !/\/(api|diag)\.js$/.test(url.pathname))) {
+  for (const file of files.filter((url) => !/\/(api|diag|version)\.js$/.test(url.pathname))) {
     assert.doesNotMatch(await readFile(file, 'utf8'), /\bfetch\s*\(/, file.pathname);
   }
+  // 版の確認が読みに行くのは、同じ場所の version.json と今のページだけ
+  const version = await readFile(new URL('../../web/js/version.js', import.meta.url), 'utf8');
+  const targets = [...version.matchAll(/await fetchWithTimeout\(([^,]+),/g)].map((match) => match[1].trim());
+  assert.deepEqual(targets, ['`version.json?t=${now()}`', "pageUrl.split('#')[0]"]);
+  assert.equal([...version.matchAll(/\bfetch\s*\(/g)].length, 1);
 });
 
 test('静的検査: 廃止した共有・確認・登録者保存・権利ページの参照を残さない', async () => {
