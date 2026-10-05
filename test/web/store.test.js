@@ -388,6 +388,36 @@ test('失敗: その操作だけを取り消し、登録に失敗した配合へ
   assert.equal(store.state.syncing, false);
 });
 
+test('進み具合: 送信待ちが空になるまでの件数を数え、失敗した操作も済んだ数に入れる', async () => {
+  const { store, sent } = await controlled();
+  const progress = () => [store.state.syncDone, store.state.syncTotal];
+  assert.deepEqual(progress(), [0, 0]);
+  const created = store.mutate('create', { record: { id: '新規', ...fields } });
+  const removed = store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  assert.deepEqual(progress(), [0, 2]);
+  sent[1].resolve(done([{ ...record, etag: 'e1' }, { id: '新規', ...fields }], { id: '新規', etag: 'n1' }));
+  await created;
+  assert.deepEqual(progress(), [1, 2]);
+  // 送信中に足した操作は、同じまとまりの総数に加える。
+  const updated = store.mutate('update', { id: '新規', expectedEtag: 'n1', record: { ...fields, memo: '追記' } });
+  assert.deepEqual(progress(), [1, 3]);
+  await flush();
+  sent[2].reject(new ApiError('CONFLICT'));
+  await assert.rejects(removed, { code: 'CONFLICT' });
+  assert.deepEqual(progress(), [2, 3]);
+  await flush();
+  sent[3].resolve(done([{ ...record, etag: 'e1' }, { id: '新規', ...fields, memo: '追記' }], { id: '新規', etag: 'n2' }));
+  await updated;
+  assert.equal(store.state.syncing, false);
+  assert.deepEqual(progress(), [0, 0]);
+  // 送信待ちが空になったら数え直し、ログアウトで送信待ちを捨てたら 0 に戻す。
+  const discarded = store.mutate('delete', { id: record.id, expectedEtag: 'e1' });
+  assert.deepEqual(progress(), [0, 1]);
+  store.logout();
+  assert.deepEqual(progress(), [0, 0]);
+  await assert.rejects(discarded, { code: 'AUTH' });
+});
+
 test('全件取得: 送信中の操作を待ってから取得し、書き込み前の全件で巻き戻さない', async () => {
   const { store, sent } = await controlled();
   const created = store.mutate('create', { record: { id: '新規', ...fields } });
