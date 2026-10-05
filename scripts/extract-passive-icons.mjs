@@ -21,7 +21,7 @@ export const PASSIVE_TEXTURES = {
   pattern: 'T_prt_pal_skill_base_02',
 };
 
-class Reader {
+export class Reader {
   constructor(buffer, pos = 0) { this.b = buffer; this.p = pos; }
   u8() { return this.b[this.p++]; }
   u32() { const v = this.b.readUInt32LE(this.p); this.p += 4; return v; }
@@ -109,7 +109,7 @@ export function openPak(file) {
     }
     return Buffer.concat(parts);
   }
-  return { get, close: () => fs.closeSync(fd) };
+  return { get, has: (name) => paths.has(name), close: () => fs.closeSync(fd) };
 }
 
 // ---- テクスチャ（DXT1 / DXT5）→ RGBA ----
@@ -157,7 +157,8 @@ function decodeDxt(data, width, height, format) {
   return out;
 }
 
-export function readTexture(uexp) {
+/** bulk: 大きい mip を別ファイル（.ubulk）に置くテクスチャの、その中身。最初の mip が uexp になければ bulk の先頭から読む。 */
+export function readTexture(uexp, bulk = null) {
   const at = uexp.indexOf(Buffer.from('PF_'));
   if (at < 16) throw new Error('テクスチャの形式が見つかりません');
   const width = uexp.readInt32LE(at - 16);
@@ -169,8 +170,9 @@ export function readTexture(uexp) {
   marker.writeUInt32LE(size, 0);
   marker.writeUInt32LE(size, 4);
   const k = uexp.indexOf(marker, at);
-  if (k < 0) throw new Error('最初の mip のデータが見つかりません');
-  return { width, height, format, rgba: decodeDxt(uexp.subarray(k + 16, k + 16 + size), width, height, format) };
+  if (k >= 0 && k + 16 + size <= uexp.length) return { width, height, format, rgba: decodeDxt(uexp.subarray(k + 16, k + 16 + size), width, height, format) };
+  if (bulk && bulk.length >= size) return { width, height, format, rgba: decodeDxt(bulk.subarray(0, size), width, height, format) };
+  throw new Error('最初の mip のデータが見つかりません');
 }
 
 // ---- PNG ----

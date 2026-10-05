@@ -49,7 +49,11 @@ test('所持パル: CharacterID の接頭辞と大文字小文字の違いを吸
   assert.deepEqual(resolve('Male_Soldier01'), { palId: '', alpha: false });
   assert.equal(byId.b.alpha, true);
   assert.equal(byId.e.known, false);
-  assert.equal(byId.e.name, 'Male_Soldier01');
+  // 人間のキャラクターは、ゲームから取り出した名前とアイコンを使う
+  assert.equal(byId.e.name, '島民');
+  assert.equal(byId.e.human.icon, 'T_Male_Soldier01_icon_normal.png');
+  const human = normalizeOwned({ ...snapshot, pals: [pal('h', 'BOSS_Believer_CrossBow', {}), pal('x', 'Unknown_Thing', {})] }, { pals, passives });
+  assert.deepEqual(human.pals.map((p) => [p.name, p.human?.icon ?? '', p.alpha]), [['賞金首 エゴ', 'T_BOSS_NPC_Believer.png', true], ['Unknown_Thing', '', false]]);
 });
 
 test('所持パル: 所持者と場所は入れ物で決め、拠点のタマゴは拠点の持ち物にする', () => {

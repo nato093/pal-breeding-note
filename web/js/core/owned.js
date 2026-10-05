@@ -2,6 +2,7 @@
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
 import { OWNED_FIELDS } from './owned-shared.js';
+import humanList from '../../data/humans.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
 const PREFIXES = ['BOSS_', 'GYM_', 'RAID_', 'PREDATOR_'];
@@ -27,6 +28,19 @@ export const placeGroup = (kind) => (String(kind).startsWith('egg-') ? 'egg' : k
 
 export function placeGroupLabel(group) {
   return group === 'egg' ? 'タマゴ' : PLACE_LABELS[group] ?? '不明';
+}
+
+/**
+ * 人間のキャラクター（密猟団・賞金首など。パルのマスターにはない）の名前とアイコンを引く。
+ * 賞金首は BOSS_ 付きの行に専用の名前とアイコンがあるので、そのままの ID を先に引き、なければ接頭辞を外して引く。
+ */
+export function createHumanResolver(humans = humanList) {
+  const byLower = new Map(humans.map((human) => [human.id.toLowerCase(), human]));
+  return (characterId) => {
+    const raw = String(characterId ?? '').toLowerCase();
+    const found = byLower.get(raw) ?? byLower.get(raw.replace(/^(boss|gym|raid|predator)_/, ''));
+    return found ? { ja: found.ja, icon: found.icon } : null;
+  };
 }
 
 // 大文字小文字の違い（セーブ側の表記ゆれ）も吸収して、マスターの ID を引く。
@@ -65,8 +79,9 @@ const GENDERS = { Male: 'M', Female: 'F' };
  * @param {{ pals: object[], passives: object[] }} masters
  * @returns {{ world: object, players: object[], bases: object[], pals: object[], stats: object }}
  */
-export function normalizeOwned(snapshot, { pals, passives }) {
+export function normalizeOwned(snapshot, { pals, passives, humans = humanList }) {
   const resolve = createSpeciesResolver(pals);
+  const resolveHuman = createHumanResolver(humans);
   const palsById = new Map(pals.map((pal) => [pal.id, pal]));
   const passiveById = new Map(passives.map((passive) => [passive.id, passive]));
   const players = new Map((snapshot?.players ?? []).map((player) => [player.uid, player]));
@@ -86,6 +101,7 @@ export function normalizeOwned(snapshot, { pals, passives }) {
   const list = [];
   for (const source of snapshot?.pals ?? []) {
     const { palId, alpha } = resolve(source.characterId);
+    const human = palId ? null : resolveHuman(source.characterId);
     const location = source.location ?? {};
     const kind = PLACE_LABELS[location.kind] ? location.kind : 'unknown';
     const egg = kind.startsWith('egg-');
@@ -107,7 +123,8 @@ export function normalizeOwned(snapshot, { pals, passives }) {
       id: source.instanceId,
       palId,
       characterId: source.characterId,
-      name: pal?.ja ?? source.characterId,
+      name: pal?.ja ?? (human?.ja || source.characterId),
+      human,
       no: pal?.no ?? Infinity,
       variant: Boolean(pal?.variant),
       known: Boolean(pal),
@@ -332,7 +349,8 @@ export function sharedUpload(owned) {
  * 共有された行を、画面用の一覧（normalizeOwned と同じ形）にする。パルとパッシブの名前は手元のマスターを優先する。
  * @param {{ world: object, columns: string[], rows: string[][] }} shared
  */
-export function ownedFromShared(shared, { pals, passives }) {
+export function ownedFromShared(shared, { pals, passives, humans = humanList }) {
+  const resolveHuman = createHumanResolver(humans);
   const palsById = new Map(pals.map((pal) => [pal.id, pal]));
   const passiveById = new Map(passives.map((passive) => [passive.id, passive]));
   const world = shared?.world ?? {};
@@ -349,7 +367,8 @@ export function ownedFromShared(shared, { pals, passives }) {
     const kind = PLACE_LABELS[get('place')] ? get('place') : 'unknown';
     const egg = get('egg') === '1' || kind.startsWith('egg-');
     list.push({
-      id, palId, characterId: get('characterId'), name: pal?.ja ?? (get('palName') || get('characterId')),
+      id, palId, characterId: get('characterId'), human: pal ? null : resolveHuman(get('characterId')),
+      name: pal?.ja ?? (resolveHuman(get('characterId'))?.ja || get('palName') || get('characterId')),
       no: pal?.no ?? Infinity, variant: Boolean(pal?.variant), known: Boolean(pal), alpha: get('alpha') === '1', egg,
       nickname: get('nickname'), gender: ['M', 'F'].includes(get('gender')) ? get('gender') : '',
       level: egg ? 0 : Number(get('level')) || 1, rank: Number(get('rank')) || 1,
