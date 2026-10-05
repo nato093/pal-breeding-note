@@ -4,8 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// GAS と画面で共有するファイル（web/js/core/ の中。import は使えない）
+export const SHARED_FILES = ['pair.js', 'validate.js', 'user.js', 'owned-shared.js'];
+
 export function renderShared(sources) {
-  const parts = sources.map(({ name, source }) => {
+  // Windows の作業ツリー（CRLF）でも同じ内容になるよう、改行を LF にそろえてから組み立てる
+  const parts = sources.map(({ name, source: raw }) => {
+    const source = raw.replace(/\r\n/g, '\n');
     const withoutComments = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, '');
     if (/\bimport\s*(?:[\s"'{*(]|\.)/.test(withoutComments)) {
       throw new Error(`${name}: GAS 共有コードに import は使用できません`);
@@ -17,7 +22,7 @@ export function renderShared(sources) {
 
 export async function buildShared() {
   const sources = [];
-  for (const name of ['pair.js', 'validate.js', 'user.js']) {
+  for (const name of SHARED_FILES) {
     const source = await readFile(path.join(projectDir, 'web/js/core', name), 'utf8');
     sources.push({ name, source });
   }

@@ -88,11 +88,11 @@ test('ロック: 書き込みを flush してから解放する。取れなけ�
   assert.equal(call(busy.gas, { action: 'probe', passcode: PROPS.TEST_PASSCODE, text: 'x' }).code, 'BUSY');
 });
 
-test('setup: 7枚のシートとヘッダーを作り、ログに値を出さず、再実行しても設定を変えない', () => {
+test('setup: 11枚のシートとヘッダーを作り、ログに値を出さず、再実行しても設定を変えない', () => {
   const { gas, spreadsheet, props, logs } = createGas();
   gas.setup();
   assert.deepEqual(spreadsheet.getSheets().map((s) => s.getName()).sort(),
-    ['Breedings', 'Breedings_test', 'Log', 'Log_test', 'Users', 'Users_test', '設定']);
+    ['Breedings', 'Breedings_test', 'Log', 'Log_test', 'OwnedPals', 'OwnedPals_test', 'OwnedWorlds', 'OwnedWorlds_test', 'Users', 'Users_test', '設定']);
   const password = spreadsheet.getSheetByName('設定').data[1][1];
   assert.ok(password && props.store.TEST_PASSCODE);
   assert.notEqual(password, props.store.TEST_PASSCODE);

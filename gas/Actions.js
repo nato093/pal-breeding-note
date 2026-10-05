@@ -16,6 +16,10 @@ function actions_() {
     merge: { run: actionMutation_ },
     delete: { run: actionMutation_ },
     restore: { run: actionMutation_ },
+    ownedWorlds: { run: actionOwnedWorlds_ },
+    owned: { run: actionOwned_ },
+    ownedUpload: { run: actionOwnedUpload_ },
+    ownedDelete: { run: actionOwnedDelete_ },
     probe: { run: actionProbe_, testOnly: true },
     probeStats: { run: actionProbeStats_, testOnly: true },
     probeReset: { run: actionProbeReset_, testOnly: true }

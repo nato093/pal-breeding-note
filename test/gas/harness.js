@@ -32,6 +32,11 @@ class FakeRange {
     values.forEach((line, r) => line.forEach((v, c) => this.sheet.setCell(this.row + r, this.col + c, v)));
     return this;
   }
+  clearContent() {
+    this.sheet.log.push({ op: 'clearContent', row: this.row });
+    for (let r = 0; r < this.numRows; r++) for (let c = 0; c < this.numCols; c++) this.sheet.setCell(this.row + r, this.col + c, '');
+    return this;
+  }
   getValue() { return this.sheet.cell(this.row, this.col); }
   getDisplayValue() { return String(this.getValue()); }
   getFormula() { return ''; }
