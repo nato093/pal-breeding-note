@@ -43,6 +43,20 @@ export function palIcon(pal, { large = false } = {}) {
   return wrapper;
 }
 
+/** 人間のキャラクターのアイコン（ゲームから取り出した web/img/humans/ の画像）。読めなければ何も出さない。 */
+export function humanIcon(file) {
+  const wrapper = el('span', 'pal-icon');
+  const image = el('img');
+  image.alt = '';
+  image.width = 64;
+  image.height = 64;
+  image.loading = 'lazy';
+  image.addEventListener('error', () => wrapper.replaceChildren(), { once: true });
+  image.src = new URL(`../../img/humans/${encodeURIComponent(file)}`, import.meta.url).href;
+  wrapper.append(image);
+  return wrapper;
+}
+
 export function elementChips(pal) {
   const wrapper = el('span', 'element-chips');
   for (const element of pal.el ?? []) wrapper.append(el('span', `element-chip element-${element}`, ELEMENTS[element] ?? '不明'));

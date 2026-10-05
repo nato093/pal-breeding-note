@@ -327,7 +327,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-pal { min-width: 0; }
 .owned-pal .pal-tile { min-height: 44px; gap: 8px; font-size: 14px; }
 .owned-pal .pal-icon { width: 44px; height: 44px; }
-.owned-unknown { flex-direction: column; align-items: flex-start; gap: 0; }
+.owned-unknown { color: var(--ink); }
+/* 件数が多くても全部出すので、画面外の行は描画を後回しにする */
+.owned-row { content-visibility: auto; contain-intrinsic-size: auto 76px; }
 .owned-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .owned-badge { font-size: 11px; border-radius: 6px; padding: 0 6px; background: var(--surface-soft); color: var(--muted); }
 .badge-lucky { background: var(--warning-bg); color: var(--warning); font-weight: 700; }

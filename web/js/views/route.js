@@ -8,8 +8,6 @@ import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiv
 import { buildHash } from '../router.js';
 import { viewHeading, validId, navigateSelection, watchView, dataPending } from './shared.js';
 
-const MAX_STARTS = 8;
-
 function holderSummary(carriers) {
   const where = (pal) => (pal.egg ? `${pal.holder}（タマゴ）` : pal.holder === pal.placeLabel ? pal.holder : `${pal.holder}・${pal.placeLabel}`);
   const names = [...new Set(carriers.map(where))];
@@ -17,17 +15,16 @@ function holderSummary(carriers) {
 }
 
 // 所持しているパルの個体（パッシブと場所）を短く並べる
-function carrierList(carriers, limit = 5) {
+function carrierList(carriers) {
   const list = el('ul', 'route-carriers');
   // パッシブの多い個体、レベルの高い個体から
   const sorted = [...carriers].sort((a, b) => b.passives.length - a.passives.length || b.level - a.level);
-  for (const pal of sorted.slice(0, limit)) {
+  for (const pal of sorted) {
     const item = el('li', 'route-carrier');
     item.append(el('span', 'route-carrier-where', `${pal.egg ? 'タマゴ · ' : `Lv ${pal.level} · `}${pal.holder} · ${pal.placeLabel}`),
       pal.passives.length ? passiveList(pal.passives) : el('span', 'muted', 'パッシブなし'));
     list.append(item);
   }
-  if (carriers.length > limit) list.append(el('li', 'muted', `ほか ${carriers.length - limit} 体`));
   return list;
 }
 
@@ -102,7 +99,7 @@ export function inheritanceView(context, route) {
       return;
     }
     const list = el('div', 'route-starts');
-    for (const start of starts.slice(0, MAX_STARTS)) {
+    for (const start of starts) {
       const row = el('div', 'route-start');
       const info = el('div', 'route-start-info');
       info.append(el('strong', '', start.length ? `最短 ${start.length} 回の配合` : 'すでに目標のパルを所持'),
@@ -114,7 +111,6 @@ export function inheritanceView(context, route) {
       list.append(row);
     }
     box.append(list);
-    if (starts.length > MAX_STARTS) box.append(el('p', 'muted', `ほか ${starts.length - MAX_STARTS} 種類`));
     ownedSection.append(box);
   }
 
