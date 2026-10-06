@@ -13,7 +13,7 @@ export function filterPals(query) {
   });
 }
 
-export function palPicker({ label, value = '', onChange, popupHost }) {
+export function palPicker({ label, value = '', onChange, popupHost, placeholder = 'パルを選択' }) {
   let selected = value;
   let closePopup;
   const wrapper = el('div', 'picker');
@@ -31,8 +31,8 @@ export function palPicker({ label, value = '', onChange, popupHost }) {
 
   function renderSelected() {
     const pal = palsById.get(selected);
-    trigger.replaceChildren(pal ? palTile(selected, { clickable: false }) : el('span', '', 'パルを選択'));
-    trigger.setAttribute('aria-label', `${label}: ${pal ? `No.${pal.label} ${pal.ja}` : 'パルを選択'}`);
+    trigger.replaceChildren(pal ? palTile(selected, { clickable: false }) : el('span', '', placeholder));
+    trigger.setAttribute('aria-label', `${label}: ${pal ? `No.${pal.label} ${pal.ja}` : placeholder}`);
     trigger.classList.toggle('has-selection', Boolean(pal));
     clear.hidden = !pal;
   }
