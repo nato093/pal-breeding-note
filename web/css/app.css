@@ -1135,6 +1135,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-settings-status dt { color: var(--muted); font-weight: 700; }
 .owned-settings-status dd { margin: 0; overflow-wrap: anywhere; }
 .owned-settings .owned-world { font-weight: normal; }
+.owned-breeding-players { display: grid; gap: 6px; margin-top: 8px; }
+.owned-breeding-player { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 14px; }
+.owned-breeding-player span { min-width: 8em; font-weight: 700; overflow-wrap: anywhere; }
+.owned-breeding-player select { flex: 1 1 12em; max-width: 100%; }
 
 /* ---------- 画面の骨組み・細部の動き（2026-10 のデザイン刷新で追加） ---------- */
 /* 左にナビゲーションを固定し、その幅だけ中身を右へ寄せる */
