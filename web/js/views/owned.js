@@ -4,6 +4,7 @@ import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { viewHeading } from './shared.js';
+import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
 
@@ -86,6 +87,8 @@ export function ownedView(context, route) {
   const title = el('p', 'owned-world');
   const times = el('p', 'owned-times muted');
   const notices = noticeList([]);
+  // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）
+  const noticeActions = { grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) } };
   summary.append(title, times, notices);
 
   const filters = el('div', 'selection-panel owned-filters');
@@ -157,7 +160,7 @@ export function ownedView(context, route) {
     title.hidden = !title.textContent;
     times.textContent = timeLines(state).join(' · ');
     times.hidden = !times.textContent;
-    noticeList(ownedNotices(state), notices);
+    noticeList(ownedNotices(state), notices, noticeActions);
   }
 
   // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。

@@ -19,7 +19,7 @@
 
 - ゲームのインストール先（`steamapps\common\Palworld`）にはセーブはない。
 - 協力プレイではホストの PC にだけワールドがある（ホストの PlayerUId は `00000000…0001`）。
-- 参加している側の PC には、ホストのワールド ID と同じ名前のフォルダに `LocalData.sav` だけが置かれる（`Level.sav` はない）。このアプリは、`Level.sav` があればホスト、`LocalData.sav` だけなら参加している側と判定する（2026-10-05、ユーザーの PC で別の Steam アカウントどうしのフォルダ名が一致することを確認）。
+- 参加している側の PC には、ホストのワールド ID と同じ名前のフォルダに `LocalData.sav` だけが置かれる（`Level.sav` はない）。このアプリは、`Level.sav` があればホスト、`LocalData.sav` だけなら参加している側と判定する（2026-10-05、ユーザーの PC で別の Steam アカウントどうしのフォルダ名が一致することを確認）。ただし、前にホストしたワールドに参加すると、同じフォルダに古い `Level.sav` が残ったまま `LocalData.sav` だけが新しくなるため、更新日時でも判定する（下の「注意」）。
 - 専用サーバーは `…\SaveGames\0\<ワールド ID>\` に同じ構成で置かれる。
 
 ## ファイルの形式
@@ -57,6 +57,8 @@
 
 ## 注意
 
-- ブラウザ（Chrome・Edge）は `AppData` 配下のフォルダを File System Access API で開けない（ドラッグ＆ドロップも同じ制限）。そのため自動の読み込みはセーブ連携ツール（`scripts/save-bridge.mjs`）を通す。フォルダの選択（`<input webkitdirectory>`）とフォルダのドロップは毎回の手動操作で読める。
+- ブラウザ（Chrome・Edge）は `AppData` 配下のフォルダを File System Access API で開けない（フォルダのドラッグ＆ドロップも同じ制限。Chromium の blocklist で `DIR_LOCAL_APP_DATA` が `kBlockAllChildren`）。ただし、ドロップした**ファイル**はこの確認を受けず、`DataTransferItem.getAsFileSystemHandle()` のハンドルを IndexedDB に保存して後から読み直せる（Chrome 154 で確認。ゲームが保存し直した後も同じハンドルで最新を読める。「毎回のアクセスを許可」を選ぶと、開き直しても確認なしで読める）。自動の読み込みはこの仕組みを使う（`web/js/save/handles.js`）。フォルダの選択（`<input webkitdirectory>`）とフォルダのドロップは毎回の手動操作で読める。
+- `Level.sav`・`LevelMeta.sav` にはワールド ID（フォルダ名）が入っていない（2026-10-05 に確認）。ファイルの登録では、貼ってもらったフォルダのパスから ID を取る。
+- ホストか参加かは `Level.sav` と `LocalData.sav` の更新日時で決める。ホストで保存すると 2 つはほぼ同時に書かれる（実測で `LocalData.sav` が後になるのは 1 秒ほど、先になるのは最大 18 秒）。参加すると `LocalData.sav` だけが書かれる。`LocalData.sav` が 10 秒以上新しければ参加（`Level.sav` は前にホストしたときの残り）。
 - `Level.sav` の `Timestamp` は PC のローカル時刻なので、セーブの更新日時にはファイルの更新日時を使う。
 - ゲームの更新で構造が変わったら、`npm run check:save -- "<ワールドのフォルダ>"` で読み込みを確かめる。
