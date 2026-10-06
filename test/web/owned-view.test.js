@@ -232,6 +232,49 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルか
   routeView.destroy();
 });
 
+test('継承ルート: 所持パルがあると、目標とパッシブの下に開始の候補を「すべて」を既定にして並べ、押すと絞り込む', async (t) => {
+  installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const app = context(fakeOwned(), records);
+  const chipStates = (view) => view.element.querySelectorAll('.start-chip').map((chip) => [chip.textContent, chip.getAttribute('aria-pressed')]);
+
+  const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  const order = view.element.children.map((node) => node.className);
+  assert.ok(order.indexOf('selection-panel route-query') < order.indexOf('start-filter'));
+  assert.equal(view.element.querySelector('.swap-button'), null);
+  assert.deepEqual(chipStates(view), [['すべて', 'true'], ['No.1モコロン1回', 'false']]);
+  assert.equal(view.element.querySelector('.start-chips').querySelector('.picker-trigger').textContent, '他のパル…');
+  await view.element.querySelectorAll('.start-chip')[1].dispatch('click');
+  assert.equal(app.navigations.at(-1), '#/route?to=CuteFox&p=CraftSpeed_up2&from=SheepBall');
+  view.destroy();
+
+  // 選んだ候補は押された見た目になり、もう一度押すか「すべて」で開始を外す
+  const narrowed = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  assert.deepEqual(chipStates(narrowed), [['すべて', 'false'], ['No.1モコロン1回', 'true']]);
+  await narrowed.element.querySelectorAll('.start-chip')[1].dispatch('click');
+  await narrowed.element.querySelectorAll('.start-chip')[0].dispatch('click');
+  assert.deepEqual(app.navigations.slice(-2), ['#/route?to=CuteFox&p=CraftSpeed_up2', '#/route?to=CuteFox&p=CraftSpeed_up2']);
+  narrowed.destroy();
+
+  // 候補にないパルは「他のパル…」の欄に選んだパルとして出す
+  const other = inheritanceView(app, parseHash('#/route?from=PinkCat&to=CuteFox&p=CraftSpeed_up2'));
+  assert.deepEqual(chipStates(other).map(([, pressed]) => pressed), ['false', 'false']);
+  assert.match(other.element.querySelector('.start-chips').querySelector('.picker-trigger').textContent, /ツッパニャン/);
+  other.destroy();
+});
+
+test('継承ルート: 所持パルのデータがないときは、開始と目標を並べて選ぶ', (t) => {
+  installDom(t);
+  const view = inheritanceView(context(fakeOwned(null)), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  assert.ok(view.element.querySelector('.pair-selection'));
+  assert.ok(view.element.querySelector('.swap-button'));
+  assert.equal(view.element.querySelector('.start-filter'), null);
+  assert.match(view.element.querySelector('.route-owned').textContent, /設定タブの「所持パル（セーブ連携）」でセーブのファイルを登録/);
+  view.destroy();
+});
+
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const DROP_WIN = { DataTransferItem: { prototype: { getAsFileSystemHandle() {} } } };
 const WORLD_PATH = 'C:\\Users\\a\\AppData\\Local\\Pal\\Saved\\SaveGames\\7656\\4A431AC14B58A7E31A76B2A991F79FE8';
