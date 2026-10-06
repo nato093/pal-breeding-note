@@ -68,7 +68,7 @@ async function main() {
     const parents = farm.parents.map((p) => `${p.characterId}${sign[p.gender] ?? ''}（預けた人 ${playerName(p.depositorUid)}）`).join(' × ') || '親なし';
     const [a, b] = farm.parents;
     const expected = farm.parents.length === 2 ? breedChild(table, species(a.characterId).palId, short[a.gender], species(b.characterId).palId, short[b.gender]) || '不明' : '-';
-    const eggs = farm.eggs.map((e) => e.characterId).join(', ') || 'なし';
+    const eggs = farm.eggs.map((e) => `${e.characterId}${/^PalEgg_MutationPal/i.test(e.itemId ?? '') ? '（突然変異）' : ''}`).join(', ') || 'なし';
     console.log(`  ${farm.status === 'ok' ? '' : '[読めない] '}${parents} → 表の子 ${expected} / タマゴ ${eggs}`);
   }
 }

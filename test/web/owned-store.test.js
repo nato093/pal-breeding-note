@@ -72,7 +72,7 @@ test('所持パル: 登録したファイルを読み込み、登録と設定は
   assert.deepEqual(outcome, { persisted: true, result: 'imported' });
   // 確認で読んだ結果をそのまま使う（読み直さない）
   assert.equal(calls.imports, 1);
-  assert.deepEqual(JSON.parse(storage.map.get('pal-note.test.owned.bridge')), { enabled: true, worldId: '', folder: null, viewWorldId: '' });
+  assert.deepEqual(JSON.parse(storage.map.get('pal-note.test.owned.bridge')), { enabled: true, worldId: '', viewWorldId: '' });
   assert.deepEqual([store.state.role, store.state.data.source, store.state.meta.source, store.state.owned.pals.length, store.state.auto.status], ['host', 'handles', 'local', 5, 'ready']);
   assert.equal(store.state.uploadReady, true);
   const again = make();
@@ -96,6 +96,28 @@ test('所持パル: 自動の読み込みは間隔を空け、セーブが変わ
   files['LocalData.sav'].time += 60000;
   advance(25000);
   assert.equal(await store.autoRefresh(), 'imported');
+  assert.equal(calls.imports, 2);
+});
+
+test('所持パル: 定期の読み直しは、自動の読み込みが有効なときだけセーブを読み、共有は読み直さない', async () => {
+  const shared = sharedServer();
+  const { store, calls, advance, register } = setup({ server: shared.server });
+  // 登録がない（参加している側など）ときは何もしない
+  shared.calls.length = 0;
+  assert.equal(await store.pollAuto(), 'skipped');
+  assert.deepEqual(shared.calls, []);
+  const files = hostFiles();
+  await register(WORLD_A, files);
+  advance(60000);
+  shared.calls.length = 0;
+  assert.equal(await store.pollAuto(), 'unchanged');
+  assert.ok(!shared.calls.includes('ownedWorlds'));
+  files['Level.sav'].time += 60000;
+  files['LocalData.sav'].time += 60000;
+  // 前に読んでから間がないときは読まない
+  assert.equal(await store.pollAuto(), 'skipped');
+  advance(60000);
+  assert.equal(await store.pollAuto(), 'imported');
   assert.equal(calls.imports, 2);
 });
 
@@ -206,13 +228,12 @@ test('所持パル: 保存できないブラウザでは、その場限りで登
   assert.deepEqual(store.state.auto.worlds, []);
 });
 
-test('所持パル: 保存できていた登録の削除・解除に失敗したら、消さずに知らせる', async () => {
+test('所持パル: 保存できていた登録の削除に失敗したら、消さずに知らせる', async () => {
   const persist = memoryPersist();
   const { store, register } = setup({ persist });
   await register(WORLD_A, hostFiles());
   persist.strict = false;
   await assert.rejects(store.removeWorld(WORLD_A), /削除できませんでした/);
-  await assert.rejects(store.unlink(), /削除できませんでした/);
   assert.equal(store.state.auto.worlds.length, 1);
   assert.equal(store.state.local.world.id, WORLD_A);
 });
@@ -223,7 +244,7 @@ test('所持パル: 旧版でセーブ連携ツールを使っていた人には
   const { store } = setup({ storage });
   assert.equal(store.state.auto.worldId, WORLD_A);
   assert.equal(await store.autoRefresh(), 'empty');
-  assert.match(store.state.auto.error, /登録されていません.*セーブ連携ツールは不要/);
+  assert.match(store.state.auto.error, /登録されていません.*＋ ワールドを登録/);
 });
 
 test('所持パル: 読み込みの途中でワールドを選び直しても、後の選択の結果が残る', async () => {
@@ -304,22 +325,6 @@ test('所持パル: 共有されているセーブの方が新しいときは、
   assert.deepEqual(host.store.state.owned.pals.map((pal) => pal.id), ['newer']);
 });
 
-test('所持パル: フォルダで参加している側のワールドを選ぶと、読み込まずにホストの共有を待つ', async () => {
-  const shared = sharedServer();
-  const { store, calls, storage } = setup({ server: shared.server });
-  assert.equal(await store.importFolderWorld({ id: WORLD_B.toLowerCase(), role: 'guest', files: [] }), null);
-  assert.equal(calls.imports, 0);
-  assert.deepEqual([store.state.role, store.state.linkedWorldId, store.state.meta.worldId, store.state.meta.source], ['guest', WORLD_B, WORLD_B, undefined]);
-  assert.deepEqual(JSON.parse(storage.map.get('pal-note.test.owned.bridge')).folder, { id: WORLD_B, role: 'guest', name: '' });
-});
-
-test('所持パル: 読み込みに失敗したらエラーを出し、読み込み中の印を外す', async () => {
-  const failing = createOwnedStore({ persist: idbPersist('x', null), runImport: async () => { throw new Error('Level.sav を読めませんでした'); } });
-  await assert.rejects(failing.importFiles([], { source: 'folder', world: { id: WORLD_A } }), /読めませんでした/);
-  assert.equal(failing.state.error, 'Level.sav を読めませんでした');
-  assert.equal(failing.state.busy, false);
-});
-
 test('所持パル: IndexedDB が使えないときは、登録の保存を失敗として返す', async () => {
   const persist = idbPersist('none', null);
   await assert.rejects(persist.setStrict('k', 1), /保存できません/);
@@ -385,26 +390,6 @@ test('所持パル: 最後に遊んだワールドが読めないときは、読
   assert.match(store.state.auto.error, /「テスト」を読めないため/);
 });
 
-test('所持パル: 登録の保存を待っている間に解除を求めたら、その登録の読み込みでは共有しない', async () => {
-  const shared = sharedServer();
-  const persist = memoryPersist();
-  let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const setStrict = persist.setStrict;
-  persist.setStrict = async (key, value) => { await gate; return setStrict(key, value); };
-  const { store } = setup({ server: shared.server, persist });
-  const preview = await store.previewRegistration({ worldId: WORLD_A, steamId: '7656', files: asDropped(hostFiles()) });
-  const committing = store.commitRegistration(preview);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  const unlinking = store.unlink();
-  release();
-  await committing;
-  await unlinking;
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(shared.calls.includes('ownedUpload'), false);
-  assert.deepEqual([store.state.local, store.state.auto.worlds], [null, []]);
-});
-
 test('所持パル: 別のワールドの登録を削除しても、いまのワールドの共有の予約は残す', async () => {
   const shared = sharedServer();
   const { store, timers, register, advance } = setup({ server: shared.server });
@@ -444,4 +429,31 @@ test('所持パル: 順番待ちの読み込みは、削除を求められたワ
   await removing;
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(shared.uploads.slice(before).filter((id) => id === WORLD_B), []);
+});
+
+test('所持パル: 前の版でフォルダから連携し、自動がオフのまま登録が残っていても、登録したワールドを自動で読む', async () => {
+  const { make, storage, persist, register } = setup();
+  await register(WORLD_A, hostFiles());
+  // 前の版の設定（フォルダで連携 → 自動はオフ）
+  storage.map.set('pal-note.test.owned.bridge', JSON.stringify({ enabled: false, worldId: '', folder: { id: WORLD_B, role: 'host', name: '' }, viewWorldId: '' }));
+  const reopened = make();
+  await reopened.load();
+  assert.equal(reopened.state.auto.enabled, true);
+  assert.deepEqual(JSON.parse(storage.map.get('pal-note.test.owned.bridge')), { enabled: true, worldId: '', viewWorldId: '' });
+  assert.ok(persist);
+});
+
+test('所持パル: ワールドを指定して、CSV 用の所持パルを取り出し、共有した所持パルを消せる', async () => {
+  const shared = sharedServer();
+  const { store, register } = setup({ server: shared.server });
+  await register(WORLD_A, hostFiles());
+  await store.uploadLocal({ force: true });
+  // この PC で読み込んだワールドは、読み込んだセーブから
+  const local = await store.ownedOf(WORLD_A.toLowerCase());
+  assert.equal(local.owned.pals.length, 5);
+  // 読み込んでも共有されてもいないワールドは null
+  assert.equal(await store.ownedOf(WORLD_B), null);
+  assert.ok(store.state.shared.worlds.some((world) => world.worldId === WORLD_A));
+  assert.equal(await store.deleteShared(WORLD_A), true);
+  assert.ok(!store.state.shared.worlds.some((world) => world.worldId === WORLD_A));
 });

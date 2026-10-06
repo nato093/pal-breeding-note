@@ -841,14 +841,40 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-auto-state { font-size: 12px; color: var(--muted); }
 .owned-auto-state.state-ready { color: var(--md-sys-color-tertiary); }
 .owned-auto-state.state-permission { color: var(--warning); }
-.owned-register, .owned-manual { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
-.owned-register h3, .owned-manual h3 { font-size: 15px; margin: 0 0 8px; }
+/* セーブ連携: 登録したワールドの一覧と、配合牧場からの自動登録 */
+.owned-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.owned-section h3 { font-size: 15px; margin: 0 0 8px; }
+.owned-world-row .field-label { font-weight: 700; }
+.owned-worlds-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.owned-worlds-head h3 { font-size: 15px; margin: 0; }
+.owned-registered-actions { display: inline-flex; gap: 4px; }
+/* 登録したワールドの行: 開くと、そのワールドの配合牧場からの自動登録の設定が出る */
+.owned-registered-item:has(> .owned-world-details) { display: block; }
+.owned-world-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-height: 44px; padding: 0 0 0 4px; font-weight: normal; border-radius: 8px; list-style: none; }
+.owned-world-summary::-webkit-details-marker { display: none; }
+/* 開閉できることが閉じた状態でも分かるよう、行の頭に ▸ を出し、開くと下向きにする */
+.owned-world-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); transition: transform .15s ease; }
+.owned-world-details[open] > .owned-world-summary::before { transform: rotate(90deg); }
+.owned-world-summary:hover { background: var(--state-primary); }
+.owned-world-state { flex: 0 0 auto; font-size: 12px; color: var(--muted); }
+.owned-world-state.on { color: var(--md-sys-color-tertiary); }
+.owned-world-label { flex: 1 1 16em; overflow-wrap: anywhere; }
+.owned-world-details[open] > .owned-breeding, .owned-world-details[open] > .owned-world-pals { margin-top: 8px; padding: 8px 0 4px; border-top: 1px solid var(--line); }
+/* 登録・編集のモーダル: ① パスと ② ドロップを同じ幅で縦に並べる */
+.world-dialog .owned-step { display: grid; gap: 6px; margin: 0 0 14px; }
+.world-dialog .owned-path, .world-dialog .owned-drop { width: 100%; max-width: none; box-sizing: border-box; }
+.world-dialog .owned-drop { min-height: 64px; display: grid; place-items: center; }
+.owned-draft li { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
+.owned-draft li.done { color: var(--md-sys-color-tertiary); }
+.owned-dialog-result { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+/* 確かめた結果がまだないときは、場所を取らない */
+.owned-dialog-result:empty { display: none; }
+.world-dialog .owned-draft { margin-bottom: 0; }
+.owned-dialog-result.ok { color: var(--md-sys-color-tertiary); }
+.owned-dialog-result.todo { color: var(--warning); }
 .owned-step { display: block; margin: 10px 0 4px; }
 .owned-path { width: 100%; max-width: 720px; min-height: 44px; font-family: ui-monospace, monospace; font-size: 13px; }
 .owned-step-title { font-weight: 700; font-size: 13px; margin: 6px 0 4px; overflow-wrap: anywhere; }
-.owned-file-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 0 0 8px; font-size: 12px; }
-.owned-file-list dt { color: var(--muted); font-weight: 700; }
-.owned-file-list dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
 .owned-registered, .owned-draft { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
 .owned-registered-item {
   display: flex;
