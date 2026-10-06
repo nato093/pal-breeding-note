@@ -113,7 +113,13 @@ export function createAutoRegister({
     const farms = {};
     for (const [id, farm] of Object.entries(value)) {
       // タマゴの一部だけ壊れていても、前にあったタマゴを新しいものと取り違えないよう、その牧場の記録ごと捨てる
-      if (farm && isText(farm.parents) && Array.isArray(farm.eggs) && farm.eggs.every(isText)) farms[id] = { parents: farm.parents, eggs: farm.eggs };
+      if (!farm || !isText(farm.parents) || !Array.isArray(farm.eggs) || !farm.eggs.every(isText)) continue;
+      farms[id] = { parents: farm.parents, eggs: farm.eggs };
+      // 前に読んだときの親（牧場の外で見つかったタマゴの照合に使う）。形がおかしければ使わない
+      const parent = (p) => p && isText(p.palId) && ['M', 'F'].includes(p.gender) && isText(p.depositorUid);
+      if (farm.pair && parent(farm.pair.a) && parent(farm.pair.b) && farm.pair.a.gender !== farm.pair.b.gender) {
+        farms[id].pair = { a: { ...farm.pair.a }, b: { ...farm.pair.b } };
+      }
     }
     return farms;
   }
@@ -134,12 +140,14 @@ export function createAutoRegister({
     const stored = readJson(key, null);
     const kept = memory.get(key) ?? null;
     const value = !stored || (kept && isNewer(kept, stored)) ? kept ?? stored : stored;
-    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', farms: null, pending: [] };
+    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', farms: null, seenEggs: null, pending: [] };
     return {
       rev: Number.isInteger(value.rev) ? value.rev : 0,
       importedAt: isText(value.importedAt) ? value.importedAt : '',
       savedAt: isText(value.savedAt) ? value.savedAt : '',
       farms: cleanFarms(value.farms),
+      // 見たことのあるタマゴ（前の版の記録にはない。そのときは、いまのタマゴを記録するだけ）
+      seenEggs: Array.isArray(value.seenEggs) && value.seenEggs.every(isText) ? value.seenEggs : null,
       pending: Array.isArray(value.pending)
         ? value.pending.map(cleanCandidate).filter((c) => c && !finished.get(key)?.has(c.key)) : [],
     };
@@ -158,14 +166,15 @@ export function createAutoRegister({
     if (saved.importedAt === ctx.importedAt) return { pending: saved.pending, anomalies: [] };
     // 別のタブが新しいセーブで書いた記録を、このタブの古い（同じ）セーブで書き換えない
     if (saved.savedAt && !(timeOf(ctx.savedAt) > timeOf(saved.savedAt))) return { pending: saved.pending, anomalies: [] };
-    const { candidates, anomalies, history } = findNewBreedings(ctx.snapshot, { resolveSpecies, table, history: saved.farms });
+    const previous = saved.farms ? { farms: saved.farms, eggs: saved.seenEggs } : null;
+    const { candidates, anomalies, history } = findNewBreedings(ctx.snapshot, { resolveSpecies, table, history: previous });
     const pending = saved.pending.slice();
     for (const candidate of candidates) {
       const existing = pending.find((c) => c.key === candidate.key);
       if (existing) existing.evidence = [...existing.evidence, ...candidate.evidence].slice(-EVIDENCE_MAX);
       else pending.push(candidate);
     }
-    const next = { importedAt: ctx.importedAt, savedAt: ctx.savedAt, farms: history, pending: pending.slice(-PENDING_MAX) };
+    const next = { importedAt: ctx.importedAt, savedAt: ctx.savedAt, farms: history.farms, seenEggs: history.eggs, pending: pending.slice(-PENDING_MAX) };
     writeFarms(ctx, next);
     return { pending: next.pending, anomalies };
   }
