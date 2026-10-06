@@ -14,6 +14,8 @@ import { breedingCard } from './ui/breeding-card.js';
 import { openRecordEditor } from './ui/record-editor.js';
 import { notificationMenu } from './ui/notifications.js';
 import { updateBanner } from './ui/update-banner.js';
+import { navIcon } from './ui/nav-icons.js';
+import { installRipple } from './ui/ripple.js';
 import { runningVersion, createVersionWatcher, servedVersion, CHECK_INTERVAL } from './version.js';
 import releaseNotes from './release-notes.js';
 import { searchView } from './views/search.js';
@@ -73,11 +75,16 @@ async function boot() {
   header.append(brand, headerStatus);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
-  const tabs = [['search', '配合検索', '⌕'], ['reverse', '逆引き', '↶'], ['route', '継承ルート', '⌁'], ['list', '一覧', '▤'], ['drafts', '下書き', '✎'], ['owned', '所持パル', '◎'], ['wishlist', 'ウィッシュリスト', '☆'], ['settings', '設定', '⚙']];
+  // 並びは 探す｜記録｜所持｜設定 の順（区切りの余白は CSS）
+  const tabs = [['search', '配合検索'], ['reverse', '逆引き'], ['route', '継承ルート'], ['list', '一覧'], ['drafts', '下書き'], ['wishlist', 'ウィッシュリスト'], ['owned', '所持パル'], ['settings', '設定']];
   const tabLinks = new Map();
-  for (const [view, label, symbol] of tabs) {
+  for (const [view, label] of tabs) {
     const tab = link('', buildHash(view), 'nav-tab');
-    tab.append(el('span', 'tab-symbol', symbol), el('span', '', label));
+    // グループの区切りの余白は CSS が data-view で付ける
+    tab.setAttribute('data-view', view);
+    const symbol = el('span', 'tab-symbol');
+    symbol.append(navIcon(view));
+    tab.append(symbol, el('span', '', label));
     nav.append(tab);
     tabLinks.set(view, tab);
   }
@@ -120,6 +127,7 @@ async function boot() {
     reload: () => location.reload(),
   });
   root.append(skip, banner, header, nav, update.element, main, actions);
+  installRipple();
   let route;
   let currentView;
   let showingLogin = false;
