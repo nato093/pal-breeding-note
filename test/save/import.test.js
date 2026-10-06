@@ -110,3 +110,26 @@ test('フォルダの選択: ワールドを新しい順に見つけ、バック
     ['SaveGames/7656/AAAA', ['Level.sav', 'Players/00000000000000000000000000000001.sav', '../GlobalPalStorage.sav']],
   ]);
 });
+
+test('フォルダの選択: 前にホストしたワールドに参加したら（LocalData.sav が 10 秒以上新しい）参加と判定する', () => {
+  const file = (lastModified) => ({ lastModified });
+  const worlds = findWorldsInEntries([
+    { path: '7656/HOST/Level.sav', file: file(100000) },
+    { path: '7656/HOST/LocalData.sav', file: file(101000) },
+    { path: '7656/AGAIN/Level.sav', file: file(100000) },
+    { path: '7656/AGAIN/LocalData.sav', file: file(110000) },
+  ]);
+  assert.deepEqual(Object.fromEntries(worlds.map((w) => [w.id, w.role])), { HOST: 'host', AGAIN: 'guest' });
+  assert.deepEqual(worlds.find((w) => w.id === 'AGAIN').files, []);
+});
+
+test('ホストか参加かの判定: LocalData.sav が Level.sav より 10 秒以上新しければ参加', async () => {
+  const { judgeRole } = await import('../../web/js/save/source.js');
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 109999 }), 'host');
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 110000 }), 'guest');
+  // 同じ保存で LocalData.sav が先に書かれることもある
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 82000 }), 'host');
+  assert.equal(judgeRole({ levelTime: 100000 }), 'host');
+  assert.equal(judgeRole({ localTime: 100000 }), 'guest');
+  assert.equal(judgeRole({}), '');
+});

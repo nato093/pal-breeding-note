@@ -297,7 +297,7 @@ async function boot() {
     if (document.visibilityState === 'visible') {
       watcher.check();
       refresh({ throttled: true });
-      // セーブ連携ツールを使っていれば、ゲームで進んだ分を読み直す。
+      // セーブのファイルを登録していれば、ゲームで進んだ分を読み直す。
       owned.autoRefresh().catch(() => {});
     }
   });

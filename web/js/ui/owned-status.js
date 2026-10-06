@@ -1,5 +1,5 @@
 // 所持パルの状態（連携・共有・更新時刻）の文言。所持パルのタブと設定タブで使う。
-import { el } from './dom.js';
+import { el, button } from './dom.js';
 
 export function dateTime(value) {
   const time = new Date(value);
@@ -15,7 +15,7 @@ export function worldName(meta) {
 
 /** 連携の方法（設定されていなければ ''）。 */
 export function linkLabel(state) {
-  if (state.bridge.enabled) return 'セーブ連携ツール';
+  if (state.auto.enabled) return '登録したセーブのファイル（自動で読み込み）';
   if (state.folder) return 'フォルダ';
   return '';
 }
@@ -45,9 +45,11 @@ export function ownedNotices(state) {
   if (!state.ready) return [{ text: '保存済みのデータを確認中…' }];
   if (state.busy) notices.push({ text: state.progress || '読み込み中…' });
   if (!linkLabel(state)) {
-    notices.push({ text: 'セーブ連携・フォルダが設定されていません。自分のセーブを読み込むには、設定タブの「所持パル（セーブ連携）」で設定してください。', kind: 'info' });
-  } else if (state.bridge.enabled && ['offline', 'error', 'empty'].includes(state.bridge.status)) {
-    notices.push({ text: `${state.bridge.error || 'セーブ連携ツールにつながりません'}（設定タブで確認できます）`, kind: 'warning' });
+    notices.push({ text: 'セーブのファイルが登録されていません。自分のセーブを読み込むには、設定タブの「所持パル（セーブ連携）」で登録してください。', kind: 'info' });
+  } else if (state.auto.enabled && state.auto.status === 'permission') {
+    notices.push({ text: state.auto.error, kind: 'warning', action: 'grant' });
+  } else if (state.auto.enabled && ['error', 'empty'].includes(state.auto.status)) {
+    notices.push({ text: `${state.auto.error}（設定タブで確認できます）`, kind: 'warning' });
   }
   if (state.role === 'guest') {
     notices.push({ text: state.meta?.source ? '参加しているワールドのため、ホストが共有した所持パルを表示しています。'
@@ -62,15 +64,32 @@ export function ownedNotices(state) {
   const snapshot = state.meta?.source === 'local' ? state.data?.snapshot : null;
   if (snapshot && !state.busy) {
     for (const file of snapshot.files?.skipped ?? []) notices.push({ text: `${file.path} を読めませんでした（${file.reason}）`, kind: 'warning' });
-    if (!(snapshot.files?.used ?? []).some((path) => /^Players\/[0-9a-f]{32}\.sav$/i.test(path))) {
+    const used = snapshot.files?.used ?? [];
+    if (!used.some((path) => /^Players\/[0-9a-f]{32}\.sav$/i.test(path))) {
       notices.push({ text: 'Players フォルダのセーブを読めなかったため、手持ち・パルボックスのパルは場所が「不明」になります。', kind: 'warning' });
+    } else if (state.data.source === 'handles') {
+      // 登録した後に仲間が増えると、その人の Players のファイルは登録されていない
+      const files = new Set(used.map((path) => path.toLowerCase()));
+      const missing = (snapshot.players ?? []).filter((player) => player.uid && player.level > 0 && !files.has(`players/${player.uid.replace(/-/g, '').toLowerCase()}.sav`));
+      if (missing.length) {
+        const names = missing.map((player) => `${player.name || '名前なし'}（Players\\${player.uid.replace(/-/g, '').toUpperCase()}.sav）`);
+        notices.push({ text: `登録されていないプレイヤーのファイルがあります: ${names.join('、')}。設定タブで、同じワールドのパスを貼ってドロップすると追加できます。`, kind: 'warning' });
+      }
     }
   }
   return notices;
 }
 
-export function noticeList(notices, list = el('ul', 'owned-notices')) {
-  list.replaceChildren(...notices.map((notice) => el('li', `owned-notice ${notice.kind ? `notice-${notice.kind}` : ''}`.trim(), notice.text)));
+/**
+ * 案内を一覧にする。actions に notice.action と同じ名前のボタン（{ label, run }）があれば、案内の中に出す。
+ */
+export function noticeList(notices, list = el('ul', 'owned-notices'), actions = {}) {
+  list.replaceChildren(...notices.map((notice) => {
+    const item = el('li', `owned-notice ${notice.kind ? `notice-${notice.kind}` : ''}`.trim(), notice.text);
+    const action = actions[notice.action];
+    if (action) item.append(button(action.label, action.run, 'button secondary owned-notice-action'));
+    return item;
+  }));
   list.hidden = !notices.length;
   return list;
 }

@@ -8,6 +8,8 @@ import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash } from '../../web/js/router.js';
 import { ownedView } from '../../web/js/views/owned.js';
+import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
+import { fakeHandle } from '../helpers/file-handles.js';
 import { inheritanceView } from '../../web/js/views/route.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
@@ -23,11 +25,11 @@ const snapshot = {
   stats: {},
 };
 
-function fakeOwned(data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'bridge', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot }, overrides = {}) {
+function fakeOwned(data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot }, overrides = {}) {
   const listeners = new Set();
   const state = {
     ready: true, data, owned: data ? normalizeOwned(data.snapshot, { pals, passives }) : null, busy: false, progress: '', error: '',
-    bridge: { enabled: Boolean(data), status: 'ready', worlds: [], worldDir: '', error: '' }, folder: null,
+    auto: { enabled: Boolean(data), status: 'ready', worlds: data ? [{ id: 'W', dir: 'W', kind: 'host', name: 'テスト', hostName: 'Alice', status: 'ok', role: 'host', playedAt: data.world.updatedAt, files: ['Level.sav'] }] : [], worldId: '', error: '' }, folder: null, uploadReady: Boolean(data),
     role: data ? 'host' : '', linkedWorldId: data ? 'W' : '', viewWorldId: '', local: data,
     shared: { worlds: [], current: null, fetchedAt: '', error: '' }, upload: { status: '', at: '', error: '', worldId: '' },
     meta: data ? { worldId: 'W', worldName: 'テスト', hostName: 'Alice', source: 'local', saveUpdatedAt: data.world.updatedAt, importedAt: data.importedAt, sharedAt: '2026-10-05T00:01:00.000Z', uploadedBy: 'ホスト', palCount: 3 } : null,
@@ -68,7 +70,7 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.equal(view.element.querySelector('.owned-world').textContent, '「テスト」（ホスト Alice） · 4 体');
   assert.match(view.element.querySelector('.owned-times').textContent, /セーブの更新: .*共有: .*（ホスト）/);
   assert.equal(view.element.querySelector('.result-note').textContent, '3 体');
-  assert.doesNotMatch(view.element.textContent, /セーブ連携ツールから自動で読み込む|フォルダを選んで読み込む|データを消す/);
+  assert.doesNotMatch(view.element.textContent, /セーブのファイルを登録|フォルダを選んで読み込む|データを消す/);
   const labels = view.element.querySelectorAll('.owned-toggle').map((node) => [node.textContent, node.children[0].checked]);
   assert.deepEqual(labels, [['タマゴも表示', true], ['グローバルボックスを表示', false]]);
   view.destroy();
@@ -164,7 +166,7 @@ test('所持パル画面: 人間のキャラクターはゲームの名前とア
   installDom(t);
   const many = Array.from({ length: 250 }, (_, i) => ({ instanceId: `s${i}`, characterId: 'SheepBall', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }));
   const humans = [{ instanceId: 'h', characterId: 'BOSS_Believer_CrossBow', gender: 'Male', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }];
-  const data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'bridge', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: [...humans, ...many] } };
+  const data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: [...humans, ...many] } };
   const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
   const rows = view.element.querySelectorAll('.owned-row');
   assert.equal(rows.length, 251);
@@ -179,7 +181,7 @@ test('所持パル画面: 人間のキャラクターはゲームの名前とア
 test('所持パル画面: 連携が設定されていなければ、その旨だけを出す', (t) => {
   installDom(t);
   const view = ownedView(context(fakeOwned(null)), parseHash('#/owned'));
-  assert.match(view.element.querySelector('.owned-notices').textContent, /セーブ連携・フォルダが設定されていません。.*設定タブ/);
+  assert.match(view.element.querySelector('.owned-notices').textContent, /セーブのファイルが登録されていません。.*設定タブ/);
   assert.equal(view.element.querySelectorAll('.owned-row').length, 0);
   assert.equal(view.element.querySelectorAll('button').filter((node) => /読み込む|連携/.test(node.textContent)).length, 0);
   view.destroy();
@@ -197,9 +199,10 @@ test('設定画面: 所持パルのセーブ連携の設定と状態を出す', 
   const view = settingsView(app);
   const card = view.element.querySelector('.owned-settings');
   assert.ok(card);
-  assert.match(card.textContent, /セーブ連携ツールから自動で読み込む/);
+  // テスト用 DOM はドロップからハンドルを取り出せないため、ブラウザの案内だけを出す
+  assert.match(card.textContent, /ファイルの登録は Chrome・Edge で使えます/);
   assert.match(card.textContent, /フォルダを選んで読み込む/);
-  assert.match(card.querySelector('.owned-settings-status').textContent, /連携セーブ連携ツール.*この PCホスト/);
+  assert.match(card.querySelector('.owned-settings-status').textContent, /連携登録したセーブのファイル（自動で読み込み）.*この PCホスト/);
   assert.ok(card.querySelectorAll('button').some((node) => node.textContent === '連携の設定を解除'));
   assert.ok(card.querySelectorAll('button').some((node) => node.textContent === '共有した所持パルを削除' && !node.hidden));
   view.destroy();
@@ -227,4 +230,69 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルか
   assert.equal(routeView.element.querySelector('.route-owned-note').textContent, '相手親のツッパニャン: 所持 2 体（うちパッシブ一致 0 体）');
   assert.match(routeView.element.querySelector('.route-owned-box').textContent, /職人気質/);
   routeView.destroy();
+});
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const DROP_WIN = { DataTransferItem: { prototype: { getAsFileSystemHandle() {} } } };
+const WORLD_PATH = 'C:\\Users\\a\\AppData\\Local\\Pal\\Saved\\SaveGames\\7656\\4A431AC14B58A7E31A76B2A991F79FE8';
+const dropped = (...names) => ({ items: names.map((name) => ({ kind: 'file', getAsFileSystemHandle: () => Promise.resolve(fakeHandle(name)) })) });
+
+test('設定画面: パスを貼ると登録するファイルの場所を出し、ドロップしたファイルを確かめてから登録する', async (t) => {
+  installDom(t);
+  const calls = [];
+  const owned = fakeOwned(null);
+  owned.previewRegistration = async (input) => {
+    calls.push(['preview', input.worldId, input.steamId, input.files.map((file) => file.path)]);
+    return { ...input, kind: 'host', role: 'host', name: 'LC9', hostName: 'Etona', palCount: 12, replaced: [] };
+  };
+  owned.commitRegistration = async (preview) => { calls.push(['commit', preview.worldId]); return { persisted: true, result: 'imported' }; };
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  const path = card.element.querySelector('.owned-path');
+  path.value = WORLD_PATH;
+  await path.dispatch('input');
+  const guide = card.element.querySelector('.owned-file-guide').textContent;
+  assert.match(guide, /ワールドのフォルダ: C:\\Users\\a\\AppData\\Local\\Pal\\Saved\\SaveGames\\7656\\4A431AC14B58A7E31A76B2A991F79FE8/);
+  // ファイルの場所は、ワールドのフォルダからの相対パスで出す
+  assert.match(guide, /自分がホストのワールドLevel\.sav必須.*LevelMeta\.sav必須.*LocalData\.sav必須.*Players\\ の中のファイル全部.*\.\.\\GlobalPalStorage\.sav任意/);
+  assert.match(guide, /参加しただけのワールドLocalData\.sav必須/);
+  await card.element.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav') });
+  await tick();
+  await card.element.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('LocalData.sav', '00000000000000000000000000000001.sav') });
+  await tick();
+  assert.match(card.element.querySelector('.owned-draft').textContent, /Level\.sav ✓ ドロップ済み.*LocalData\.sav ✓ ドロップ済み.*Players のファイル 1 件/);
+  await card.element.querySelectorAll('button').find((node) => node.textContent === '確認する').dispatch('click');
+  assert.deepEqual(calls[0], ['preview', '4A431AC14B58A7E31A76B2A991F79FE8', '7656', ['Level.sav', 'LevelMeta.sav', 'LocalData.sav', 'Players/00000000000000000000000000000001.sav']]);
+  assert.match(card.element.querySelector('.owned-preview').textContent, /「LC9」（ホスト Etona） · 12 体/);
+  await card.element.querySelectorAll('button').find((node) => node.textContent === 'このワールドで登録').dispatch('click');
+  assert.deepEqual(calls[1], ['commit', '4A431AC14B58A7E31A76B2A991F79FE8']);
+  assert.equal(path.value, '');
+  card.destroy();
+});
+
+test('所持パル画面: 許可が必要なときは案内の中に「読み込みを許可」を出し、押すと許可を求める', async (t) => {
+  installDom(t);
+  const owned = fakeOwned(null, { auto: { enabled: true, status: 'permission', worlds: [], worldId: '', error: 'セーブを読むには許可が必要です' } });
+  let asked = 0;
+  owned.grantAndRefresh = () => { asked++; return Promise.resolve({ granted: 1, total: 1, result: 'imported' }); };
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const grant = view.element.querySelector('.owned-notices').querySelectorAll('button').find((node) => node.textContent === '読み込みを許可');
+  assert.ok(grant);
+  await grant.dispatch('click');
+  assert.equal(asked, 1);
+  view.destroy();
+});
+
+test('所持パル画面: 登録した後に増えたプレイヤーの Players のファイルを、追加するよう案内する', (t) => {
+  installDom(t);
+  const P2 = '0000000a-0000-0000-0000-00000000000b';
+  const data = {
+    version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 'W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' },
+    snapshot: { ...snapshot, players: [...snapshot.players, { uid: P2, name: 'Bob', level: 10 }, { uid: '0000000c-0000-0000-0000-00000000000d', name: '', level: 0 }],
+      files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] } },
+  };
+  const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  const text = view.element.querySelector('.owned-notices').textContent;
+  assert.match(text, /登録されていないプレイヤーのファイルがあります: Bob（Players\\0000000A00000000000000000000000B\.sav）。/);
+  assert.doesNotMatch(text, /0000000C/);
+  view.destroy();
 });
