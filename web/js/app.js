@@ -4,6 +4,7 @@ import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { createOwnedStore, idbPersist } from './owned.js';
+import { createAutoRegister } from './auto-register.js';
 import { startRouter, buildHash, parseHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
@@ -27,6 +28,9 @@ import { draftsView } from './views/drafts.js';
 import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
+
+// 登録したセーブを読み直す間隔
+const SAVE_POLL_INTERVAL = 60 * 1000;
 
 async function boot() {
   // 開発用モジュールは配信物に含めず、ループバックの明示指定時だけ読み込む。
@@ -55,8 +59,13 @@ async function boot() {
     },
   });
   let ownedScope = '';
+  // 配合牧場からの自動登録（ホストのセーブを読み込んだとき）。合わなかったものは通知に出す。
+  const autoRegister = createAutoRegister({
+    store, owned, storage: safeStorage(browserStorage), namespace, toast, onNotice: () => notifications.changed(),
+  });
   const notifications = createNotificationStore({
-    store, storage: browserStorage, namespace, sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist })],
+    store, storage: browserStorage, namespace,
+    sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), autoRegister.notices],
   });
   const root = document.getElementById('app');
   const banner = el('div', 'environment-banner', 'テスト環境');
@@ -138,6 +147,7 @@ async function boot() {
     wishlist,
     notifications,
     owned,
+    autoRegister,
     navigate(hash) { location.hash = hash; },
     replace(hash) {
       history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);
@@ -268,6 +278,8 @@ async function boot() {
     }
     // ログイン中の ID が変わると既読の保存先が、記録が変わるとウィッシュリストの通知が変わる。
     notifications.changed();
+    // ログインや記録の取得がセーブの読み込みより後に済んだときも、自動登録を確かめる
+    autoRegister.evaluate();
     progress.update(state);
     status.textContent = state.syncing ? `サーバに保存中… ${state.syncDone} / ${state.syncTotal} 件`
       : state.loading ? '記録を更新中…' : state.error || (state.serverTime
@@ -287,6 +299,7 @@ async function boot() {
     event.returnValue = true;
   });
   wishlist.subscribe(notifications.changed);
+  owned.subscribe(autoRegister.evaluate);
   // 別のタブで下書き・ウィッシュリスト・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {
     drafts.reload(event.key);
@@ -301,6 +314,9 @@ async function boot() {
     setInterval(() => { if (document.visibilityState === 'visible') watcher.check(); }, CHECK_INTERVAL);
     watcher.check();
   }
+  // セーブのファイルを登録していれば、タブが裏にあっても 1 分ごとに読み直す（配合牧場の自動登録で、タマゴを拾う前に読むため）。
+  // 長く裏にあるタブのタイマーは、ブラウザが 1 分に 1 回まで遅らせる。
+  setInterval(() => { owned.pollAuto().catch(() => {}); }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       watcher.check();

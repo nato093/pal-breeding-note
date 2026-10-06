@@ -19,7 +19,7 @@ async function sortOneCardPerRecord() {
 let imports = 0;
 
 async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings' } = {}) {
-  for (const name of ['document', 'window', 'location', 'history', 'fetch']) {
+  for (const name of ['document', 'window', 'location', 'history', 'fetch', 'setInterval']) {
     const before = Object.getOwnPropertyDescriptor(globalThis, name);
     t.after(() => before ? Object.defineProperty(globalThis, name, before) : Reflect.deleteProperty(globalThis, name));
   }
@@ -58,9 +58,12 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
     (request.action.startsWith('owned') ? ownedCalls : calls).push(request);
     return { ok: true, json: async () => api(request) };
   };
+  // 定期の処理は記録だけする（本物のタイマーを残すとテストが終わらない）
+  const intervals = [];
+  globalThis.setInterval = (fn, ms) => intervals.push({ fn, ms });
   await import(`../../web/js/app.js?case=${++imports}`);
   assert.equal(byClass('startup-error'), undefined);
-  return { values, calls, ownedCalls, replacements, events, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
+  return { values, calls, ownedCalls, replacements, events, intervals, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
 }
 
 function assertLoginOnly() {
@@ -69,6 +72,12 @@ function assertLoginOnly() {
   for (const name of ['navigation', 'register-button', 'notification-menu']) assert.equal(byClass(name).hidden, true);
   assert.equal(byClass('brand').inert, true);
 }
+
+test('画面: 登録したセーブは 1 分ごとに読み直す（タブが裏にあっても）', async (t) => {
+  const { intervals } = await boot(t);
+  assert.deepEqual(intervals.map((timer) => timer.ms), [60 * 1000]);
+  assert.doesNotThrow(() => intervals[0].fn());
+});
 
 test('画面: 未ログイン時は ID とパスワードを表示し、旧招待 URL でもログインしない', async (t) => {
   const { calls } = await boot(t);

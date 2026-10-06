@@ -1,11 +1,12 @@
 // マスターデータと画像の取得元。再現性のためコミット SHA で固定する。
-// INV-2: 配合に関するデータ（PalCalc の breeding.json など）はここに載せない＝取得しない。
+// INV-2: 配合に関するデータはマスター（ALL_SOURCE_URLS）には載せない。例外として PalCalc の breeding.json だけを
+// 自動登録の照合用に取り込む（BREEDING_SOURCE_URL・scripts/import-breeding.mjs）。画面での表示や検索には使わない。
 
 export const PALCALC = {
   repo: 'tylercamp/palcalc',
   sha: '8566b9addf72e62bc424c59293afd97eacb038ec',
   license: 'MIT',
-  files: { db: 'PalCalc.Model/db.json' },
+  files: { db: 'PalCalc.Model/db.json', breeding: 'PalCalc.Model/breeding.json' },
 };
 
 export const PALWORLD_HELPER = {
@@ -24,3 +25,6 @@ export const ALL_SOURCE_URLS = [
   rawUrl(PALWORLD_HELPER, PALWORLD_HELPER.files.elements),
   `https://api.github.com/repos/${PALWORLD_HELPER.repo}/contents/${PALWORLD_HELPER.files.iconDir}?ref=${PALWORLD_HELPER.sha}`,
 ];
+
+// 自動登録の照合にだけ使う配合表（INV-2 の例外）
+export const BREEDING_SOURCE_URL = rawUrl(PALCALC, PALCALC.files.breeding);
