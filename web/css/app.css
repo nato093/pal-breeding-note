@@ -310,9 +310,23 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-help { font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
 .owned-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; }
 .owned-toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; }
-.owned-bridge-state { font-size: 12px; color: var(--muted); }
-.owned-bridge-state.state-ready { color: var(--accent); }
-.owned-bridge-state.state-offline { color: var(--warning); }
+.owned-auto-state { font-size: 12px; color: var(--muted); }
+.owned-auto-state.state-ready { color: var(--accent); }
+.owned-auto-state.state-permission { color: var(--warning); }
+.owned-register, .owned-manual { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.owned-register h3, .owned-manual h3 { font-size: 15px; margin: 0 0 8px; }
+.owned-step { display: block; margin: 10px 0 4px; }
+.owned-path { width: 100%; max-width: 720px; min-height: 44px; font-family: ui-monospace, monospace; font-size: 13px; }
+.owned-step-title { font-weight: 700; font-size: 13px; margin: 6px 0 4px; overflow-wrap: anywhere; }
+.owned-file-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 0 0 8px; font-size: 12px; }
+.owned-file-list dt { color: var(--muted); font-weight: 700; }
+.owned-file-list dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+.owned-registered, .owned-draft { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.owned-registered-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 10px; border-radius: 10px; background: var(--surface-soft); overflow-wrap: anywhere; }
+.owned-preview { margin: 8px 0; }
+.owned-preview p { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+.owned-preview .button { margin-right: 8px; }
+.owned-notice-action { margin-left: 10px; min-height: 32px; padding: 4px 12px; }
 .owned-drop { flex: 1; min-width: 240px; padding: 12px 16px; border: 2px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; font-size: 13px; }
 .owned-drop.dragging { border-color: var(--accent); color: var(--accent); background: var(--surface-soft); }
 .owned-folder-worlds { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -368,8 +382,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .route-owned-note.unowned { color: var(--muted); }
 .route-options > .route-owned-note { display: block; padding-bottom: 6px; }
 .route-options > .route-owned-note + .breeding-equation { border-top: 1px dashed var(--line); }
-.owned-bridge-state.state-error, .owned-bridge-state.state-empty { color: var(--danger); }
-.owned-bridge-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
+.owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
+.owned-auto-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 .owned-warnings { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 12px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }
 .owned-drop.disabled { opacity: .5; }
 

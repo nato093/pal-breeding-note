@@ -21,11 +21,11 @@ test('静的検査: web の描画に HTML 文字列や禁止された style 属�
   }
 });
 
-test('静的検査: index の CSP 接続先は自身（配信中の版の確認）、GAS の二つのオリジン、この PC のセーブ連携ツールだけ', async () => {
+test('静的検査: index の CSP 接続先は自身（配信中の版の確認）と GAS の二つのオリジンだけ', async () => {
   const source = await readFile(new URL('../../web/index.html', import.meta.url), 'utf8');
   const csp = source.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
   const connect = csp.split(';').map((value) => value.trim()).find((value) => value.startsWith('connect-src '));
-  assert.equal(connect, "connect-src 'self' https://script.google.com https://script.googleusercontent.com http://127.0.0.1:5175");
+  assert.equal(connect, "connect-src 'self' https://script.google.com https://script.googleusercontent.com");
   assert.match(source, /name="robots" content="noindex"/);
   assert.match(source, /name="viewport"/);
   assert.doesNotMatch(source, /rel="manifest"/);
@@ -50,14 +50,12 @@ test('静的検査: 開発 API の初期レコードは空で、seed 指定時�
   assert.doesNotMatch(source, /fetch\s*\(/);
 });
 
-test('静的検査: セーブ連携ツールへの通信は save/bridge.js だけが 127.0.0.1 に行う', async () => {
-  const bridge = await readFile(new URL('../../web/js/save/bridge.js', import.meta.url), 'utf8');
-  assert.match(bridge, /export const BRIDGE_ORIGIN = 'http:\/\/127\.0\.0\.1:5175';/);
-  assert.match(bridge, /\$\{BRIDGE_ORIGIN\}\$\{path\}/);
-  const files = await filesIn(new URL('../../web/js/', import.meta.url));
-  for (const file of files.filter((url) => !/\/save\/bridge\.js$/.test(url.pathname))) {
+test('静的検査: この PC のセーブは登録したファイルから読み、ローカルの中継（廃止したセーブ連携ツール）には通信しない', async () => {
+  const files = await filesIn(new URL('../../web/', import.meta.url));
+  assert.ok(!files.some((file) => file.pathname.endsWith('/save/bridge.js')));
+  for (const file of files.filter((url) => /\.(js|html)$/.test(url.pathname))) {
     const source = await readFile(file, 'utf8');
-    assert.doesNotMatch(source, /127\.0\.0\.1:|localhost:5175|fetchImpl/, file.pathname);
+    assert.doesNotMatch(source, /127\.0\.0\.1:|localhost:5175|BRIDGE_ORIGIN|fetchImpl/, file.pathname);
   }
 });
 
