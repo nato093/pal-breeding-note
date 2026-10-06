@@ -996,7 +996,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .route-carrier-where { color: var(--muted); }
 .route-owned-note { grid-column: 2; font-size: 12px; color: var(--md-sys-color-tertiary); }
 .route-owned-note.unowned { color: var(--muted); }
-.route-options > .route-owned-note { display: block; padding-bottom: 6px; }
+/* 枠の中は1列なので、2列目指定のままだと暗黙の列ができて注記が右へずれる */
+.route-options > .route-owned-note { grid-column: auto; display: block; padding-bottom: 6px; }
 .route-options > .route-owned-note + .breeding-equation { border-top: 1px dashed var(--line); }
 .owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
 .owned-auto-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
