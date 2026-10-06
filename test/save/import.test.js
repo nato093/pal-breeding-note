@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateSync } from 'node:zlib';
 import { saveFileRole, decompressSav, readWorldFiles } from '../../web/js/save/import.js';
-import { findWorldsInEntries } from '../../web/js/save/source.js';
 import { ZERO_GUID } from '../../web/js/save/gvas.js';
 import { GvasWriter, gvasWithHeader, finishGvas } from '../helpers/gvas-writer.js';
 
@@ -92,35 +91,6 @@ test('セーブの読み込み: ワールド一式からスナップショット
   assert.deepEqual(snapshot.files.skipped.map((f) => f.path), ['Players/4DE16E79000000000000000000000000.sav']);
   await assert.rejects(readWorldFiles([{ path: 'LevelMeta.sav', bytes: new Uint8Array(4) }]), /Level\.sav が見つかりません/);
   await assert.rejects(readWorldFiles([{ path: 'Level.sav', bytes: new Uint8Array(20) }]), /Level\.sav を読めませんでした/);
-});
-
-test('フォルダの選択: ワールドを新しい順に見つけ、バックアップは除き、グローバルパルボックスを添える', () => {
-  const file = (lastModified) => ({ lastModified });
-  const worlds = findWorldsInEntries([
-    { path: 'SaveGames/7656/AAAA/Level.sav', file: file(1000) },
-    { path: 'SaveGames/7656/AAAA/Players/00000000000000000000000000000001.sav', file: file(1000) },
-    { path: 'SaveGames/7656/AAAA/backup/world/2026.10.05/Level.sav', file: file(5000) },
-    { path: 'SaveGames/7656/BBBB/Level.sav', file: file(3000) },
-    { path: 'SaveGames/7656/BBBB/LevelMeta.sav', file: file(3000) },
-    { path: 'SaveGames/7656/BBBB/WorldOption.sav', file: file(3000) },
-    { path: 'SaveGames/7656/GlobalPalStorage.sav', file: file(10) },
-  ]);
-  assert.deepEqual(worlds.map((w) => [w.dir, w.files.map((f) => f.path)]), [
-    ['SaveGames/7656/BBBB', ['Level.sav', 'LevelMeta.sav', '../GlobalPalStorage.sav']],
-    ['SaveGames/7656/AAAA', ['Level.sav', 'Players/00000000000000000000000000000001.sav', '../GlobalPalStorage.sav']],
-  ]);
-});
-
-test('フォルダの選択: 前にホストしたワールドに参加したら（LocalData.sav が 10 秒以上新しい）参加と判定する', () => {
-  const file = (lastModified) => ({ lastModified });
-  const worlds = findWorldsInEntries([
-    { path: '7656/HOST/Level.sav', file: file(100000) },
-    { path: '7656/HOST/LocalData.sav', file: file(101000) },
-    { path: '7656/AGAIN/Level.sav', file: file(100000) },
-    { path: '7656/AGAIN/LocalData.sav', file: file(110000) },
-  ]);
-  assert.deepEqual(Object.fromEntries(worlds.map((w) => [w.id, w.role])), { HOST: 'host', AGAIN: 'guest' });
-  assert.deepEqual(worlds.find((w) => w.id === 'AGAIN').files, []);
 });
 
 test('ホストか参加かの判定: LocalData.sav が Level.sav より 10 秒以上新しければ参加', async () => {

@@ -6,7 +6,6 @@ import pals from '../data/pals.js';
 import passives from '../data/passives.js';
 import { normalizeOwned, ownedFromShared, sharedUpload } from './core/owned.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
-import { readWorldEntries } from './save/source.js';
 
 const DATA_VERSION = 1;
 const AUTO_INTERVAL = 20000;
@@ -158,15 +157,12 @@ export function createOwnedStore({
   // 読み込みは 1 つずつ行う（自動の読み込みの途中で別のワールドを選んでも、後の操作の結果が残る）
   let chain = Promise.resolve();
   let pending = 0;
-  const folderWorld = saved.folder && typeof saved.folder.id === 'string' ? saved.folder : null;
   // 旧版の worldDir は「Steam ID/ワールド ID」。末尾のワールド ID に読み替える
   const savedWorldId = String(saved.worldId ?? saved.worldDir ?? '').split('/').pop();
   const state = {
     ready: false, busy: false, progress: '', error: '',
     // 登録したファイルからの自動の読み込み。worldId が空なら、最後に遊んだワールドを読む
     auto: { enabled: saved.enabled === true, status: 'off', worlds: [], worldId: WORLD_ID.test(savedWorldId) ? savedWorldId.toUpperCase() : '', error: '' },
-    // フォルダで選んだワールド（ブラウザはフォルダを覚えられないので、ID と役割だけ覚える）
-    folder: folderWorld,
     // この PC での、連携しているワールドの役割（'host' | 'guest' | ''）と ID
     role: '', linkedWorldId: '',
     // 表示するワールド（空なら自動）
@@ -178,14 +174,13 @@ export function createOwnedStore({
     uploadReady: false,
     data: null, owned: null, meta: null,
   };
-  if (!state.auto.enabled && folderWorld) { state.role = folderWorld.role; state.linkedWorldId = folderWorld.id; }
   const emit = () => listeners.forEach((listener) => listener(state));
   const scope = () => server?.scope?.() || '';
-  const linked = () => state.auto.enabled || Boolean(state.folder);
+  const linked = () => state.auto.enabled;
 
   function saveSettings() {
     settings?.set(settingsKey, JSON.stringify({
-      enabled: state.auto.enabled, worldId: state.auto.worldId, folder: state.folder, viewWorldId: state.viewWorldId,
+      enabled: state.auto.enabled, worldId: state.auto.worldId, viewWorldId: state.viewWorldId,
     }));
   }
 
@@ -196,7 +191,7 @@ export function createOwnedStore({
   }
 
   const registeredWorlds = () => source.worlds().map((record) => ({
-    id: record.id, dir: record.id, kind: record.kind, name: record.name ?? '', hostName: record.hostName ?? '', status: '', role: '', playedAt: '', files: Object.keys(record.files),
+    id: record.id, dir: record.id, steamId: record.steamId ?? '', kind: record.kind, name: record.name ?? '', hostName: record.hostName ?? '', status: '', role: '', playedAt: '', files: Object.keys(record.files),
   }));
 
   // 表示するワールド: 連携しているワールド → 設定で選んだワールド → いちばん新しく共有されたワールド
@@ -251,6 +246,11 @@ export function createOwnedStore({
     loading ??= (async () => {
       await source.load();
       if (!state.auto.worlds.length) state.auto.worlds = registeredWorlds();
+      // 登録したワールドがあれば、自動の読み込みを使う（前の版でフォルダから連携し、自動がオフのまま登録が残っている人も）
+      if (!state.auto.enabled && source.worlds().length) {
+        state.auto.enabled = true;
+        saveSettings();
+      }
       const local = validData(await persist.get(dataKey));
       // 古い版で保存したデータは、Level.sav から読んだものなのでホスト扱い
       if (local) local.world = { ...local.world, id: String(local.world.id ?? '').toUpperCase(), role: local.world.role || 'host' };
@@ -398,33 +398,6 @@ export function createOwnedStore({
     return result;
   }
 
-  function importFiles(files, meta) {
-    return serial(() => runImportTask(files, meta)).then(afterImport);
-  }
-
-  // フォルダで選んだワールド。参加している側のワールド（LocalData.sav だけ）は、共有された所持パルを出す
-  function importFolderWorld(world) {
-    return serial(async () => {
-      const epoch = linkEpoch;
-      state.auto.enabled = false;
-      state.auto.status = 'off';
-      state.auto.error = '';
-      state.folder = { id: String(world.id).toUpperCase(), role: world.role === 'guest' ? 'guest' : 'host', name: world.name ?? '' };
-      saveSettings();
-      blockUpload();
-      if (state.folder.role === 'guest') {
-        state.role = 'guest';
-        state.linkedWorldId = state.folder.id;
-        return null;
-      }
-      return runImportTask(await readWorldEntries(world), { source: 'folder', world, epoch });
-    }).then(async (result) => {
-      if (result) return afterImport(result);
-      await fetchShared({ force: true });
-      return null;
-    });
-  }
-
   // 自動の読み込みを止める。auto でないとき（ボタンなど）は、理由をエラーで返す
   function stop(status, message, auto) {
     state.auto.status = status;
@@ -452,7 +425,7 @@ export function createOwnedStore({
       return stop('error', error.message, auto);
     }
     state.auto.worlds = worlds;
-    if (!worlds.length) return stop('empty', 'セーブのファイルが登録されていません。設定タブの「所持パル（セーブ連携）」で登録してください（セーブ連携ツールは不要になりました）', auto);
+    if (!worlds.length) return stop('empty', 'セーブのファイルが登録されていません。設定タブの「セーブ連携」の「＋ ワールドを登録」で登録してください', auto);
     // 許可のないワールドがあると、どれを最後に遊んだか分からないので、黙って別のワールドを選ばない
     if (worlds.some((world) => world.status === 'permission')) {
       return stop('permission', 'セーブを読むには許可が必要です。「読み込みを許可」を押してください（拒否した場合は、Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください）', auto);
@@ -514,7 +487,10 @@ export function createOwnedStore({
     const epoch = linkEpoch;
     return serial(() => autoTask({ ...options, epoch })).then(async (result) => {
       if (result === 'imported') uploadLocal().catch(() => {});
-      if (result === 'guest' || result === 'unchanged' || result === 'imported') await fetchShared({ force: result === 'guest' && !options.auto });
+      // shared: false のとき（定期の読み直し）は共有を読み直さない
+      if (options.shared !== false && (result === 'guest' || result === 'unchanged' || result === 'imported')) {
+        await fetchShared({ force: result === 'guest' && !options.auto });
+      }
       return result;
     });
   }
@@ -554,15 +530,12 @@ export function createOwnedStore({
   return {
     state,
     load,
-    importFiles,
-    importFolderWorld,
     fetchShared,
     uploadLocal,
-    // enable: 登録があれば自動の読み込みをオンにしてから読む（フォルダで読み込んだ後に戻すとき）
+    // enable: 登録があれば自動の読み込みをオンにしてから読む
     refreshAuto({ auto = false, enable = false } = {}) {
       if (enable && source.worlds().length && !state.auto.enabled) {
         state.auto.enabled = true;
-        state.folder = null;
         saveSettings();
       }
       if (!state.auto.enabled) return Promise.resolve('skipped');
@@ -576,6 +549,14 @@ export function createOwnedStore({
         return runAuto({ auto: true });
       }
       return fetchShared();
+    },
+    // 一定の間隔で呼ぶ（タブが裏にあっても）。配合牧場のタマゴを拾われる前に読めるよう、自動の読み込みが有効なときだけ新しいセーブを読む。
+    // 共有の読み直しはしない（参加している側の画面は、表示・タブの切り替えのときに autoRefresh で読む）
+    async pollAuto() {
+      await load();
+      if (!state.auto.enabled || state.busy || now() - lastAuto < AUTO_INTERVAL) return 'skipped';
+      lastAuto = now();
+      return runAuto({ auto: true, shared: false });
     },
     // ログイン・ログアウトで共有の保存先（環境）が変わったときに呼ぶ
     async scopeChanged() {
@@ -593,7 +574,6 @@ export function createOwnedStore({
       return serial(async () => {
         const { persisted } = await source.commit({ worldId: preview.worldId, steamId: preview.steamId, files: preview.files, name: preview.name, hostName: preview.hostName });
         state.auto.enabled = true;
-        state.folder = null;
         saveSettings();
         lastAuto = now();
         return { persisted, result: await autoTask({ auto: false, preview, epoch }) };
@@ -661,27 +641,26 @@ export function createOwnedStore({
       update();
       return fetchShared({ force: true });
     },
-    // 連携の設定を外す（登録したファイルと、このブラウザに読み込んだセーブも消す）。共有された所持パルは引き続き見られる
-    unlink() {
-      linkEpoch++;
-      blockUpload();
-      return serial(async () => {
-        await source.clear();
-        blockUpload();
-        state.auto = { ...state.auto, enabled: false, status: 'off', worldId: '', worlds: [], error: '' };
-        state.folder = null;
-        state.role = '';
-        state.linkedWorldId = '';
-        state.local = null;
-        state.error = '';
-        state.upload = { status: '', at: '', error: '', worldId: '' };
-        saveSettings();
-        await persist.remove(dataKey);
-      }).then(() => fetchShared({ force: true }));
+    /**
+     * ワールドの所持パル（CSV に保存する用）。この PC で読み込んだセーブがあればそれを、なければ共有されたものを使う。
+     * @returns {Promise<{ owned: object, importedAt: string } | null>} 所持パルがなければ null
+     */
+    async ownedOf(worldId) {
+      await load();
+      const id = String(worldId ?? '').toUpperCase();
+      if (state.local?.world.id === id) {
+        return { owned: normalizeOwned(state.local.snapshot, { pals, passives }), importedAt: state.local.world.updatedAt || state.local.importedAt };
+      }
+      let shared = state.shared.current?.world?.worldId === id ? state.shared.current : null;
+      if (!shared && server && scope() && state.shared.worlds.some((world) => world.worldId === id)) {
+        const response = await server.request('owned', { worldId: id });
+        shared = response.world ? { world: response.world, columns: response.columns, rows: response.rows } : null;
+      }
+      return shared ? { owned: ownedFromShared(shared, { pals, passives }), importedAt: shared.world.saveUpdatedAt ?? '' } : null;
     },
-    // スプレッドシートから、表示しているワールドの所持パルを消す
-    async deleteShared() {
-      const worldId = targetWorldId();
+    // スプレッドシートから、ワールドの所持パルを消す（指定がなければ表示しているワールド）
+    async deleteShared(target = '') {
+      const worldId = String(target || targetWorldId()).toUpperCase();
       if (!server || !scope() || !worldId) return false;
       const response = await server.request('ownedDelete', { worldId });
       state.shared.worlds = state.shared.worlds.filter((world) => world.worldId !== worldId);

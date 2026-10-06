@@ -116,7 +116,7 @@ export function inheritanceView(context, route) {
     }));
     ownedSection.replaceChildren();
     if (!pals) {
-      if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「所持パル（セーブ連携）」でセーブのファイルを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
+      if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
       return;
     }
     const bySpecies = ownedBySpecies(pals);

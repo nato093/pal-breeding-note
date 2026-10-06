@@ -1,30 +1,45 @@
 // 配合牧場（セーブの snapshot.breedFarms）から、自動登録する配合を見つける。DOM には触れない。
-// 親 2 体から配合表で求めた子と、牧場が産んだタマゴの中身が一致したものだけを候補にする。
+// 牧場には、親を入れ替える前に産んだタマゴが拾うまで残るため（実セーブで確認）、タマゴから親は決められない。
+// そこで、前に読んだときと親が同じ牧場に「新しく現れたタマゴ」だけを、いまの親が産んだものとみなす。
+// 子は配合表で決める。タマゴの中身は、表と合うかの確かめにだけ使う。
 import { breedChild } from './breeding.js';
 import { identityKey, normalizeRecord } from './pair.js';
 import { userIdKey } from './user.js';
 
 const GENDER = { Male: 'M', Female: 'F' };
+// 突然変異タマゴ（親と関係ない子が入る）。親の組み合わせで産んだことには変わりないので、表の子で登録する
+export const isMutationEgg = (egg) => /^PalEgg_MutationPal/i.test(egg.itemId ?? '');
 
 /**
  * @param {object} snapshot buildSnapshot の結果（breedFarms がない古いものは空として扱う）
- * @param {{ resolveSpecies: (characterId: string) => { palId: string }, table: object }} deps
- * @returns {{ candidates: object[], mismatches: object[] }}
+ * @param {{ resolveSpecies: (characterId: string) => { palId: string }, table: object,
+ *   history: Record<string, { parents: string, eggs: string[] }> | null }} deps
+ *   history は前に読んだときの牧場ごとの親とタマゴ。null なら初めて読むので、記録するだけで候補は出さない
+ * @returns {{ candidates: object[], anomalies: object[], history: object }}
+ *   anomalies: 新しいふつうのタマゴなのに表と合わないもの（ゲームの更新に表が追いついていないなど）
  */
-export function findFarmBreedings(snapshot, { resolveSpecies, table }) {
+export function findNewBreedings(snapshot, { resolveSpecies, table, history }) {
   const byKey = new Map();
-  const mismatches = [];
+  const anomalies = [];
+  const next = {};
   for (const farm of snapshot?.breedFarms ?? []) {
-    if (farm.status !== 'ok' || farm.parents.length !== 2 || !farm.eggs.length) continue;
+    // 親の個体（並びは問わない）。読めない牧場は空にして、次に読んだときの比べ先にもしない
+    const parentsKey = farm.status === 'ok' ? farm.parents.map((p) => p.instanceId).sort().join('|') : '';
+    next[farm.id] = { parents: parentsKey, eggs: farm.eggs.map((e) => e.localId) };
+    const before = history?.[farm.id];
+    if (!before || !parentsKey || before.parents !== parentsKey || farm.parents.length !== 2) continue;
+    const seen = new Set(before.eggs);
+    const fresh = farm.eggs.filter((e) => !seen.has(e.localId));
+    if (!fresh.length) continue;
     const parents = farm.parents.map((p) => ({ palId: resolveSpecies(p.characterId).palId, gender: GENDER[p.gender] ?? '', depositorUid: p.depositorUid ?? '' }));
     if (parents.some((p) => !p.palId || !p.gender) || parents[0].gender === parents[1].gender) continue;
     const [a, b] = parents;
     const expected = breedChild(table, a.palId, a.gender, b.palId, b.gender);
-    for (const egg of farm.eggs) {
+    for (const egg of fresh) {
       const actual = resolveSpecies(egg.characterId).palId;
       const evidence = { farmId: farm.id, eggLocalId: egg.localId, depositorUids: [a.depositorUid, b.depositorUid] };
-      if (!expected || actual !== expected) {
-        mismatches.push({ ...evidence, parents: [a.palId, b.palId], expected, actual: actual || egg.characterId });
+      if (!expected || (actual !== expected && !isMutationEgg(egg))) {
+        anomalies.push({ ...evidence, parents: [a.palId, b.palId], expected, actual: actual || egg.characterId });
         continue;
       }
       const record = normalizeRecord({ parent1Id: a.palId, parent1Gender: a.gender, parent2Id: b.palId, parent2Gender: b.gender, childId: expected });
@@ -33,7 +48,7 @@ export function findFarmBreedings(snapshot, { resolveSpecies, table }) {
       byKey.get(key).evidence.push(evidence);
     }
   }
-  return { candidates: [...byKey.values()], mismatches };
+  return { candidates: [...byKey.values()], anomalies, history: next };
 }
 
 /**

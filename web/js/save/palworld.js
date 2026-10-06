@@ -1054,7 +1054,8 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
       parents.push({ instanceId, characterId: p.characterId, gender: p.gender, depositorUid: p.lastOwnerUid });
     }
     const eggs = f.eggContainerIds.flatMap((id) => (eggsByContainer.get(id) || [])
-      .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw })));
+      // itemId はタマゴのアイテム（突然変異タマゴは PalEgg_MutationPal_*）
+      .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw, itemId: egg.staticId })));
     return { id: f.id, baseId: f.baseCampId, status, parents, eggs };
   });
 

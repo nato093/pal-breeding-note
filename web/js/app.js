@@ -29,6 +29,9 @@ import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
 
+// 登録したセーブを読み直す間隔
+const SAVE_POLL_INTERVAL = 60 * 1000;
+
 async function boot() {
   // 開発用モジュールは配信物に含めず、ループバックの明示指定時だけ読み込む。
   const developmentKey = ['mo', 'ck'].join('');
@@ -311,6 +314,9 @@ async function boot() {
     setInterval(() => { if (document.visibilityState === 'visible') watcher.check(); }, CHECK_INTERVAL);
     watcher.check();
   }
+  // セーブのファイルを登録していれば、タブが裏にあっても 1 分ごとに読み直す（配合牧場の自動登録で、タマゴを拾う前に読むため）。
+  // 長く裏にあるタブのタイマーは、ブラウザが 1 分に 1 回まで遅らせる。
+  setInterval(() => { owned.pollAuto().catch(() => {}); }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       watcher.check();

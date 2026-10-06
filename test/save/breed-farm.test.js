@@ -114,7 +114,10 @@ test('配合牧場: 割り当てられた親 2 体（性別・預けた人）と
       { instanceId: id(11), characterId: 'BOSS_SheepBall', gender: 'Female', depositorUid: P1 },
       { instanceId: id(12), characterId: 'SwordCutlassfish', gender: 'Male', depositorUid: P2 },
     ],
-    eggs: [{ localId: id(130), characterId: 'GuardianDog' }, { localId: id(131), characterId: 'GuardianDog' }],
+    eggs: [
+      { localId: id(130), characterId: 'GuardianDog', itemId: 'PalEgg_Earth_01' },
+      { localId: id(131), characterId: 'GuardianDog', itemId: 'PalEgg_Earth_01' },
+    ],
   });
   assert.doesNotThrow(() => structuredClone(farm));
 });
