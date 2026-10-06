@@ -14,15 +14,23 @@ const egg = (localId, characterId, itemId = 'PalEgg_Earth_01') => ({ localId, ch
 const farm = (id, parents, eggs, status = 'ok') => ({ id, baseId: 'b', status, parents, eggs });
 // 前に読んだときの牧場を記録し、その後のセーブで新しく現れたタマゴを見る
 const sheep = () => [parent('SwordCutlassfish', 'Male'), parent('BOSS_SheepBall', 'Female')];
-function observe(before, after) {
-  const { history } = findNewBreedings({ breedFarms: before }, { ...deps, history: null });
-  return findNewBreedings({ breedFarms: after }, { ...deps, history });
+// 牧場の外のタマゴ（孵化器など。snapshot.pals の source: 'egg'）
+const looseEgg = (instanceId, characterId, itemId = 'PalEgg_Earth_01') => ({ instanceId, source: 'egg', characterId, location: { kind: 'egg-incubator', itemId } });
+function observe(before, after, { eggsBefore = [], eggsAfter = [] } = {}) {
+  const { history } = findNewBreedings({ breedFarms: before, pals: eggsBefore }, { ...deps, history: null });
+  return findNewBreedings({ breedFarms: after, pals: eggsAfter }, { ...deps, history });
 }
 
 test('自動登録の照合: 初めて読んだセーブは記録するだけで、候補を出さない', () => {
   const result = findNewBreedings({ breedFarms: [farm('f1', sheep(), [egg('e1', 'GuardianDog')])] }, { ...deps, history: null });
   assert.deepEqual([result.candidates, result.anomalies], [[], []]);
-  assert.deepEqual(result.history, { f1: { parents: 'BOSS_SheepBall-Female|SwordCutlassfish-Male', eggs: ['e1'] } });
+  assert.deepEqual(result.history, {
+    farms: { f1: {
+      parents: 'BOSS_SheepBall-Female|SwordCutlassfish-Male', eggs: ['e1'],
+      pair: { a: { palId: 'SwordCutlassfish', gender: 'M', depositorUid: P1 }, b: { palId: 'SheepBall', gender: 'F', depositorUid: P1 } },
+    } },
+    eggs: ['e1'],
+  });
 });
 
 test('自動登録の照合: 親が同じ牧場に新しく現れたタマゴを、配合表の子で候補にする（親の並びと性別をそろえる）', () => {
@@ -91,7 +99,71 @@ test('自動登録の照合: 親が 1 体・同じ性別・uncertain の牧場�
 });
 
 test('自動登録の照合: breedFarms のない古いデータは空', () => {
-  assert.deepEqual(findNewBreedings({ pals: [] }, { ...deps, history: {} }), { candidates: [], anomalies: [], history: {} });
+  assert.deepEqual(findNewBreedings({ pals: [] }, { ...deps, history: {} }), { candidates: [], anomalies: [], history: { farms: {}, eggs: [] } });
+});
+
+test('自動登録の照合: 産まれてすぐ拾われ、牧場の外で初めて見つかったタマゴは、中身が表の子になる牧場の親の配合とみなす', () => {
+  const { candidates } = observe([farm('f1', sheep(), [])], [farm('f1', sheep(), [])], { eggsAfter: [looseEgg('x1', 'GuardianDog')] });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].record.childId, 'GuardianDog');
+  assert.deepEqual(candidates[0].evidence, [{ farmId: 'f1', eggLocalId: 'x1', depositorUids: [P1, P1] }]);
+});
+
+test('自動登録の照合: 拾った直後に親を入れ替えても、前に読んだときの親で照合する', () => {
+  const dogs = [parent('GuardianDog', 'Male'), parent('GuardianDog', 'Female')];
+  const { candidates } = observe([farm('f1', sheep(), [])], [farm('f1', dogs, [])], { eggsAfter: [looseEgg('x1', 'GuardianDog')] });
+  // 前の親（SheepBall×SwordCutlassfish）も、いまの親（GuardianDog×GuardianDog）も GuardianDog になるので、どちらも候補
+  assert.deepEqual(candidates.map((c) => `${c.record.parent1Id}×${c.record.parent2Id}`).sort(), ['GuardianDog×GuardianDog', 'SheepBall×SwordCutlassfish']);
+});
+
+test('自動登録の照合: 牧場の外のタマゴは、突然変異タマゴ・どの牧場の子でもないもの・前から見ていたものを使わない', () => {
+  const eggsAfter = [
+    looseEgg('m1', 'BOSS_DomeArmorDragon', 'PalEgg_MutationPal_05'),
+    looseEgg('w1', 'Anubis'),
+    looseEgg('old', 'GuardianDog'),
+  ];
+  const { candidates } = observe([farm('f1', sheep(), [])], [farm('f1', sheep(), [])], { eggsBefore: [looseEgg('old', 'GuardianDog')], eggsAfter });
+  assert.deepEqual(candidates, []);
+});
+
+test('自動登録の照合: 牧場の上で見たタマゴを孵化器に移しても、二重に数えない', () => {
+  const egg1 = egg('e1', 'GuardianDog');
+  const first = findNewBreedings({ breedFarms: [farm('f1', sheep(), [])], pals: [] }, { ...deps, history: null });
+  const laid = findNewBreedings({ breedFarms: [farm('f1', sheep(), [egg1])], pals: [looseEgg('e1', 'GuardianDog')] }, { ...deps, history: first.history });
+  assert.equal(laid.candidates[0].evidence.length, 1);
+  const moved = findNewBreedings({ breedFarms: [farm('f1', sheep(), [])], pals: [looseEgg('e1', 'GuardianDog')] }, { ...deps, history: laid.history });
+  assert.deepEqual(moved.candidates, []);
+});
+
+test('自動登録の照合: 前の版の記録（見たタマゴがない）からは、牧場の外のタマゴを記録するだけ', () => {
+  const { history } = findNewBreedings({ breedFarms: [farm('f1', sheep(), [])], pals: [] }, { ...deps, history: null });
+  const result = findNewBreedings({ breedFarms: [farm('f1', sheep(), [])], pals: [looseEgg('x1', 'GuardianDog')] }, { ...deps, history: { farms: history.farms, eggs: null } });
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.history.eggs, ['x1']);
+});
+
+test('自動登録の照合: 一度見えなくなったタマゴが、別の場所で現れ直しても新しいタマゴと数えない', () => {
+  const dogs = [parent('GuardianDog', 'Male'), parent('GuardianDog', 'Female')];
+  const read = (farms, pals, history) => findNewBreedings({ breedFarms: farms, pals }, { ...deps, history });
+  const first = read([farm('f1', sheep(), [])], [looseEgg('x1', 'GuardianDog')], null);
+  // 所持品に移っている間に、そのファイルが読めずに見えなくなった
+  const hidden = read([farm('f1', dogs, [])], [], first.history);
+  const back = read([farm('f1', dogs, [])], [looseEgg('x1', 'GuardianDog')], hidden.history);
+  assert.deepEqual(back.candidates, []);
+});
+
+test('自動登録の照合: 前に読んだときの親の組が同じ性別（壊れた記録）なら、照合に使わない', () => {
+  const { history } = findNewBreedings({ breedFarms: [farm('f1', sheep(), [])], pals: [] }, { ...deps, history: null });
+  history.farms.f1.pair.a.gender = 'F';
+  history.farms.f1.pair.b.gender = 'F';
+  history.farms.f1.parents = 'old';
+  const result = findNewBreedings({ breedFarms: [], pals: [looseEgg('x1', 'GuardianDog')] }, { ...deps, history });
+  assert.deepEqual(result.candidates, []);
+});
+
+test('自動登録の照合: タマゴを拾ってすぐ牧場を撤去しても、前に読んだときの親で照合する', () => {
+  const { candidates } = observe([farm('f1', sheep(), [])], [], { eggsAfter: [looseEgg('x1', 'GuardianDog')] });
+  assert.deepEqual(candidates.map((c) => [c.record.parent1Id, c.record.parent2Id, c.record.childId, c.evidence[0].farmId]), [['SheepBall', 'SwordCutlassfish', 'GuardianDog', 'f1']]);
 });
 
 const candidate = (...pairs) => ({ evidence: pairs.map((depositorUids) => ({ farmId: 'f', eggLocalId: 'e', depositorUids })) });
