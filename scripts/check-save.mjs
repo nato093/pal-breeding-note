@@ -5,7 +5,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readWorldFiles, saveFileRole } from '../web/js/save/import.js';
-import { normalizeOwned, placeGroupLabel, PLACE_ORDER } from '../web/js/core/owned.js';
+import { normalizeOwned, placeGroupLabel, PLACE_ORDER, createSpeciesResolver } from '../web/js/core/owned.js';
+import { decodeBreeding, breedChild } from '../web/js/core/breeding.js';
+import breeding from '../web/data/breeding.js';
 import pals from '../web/data/pals.js';
 import passives from '../web/data/passives.js';
 import { defaultSaveRoot, findWorlds } from './save-worlds.mjs';
@@ -54,6 +56,21 @@ async function main() {
   const missing = [...new Set(owned.pals.flatMap((p) => p.passives).filter((id) => !names.has(id)))];
   console.log(`名前のないパッシブ: ${missing.length} 種${missing.length ? `（${missing.join(', ')}）` : ''}`);
   console.log(`対象外: ${JSON.stringify(snapshot.stats.orphanEggs ?? 0)} 個の参照されていないタマゴ`);
+  // 配合牧場（自動登録の照合に使う）。親 2 体から配合表で求めた子と、産んだタマゴの中身を並べる
+  const table = decodeBreeding(breeding);
+  const species = createSpeciesResolver(pals);
+  const playerName = (uid) => owned.players.find((p) => p.uid === uid)?.name || uid.slice(0, 8) || '不明';
+  const sign = { Male: '♂', Female: '♀' };
+  const short = { Male: 'M', Female: 'F' };
+  console.log(`配合牧場: ${snapshot.breedFarms.length} か所`);
+  for (const farm of snapshot.breedFarms) {
+    if (!farm.parents.length && !farm.eggs.length) continue;
+    const parents = farm.parents.map((p) => `${p.characterId}${sign[p.gender] ?? ''}（預けた人 ${playerName(p.depositorUid)}）`).join(' × ') || '親なし';
+    const [a, b] = farm.parents;
+    const expected = farm.parents.length === 2 ? breedChild(table, species(a.characterId).palId, short[a.gender], species(b.characterId).palId, short[b.gender]) || '不明' : '-';
+    const eggs = farm.eggs.map((e) => `${e.characterId}${/^PalEgg_MutationPal/i.test(e.itemId ?? '') ? '（突然変異）' : ''}`).join(', ') || 'なし';
+    console.log(`  ${farm.status === 'ok' ? '' : '[読めない] '}${parents} → 表の子 ${expected} / タマゴ ${eggs}`);
+  }
 }
 
 main().catch((error) => { console.error(error.message); process.exit(1); });

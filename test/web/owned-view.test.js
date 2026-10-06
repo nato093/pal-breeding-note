@@ -190,7 +190,7 @@ test('所持パル画面: 連携が設定されていなければ、その旨だ
   guest.destroy();
 });
 
-test('設定画面: 所持パルのセーブ連携の設定と状態を出す', async (t) => {
+test('設定画面: セーブ連携の状態・登録したワールド・使うワールドを出す', async (t) => {
   installDom(t);
   const { settingsView } = await import('../../web/js/views/settings.js');
   const owned = fakeOwned();
@@ -199,12 +199,15 @@ test('設定画面: 所持パルのセーブ連携の設定と状態を出す', 
   const view = settingsView(app);
   const card = view.element.querySelector('.owned-settings');
   assert.ok(card);
-  // テスト用 DOM はドロップからハンドルを取り出せないため、ブラウザの案内だけを出す
-  assert.match(card.textContent, /ファイルの登録は Chrome・Edge で使えます/);
-  assert.match(card.textContent, /フォルダを選んで読み込む/);
-  assert.match(card.querySelector('.owned-settings-status').textContent, /連携登録したセーブのファイル（自動で読み込み）.*この PCホスト/);
-  assert.ok(card.querySelectorAll('button').some((node) => node.textContent === '連携の設定を解除'));
-  assert.ok(card.querySelectorAll('button').some((node) => node.textContent === '共有した所持パルを削除' && !node.hidden));
+  assert.match(card.querySelector('.owned-settings-status').textContent, /この PCホスト.*表示中「テスト」（ホスト Alice）/);
+  // 登録したワールドは一覧にし、編集・削除はそれぞれの行から。登録はモーダルで
+  assert.match(card.querySelector('.owned-registered').textContent, /「テスト」（ホスト Alice） · ホスト · 1 ファイル.*編集削除/);
+  assert.ok(card.querySelectorAll('button').some((node) => node.textContent === '＋ ワールドを登録'));
+  // 所持パルの CSV・共有の削除は、ワールドの行の中（カード全体のボタンはない）
+  assert.ok(card.querySelector('.owned-world-details').querySelector('.owned-world-pals'));
+  // 使うワールドは、登録したワールドから選ぶ（自動 = いま遊んでいるワールド）
+  const select = card.querySelector('.owned-world-row').querySelector('select');
+  assert.deepEqual(select.querySelectorAll('option').map((node) => node.textContent), ['自動（いま遊んでいるワールド: 「テスト」（ホスト Alice））', '「テスト」（ホスト Alice）']);
   view.destroy();
 });
 
@@ -271,7 +274,7 @@ test('継承ルート: 所持パルのデータがないときは、開始と目
   assert.ok(view.element.querySelector('.pair-selection'));
   assert.ok(view.element.querySelector('.swap-button'));
   assert.equal(view.element.querySelector('.start-filter'), null);
-  assert.match(view.element.querySelector('.route-owned').textContent, /設定タブの「所持パル（セーブ連携）」でセーブのファイルを登録/);
+  assert.match(view.element.querySelector('.route-owned').textContent, /設定タブの「セーブ連携」でワールドを登録/);
   view.destroy();
 });
 
@@ -280,8 +283,8 @@ const DROP_WIN = { DataTransferItem: { prototype: { getAsFileSystemHandle() {} }
 const WORLD_PATH = 'C:\\Users\\a\\AppData\\Local\\Pal\\Saved\\SaveGames\\7656\\4A431AC14B58A7E31A76B2A991F79FE8';
 const dropped = (...names) => ({ items: names.map((name) => ({ kind: 'file', getAsFileSystemHandle: () => Promise.resolve(fakeHandle(name)) })) });
 
-test('設定画面: パスを貼ると登録するファイルの場所を出し、ドロップしたファイルを確かめてから登録する', async (t) => {
-  installDom(t);
+test('設定画面: 「＋ ワールドを登録」のモーダルで、パスを貼ってファイルをドロップすると確かめ、保存で登録する', async (t) => {
+  const { body } = installDom(t);
   const calls = [];
   const owned = fakeOwned(null);
   owned.previewRegistration = async (input) => {
@@ -290,25 +293,90 @@ test('設定画面: パスを貼ると登録するファイルの場所を出し
   };
   owned.commitRegistration = async (preview) => { calls.push(['commit', preview.worldId]); return { persisted: true, result: 'imported' }; };
   const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
-  const path = card.element.querySelector('.owned-path');
+  await card.element.querySelectorAll('button').find((node) => node.textContent === '＋ ワールドを登録').dispatch('click');
+  const dialog = body.querySelector('.world-dialog');
+  assert.ok(dialog.open);
+  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '保存');
+  assert.equal(save.disabled, true);
+  const path = dialog.querySelector('.owned-path');
   path.value = WORLD_PATH;
   await path.dispatch('input');
-  const guide = card.element.querySelector('.owned-file-guide').textContent;
-  assert.match(guide, /ワールドのフォルダ: C:\\Users\\a\\AppData\\Local\\Pal\\Saved\\SaveGames\\7656\\4A431AC14B58A7E31A76B2A991F79FE8/);
-  // ファイルの場所は、ワールドのフォルダからの相対パスで出す
-  assert.match(guide, /自分がホストのワールドLevel\.sav必須.*LevelMeta\.sav必須.*LocalData\.sav必須.*Players\\ の中のファイル全部.*\.\.\\GlobalPalStorage\.sav任意/);
-  assert.match(guide, /参加しただけのワールドLocalData\.sav必須/);
-  await card.element.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav') });
+  // ドロップするファイルを並べ、ドロップしたものに印を付ける
+  assert.match(dialog.querySelector('.owned-draft').textContent, /— Level\.sav— LevelMeta\.sav— LocalData\.sav— Players\\ の中のファイル全部— \.\.\\GlobalPalStorage\.sav（任意）/);
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav') });
   await tick();
-  await card.element.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('LocalData.sav', '00000000000000000000000000000001.sav') });
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('LocalData.sav', '00000000000000000000000000000001.sav') });
   await tick();
-  assert.match(card.element.querySelector('.owned-draft').textContent, /Level\.sav ✓ ドロップ済み.*LocalData\.sav ✓ ドロップ済み.*Players のファイル 1 件/);
-  await card.element.querySelectorAll('button').find((node) => node.textContent === '確認する').dispatch('click');
-  assert.deepEqual(calls[0], ['preview', '4A431AC14B58A7E31A76B2A991F79FE8', '7656', ['Level.sav', 'LevelMeta.sav', 'LocalData.sav', 'Players/00000000000000000000000000000001.sav']]);
-  assert.match(card.element.querySelector('.owned-preview').textContent, /「LC9」（ホスト Etona） · 12 体/);
-  await card.element.querySelectorAll('button').find((node) => node.textContent === 'このワールドで登録').dispatch('click');
-  assert.deepEqual(calls[1], ['commit', '4A431AC14B58A7E31A76B2A991F79FE8']);
-  assert.equal(path.value, '');
+  assert.match(dialog.querySelector('.owned-draft').textContent, /✓ Level\.sav✓ LevelMeta\.sav✓ LocalData\.sav✓ Players\\ の中のファイル全部（1 件）/);
+  // ドロップするたびに読んで確かめる（「確認する」は押さない）
+  assert.deepEqual(calls.at(-1), ['preview', '4A431AC14B58A7E31A76B2A991F79FE8', '7656', ['Level.sav', 'LevelMeta.sav', 'LocalData.sav', 'Players/00000000000000000000000000000001.sav']]);
+  assert.match(dialog.querySelector('.owned-dialog-result').textContent, /「LC9」（ホスト Etona） · 12 体/);
+  assert.equal(save.disabled, false);
+  await save.dispatch('click');
+  assert.deepEqual(calls.at(-1), ['commit', '4A431AC14B58A7E31A76B2A991F79FE8']);
+  assert.equal(dialog.open, false);
+  card.destroy();
+});
+
+test('設定画面: 登録したワールドの「編集」は、パスを入れた状態でモーダルを開き、保存とキャンセルだけを置く', async (t) => {
+  const { body } = installDom(t);
+  const owned = fakeOwned();
+  owned.state.auto.worlds[0].steamId = '7656';
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  await card.element.querySelector('.owned-registered').querySelectorAll('button').find((node) => node.textContent === '編集').dispatch('click');
+  const dialog = body.querySelector('.world-dialog');
+  assert.equal(dialog.querySelector('.owned-path').value, '%LOCALAPPDATA%\\Pal\\Saved\\SaveGames\\7656\\W');
+  assert.match(dialog.querySelector('.owned-draft').textContent, /✓ Level\.sav/);
+  // 登録・編集のモーダルには、保存とキャンセルだけを置く（削除は一覧の行から）
+  assert.deepEqual(dialog.querySelectorAll('button').map((node) => node.textContent), ['×', 'キャンセル', '保存']);
+  card.destroy();
+});
+
+test('設定画面: 登録したワールドの行を開くと、そのワールドの配合牧場からの自動登録のオン・オフと登録者を選べる', async (t) => {
+  installDom(t);
+  const calls = [];
+  const autoRegister = {
+    map: {},
+    enabled(worldId) { return worldId === 'W'; },
+    setEnabled(value, worldId) { calls.push(['enabled', value, worldId]); },
+    mapping() { return this.map; },
+    setMapping(uid, userId, worldId) { calls.push(['mapping', uid, userId, worldId]); },
+  };
+  const owned = fakeOwned();
+  owned.state.auto.worlds.push({ id: 'G', dir: 'G', kind: 'guest', name: '', hostName: '', status: 'ok', role: 'guest', playedAt: '', files: ['LocalData.sav'] });
+  const ctx = { ...context(owned), autoRegister };
+  ctx.store.state.users = ['Alice', '仲間'];
+  const card = ownedSettingsCard(ctx, { win: DROP_WIN });
+  // ワールドの行は閉じた状態で並び、開くと設定が出る
+  const [host, guest] = card.element.querySelectorAll('.owned-world-details');
+  assert.equal(host.open, false);
+  // 閉じたままでも、開くと自動登録の設定があることと、いまの状態が分かる
+  assert.match(host.querySelector('.owned-world-state').textContent, /配合の自動登録: オン/);
+  assert.match(guest.querySelector('.owned-world-state').textContent, /配合の自動登録: 対象外/);
+  host.open = true;
+  await host.dispatch('toggle');
+  const box = host.querySelector('.owned-breeding');
+  const toggle = box.querySelector('input');
+  assert.equal(toggle.checked, true);
+  toggle.checked = false;
+  await toggle.dispatch('change');
+  // チェックを外すと、行の状態もすぐ変わる
+  assert.match(host.querySelector('.owned-world-state').textContent, /配合の自動登録: オフ/);
+  const select = box.querySelector('.owned-breeding-player').querySelector('select');
+  assert.match(box.querySelector('.owned-breeding-player').textContent, /^Alice/);
+  // 手で選んでいなければ、同じ名前のユーザーを使うことを出す
+  assert.equal(select.value, '');
+  assert.equal(select.querySelectorAll('option')[0].textContent, 'Alice（同じ名前）');
+  select.value = '仲間';
+  await select.dispatch('change');
+  assert.deepEqual(calls, [['enabled', false, 'W'], ['mapping', P1, '仲間', 'W']]);
+  // 参加しているだけのワールドでは、自動登録が動かないことだけを出す
+  assert.match(guest.querySelector('.owned-breeding').textContent, /参加しているワールドなので、自動登録は動きません/);
+  assert.ok(!guest.querySelector('.owned-toggle'));
+  // 描き直しても、開いた行は開いたまま
+  owned.state.auto.worlds[0].playedAt = '2026-10-06T00:00:00.000Z';
+  owned.emit();
+  assert.equal(card.element.querySelectorAll('.owned-world-details')[0].open, true);
   card.destroy();
 });
 
@@ -338,4 +406,125 @@ test('所持パル画面: 登録した後に増えたプレイヤーの Players 
   assert.match(text, /登録されていないプレイヤーのファイルがあります: Bob（Players\\0000000A00000000000000000000000B\.sav）。/);
   assert.doesNotMatch(text, /0000000C/);
   view.destroy();
+});
+
+// モーダルを開いて、パスを貼り、ファイルをドロップするまで
+async function openRegister(t, owned) {
+  const { body } = installDom(t);
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  await card.element.querySelectorAll('button').find((node) => node.textContent === '＋ ワールドを登録').dispatch('click');
+  const dialog = body.querySelector('.world-dialog');
+  const path = dialog.querySelector('.owned-path');
+  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '保存');
+  return { card, dialog, path, save };
+}
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+};
+const PLAYER_FILE = '00000000000000000000000000000001.sav';
+const OTHER_PATH = WORLD_PATH.replace('4A431AC14B58A7E31A76B2A991F79FE8', '88DC480846CA4D73A670DA90D96950DC');
+
+test('ワールドの登録: 確かめている途中でパスを変えたら、前のワールドの結果では保存できない', async (t) => {
+  const owned = fakeOwned(null);
+  const pending = deferred();
+  owned.previewRegistration = (input) => pending.promise.then(() => ({ ...input, kind: 'host', role: 'host', name: 'A', hostName: '', palCount: 1, replaced: [] }));
+  const { dialog, path, save } = await openRegister(t, owned);
+  path.value = WORLD_PATH;
+  await path.dispatch('input');
+  dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav', 'LocalData.sav') });
+  await tick();
+  path.value = OTHER_PATH;
+  await path.dispatch('input');
+  pending.resolve();
+  await tick();
+  assert.equal(save.disabled, true);
+  assert.equal(dialog.querySelector('.owned-dialog-result').textContent, '');
+});
+
+test('ワールドの登録: 保存の途中は、ドロップしても保存ボタンが押せるようにならず、二重に登録しない', async (t) => {
+  const owned = fakeOwned(null);
+  const commits = [];
+  const committing = deferred();
+  owned.previewRegistration = async (input) => ({ ...input, kind: 'host', role: 'host', name: 'A', hostName: '', palCount: 1, replaced: [] });
+  owned.commitRegistration = (preview) => { commits.push(preview.worldId); return committing.promise; };
+  const { dialog, path, save } = await openRegister(t, owned);
+  path.value = WORLD_PATH;
+  await path.dispatch('input');
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav', 'LocalData.sav') });
+  await tick();
+  assert.equal(save.disabled, false);
+  save.dispatch('click');
+  await tick();
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped(PLAYER_FILE) });
+  await tick();
+  assert.equal(save.disabled, true);
+  await save.dispatch('click');
+  committing.resolve({ persisted: true, result: 'imported' });
+  await tick();
+  assert.deepEqual(commits, ['4A431AC14B58A7E31A76B2A991F79FE8']);
+});
+
+test('ワールドの登録: 編集でパスの Steam ID だけ直しても、確かめ直して新しい Steam ID で保存する', async (t) => {
+  const { body } = installDom(t);
+  const owned = fakeOwned();
+  owned.state.auto.worlds[0].steamId = '7656';
+  owned.state.auto.worlds[0].id = '4A431AC14B58A7E31A76B2A991F79FE8';
+  const previews = [];
+  owned.previewRegistration = async (input) => { previews.push([input.steamId, input.files.length]); return { ...input, kind: 'host', role: 'host', name: 'A', hostName: '', palCount: 1, replaced: [] }; };
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  await card.element.querySelector('.owned-registered').querySelectorAll('button').find((node) => node.textContent === '編集').dispatch('click');
+  const dialog = body.querySelector('.world-dialog');
+  const path = dialog.querySelector('.owned-path');
+  path.value = WORLD_PATH.replace('7656', '9999');
+  await path.dispatch('input');
+  await tick();
+  assert.deepEqual(previews, [['9999', 0]]);
+  assert.equal(dialog.querySelectorAll('button').find((node) => node.textContent === '保存').disabled, false);
+});
+
+test('ワールドの登録: ドロップしたファイルを受け取る前にパスを変えたら、そのファイルは新しいワールドに入れない', async (t) => {
+  const owned = fakeOwned(null);
+  const previews = [];
+  owned.previewRegistration = async (input) => { previews.push(input.worldId); return { ...input, kind: 'host', role: 'host', name: 'A', hostName: '', palCount: 1, replaced: [] }; };
+  const { dialog, path, save } = await openRegister(t, owned);
+  path.value = WORLD_PATH;
+  await path.dispatch('input');
+  const handle = deferred();
+  const slow = { items: ['Level.sav', 'LevelMeta.sav', 'LocalData.sav'].map((name) => ({ kind: 'file', getAsFileSystemHandle: () => handle.promise.then(() => fakeHandle(name)) })) };
+  dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: slow });
+  path.value = OTHER_PATH;
+  await path.dispatch('input');
+  handle.resolve();
+  await tick();
+  await tick();
+  assert.deepEqual(previews, []);
+  assert.equal(save.disabled, true);
+  assert.match(dialog.querySelector('.owned-draft').textContent, /— Level\.sav/);
+});
+
+test('設定画面: 所持パルの CSV 保存と共有の削除は、ワールドの行の中で、そのワールドについて行う', async (t) => {
+  const { body } = installDom(t);
+  const calls = [];
+  const owned = fakeOwned();
+  owned.state.shared.worlds = [{ worldId: 'W', worldName: 'テスト', hostName: 'Alice', uploadedAt: '2026-10-06T00:00:00.000Z', palCount: 4 }];
+  owned.state.auto.worlds.push({ id: 'X', dir: 'X', kind: 'host', name: '別', hostName: '', status: 'ok', role: '', playedAt: '', files: ['Level.sav'] });
+  owned.ownedOf = async (worldId) => { calls.push(['csv', worldId]); return null; };
+  owned.deleteShared = async (worldId) => { calls.push(['delete', worldId]); return true; };
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  const [shared, other] = card.element.querySelectorAll('.owned-world-details');
+  const buttonsOf = (row) => row.querySelector('.owned-world-pals').querySelectorAll('button');
+  // 共有したワールドは、CSV と共有の削除
+  assert.deepEqual(buttonsOf(shared).map((node) => node.textContent), ['CSV で保存', '共有した所持パルを削除']);
+  await buttonsOf(shared)[0].dispatch('click');
+  buttonsOf(shared)[1].dispatch('click'); // 確認のダイアログが閉じるまで終わらないので待たない
+  await tick();
+  body.querySelector('dialog').querySelectorAll('button').find((node) => node.textContent === '削除').dispatch('click');
+  await tick();
+  await tick();
+  assert.deepEqual(calls, [['csv', 'W'], ['delete', 'W']]);
+  // 読み込んでも共有されてもいないワールドは、CSV を押せず、共有の削除もない
+  assert.deepEqual(buttonsOf(other).map((node) => [node.textContent, node.disabled]), [['CSV で保存', true]]);
+  card.destroy();
 });

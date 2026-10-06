@@ -16,7 +16,6 @@ export function worldName(meta) {
 /** 連携の方法（設定されていなければ ''）。 */
 export function linkLabel(state) {
   if (state.auto.enabled) return '登録したセーブのファイル（自動で読み込み）';
-  if (state.folder) return 'フォルダ';
   return '';
 }
 
@@ -45,7 +44,7 @@ export function ownedNotices(state) {
   if (!state.ready) return [{ text: '保存済みのデータを確認中…' }];
   if (state.busy) notices.push({ text: state.progress || '読み込み中…' });
   if (!linkLabel(state)) {
-    notices.push({ text: 'セーブのファイルが登録されていません。自分のセーブを読み込むには、設定タブの「所持パル（セーブ連携）」で登録してください。', kind: 'info' });
+    notices.push({ text: 'セーブのファイルが登録されていません。自分のセーブを読み込むには、設定タブの「セーブ連携」の「＋ ワールドを登録」で登録してください。', kind: 'info' });
   } else if (state.auto.enabled && state.auto.status === 'permission') {
     notices.push({ text: state.auto.error, kind: 'warning', action: 'grant' });
   } else if (state.auto.enabled && ['error', 'empty'].includes(state.auto.status)) {
@@ -73,7 +72,7 @@ export function ownedNotices(state) {
       const missing = (snapshot.players ?? []).filter((player) => player.uid && player.level > 0 && !files.has(`players/${player.uid.replace(/-/g, '').toLowerCase()}.sav`));
       if (missing.length) {
         const names = missing.map((player) => `${player.name || '名前なし'}（Players\\${player.uid.replace(/-/g, '').toUpperCase()}.sav）`);
-        notices.push({ text: `登録されていないプレイヤーのファイルがあります: ${names.join('、')}。設定タブで、同じワールドのパスを貼ってドロップすると追加できます。`, kind: 'warning' });
+        notices.push({ text: `登録されていないプレイヤーのファイルがあります: ${names.join('、')}。設定タブの「セーブ連携」で、そのワールドの「編集」から追加できます。`, kind: 'warning' });
       }
     }
   }

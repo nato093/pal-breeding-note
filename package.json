@@ -12,6 +12,7 @@
     "test:perf": "node --test \"test/perf/*.perf.js\"",
     "build:pals": "node scripts/import-pals.mjs",
     "build:passives": "node scripts/import-passives.mjs",
+    "build:breeding": "node scripts/import-breeding.mjs",
     "extract:passive-icons": "node scripts/extract-passive-icons.mjs",
     "extract:humans": "node scripts/extract-humans.mjs",
     "build:gas": "node scripts/build-gas.mjs",
