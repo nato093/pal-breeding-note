@@ -8,7 +8,7 @@ import { readWorldFiles, saveFileRole } from '../web/js/save/import.js';
 import { normalizeOwned, placeGroupLabel, PLACE_ORDER } from '../web/js/core/owned.js';
 import pals from '../web/data/pals.js';
 import passives from '../web/data/passives.js';
-import { defaultSaveRoot, findWorlds } from './save-bridge.mjs';
+import { defaultSaveRoot, findWorlds } from './save-worlds.mjs';
 
 function collect(worldDir) {
   const files = [];
