@@ -232,7 +232,8 @@ export function eggPlaceKind(mapObjectId) {
 /** rawdata/map_model.py: 所属拠点・初期位置・建てたプレイヤー。 */
 function decodeMapModel(raw) {
   const r = new GvasReader(raw);
-  r.skipBytes(32); // instance_id, concrete_model_instance_id
+  const instanceId = r.guid();
+  r.skipBytes(16); // concrete_model_instance_id
   const baseCampId = r.guid();
   r.skipBytes(16 + 8); // group_id_belong_to, hp(current, max)
   r.skipBytes(32); // rotation (quat)
@@ -240,7 +241,105 @@ function decodeMapModel(raw) {
   r.skipBytes(24); // scale3d
   r.skipBytes(48); // repair_work_id, owner_spawner_level_object_instance_id, owner_instance_id
   const buildPlayerUid = r.guid();
-  return { baseCampId: uid(baseCampId), position, buildPlayerUid: uid(buildPlayerUid) };
+  return { instanceId: uid(instanceId), baseCampId: uid(baseCampId), position, buildPlayerUid: uid(buildPlayerUid) };
+}
+
+// ---- 配合牧場（親の割り当てと、産んだタマゴ）----
+
+const MAX_FARM_EGGS = 64;
+
+/** BreedFarm の ConcreteModel.RawData: 具象 ID・モデル ID・(4 バイト)・産んだタマゴの MapObject ID の配列。 */
+function decodeBreedFarm(raw) {
+  const r = new GvasReader(raw);
+  r.skipBytes(16); // concrete_model_instance_id
+  const modelId = r.guid();
+  r.skipBytes(4);
+  const count = r.u32();
+  if (count > MAX_FARM_EGGS || count * 16 > r.remaining) throw r.error(`breed farm egg count ${count} is out of range`);
+  const eggMapObjectIds = [];
+  for (let i = 0; i < count; i++) eggMapObjectIds.push(r.guid());
+  return { modelId, eggMapObjectIds };
+}
+
+/** rawdata/work.py: 作業の持ち主（建物のモデル ID）。id(16)・workable_bounds(112)・base_camp_id(16) の後。 */
+function decodeWorkOwner(raw) {
+  const r = new GvasReader(raw);
+  r.skipBytes(16 + 112 + 16);
+  return uid(r.guid());
+}
+
+/** rawdata/work.py の WorkAssign: 割り当てられた個体の InstanceId。id(16)・location_index(4)・assign_type(1)・player_uid(16) の後。 */
+function decodeWorkAssign(raw) {
+  const r = new GvasReader(raw);
+  r.skipBytes(16 + 4 + 1 + 16);
+  return uid(r.guid());
+}
+
+/**
+ * 配合牧場ごとに、割り当てられた親の個体 ID と、産んだタマゴの入ったコンテナを集める。
+ * 読めない・食い違う牧場は status: 'uncertain'（自動登録に使わない）。
+ */
+function parseBreedFarms(ws, malformed) {
+  const farms = [];
+  const wantedEggObjects = new Set();
+  for (const mo of ws.MapObjectSaveData || []) {
+    if (str(mo.MapObjectId).toLowerCase() !== 'breedfarm') continue;
+    const farm = { id: '', baseCampId: '', status: 'ok', parentInstanceIds: [], eggMapObjectIds: [], eggContainerIds: [] };
+    try {
+      const model = decodeMapModel(mo.Model.RawData);
+      farm.id = model.instanceId;
+      farm.baseCampId = model.baseCampId;
+      const concrete = decodeBreedFarm(mo.ConcreteModel.RawData);
+      if (concrete.modelId !== farm.id) throw new Error('breed farm model id mismatch');
+      if (concrete.eggMapObjectIds.includes(ZERO_GUID)) throw new Error('breed farm egg id is zero');
+      farm.eggMapObjectIds = concrete.eggMapObjectIds;
+      for (const id of farm.eggMapObjectIds) wantedEggObjects.add(id);
+    } catch {
+      bump(malformed, 'breedFarms');
+      farm.status = 'uncertain';
+    }
+    if (farm.id) farms.push(farm);
+  }
+  if (!farms.length) return [];
+
+  const farmById = new Map(farms.map((f) => [f.id, f]));
+  for (const work of ws.WorkSaveData || []) {
+    let farm;
+    try {
+      farm = farmById.get(decodeWorkOwner(work.RawData));
+    } catch {
+      continue; // 牧場以外の作業の形の違いは数えない
+    }
+    if (!farm) continue;
+    for (const assign of work.WorkAssignMap || []) {
+      try {
+        const instanceId = decodeWorkAssign(assign.value.RawData);
+        if (!instanceId || farm.parentInstanceIds.includes(instanceId)) farm.status = 'uncertain';
+        else farm.parentInstanceIds.push(instanceId);
+      } catch {
+        bump(malformed, 'breedFarms');
+        farm.status = 'uncertain';
+      }
+    }
+  }
+  for (const farm of farms) if (farm.parentInstanceIds.length > 2) farm.status = 'uncertain';
+
+  // 産んだタマゴ（地面に置かれた MapObject）のアイテムコンテナ
+  const eggContainerOf = new Map();
+  for (const mo of ws.MapObjectSaveData || []) {
+    const raw = mo.Model && mo.Model.RawData;
+    if (!(raw instanceof Uint8Array) || raw.length < 16) continue;
+    const id = guidAt(raw, 0);
+    if (!wantedEggObjects.has(id)) continue;
+    const m = ((mo.ConcreteModel && mo.ConcreteModel.ModuleMap) || []).find((x) => x.key === ITEM_CONTAINER_MODULE);
+    const containerRaw = m && m.value && m.value.RawData;
+    if (containerRaw instanceof Uint8Array && containerRaw.length >= 16) eggContainerOf.set(id, guidAt(containerRaw, 0));
+  }
+  for (const farm of farms) {
+    farm.eggContainerIds = farm.eggMapObjectIds.map((id) => eggContainerOf.get(id)).filter(Boolean);
+    delete farm.eggMapObjectIds;
+  }
+  return farms;
 }
 
 /** rawdata/base_camp.py */
@@ -375,18 +474,20 @@ function decodeDynamicItemEgg(raw) {
 
 const WS = '.worldSaveData';
 const MO = WS + '.MapObjectSaveData.MapObjectSaveData';
+const WK = WS + '.WorkSaveData.WorkSaveData';
 
 const LEVEL_SKIP = makeWhitelistSkip({
   '': ['worldSaveData', 'Timestamp'],
   [WS]: [
     'CharacterSaveParameterMap', 'MapObjectSaveData', 'BaseCampSaveData', 'ItemContainerSaveData',
     'DynamicItemSaveData', 'GroupSaveDataMap', 'GuildExtraSaveDataMap', 'InLockerCharacterInstanceIDArray',
+    'WorkSaveData',
   ],
   [WS + '.CharacterSaveParameterMap.Key']: ['PlayerUId', 'InstanceId'],
   [WS + '.CharacterSaveParameterMap.Value']: ['RawData'],
   [MO]: ['MapObjectId', 'Model', 'ConcreteModel'],
   [MO + '.Model']: ['RawData'],
-  [MO + '.ConcreteModel']: ['ModuleMap'],
+  [MO + '.ConcreteModel']: ['ModuleMap', 'RawData'],
   [MO + '.ConcreteModel.ModuleMap.Value']: ['RawData'],
   [WS + '.BaseCampSaveData.Value']: ['RawData', 'WorkerDirector'],
   [WS + '.BaseCampSaveData.Value.WorkerDirector']: ['RawData'],
@@ -398,6 +499,8 @@ const LEVEL_SKIP = makeWhitelistSkip({
   [WS + '.GuildExtraSaveDataMap.Value']: ['GuildItemStorage'],
   [WS + '.GuildExtraSaveDataMap.Value.GuildItemStorage']: ['RawData'],
   [WS + '.InLockerCharacterInstanceIDArray.StructProperty']: ['PlayerUId', 'InstanceId'],
+  [WK]: ['RawData', 'WorkAssignMap'],
+  [WK + '.WorkAssignMap.Value']: ['RawData'],
 });
 
 const ITEM_CONTAINER_MODULE = 'EPalMapObjectConcreteModelModuleType::ItemContainer';
@@ -531,7 +634,8 @@ export function parseLevel(gvasBytes) {
       const mapObjectId = str(mo.MapObjectId);
       let model = { baseCampId: '', position: null, buildPlayerUid: '' };
       try {
-        model = decodeMapModel(mo.Model.RawData);
+        const { baseCampId, position, buildPlayerUid } = decodeMapModel(mo.Model.RawData);
+        model = { baseCampId, position, buildPlayerUid };
       } catch {
         bump(malformed, 'mapObjectModels');
       }
@@ -552,6 +656,9 @@ export function parseLevel(gvasBytes) {
     });
   }
 
+  // 配合牧場（自動登録の照合に使う）
+  const breedFarms = parseBreedFarms(ws, malformed);
+
   const inLockerInstanceIds = (ws.InLockerCharacterInstanceIDArray || []).map((x) => uid(x && x.InstanceId)).filter(Boolean);
 
   return {
@@ -565,6 +672,7 @@ export function parseLevel(gvasBytes) {
     eggs,
     containerOwners,
     inLockerInstanceIds,
+    breedFarms,
     counts: {
       characters: (ws.CharacterSaveParameterMap || []).length,
       dynamicItems,
@@ -925,6 +1033,31 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
   }
   stats.pals = pals.length;
 
+  // 配合牧場: 親（Level のパル）とタマゴ（コンテナの中身）を引き当てる。親が引けない牧場は uncertain
+  const levelPalById = new Map(level.pals.map((p) => [p.instanceId, p]));
+  const eggsByContainer = new Map();
+  for (const egg of level.eggs) {
+    if (!egg.containerId) continue;
+    if (!eggsByContainer.has(egg.containerId)) eggsByContainer.set(egg.containerId, []);
+    eggsByContainer.get(egg.containerId).push(egg);
+  }
+  const breedFarms = (level.breedFarms || []).map((f) => {
+    let status = f.status;
+    const parents = [];
+    for (const instanceId of f.parentInstanceIds) {
+      const p = levelPalById.get(instanceId);
+      if (!p) {
+        status = 'uncertain';
+        continue;
+      }
+      // 預けた人が分からないときは空のまま（ログイン中のユーザーで登録する）。持ち主で代わりにしない
+      parents.push({ instanceId, characterId: p.characterId, gender: p.gender, depositorUid: p.lastOwnerUid });
+    }
+    const eggs = f.eggContainerIds.flatMap((id) => (eggsByContainer.get(id) || [])
+      .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw })));
+    return { id: f.id, baseId: f.baseCampId, status, parents, eggs };
+  });
+
   const m = meta && meta.kind === 'levelMeta' ? meta : null;
   if (m) for (const [k, v] of Object.entries(m.malformed || {})) bump(stats.malformed, `meta.${k}`, v);
   const world = {
@@ -941,6 +1074,7 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     guilds,
     bases,
     pals,
+    breedFarms,
     stats,
   };
 }

@@ -6,6 +6,7 @@ import { dateTime, worldName, linkLabel, roleLabel, timeLines } from '../ui/owne
 import { ownedRows, rowsToCsv } from '../core/owned.js';
 import { findWorldsInEntries, entriesFromFileList, entriesFromDataTransfer } from '../save/source.js';
 import { parseWorldPath, handlesFromDrop, handleDropSupported, kindOf, REQUIRED_FILES } from '../save/handles.js';
+import { mappedUser } from '../core/auto-breeding.js';
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -239,7 +240,49 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   const dataRow = el('div', 'owned-import-row');
   dataRow.append(csvButton, unlinkButton, deleteButton);
 
-  card.append(status, autoBox, folderBox, viewRow, dataRow);
+  // ---- 配合牧場からの自動登録 ----
+  const autoRegister = context.autoRegister;
+  const breedingBox = el('div', 'owned-register owned-breeding');
+  const breedingToggle = el('input');
+  breedingToggle.type = 'checkbox';
+  const breedingLabel = el('label', 'owned-toggle');
+  breedingLabel.append(breedingToggle, el('span', '', '配合牧場の結果を自動で登録する'));
+  breedingToggle.addEventListener('change', () => autoRegister.setEnabled(breedingToggle.checked));
+  const playerList = el('div', 'owned-breeding-players');
+  breedingBox.append(el('h3', '', '配合牧場からの自動登録'), breedingLabel, el('p', 'owned-help muted',
+    'ホストのセーブを読み込むたびに、配合牧場の親 2 体と産んだタマゴを照合し、合ったものを登録します。登録者は、親 2 体を拠点に預けた人です（違う人が預けた組み合わせは、ログイン中の ID で登録します）。'),
+  playerList);
+  if (!autoRegister) breedingBox.hidden = true;
+
+  // 選んでいる途中に作り直さないよう、プレイヤー・ユーザー・対応づけが変わったときだけ描き直す
+  let renderedPlayers = '';
+  function renderPlayers(state) {
+    const players = state.local?.snapshot?.players ?? [];
+    const visible = autoRegister && state.role === 'host' && players.length && context.store.state.env;
+    const users = visible ? context.store.state.users : [];
+    const mapping = visible ? autoRegister.mapping() : {};
+    const signature = visible ? JSON.stringify([players, users, mapping]) : '';
+    if (signature === renderedPlayers) return;
+    renderedPlayers = signature;
+    playerList.replaceChildren();
+    if (!visible) return;
+    playerList.append(el('p', 'owned-step-title', 'プレイヤーと登録者の対応'));
+    for (const player of players) {
+      const select = el('select');
+      select.setAttribute('aria-label', `${player.name || 'プレイヤー'}の登録者`);
+      const sameName = mappedUser(player, { users });
+      select.append(option('', sameName ? `${sameName}（同じ名前）` : '未設定（登録しない）'));
+      for (const user of users) select.append(option(user, user));
+      select.value = users.includes(mapping[player.uid]) ? mapping[player.uid] : '';
+      select.addEventListener('change', () => autoRegister.setMapping(player.uid, select.value));
+      const row = el('label', 'owned-breeding-player');
+      row.append(el('span', '', player.name || `プレイヤー ${player.uid.slice(0, 8)}`), select);
+      playerList.append(row);
+    }
+  }
+  if (autoRegister) breedingToggle.checked = autoRegister.enabled();
+
+  card.append(status, autoBox, breedingBox, folderBox, viewRow, dataRow);
 
   async function importWorlds(entries) {
     const worlds = findWorldsInEntries(entries);
@@ -323,6 +366,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     unlinkButton.hidden = !linkLabel(state) && !state.local && !hasWorlds;
     // 共有の削除はホスト（この PC のセーブを共有した人）だけ
     deleteButton.hidden = !(state.role === 'host' && state.meta?.sharedAt);
+    breedingBox.hidden = !autoRegister || state.role !== 'host';
+    renderPlayers(state);
   }
 
   const unsubscribe = owned.subscribe(render);

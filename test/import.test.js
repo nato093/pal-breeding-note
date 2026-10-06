@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import path from 'node:path';
 import pals, { ELEMENTS } from '../web/data/pals.js';
 import { CSV_COLUMNS, JS_FIELDS, buildPals } from '../scripts/import-pals.mjs';
 import { ALL_SOURCE_URLS } from '../scripts/sources.mjs';
@@ -16,10 +17,21 @@ test('INV-2: pals.csv の列は許可リストどおり', () => {
   assert.equal(header, CSV_COLUMNS.join(','));
 });
 
-test('INV-2: 取り込み元に配合データ（breeding.json など）を含めない', () => {
+test('INV-2: マスターの取り込み元に配合データ（breeding.json など）を含めない', () => {
   for (const url of ALL_SOURCE_URLS) assert.ok(!/breed/i.test(url), url);
   const script = fs.readFileSync('scripts/import-pals.mjs', 'utf8');
   assert.ok(!/BreedingPower|breeding\.json/.test(script.replace(/^\s*\/\/.*$/gm, '')));
+});
+
+// INV-2 の例外: 配合表は自動登録の照合にだけ使う。画面（表示・検索）から読めないよう、読み込む場所を限る
+test('INV-2: 配合表を読むのは自動登録だけ', () => {
+  const files = fs.readdirSync('web/js', { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join('web/js', f).replaceAll('\\', '/'));
+  const importing = (pattern) => files.filter((file) => pattern.test(fs.readFileSync(file, 'utf8'))).sort();
+  assert.deepEqual(importing(/(from |import\()'[^']*data\/breeding\.js'/), ['web/js/auto-register.js']);
+  assert.deepEqual(importing(/from '\.\/(core\/)?breeding\.js'/), ['web/js/auto-register.js', 'web/js/core/auto-breeding.js']);
+  assert.deepEqual(importing(/auto-breeding\.js'/), ['web/js/auto-register.js', 'web/js/views/owned-settings.js']);
+  // 設定画面が使うのは、プレイヤーと登録者の対応づけ（配合表は使わない）
+  assert.match(fs.readFileSync('web/js/views/owned-settings.js', 'utf8'), /import \{ mappedUser \} from '\.\.\/core\/auto-breeding\.js'/);
 });
 
 test('マスター: ID は英数字と _ だけで重複しない', () => {

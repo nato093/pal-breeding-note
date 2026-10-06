@@ -312,6 +312,41 @@ test('設定画面: パスを貼ると登録するファイルの場所を出し
   card.destroy();
 });
 
+test('設定画面: 配合牧場からの自動登録のオン・オフと、プレイヤーと登録者の対応を選べる（ホストのときだけ）', async (t) => {
+  installDom(t);
+  const calls = [];
+  const autoRegister = {
+    on: true, map: {},
+    enabled() { return this.on; },
+    setEnabled(value) { calls.push(['enabled', value]); },
+    mapping() { return this.map; },
+    setMapping(uid, userId) { calls.push(['mapping', uid, userId]); },
+  };
+  const owned = fakeOwned();
+  const ctx = { ...context(owned), autoRegister };
+  ctx.store.state.users = ['Alice', '仲間'];
+  const card = ownedSettingsCard(ctx, { win: DROP_WIN });
+  const box = card.element.querySelector('.owned-breeding');
+  assert.equal(box.hidden, false);
+  const toggle = box.querySelector('input');
+  assert.equal(toggle.checked, true);
+  toggle.checked = false;
+  await toggle.dispatch('change');
+  const select = box.querySelector('.owned-breeding-player').querySelector('select');
+  assert.match(box.querySelector('.owned-breeding-player').textContent, /^Alice/);
+  // 手で選んでいなければ、同じ名前のユーザーを使うことを出す
+  assert.equal(select.value, '');
+  assert.equal(select.querySelectorAll('option')[0].textContent, 'Alice（同じ名前）');
+  select.value = '仲間';
+  await select.dispatch('change');
+  assert.deepEqual(calls, [['enabled', false], ['mapping', P1, '仲間']]);
+  // 参加している側では出さない
+  owned.state.role = 'guest';
+  owned.emit();
+  assert.equal(box.hidden, true);
+  card.destroy();
+});
+
 test('所持パル画面: 許可が必要なときは案内の中に「読み込みを許可」を出し、押すと許可を求める', async (t) => {
   installDom(t);
   const owned = fakeOwned(null, { auto: { enabled: true, status: 'permission', worlds: [], worldId: '', error: 'セーブを読むには許可が必要です' } });
