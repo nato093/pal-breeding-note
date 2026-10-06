@@ -557,3 +557,16 @@ test('自動登録: このタブで登録を終えた配合は、別のタブが
   await t.run();
   assert.equal(t.creates.length, 1);
 });
+
+test('自動登録: 産まれて 2 秒で拾い、牧場の上で一度も見えずに孵化器に入ったタマゴも、その牧場の配合として登録する', async () => {
+  const t = await setup({ farms: [emptied([sheepFarm()])[0]] });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  // 次に読んだセーブでは、牧場は空のまま、孵化器にタマゴがある
+  t.owned.state.local = {
+    ...t.owned.state.local, importedAt: '2026-10-06T03:00:00.000Z',
+    snapshot: { ...t.owned.state.local.snapshot, pals: [{ instanceId: 'inc-1', source: 'egg', characterId: 'GuardianDog', location: { kind: 'egg-incubator', itemId: 'PalEgg_Earth_01' } }] },
+  };
+  await t.run();
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分']);
+});
