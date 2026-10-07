@@ -10,6 +10,7 @@ function actions_() {
     snapshot: { run: actionSnapshot_ },
     login: { run: actionAccount_ },
     signup: { run: actionAccount_ },
+    rename: { run: actionRename_ },
     create: { run: actionMutation_ },
     confirm: { run: actionMutation_ },
     update: { run: actionMutation_ },

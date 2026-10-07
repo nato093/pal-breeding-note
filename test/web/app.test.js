@@ -503,3 +503,27 @@ test('画面: ウィッシュリストに追加したパルが作れるように
   assert.match(row.textContent, /作成可能/);
   assert.equal(row.querySelector('a').href, `#/reverse?c=${target.id}`);
 });
+
+test('画面: 設定から名前を変えると、ログイン中の ID・登録者名が新しい名前になる', async (t) => {
+  const { values, calls } = await boot(t);
+  await byText('新規登録').dispatch('click');
+  input('username').value = 'Taro';
+  input('new-password').value = '入力';
+  await byText('登録してログイン').dispatch('click');
+  assert.match(byClass('settings-view').textContent, /これまでの配合の登録者名もすべて新しい名前になります/);
+  const dialogInput = () => descendants(find((node) => node.tagName === 'dialog' && node.open)).find((node) => node.tagName === 'input');
+  byText('名前を変更').dispatch('click');
+  assert.equal(dialogInput().value, 'Taro');
+  dialogInput().value = 'あ'.repeat(21);
+  await byText('変更する').dispatch('click');
+  await flush();
+  assert.match(byClass('form-errors').textContent, /20文字以内/);
+  dialogInput().value = 'Jiro';
+  await byText('変更する').dispatch('click');
+  await flush();
+  assert.equal(find((node) => node.tagName === 'dialog' && node.open), undefined);
+  assert.match(byClass('settings-view').textContent, /ログイン中の ID: Jiro/);
+  assert.equal(values.get('pal-note.userId'), 'Jiro');
+  assert.equal(values.has('pal-note.rename'), false);
+  assert.deepEqual(calls.filter((request) => request.action === 'rename').map((request) => [request.userId, request.newUserId]), [['Taro', 'Jiro']]);
+});

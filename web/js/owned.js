@@ -301,6 +301,9 @@ export function createOwnedStore({
           const owned = await server.request('owned', { worldId: target });
           if (scope() !== key) return 'skipped';
           state.shared.current = owned.world ? { world: owned.world, columns: owned.columns, rows: owned.rows } : null;
+        } else {
+          // 所持パルは同じでも、共有した人の名前が変わっていることがある（名前の変更）
+          state.shared.current = { ...current, world: { ...current.world, ...meta } };
         }
         state.shared.fetchedAt = new Date(now()).toISOString();
         await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
