@@ -106,7 +106,8 @@ export function settingsView(context) {
   // 所持パルのセーブ連携（所持パルの画面がない環境・テストでは出さない）
   const ownedCard = context.owned ? ownedSettingsCard(context) : null;
   element.append(connection, ...(ownedCard ? [ownedCard.element] : []), backup, warnings, notices, access);
-  const view = watchView(store, element, (state) => {
+  // アカウントは、配合の一覧が変わらない操作（名前の変更の完了・再試行）でも変わるので、store が変わるたびに描き直す
+  function renderAccount(state) {
     accountId.textContent = `ログイン中の ID: ${state.userId}`;
     const pending = context.renamer?.pending();
     renameNote.textContent = pending ? `「${pending.oldId}」から「${pending.newId}」への名前の変更が終わっていません。再試行してください。`
@@ -116,6 +117,10 @@ export function settingsView(context) {
     // 名前の変更中は、ログアウトや別の変更をさせない
     rename.disabled = state.renaming;
     logout.disabled = state.renaming;
+  }
+  const unsubscribeAccount = store.subscribe(renderAccount);
+  renderAccount(store.state);
+  const view = watchView(store, element, (state) => {
     env.textContent = `環境: ${state.env === 'test' ? 'テスト' : state.env === 'prod' ? '本番' : '確認中'}`;
     time.textContent = `前回取得: ${formatTime(state.serverTime, true)}${state.cached ? '（キャッシュ）' : ''}`;
     warningList.replaceChildren();
@@ -136,5 +141,5 @@ export function settingsView(context) {
       warningList.append(row);
     }
   });
-  return { element, destroy() { view.destroy(); ownedCard?.destroy(); } };
+  return { element, destroy() { view.destroy(); unsubscribeAccount(); ownedCard?.destroy(); } };
 }

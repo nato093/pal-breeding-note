@@ -523,6 +523,11 @@ test('画面: 設定から名前を変えると、ログイン中の ID・登録
   await flush();
   assert.equal(find((node) => node.tagName === 'dialog' && node.open), undefined);
   assert.match(byClass('settings-view').textContent, /ログイン中の ID: Jiro/);
+  // 完了したら「終わっていません」の表示を残さず、ログアウトもできる
+  assert.doesNotMatch(byClass('settings-view').textContent, /終わっていません/);
+  assert.equal(byText('名前を変更').hidden, false);
+  assert.equal(byText('名前の変更を再試行').hidden, true);
+  assert.equal(byText('ログアウト').disabled, false);
   assert.equal(values.get('pal-note.userId'), 'Jiro');
   assert.equal(values.has('pal-note.rename'), false);
   assert.deepEqual(calls.filter((request) => request.action === 'rename').map((request) => [request.userId, request.newUserId]), [['Taro', 'Jiro']]);
