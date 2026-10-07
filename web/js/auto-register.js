@@ -56,7 +56,8 @@ export function createAutoRegister({
   function observe() {
     const s = store.state;
     const o = owned.state;
-    const key = [s.passcode ? s.env : '', s.passcode ? userIdKey(s.userId) : '', o.role, o.linkedWorldId].join('|');
+    // 大小・全半角だけ名前を変えたときも、実行中の判定を捨てて新しい表記でやり直すよう、ID はそのまま比べる
+    const key = [s.passcode ? s.env : '', s.passcode ? s.userId : '', o.role, o.linkedWorldId].join('|');
     if (key === seen) return;
     seen = key;
     generation++;
@@ -96,14 +97,14 @@ export function createAutoRegister({
     const s = store.state;
     const local = o.local;
     if (!local || !enabled(local.world.id) || o.role !== 'host' || !o.uploadReady || o.busy || !local?.snapshot || local.world.id !== o.linkedWorldId) return null;
-    if (!s.passcode || !s.userId || !s.env || s.cached) return null;
+    if (!s.passcode || !s.userId || !s.env || s.cached || s.renaming) return null;
     // savedAt: セーブのファイルの更新日時（なければ読み込んだ日時）。別のタブの古いセーブで記録を巻き戻さないために使う
     return {
       env: s.env, userId: s.userId, worldId: local.world.id, importedAt: local.importedAt,
       savedAt: local.world.updatedAt || local.importedAt, snapshot: local.snapshot,
     };
   }
-  const same = (a, b) => Boolean(b) && a.env === b.env && userIdKey(a.userId) === userIdKey(b.userId)
+  const same = (a, b) => Boolean(b) && a.env === b.env && a.userId === b.userId
     && a.worldId === b.worldId && a.importedAt === b.importedAt;
 
   // 保存した記録は別のタブや古い版が書いたものもあるので、形を確かめ、おかしい牧場・候補の分だけ捨てる
@@ -241,7 +242,7 @@ export function createAutoRegister({
       if (failedAt.get(candidate.key) === ctx.importedAt) continue;
       // 1 件ごとに、始めたときと同じ ID・環境・セーブ・設定のままかを確かめる。
       // ほかの操作の送信待ちがある間は、確定していない登録で判定しないよう、送り終わってから続ける
-      if (!same(ctx, current()) || store.state.syncing) break;
+      if (!same(ctx, current()) || generation !== started || store.state.syncing) break;
       const mapping = mappingOf(ctx.env, ctx.worldId);
       const who = resolveRegistrant(candidate, { players, mapping, users: store.state.users, currentUserId: store.state.userId });
       // 登録者が決まらない・登録済みと食い違う候補は残し、対応づけや登録が変わったら次の判定で登録する

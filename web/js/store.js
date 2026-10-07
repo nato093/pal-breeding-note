@@ -33,6 +33,11 @@ export function safeStorage(storage) {
     get(key) { try { return storage?.getItem(key) ?? null; } catch { return null; } },
     set(key, value) { try { storage?.setItem(key, value); } catch { /* 保存できなくても操作は続ける。 */ } },
     remove(key) { try { storage?.removeItem(key); } catch { /* 保存が無効な端末にも対応する。 */ } },
+    // 保存できたかを返す（保存できないと困る記録に使う）。
+    trySet(key, value) {
+      if (!storage) return false;
+      try { storage.setItem(key, value); return true; } catch { return false; }
+    },
   };
 }
 
@@ -40,7 +45,8 @@ function readJson(storage, key) {
   try { return JSON.parse(storage.get(key)); } catch { return null; }
 }
 
-export function createStore({ api, storage = safeStorage(null), namespace = 'pal-note', now = Date.now }) {
+// onUserIdChange(previous, next, env): サーバの表記に合わせて ID を変えたとき（別の端末で大小・全半角だけ名前を変えたなど）
+export function createStore({ api, storage = safeStorage(null), namespace = 'pal-note', now = Date.now, onUserIdChange = () => {} }) {
   const listeners = new Set();
   let sequence = 0;
   let appliedSequence = 0;
@@ -53,12 +59,14 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   // 送信待ちが空のときから数えた操作の数。済んだ数は、ここから送信待ちの残りを引いて出す。
   let queued = 0;
   let worker = null;
+  // 実行中の通信（裏の送信も含む）。名前を変える前に、すべて終わるのを待つ。
+  const running = new Set();
   // 自分の操作で新しくなった版（見えていた etag → 次の etag）。続けて操作したときの etag を引き継ぐ。
   const successors = new Map();
   const removedRecords = new Map();
   const state = {
     passcode: storage.get(`${namespace}.passcode`) ?? '', userId: storage.get(`${namespace}.userId`) ?? '', users: [], env: null,
-    records: [], warnings: [], serverTime: '', cached: false, loading: false, syncing: false, error: '',
+    records: [], warnings: [], serverTime: '', cached: false, loading: false, syncing: false, error: '', renaming: false,
     // 送信の進み具合（失敗して取り消した操作も済んだ数に入れる）。送信待ちが空なら両方 0。
     syncDone: 0, syncTotal: 0,
     index: buildIndex([], pals), graph: new Map(),
@@ -66,6 +74,17 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     confirmedRecords: [],
   };
   const emit = () => listeners.forEach((listener) => listener(state));
+
+  function track(promise) {
+    running.add(promise);
+    const done = () => running.delete(promise);
+    promise.then(done, done);
+    return promise;
+  }
+
+  async function idle() {
+    while (worker || running.size) await Promise.allSettled([worker, ...running]);
+  }
 
   function render() {
     state.records = queue.reduce((records, operation) => operation.apply(records), confirmed);
@@ -112,12 +131,20 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
 
   function apply(snapshot, env, currentSequence, cached = false) {
     if (!shouldApplyResponse(currentSequence, appliedSequence)) return false;
-    if (!snapshot.users.some((userId) => userIdKey(userId) === userIdKey(state.userId))) {
+    const canonical = snapshot.users.find((userId) => userIdKey(userId) === userIdKey(state.userId));
+    if (canonical === undefined) {
       const error = new ApiError('USER_NOT_FOUND');
       logout(error.message);
       throw error;
     }
     appliedSequence = currentSequence;
+    // 別の端末で大小・全半角だけ名前を変えたら、サーバの表記にそろえる（古いキャッシュでは戻さない）。
+    if (!cached && canonical !== state.userId) {
+      const previous = state.userId;
+      state.userId = canonical;
+      storage.set(`${namespace}.userId`, canonical);
+      onUserIdChange(previous, canonical, env);
+    }
     confirmed = snapshot.records;
     state.warnings = snapshot.warnings;
     state.users = snapshot.users;
@@ -151,7 +178,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
       emit();
     }
     try {
-      const response = await api.request(action, state.passcode, input);
+      const response = await track(api.request(action, state.passcode, input));
       if (currentSession !== session) throw new ApiError('AUTH');
       // 送信待ちから外してから、応答の全件に残りの操作を重ね直す。
       settled?.();
@@ -223,6 +250,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   }
 
   async function authenticate(action, userId, passcode) {
+    if (state.renaming) throw new ApiError('RENAMING');
     const currentSession = ++session;
     const currentSequence = ++sequence;
     const password = passcode.trim();
@@ -231,7 +259,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.error = '';
     emit();
     try {
-      const response = await api.request(action, password, { userId });
+      const response = await track(api.request(action, password, { userId }));
       if (currentSession !== session) throw new ApiError('AUTH');
       if (!response.users.some((id) => userIdKey(id) === userIdKey(response.userId))) throw new ApiError('RESPONSE');
       clearData();
@@ -264,9 +292,10 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     // 配合の全件を返さない操作（所持パルの共有など）。認証が外れたときはログアウトする。
     async call(action, input) {
       if (!state.passcode || !state.userId) throw new ApiError('AUTH');
+      if (state.renaming) throw new ApiError('RENAMING');
       const currentSession = session;
       try {
-        const response = await api.request(action, state.passcode, input);
+        const response = await track(api.request(action, state.passcode, input));
         if (currentSession !== session) throw new ApiError('AUTH');
         return response;
       } catch (error) {
@@ -275,16 +304,17 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
       }
     },
     async refresh({ throttled = false } = {}) {
-      if (!state.passcode || !state.userId || (throttled && now() - lastRefresh < 30000)) return;
+      if (!state.passcode || !state.userId || state.renaming || (throttled && now() - lastRefresh < 30000)) return;
       lastRefresh = now();
       // 書き込み中に読んだ全件は書き込み前の内容のことがあり、画面を巻き戻すため送信を待つ。
       while (worker) await worker;
-      if (!state.passcode || !state.userId) return;
+      if (!state.passcode || !state.userId || state.renaming) return;
       return request('snapshot');
     },
     // 画面にはすぐ反映し、サーバへは裏で 1 件ずつ順番に送る。失敗したらその操作だけを取り消す。
     mutate(action, input) {
       if (!state.passcode || !state.userId) return Promise.reject(new ApiError('AUTH'));
+      if (state.renaming) return Promise.reject(new ApiError('RENAMING'));
       const opId = crypto.randomUUID();
       const operation = { action, input, opId, etag: `${PENDING_ETAG}${opId}` };
       if (action === 'delete') {
@@ -301,6 +331,43 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
       render();
       worker ??= drain();
       return done;
+    },
+    // 名前の変更を始める。新しい通信を止め、送信待ちと実行中の通信が終わるのを待つ。
+    async beginRename() {
+      if (!state.passcode || !state.userId || !state.env) throw new ApiError('AUTH');
+      if (state.renaming) throw new ApiError('RENAMING');
+      state.renaming = true;
+      emit();
+      await idle();
+    },
+    endRename() {
+      state.renaming = false;
+      emit();
+    },
+    // 名前の変更をサーバに送る。成功したら、beforeApply で端末内のデータを移してから、新しい名前で全件を反映する。
+    async sendRename({ opId, oldId, newId }, beforeApply = () => {}) {
+      const currentSequence = ++sequence;
+      const currentSession = session;
+      pending++;
+      state.loading = true;
+      emit();
+      try {
+        const response = await track(api.request('rename', state.passcode, { opId, userId: oldId, newUserId: newId }));
+        if (currentSession !== session) throw new ApiError('AUTH');
+        beforeApply(response);
+        state.userId = response.userId;
+        storage.set(`${namespace}.userId`, response.userId);
+        lastRefresh = now();
+        apply(response, response.env, currentSequence);
+        return response;
+      } catch (error) {
+        if (currentSession === session && error.code === 'AUTH') logout(error.message);
+        throw error;
+      } finally {
+        pending--;
+        state.loading = pending > 0;
+        emit();
+      }
     },
   };
 }

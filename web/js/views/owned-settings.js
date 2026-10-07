@@ -401,7 +401,9 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   }
 
   const unsubscribe = owned.subscribe(render);
+  // ユーザーの一覧・対応表は名前の変更でも変わる（表示が同じなら描き直さない）
+  const unsubscribeStore = context.store.subscribe(() => renderRegistered(owned.state));
   render(owned.state);
   owned.load().catch(() => {});
-  return { element: card, destroy: unsubscribe };
+  return { element: card, destroy() { unsubscribe(); unsubscribeStore(); } };
 }

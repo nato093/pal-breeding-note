@@ -44,6 +44,70 @@ function actionAccount_(req, env) {
   return req.action === 'signup' ? withLock_(run) : run();
 }
 
+var RENAME_FIELDS_ = ['action', 'passcode', 'opId', 'userId', 'newUserId'];
+
+/**
+ * 自分の名前（ID）を変え、配合の登録者名・所持パルの共有者名も新しい名前にそろえる。
+ * 開始と完了を Log に opId で残し、途中で止まっても同じ opId で続きから行えるようにする。
+ * Users を最後に書くので、途中で止まっても旧名でやり直せる。
+ */
+function actionRename_(req, env) {
+  var unknown = Object.keys(req).find(function (field) { return RENAME_FIELDS_.indexOf(field) === -1; });
+  if (unknown) return validationFailure_(unknown, 'UNKNOWN_FIELD');
+  if (!isUuid_(req.opId)) return validationFailure_('opId', 'INVALID_UUID');
+  var current = validateUserId(req.userId);
+  if (!current.ok) return { ok: false, code: 'VALIDATION', errors: current.errors };
+  var next = validateUserId(req.newUserId);
+  if (!next.ok) return validationFailure_('newUserId', next.errors[0].code);
+  if (next.value === current.value) return validationFailure_('newUserId', 'SAME_ID');
+  return withLock_(function () {
+    var cache = CacheService.getScriptCache();
+    var key = 'op:' + env + ':' + req.opId.toLowerCase();
+    var cached = cache.get(key);
+    if (cached) return Object.assign(JSON.parse(cached), snapshot_(env));
+    var log = findRenameLog_(env, req.opId);
+    // 完了の記録があれば、今の名前に関係なく完了済み（旧名が他の人に再登録されていても取り違えない）
+    if (log.done) return Object.assign({ userId: log.done.after.userId }, snapshot_(env));
+    var from = log.started ? log.started.before.userId : current.value;
+    var to = log.started ? log.started.after.userId : next.value;
+    var users = readUserRows_(env);
+    var findUser = function (userId) {
+      return users.rows.find(function (row) { return userIdKey(row.userId) === userIdKey(userId); });
+    };
+    var own = findUser(from);
+    // 途中で止まった改名で、Users まで書き換え済みなら、残りの記録だけを行う
+    var usersDone = !own && Boolean(log.started) && Boolean(findUser(to));
+    if (!own && !usersDone) return fail_('USER_NOT_FOUND');
+    if (own && users.rows.some(function (row) { return row !== own && userIdKey(row.userId) === userIdKey(to); })) {
+      return fail_('USER_EXISTS');
+    }
+    // シートの不備で、書き換えが途中まで残ることを避ける。
+    var dataSheet = sheetFor_(env, 'data');
+    var dataTable = readHeader_(dataSheet, BREEDING_HEADERS_);
+    var records = readRecords_(env).rows.filter(function (row) {
+      return userIdKey(row.record.registrant) === userIdKey(from);
+    });
+    var worlds = readOwnedWorlds_(env);
+    var uploads = worlds.worlds.filter(function (entry) { return userIdKey(entry.world.uploadedBy) === userIdKey(from); });
+    var logTable = readHeader_(sheetFor_(env, 'log'), LOG_HEADERS_);
+    var now = new Date().toISOString();
+
+    if (!log.started) appendRecordLog_(env, logTable, 'rename', req.opId, { userId: from }, { userId: to }, now);
+    // 削除済みの配合も書き換える（復元したときに旧名が戻らないように）。並び順を保つため updatedAt は変えない。
+    writeCells_(dataSheet, dataTable.index.registrant + 1, records.map(function (row) { return row.rowNumber; }), to);
+    writeCells_(sheetFor_(env, 'ownedWorlds'), worlds.table.index.uploadedBy + 1,
+      uploads.map(function (entry) { return entry.rowNumber; }), to);
+    if (own) writeCells_(sheetFor_(env, 'users'), users.table.index.userId + 1, [own.rowNumber], to);
+    appendRecordLog_(env, logTable, 'renamed', req.opId, { userId: from }, { userId: to, records: records.length }, now);
+
+    var result = { userId: to };
+    // キャッシュを成功の証拠として使うため、シートの確定後に保存する。
+    SpreadsheetApp.flush();
+    cache.put(key, JSON.stringify(result), 21600);
+    return Object.assign({}, result, snapshot_(env));
+  });
+}
+
 function isUuid_(value) {
   return typeof value === 'string' && UUID_PATTERN_.test(value);
 }
