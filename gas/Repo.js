@@ -124,3 +124,66 @@ function appendRecordLog_(env, table, action, recordId, before, after, at) {
     after: quoteForSheet(JSON.stringify(after))
   });
 }
+
+function readUserRows_(env) {
+  var table = readTable_(sheetFor_(env, 'users'), USER_HEADERS_);
+  var rows = [];
+  table.rows.forEach(function (values, index) {
+    var userId = String(values[table.index.userId] == null ? '' : values[table.index.userId]);
+    if (userId.trim() !== '') rows.push({ rowNumber: index + 2, userId: userId });
+  });
+  return { table: table, rows: rows };
+}
+
+/**
+ * 1 つの列の、指定した行のセルだけを同じ値に書き換える。
+ * 行全体を読み戻して書き直すと、他のセルの値から数式除けの引用符が外れて数式に戻るため、対象のセルにしか触れない。
+ */
+function writeCells_(sheet, column, rowNumbers, value) {
+  // getRangeList は空の配列を受け付けない
+  if (!rowNumbers.length) return;
+  var letter = columnLetter_(column);
+  var cells = sheet.getRangeList(rowNumbers.map(function (row) { return letter + row; }));
+  cells.setNumberFormat('@');
+  cells.setValue(quoteForSheet(value));
+}
+
+/** 1 始まりの列番号を A1 表記の列名にする。 */
+function columnLetter_(column) {
+  var letters = '';
+  for (var n = column; n > 0; n = Math.floor((n - 1) / 26)) {
+    letters = String.fromCharCode(65 + (n - 1) % 26) + letters;
+  }
+  return letters;
+}
+
+function parseLogValue_(value) {
+  try {
+    return JSON.parse(String(value == null ? '' : value));
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * 名前の変更の記録（開始 rename・完了 renamed）を opId で探す。
+ * Log は追記され続けるため全行は読まず、recordId の列だけを検索する。
+ */
+function findRenameLog_(env, opId) {
+  var sheet = sheetFor_(env, 'log');
+  var table = readHeader_(sheet, LOG_HEADERS_);
+  var found = { started: null, done: null };
+  var last = sheet.getLastRow();
+  if (last < 2) return found;
+  var cells = sheet.getRange(2, table.index.recordId + 1, last - 1, 1)
+    .createTextFinder(opId).matchEntireCell(true).findAll();
+  cells.forEach(function (cell) {
+    var values = sheet.getRange(cell.getRow(), 1, 1, table.headers.length).getValues()[0];
+    var action = String(values[table.index.action]);
+    var entry = { before: parseLogValue_(values[table.index.before]), after: parseLogValue_(values[table.index.after]) };
+    if (!entry.before || !entry.after) return;
+    if (action === 'rename') found.started = entry;
+    if (action === 'renamed') found.done = entry;
+  });
+  return found;
+}

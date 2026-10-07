@@ -6,7 +6,7 @@ const [{ default: pals }, { normalizeRecord, identityKey, pairKey }, { validateR
 ]);
 
 const fields = {
-  login: ['userId'], signup: ['userId', 'opId'],
+  login: ['userId'], signup: ['userId', 'opId'], rename: ['opId', 'userId', 'newUserId'],
   snapshot: [], create: ['opId', 'record', 'allowDifferentChild'], confirm: ['opId', 'id'],
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'], delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
@@ -171,6 +171,28 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
     return { world: entry?.world ?? null, columns: OWNED_FIELDS, rows: entry?.rows ?? [], serverTime };
   }
 
+  // 名前の変更。配合の登録者名と所持パルの共有者名も新しい名前にそろえる（GAS の actionRename_ と同じ判定）。
+  function rename(request) {
+    if (!uuid.test(request.opId ?? '')) return invalid('opId', 'INVALID_UUID');
+    const current = validateUserId(request.userId);
+    if (!current.ok) return { ok: false, code: 'VALIDATION', errors: current.errors };
+    const next = validateUserId(request.newUserId);
+    if (!next.ok) return invalid('newUserId', next.errors[0].code);
+    if (next.value === current.value) return invalid('newUserId', 'SAME_ID');
+    const key = request.opId.toLowerCase();
+    if (operations.has(key)) return { ...operations.get(key), ...snapshot() };
+    const index = users.findIndex((userId) => userIdKey(userId) === userIdKey(current.value));
+    if (index < 0) return fail('USER_NOT_FOUND');
+    if (users.some((userId, i) => i !== index && userIdKey(userId) === userIdKey(next.value))) return fail('USER_EXISTS');
+    const from = userIdKey(current.value);
+    for (const record of records.values()) if (userIdKey(record.registrant) === from) publish({ ...record, registrant: next.value });
+    for (const { world } of ownedWorlds.values()) if (userIdKey(world.uploadedBy) === from) world.uploadedBy = next.value;
+    users[index] = next.value;
+    const result = { userId: next.value };
+    operations.set(key, result);
+    return { ...result, ...snapshot() };
+  }
+
   return async (request) => {
     if (!request || !fields[request.action]) return fail('BAD_REQUEST');
     if (typeof request.passcode !== 'string' || !request.passcode.trim()) return fail('AUTH');
@@ -182,6 +204,10 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
     const base = { ok: true, env: 'test', api: 'pal-note-local-v1' };
     if (request.action === 'snapshot') return { ...base, ...snapshot() };
     if (request.action.startsWith('owned')) return structuredClone({ ...base, ...owned(request) });
+    if (request.action === 'rename') {
+      const result = rename(request);
+      return structuredClone(result.ok === false ? result : { ...base, ...result });
+    }
     if (['login', 'signup'].includes(request.action)) {
       if (request.action === 'signup' && !uuid.test(request.opId ?? '')) return invalid('opId', 'INVALID_UUID');
       const checked = validateUserId(request.userId);

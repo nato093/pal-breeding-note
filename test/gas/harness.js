@@ -38,6 +38,26 @@ class FakeRange {
     return this;
   }
   getValue() { return this.sheet.cell(this.row, this.col); }
+  getRow() { return this.row; }
+  // GAS の既定と同じく、大文字・小文字を区別しない
+  createTextFinder(text) {
+    const range = this;
+    let entireCell = false;
+    return {
+      matchEntireCell(flag) { entireCell = flag; return this; },
+      findAll() {
+        const needle = String(text).toLowerCase();
+        const found = [];
+        for (let r = 0; r < range.numRows; r++) {
+          for (let c = 0; c < range.numCols; c++) {
+            const value = String(range.sheet.cell(range.row + r, range.col + c)).toLowerCase();
+            if (entireCell ? value === needle : value.includes(needle)) found.push(new FakeRange(range.sheet, range.row + r, range.col + c, 1, 1));
+          }
+        }
+        return found;
+      },
+    };
+  }
   getDisplayValue() { return String(this.getValue()); }
   getFormula() { return ''; }
   setNumberFormat(fmt) {
@@ -93,6 +113,22 @@ class FakeSheet {
   }
   getMaxRows() { return Math.max(1000, this.data.length); }
   getRange(row, col, numRows = 1, numCols = 1) { return new FakeRange(this, row, col, numRows, numCols); }
+  // A1 表記（例: G5）の単一セルだけに対応する
+  getRangeList(notations) {
+    if (!notations.length) throw new Error('getRangeList: empty');
+    const ranges = notations.map((notation) => {
+      const match = /^([A-Z]+)(\d+)$/.exec(notation);
+      if (!match) throw new Error(`getRangeList: unsupported ${notation}`);
+      const col = [...match[1]].reduce((n, letter) => n * 26 + letter.charCodeAt(0) - 64, 0);
+      return new FakeRange(this, Number(match[2]), col, 1, 1);
+    });
+    this.log.push({ op: 'getRangeList', count: ranges.length });
+    return {
+      getRanges: () => ranges,
+      setNumberFormat(fmt) { ranges.forEach((range) => range.setNumberFormat(fmt)); return this; },
+      setValue(value) { ranges.forEach((range) => range.sheet.setCell(range.row, range.col, value)); return this; },
+    };
+  }
   setFrozenRows(n) { this.frozenRows = n; }
   getProtections() { return this.protections; }
   deleteRows(start, count) { this.data.splice(start - 1, count); }
