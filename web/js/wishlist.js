@@ -108,7 +108,8 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
     const { cached, serverTime } = store.state;
     const key = scope();
     const current = Date.parse(serverTime);
-    if (!key || cached || !Number.isFinite(current)) return;
+    // 名前の変更中は書き換えない（変更の後で、新しい名前の保存先へ移すため。終わったら判定し直す）
+    if (!key || cached || store.state.renaming || !Number.isFinite(current)) return;
     // observedAt が読めないウィッシュは、判定したことがないものとして扱う。
     const stale = (wish) => !(Date.parse(wish.observedAt) >= current);
     if (!load(key).some(stale)) return;
@@ -143,7 +144,7 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
     // 追加した時点で作れるパルは、作れる状態が続く限り通知しない。
     add(palId) {
       const key = scope();
-      if (!key || !palsById.has(palId)) return null;
+      if (!key || store.state.renaming || !palsById.has(palId)) return null;
       const wishes = latest(key);
       if (wishes.some((wish) => wish.palId === palId)) return false;
       const current = [...confirmedPairs().get(palId) ?? []];
@@ -156,14 +157,14 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
     remove(palId, key = scope()) {
       const wishes = latest(key);
       const index = wishes.findIndex((wish) => wish.palId === palId);
-      if (index < 0) return null;
+      if (index < 0 || store.state.renaming) return null;
       save(key, wishes.filter((wish, current) => current !== index));
       return { wish: wishes[index], index };
     },
     // 外した時点の ID・環境に戻し、外している間に届いたデータで判定し直す（別の ID・環境なら、その scope を開いたときに判定する）。
     restore(wish, index, key) {
       const wishes = latest(key);
-      if (!key || wishes.some((item) => item.palId === wish.palId)) return false;
+      if (!key || store.state.renaming || wishes.some((item) => item.palId === wish.palId)) return false;
       save(key, [...wishes.slice(0, index), wish, ...wishes.slice(index)]);
       observe();
       return true;

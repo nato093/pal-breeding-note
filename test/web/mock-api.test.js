@@ -244,3 +244,29 @@ test('モック: 絵文字 ID の UTF-16 境界を判定し、登録者として
   const result = await api.request('create', 'ローカル動作確認', { opId: crypto.randomUUID(), record: input({ registrant: userId }) });
   assert.equal(result.record.registrant, userId);
 });
+
+test('モック: 名前の変更は登録者名（削除済みを含む）と共有者名をそろえ、同じ opId の再送は一回分だけ反映する', async () => {
+  const api = createDevelopmentApi();
+  await api(request('signup', { userId: 'Taro' }));
+  await api(request('signup', { userId: 'Hanako' }));
+  const kept = input({ registrant: 'TARO' });
+  const removed = input({ childId: ids[3], registrant: 'taro' });
+  await api(request('create', { record: kept }));
+  const created = await api(request('create', { record: removed, allowDifferentChild: true }));
+  const deleted = await api(request('delete', { id: removed.id, expectedEtag: created.record.etag }));
+  const rename = request('rename', { userId: 'Taro', newUserId: 'Jiro' });
+  const result = await api(rename);
+  assert.equal(result.ok, true);
+  assert.equal(result.userId, 'Jiro');
+  assert.deepEqual(result.users, ['Jiro', 'Hanako']);
+  assert.deepEqual(result.records.map((record) => record.registrant), ['Jiro']);
+  // 削除前の版で復元すると、名前の変更で版が変わっているので競合になる。最新の版では新しい名前で戻る
+  const stale = await api(request('restore', { id: removed.id, expectedEtag: deleted.record.etag }));
+  assert.equal(stale.code, 'CONFLICT');
+  assert.equal(stale.latest.registrant, 'Jiro');
+  assert.equal((await api(request('restore', { id: removed.id, expectedEtag: stale.latest.etag }))).record.registrant, 'Jiro');
+  assert.equal((await api(rename)).userId, 'Jiro');
+  assert.equal((await api(request('rename', { userId: 'Jiro', newUserId: 'ＨＡＮＡＫＯ' }))).code, 'USER_EXISTS');
+  assert.equal((await api(request('rename', { userId: 'Jiro', newUserId: 'Jiro' }))).errors[0].code, 'SAME_ID');
+  assert.equal((await api(request('rename', { userId: '未登録', newUserId: 'X' }))).code, 'USER_NOT_FOUND');
+});

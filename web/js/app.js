@@ -5,6 +5,7 @@ import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
+import { createRenamer } from './user-rename.js';
 import { startRouter, buildHash, parseHash } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
@@ -45,7 +46,10 @@ async function boot() {
   let browserStorage = null;
   try { browserStorage = window.localStorage; } catch { /* 保存できない端末でも画面は使える。 */ }
   const namespace = localDevelopment ? 'pal-note.local' : 'pal-note';
-  const store = createStore({ api: createApi({ transport }), storage: safeStorage(browserStorage), namespace });
+  const store = createStore({
+    api: createApi({ transport }), storage: safeStorage(browserStorage), namespace,
+    onUserIdChange: (previous, next, env) => renamer.followServer(previous, next, env),
+  });
   const drafts = createDraftStore({ store, storage: browserStorage, namespace });
   const wishlist = createWishlistStore({ store, storage: browserStorage, namespace });
   // 所持パル（セーブから読み込んだ一覧）はログインと関係なく、このブラウザに保存する。
@@ -67,6 +71,8 @@ async function boot() {
     store, storage: browserStorage, namespace,
     sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), autoRegister.notices],
   });
+  const renamer = createRenamer({ store, drafts, wishlist, notifications, storage: browserStorage, namespace });
+  renamer.resumeLocal();
   const root = document.getElementById('app');
   const banner = el('div', 'environment-banner', 'テスト環境');
   banner.hidden = true;
@@ -148,6 +154,7 @@ async function boot() {
     notifications,
     owned,
     autoRegister,
+    renamer,
     navigate(hash) { location.hash = hash; },
     replace(hash) {
       history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);

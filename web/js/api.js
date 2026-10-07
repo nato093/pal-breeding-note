@@ -19,6 +19,10 @@ const messages = {
   CONNECTION: 'サーバに接続できません',
   TIMEOUT: '応答に時間がかかっています。最新に更新して結果を確認してください。',
   RESPONSE: 'サーバの応答を読み取れませんでした。もう一度お試しください。',
+  RENAMING: '名前を変更しています。終わってからもう一度お試しください。',
+  STORAGE: 'この端末に保存できないため、名前を変更できません。',
+  LOCAL_SAVE: 'この端末への下書き・ウィッシュリストの保存に失敗しています。保存できる状態にしてからお試しください。',
+  LOCAL_MOVE: '名前は変更しました。この端末の下書きなどを移せなかったので、設定の「再試行」を押してください。',
 };
 
 export function errorMessage(code) {
@@ -34,7 +38,7 @@ export class ApiError extends Error {
 }
 
 const actionFields = {
-  login: ['userId'], signup: ['userId', 'opId'],
+  login: ['userId'], signup: ['userId', 'opId'], rename: ['opId', 'userId', 'newUserId'],
   snapshot: [], create: ['opId', 'record', 'allowDifferentChild'],
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'],
@@ -70,7 +74,7 @@ export function validateResponse(response, action) {
     throw new ApiError(response.code, response);
   }
   if (ownedActions.has(action)) return validateOwnedResponse(response, action);
-  const account = ['login', 'signup'].includes(action);
+  const account = ['login', 'signup', 'rename'].includes(action);
   if (!['prod', 'test'].includes(response.env) || !response.api
     || !validSnapshot(action === 'snapshot' || account ? response : response.snapshot)
     || (account ? typeof response.userId !== 'string' : action !== 'snapshot' && !response.record)) throw new ApiError('RESPONSE');
@@ -125,7 +129,7 @@ export function createApi({ fetcher = globalThis.fetch, url = API_URL, timeoutMs
   }
   return {
     async request(action, passcode, input) {
-      if (action === 'signup') input = { ...input, opId: input?.opId ?? crypto.randomUUID() };
+      if (['signup', 'rename'].includes(action)) input = { ...input, opId: input?.opId ?? crypto.randomUUID() };
       const request = buildRequest(action, passcode, input);
       for (let attemptNumber = 0; attemptNumber < 2; attemptNumber++) {
         try { return await attempt(request); } catch (error) {

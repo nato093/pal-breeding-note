@@ -81,6 +81,8 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
   }
 
   const sending = (id) => Boolean(statuses.get(id)?.sending);
+  // 名前の変更中は書き換えない（変更の後で、新しい名前の保存先へ移すため）
+  const locked = () => Boolean(store.state.renaming);
 
   return {
     scope,
@@ -89,7 +91,7 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     status(id) { return statuses.get(id) ?? idle; },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     add(fields = {}, key = scope()) {
-      if (!key) return null;
+      if (!key || locked()) return null;
       const draft = cleanDraft({ registrant: store.state.userId, ...fields, id: crypto.randomUUID(), recordId: '' });
       save(key, [...latest(key), draft]);
       return draft;
@@ -98,7 +100,7 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
       const drafts = latest(key);
       const index = drafts.findIndex((draft) => draft.id === id);
       // 送信中に変えると、成功したときに送った内容と違う下書きを消してしまう。
-      if (index < 0 || sending(id)) return false;
+      if (index < 0 || sending(id) || locked()) return false;
       const next = cleanDraft({ ...drafts[index], ...fields, id, recordId: drafts[index].recordId });
       if (sameDraftContent(next, drafts[index])) return true;
       // 内容が変わったら、前回送った登録 ID は使い回さない。
@@ -110,7 +112,7 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     remove(id, key = scope()) {
       const drafts = latest(key);
       const index = drafts.findIndex((draft) => draft.id === id);
-      if (index < 0 || sending(id)) return null;
+      if (index < 0 || sending(id) || locked()) return null;
       statuses.delete(id);
       save(key, drafts.filter((draft, current) => current !== index));
       return { draft: drafts[index], index };
@@ -118,14 +120,14 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     // 削除した時点の ID・環境の下書きに戻す（元に戻すの前に別の ID でログインしても混ざらない）。
     restore(draft, index, key) {
       const drafts = latest(key);
-      if (!key || drafts.some((item) => item.id === draft.id)) return false;
+      if (!key || locked() || drafts.some((item) => item.id === draft.id)) return false;
       save(key, [...drafts.slice(0, index), draft, ...drafts.slice(index)]);
       return true;
     },
     removeMany(ids, key = scope()) {
       const drafts = latest(key);
       const targets = new Set(ids.filter((id) => !sending(id) && drafts.some((draft) => draft.id === id)));
-      if (!targets.size) return 0;
+      if (!targets.size || locked()) return 0;
       for (const id of targets) statuses.delete(id);
       save(key, drafts.filter((draft) => !targets.has(draft.id)));
       return targets.size;
@@ -134,7 +136,7 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     startSending(id, recordId, key) {
       const drafts = latest(key);
       const index = drafts.findIndex((draft) => draft.id === id);
-      if (index < 0) return false;
+      if (index < 0 || locked()) return false;
       statuses.set(id, { sending: true, error: '' });
       if (drafts[index].recordId === recordId) emit();
       else save(key, drafts.map((draft, current) => current === index ? { ...draft, recordId } : draft));
