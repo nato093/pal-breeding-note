@@ -27,6 +27,8 @@ function ownedPalHeaders_() {
 var OWNED_WORLD_HEADERS_ = [
   'worldId', 'worldName', 'hostName', 'saveUpdatedAt', 'uploadedAt', 'uploadedBy', 'palCount', 'players', 'bases'
 ];
+// 後から足した列（なくても読める）。setup() を実行し直すと、既存のシートの末尾に足す
+var OWNED_WORLD_OPTIONAL_HEADERS_ = ['farms'];
 
 // 少人数の同時書き込み（1 件約 2〜3 秒）を待てる長さ。クライアントのタイムアウト（35 秒）より短くする
 var LOCK_TIMEOUT_MS_ = 25000;

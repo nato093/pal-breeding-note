@@ -28,10 +28,9 @@ test('理想個体の登録: 形を確かめ、読めない値は安全な既定
   assert.deepEqual(clean.passives, ['P1', 'P2', 'P3', 'P4']);
   // 文字列や範囲外の個体値は 0（気にしない）ではなく 100 にする
   assert.deepEqual(clean.targets, { hp: 100, shot: 100, defense: 50 });
-  assert.deepEqual([clean.mode, clean.cake, clean.order, clean.addedAt, clean.alpha], ['include', 'none', 'next', '', 'any']);
-  // アルファの条件は 3 つのどれか（読めない値は気にしない）
-  assert.equal(cleanGoal({ id: 'g', palId: 'X', alpha: 'alpha' }).alpha, 'alpha');
-  assert.equal(cleanGoal({ id: 'g', palId: 'X', alpha: 'boss' }).alpha, 'any');
+  assert.deepEqual([clean.mode, clean.cake, clean.order, clean.addedAt], ['include', 'none', 'next', '']);
+  // アルファの条件はなくした（前に登録したものに残っていても読まない）
+  assert.equal('alpha' in cleanGoal({ id: 'g', palId: 'X', alpha: 'alpha' }), false);
   assert.deepEqual(Object.keys(clean.worlds), [WORLD]);
   assert.equal(clean.worlds[WORLD].completedAt, '2026-10-08T01:00:00.000Z');
   // 名前がなければパルの ID
@@ -53,14 +52,13 @@ test('理想個体の登録: 同じ目標かは、完成の条件だけで（名
   assert.equal(goalKey(goal()), goalKey(goal({ id: 'g2', name: '別名', passives: ['P2', 'P1'], worlds: { [WORLD]: { checked: true, observedAt: '2026-10-08T00:00:00.000Z' } } })));
   assert.notEqual(goalKey(goal()), goalKey(goal({ mode: 'only' })));
   assert.notEqual(goalKey(goal()), goalKey(goal({ targets: { hp: 100, shot: 90, defense: 100 } })));
-  // アルファの条件は完成の条件なので、違えば別の目標
-  assert.notEqual(goalKey(goal()), goalKey(goal({ alpha: 'alpha' })));
-  assert.notEqual(goalKey(goal({ alpha: 'alpha' })), goalKey(goal({ alpha: 'normal' })));
+  // 前に登録したアルファの条件は見ない（同じ目標になる）
+  assert.equal(goalKey(goal()), goalKey(goal({ alpha: 'alpha' })));
   // ケーキと並べ方は作り方なので、違っても同じ目標（同じ完成で通知を重ねない）
   assert.equal(goalKey(goal()), goalKey(goal({ cake: 'talent', order: 'generations' })));
 });
 
-test('理想個体の登録: 完成品は、同じ種族で、パッシブの条件・個体値の目標・アルファの条件を満たす個体（グローバルも含み、タマゴは数えない）', () => {
+test('理想個体の登録: 完成品は、同じ種族で、パッシブの条件と個体値の目標を満たす個体（アルファかは問わず、グローバルも含み、タマゴは数えない）', () => {
   const pals = [
     pal('ok', 'X', 'M', ['P1', 'P2', 'J1'], talent(100, 100, 100)),
     pal('alpha', 'X', 'M', ['P1', 'P2', 'J2'], talent(100, 100, 100), { alpha: true }),
@@ -79,9 +77,7 @@ test('理想個体の登録: 完成品は、同じ種族で、パッシブの条
   assert.deepEqual(ids({ mode: 'only' }), ['clean']);
   // 目標 0 のステータスは気にしない
   assert.deepEqual(ids({ targets: { hp: 100, shot: 0, defense: 100 } }), ['ok', 'alpha', 'clean', 'low']);
-  // アルファだけ／アルファ以外
-  assert.deepEqual(ids({ alpha: 'alpha' }), ['alpha']);
-  assert.deepEqual(ids({ alpha: 'normal' }), ['ok', 'clean']);
+
   // 中身の分からないタマゴは、条件がなくても数えない
   assert.ok(!ids({ passives: [], targets: { hp: 0, shot: 0, defense: 0 } }).includes('unknownEgg'));
 });

@@ -1,7 +1,7 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS } from './owned-shared.js';
+import { OWNED_FIELDS, cleanOwnedFarms } from './owned-shared.js';
 import humanList from '../../data/humans.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
@@ -173,6 +173,9 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     players: [...players.values()],
     bases: [...bases.values()].sort((a, b) => (a.number || Infinity) - (b.number || Infinity)).map((base) => ({ ...base, label: baseLabel(base.id) })),
     pals: list,
+    // 配合牧場（親が読めた牧場だけ）。理想個体の配合の計画で、置いてある組と比べる。牧場を読む前の解析結果では null（情報がない）
+    farms: Array.isArray(snapshot?.breedFarms) ? snapshot.breedFarms.filter((farm) => farm.status !== 'uncertain')
+      .map((farm) => ({ id: farm.id, baseId: farm.baseId ?? '', parents: farm.parents.map((parent) => parent.instanceId) })) : null,
     stats: snapshot?.stats ?? {},
   };
 }
@@ -355,6 +358,8 @@ export function sharedUpload(owned) {
   return {
     players: owned.players.map((player) => ({ uid: player.uid, name: player.name })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
+    // 牧場の情報がなければ送らない（「牧場なし」と区別するため）
+    ...(Array.isArray(owned.farms) ? { farms: owned.farms.map((farm) => ({ id: farm.id, baseId: farm.baseId, parents: farm.parents })) } : {}),
     columns: OWNED_FIELDS,
     rows,
   };
@@ -400,6 +405,8 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     players: (world.players ?? []).filter((player) => player?.uid).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
     bases: (world.bases ?? []).filter((base) => base?.id).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: list,
+    // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
+    farms: Array.isArray(world.farms) ? cleanOwnedFarms(world.farms) : null,
     stats: {},
   };
 }
