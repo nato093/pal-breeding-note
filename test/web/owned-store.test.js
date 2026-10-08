@@ -310,6 +310,27 @@ test('所持パル: 連携していない人は、いちばん新しく共有さ
   assert.equal(shared.calls.length, before);
 });
 
+test('所持パル: 共有を読み直しても何も変わっていなければ、所持パルを作り直さない（名前が変わったときは反映する）', async () => {
+  const shared = sharedServer();
+  const { OWNED_FIELDS } = await import('../../web/js/core/owned-shared.js');
+  await shared.server.request('signup', { userId: 'ホスト', opId: crypto.randomUUID() });
+  await shared.server.request('ownedUpload', {
+    userId: 'ホスト', worldId: WORLD_A, world: { name: 'A', hostName: 'Alice' }, saveUpdatedAt: '2026-10-05T01:00:00.000Z',
+    players: [], bases: [], columns: OWNED_FIELDS, rows: [[`${WORLD_A}-0`, ...Array(OWNED_FIELDS.length - 1).fill('')]],
+  });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.fetchShared({ force: true });
+  const first = viewer.store.state.owned;
+  const current = viewer.store.state.shared.current;
+  await viewer.store.fetchShared({ force: true });
+  assert.equal(viewer.store.state.shared.current, current);
+  assert.equal(viewer.store.state.owned, first);
+  // 共有した人の名前が変わったときは、新しい名前にする
+  await shared.server.request('rename', { opId: crypto.randomUUID(), userId: 'ホスト', newUserId: 'ホスト2' });
+  await viewer.store.fetchShared({ force: true });
+  assert.equal(viewer.store.state.meta.uploadedBy, 'ホスト2');
+});
+
 test('所持パル: 共有されているセーブの方が新しいときは、古いセーブを上書きせずに新しい方を出す', async () => {
   const shared = sharedServer();
   const { OWNED_FIELDS } = await import('../../web/js/core/owned-shared.js');

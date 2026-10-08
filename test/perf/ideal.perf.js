@@ -28,3 +28,28 @@ test('性能: 理想個体の提案は、同じ種族の ♂1000 × ♀1000（10
   measure('パッシブ 2 個', { passives: ['P0', 'P1'] });
   measure('パッシブ 4 個・ケーキあり', { passives: ['P0', 'P1', 'P2', 'P3'], cake: 'talent', mode: 'only' });
 });
+
+test('性能: 世代を重ねる並べ方は、全員が欲しいパッシブを持つ ♂1000 × ♀1000 と、キノコケーキで値が境目付近にばらける ♂200 × ♀200 でも 2 秒以内', () => {
+  let state = 0x47454e53;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const junk = ['J0', 'J1', 'J2'];
+  const make = (count, low) => Array.from({ length: count * 2 }, (_, i) => {
+    const extras = junk.filter(() => random() < 0.3).slice(0, 2);
+    const value = () => low + Math.floor(random() * (101 - low));
+    return { id: `G${i}`, palId: 'X', gender: i % 2 ? 'F' : 'M', egg: false, place: 'palbox', passives: ['P0', 'P1', ...extras], talent: { hp: value(), shot: value(), defense: value() } };
+  });
+  const index = buildIndex([], [{ id: 'X', no: 1, variant: false }]);
+  const measure = (label, pals, input) => {
+    const start = performance.now();
+    const result = idealPairs({ pals, index, target: 'X', passives: ['P0', 'P1'], order: 'generations', ...input });
+    const elapsed = performance.now() - start;
+    console.log(`${label}: ${elapsed.toFixed(2)} ms（${result.total} 組）`);
+    assert.ok(elapsed < 2000, `${label}が 2 秒を超えました: ${elapsed.toFixed(2)} ms`);
+    return result;
+  };
+  assert.equal(measure('世代・ケーキなし ♂1000×♀1000', make(1000, 0), {}).total, 1000000);
+  measure('世代・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { cake: 'talent' });
+});
