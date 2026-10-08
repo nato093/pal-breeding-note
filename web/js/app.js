@@ -4,6 +4,7 @@ import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { createIdealStore, idealNotificationSource } from './ideals.js';
+import { createPlanMemory } from './ideal-plan-memory.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
@@ -160,6 +161,8 @@ async function boot() {
     drafts,
     wishlist,
     ideals,
+    // 理想個体の配合の計画の基準（配合牧場の中身が最後に変わったときのおすすめ）
+    planMemory: createPlanMemory({ storage: browserStorage, namespace }),
     notifications,
     owned,
     autoRegister,

@@ -9,8 +9,6 @@ const HOST_UID = '00000000-0000-0000-0000-000000000001';
 export const GOAL_MODES = Object.freeze(['include', 'only']);
 export const GOAL_CAKES = Object.freeze(['none', 'talent', 'special']);
 export const GOAL_ORDERS = Object.freeze(['next', 'generations']);
-// アルファの条件（気にしない／アルファだけ／アルファ以外）
-export const GOAL_ALPHAS = Object.freeze(['any', 'alpha', 'normal']);
 export const GOAL_STATS = Object.freeze(['hp', 'shot', 'defense']);
 export const GOAL_NAME_MAX = 30;
 // 1 人が登録できる数と、1 件で覚えるワールドの数（端末の保存を膨らませないため）
@@ -63,7 +61,6 @@ export function cleanGoal(value) {
     mode: oneOf(GOAL_MODES, value.mode, 'include'),
     targets,
     cake: oneOf(GOAL_CAKES, value.cake, 'none'),
-    alpha: oneOf(GOAL_ALPHAS, value.alpha, 'any'),
     order: oneOf(GOAL_ORDERS, value.order, 'next'),
     addedAt: validTime(value.addedAt) ? value.addedAt : '',
     worlds: Object.fromEntries(kept),
@@ -88,11 +85,11 @@ export function parseGoals(source) {
 }
 
 /**
- * 同じ目標かを比べるための文字列。完成の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・アルファ）だけで比べる
+ * 同じ目標かを比べるための文字列。完成の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標）だけで比べる
  * （ケーキと並べ方は作り方なので含めない。含めると、同じ完成で通知が重なる）。パッシブの順番は問わない。
  */
 export function goalKey(goal) {
-  return JSON.stringify([goal.palId, [...goal.passives].sort(), goal.mode, GOAL_STATS.map((key) => goal.targets[key]), goal.alpha]);
+  return JSON.stringify([goal.palId, [...goal.passives].sort(), goal.mode, GOAL_STATS.map((key) => goal.targets[key])]);
 }
 
 /**
@@ -141,16 +138,15 @@ export function ownPals(data, identity) {
 
 /**
  * 登録した理想個体の条件を満たす個体（完成品）。目標と同じ種族で、パッシブの条件（全部持つ／欲しいものだけ）と
- * 個体値の目標（0 は気にしない）とアルファの条件を満たすもの。所持しているので、グローバルパルボックスの個体も含める。
+ * 個体値の目標（0 は気にしない）を満たすもの。所持しているので、グローバルパルボックスの個体も含める。
  * 性別は問わない。タマゴは数えない（孵化させて受け取ったら完成）。
- * @param {{ palId: string, passives: string[], mode: 'include'|'only', targets: object, alpha: 'any'|'alpha'|'normal' }} goal cleanGoal で整えたもの
+ * @param {{ palId: string, passives: string[], mode: 'include'|'only', targets: object }} goal cleanGoal で整えたもの
  * @param {object[]} pals normalizeOwned の pals
  */
 export function goalMatches(goal, pals) {
   const wanted = [...new Set(goal.passives)];
   return pals.filter((pal) => {
     if (!goal.palId || pal.palId !== goal.palId || pal.egg) return false;
-    if ((goal.alpha === 'alpha' && !pal.alpha) || (goal.alpha === 'normal' && pal.alpha)) return false;
     const own = new Set(pal.passives);
     if (!wanted.every((id) => own.has(id)) || (goal.mode === 'only' && own.size !== wanted.length)) return false;
     return GOAL_STATS.every((key) => goal.targets[key] <= 0 || pal.talent[key] >= goal.targets[key]);
