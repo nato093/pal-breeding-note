@@ -46,6 +46,38 @@ test('所持パル共有: setup で本番・テストのシートを作り、ワ
   assert.deepEqual([none.ok, none.world, none.rows], [true, null, []]);
 });
 
+test('所持パル共有: 配合牧場をワールドの行に残して返す。farms 列のない古いシートでも共有でき、setup をやり直すと列を足す', () => {
+  const farms = [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'] }];
+  const env = fixture();
+  env.call('ownedUpload', upload(WORLD_A, [row('p1'), row('p2')], '2026-10-05T10:00:00.000Z', { farms }));
+  assert.deepEqual(env.call('ownedWorlds').worlds[0].farms, farms);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.farms, farms);
+  // 列を足す前のシート（farms 列がない）
+  const old = fixture();
+  const sheet = old.spreadsheet.getSheetByName('OwnedWorlds_test');
+  const at = sheet.data[0].indexOf('farms');
+  for (const line of sheet.data) line.splice(at, 1);
+  const stored = old.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { farms }));
+  assert.equal(stored.stored, true);
+  // 列がないので牧場の情報はない（null。「牧場なし」の [] とは区別する）
+  assert.equal(old.call('ownedWorlds').worlds[0].farms, null);
+  // 所有者が setup を実行し直すと、既存の列とデータはそのままで、末尾に farms 列が足され、見出しの保護も付く
+  const protections = sheet.protections.length;
+  old.gas.setup();
+  assert.equal(sheet.data[0][sheet.data[0].length - 1], 'farms');
+  assert.equal(sheet.protections.length, protections + 1);
+  assert.equal(old.call('ownedWorlds').worlds[0].farms, null);
+  assert.equal(old.call('ownedWorlds').worlds[0].worldName, 'LC9');
+  old.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T11:00:00.000Z', { farms }));
+  assert.deepEqual(old.call('ownedWorlds').worlds[0].farms, farms);
+  // もう一度 setup しても列は増えない
+  old.gas.setup();
+  assert.equal(sheet.data[0].filter((header) => header === 'farms').length, 1);
+  // 牧場を送らない古い画面からの共有は、牧場の情報なし（null）として残る
+  old.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T12:00:00.000Z'));
+  assert.equal(old.call('ownedWorlds').worlds[0].farms, null);
+});
+
 test('所持パル共有: 同じワールドは丸ごと置き換え（消えたパルは消える）、他のワールドは残す', () => {
   const env = fixture({ spreadsheet: new FakeSpreadsheet({ stripQuotes: true }) });
   env.call('ownedUpload', upload(WORLD_A, [row('a1'), row('a2'), row('a3')]));

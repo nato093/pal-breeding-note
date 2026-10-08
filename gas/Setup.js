@@ -9,7 +9,7 @@ function setup() {
     ensureSheet_(ss, SHEET_NAMES_[env].log, LOG_HEADERS_);
     ensureSheet_(ss, SHEET_NAMES_[env].users, USER_HEADERS_);
     ensureSheet_(ss, SHEET_NAMES_[env].ownedPals, ownedPalHeaders_());
-    ensureSheet_(ss, SHEET_NAMES_[env].ownedWorlds, OWNED_WORLD_HEADERS_);
+    ensureSheet_(ss, SHEET_NAMES_[env].ownedWorlds, OWNED_WORLD_HEADERS_.concat(OWNED_WORLD_OPTIONAL_HEADERS_));
   });
   var settings = ensureSheet_(ss, SETTINGS_SHEET_, SETTINGS_HEADERS_);
   var table = readTable_(settings, SETTINGS_HEADERS_);
@@ -42,17 +42,31 @@ function setup() {
 
 function ensureSheet_(ss, name, headers) {
   var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
-  // 値を数式として解釈させないよう、使う列全体を書式なしテキストにする
-  sheet.getRange(1, 1, sheet.getMaxRows(), headers.length).setNumberFormat('@');
-
+  var description = 'ヘッダー行（列名を変えるとアプリが読めなくなります）';
   var headerRange = sheet.getRange(1, 1, 1, headers.length);
   var current = headerRange.getValues()[0];
   if (current.join('') === '') {
+    // 値を数式として解釈させないよう、使う列全体を書式なしテキストにする
+    sheet.getRange(1, 1, sheet.getMaxRows(), headers.length).setNumberFormat('@');
     headerRange.setValues([headers]);
     sheet.setFrozenRows(1);
+  } else {
+    // 既存のシートは、アプリの列だけを書式なしテキストにし（利用者が足した列は変えない）、
+    // 後から足した列がなければ末尾に足す（既存の列とデータは変えない）
+    var lastCol = sheet.getLastColumn();
+    var existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+    existing.forEach(function (h, i) {
+      if (headers.indexOf(h) !== -1) sheet.getRange(1, i + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    });
+    var missing = headers.filter(function (h) { return existing.indexOf(h) === -1; });
+    if (missing.length) {
+      sheet.getRange(1, lastCol + 1, sheet.getMaxRows(), missing.length).setNumberFormat('@');
+      var added = sheet.getRange(1, lastCol + 1, 1, missing.length);
+      added.setValues([missing]);
+      added.protect().setDescription(description).setWarningOnly(true);
+    }
   }
 
-  var description = 'ヘッダー行（列名を変えるとアプリが読めなくなります）';
   var protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
   var exists = protections.some(function (p) { return p.getDescription() === description; });
   if (!exists) headerRange.protect().setDescription(description).setWarningOnly(true);

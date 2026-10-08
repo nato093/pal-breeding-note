@@ -8,6 +8,7 @@ import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
 } from '../../web/js/core/owned.js';
+import { cleanOwnedFarms, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const P2 = '4de16e79-0000-0000-0000-000000000000';
@@ -40,6 +41,25 @@ const snapshot = {
 };
 
 const owned = normalizeOwned(snapshot, { pals, passives });
+
+test('所持パル: 配合牧場（親が読めたもの）をデータに載せ、共有しても参加している人に届く', () => {
+  const farms = [
+    { id: 'F1', baseId: BASE, status: 'ok', parents: [{ instanceId: 'b' }, { instanceId: 'c' }], eggs: [] },
+    { id: 'F2', baseId: BASE, status: 'uncertain', parents: [{ instanceId: 'a' }], eggs: [] },
+    { id: 'F3', baseId: BASE, status: 'ok', parents: [], eggs: [] },
+  ];
+  const withFarms = normalizeOwned({ ...snapshot, breedFarms: farms }, { pals, passives });
+  assert.deepEqual(withFarms.farms, [{ id: 'F1', baseId: BASE, parents: ['b', 'c'] }, { id: 'F3', baseId: BASE, parents: [] }]);
+  // 牧場を読む前の解析結果では null（牧場の情報がない。「牧場なし」の [] と区別する）、共有にも載せない
+  assert.equal(owned.farms, null);
+  assert.equal('farms' in sharedUpload(owned), false);
+  assert.deepEqual(normalizeOwned({ ...snapshot, breedFarms: [] }, { pals, passives }).farms, []);
+  const upload = sharedUpload(withFarms);
+  assert.deepEqual(upload.farms, withFarms.farms);
+  // 参加している人は、ワールドの行に入った farms を受け取る（牧場を共有する前のデータにはないので null）
+  assert.deepEqual(ownedFromShared({ world: { worldName: 'テスト', farms: upload.farms }, ...upload }, { pals, passives }).farms, withFarms.farms);
+  assert.equal(ownedFromShared({ world: { worldName: 'テスト' }, ...upload }, { pals, passives }).farms, null);
+});
 const byId = Object.fromEntries(owned.pals.map((p) => [p.id, p]));
 
 test('所持パル: CharacterID の接頭辞と大文字小文字の違いを吸収してマスターの ID に直す', () => {
@@ -137,4 +157,18 @@ test('所持パル: パルボックスの通し番号から、ページ（30 枠
   // 参加している人には、共有の placeLabel でそのまま届く
   const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...sharedUpload(owned) }, { pals, passives });
   assert.deepEqual(shared.pals.map((item) => item.placeLabel), ['パルボックス 2 ページ・2 行 1 列', '手持ち']);
+});
+
+test('所持パル共有: 配合牧場は形を確かめ、親が 3 体以上・ID のないもの・形の違うものを捨て、件数を限る', () => {
+  const long = 'x'.repeat(50);
+  assert.deepEqual(cleanOwnedFarms([
+    { id: 'F1', baseId: 'B', parents: ['p1', 'p2'] },
+    { id: 'F2', baseId: 'B', parents: ['p1', 'p2', 'p3'] },
+    { id: '', baseId: 'B', parents: [] },
+    { id: long, baseId: 7, parents: ['p1', 3, ''] },
+    null,
+    'farm',
+  ]), [{ id: 'F1', baseId: 'B', parents: ['p1', 'p2'] }, { id: 'x'.repeat(40), baseId: '7', parents: ['p1'] }]);
+  assert.deepEqual(cleanOwnedFarms('F1'), []);
+  assert.equal(cleanOwnedFarms(Array.from({ length: OWNED_MAX_FARMS + 5 }, (_, i) => ({ id: `F${i}`, parents: [] }))).length, OWNED_MAX_FARMS);
 });

@@ -75,6 +75,23 @@ const OWNED_FIELDS = [
   'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner',
 ];
 const OWNED_MAX_ROWS = 20000;
+// 配合牧場（ワールドの行に JSON で持つ）。牧場の ID・拠点・親（個体 ID、2 体まで）。
+// 1 件は JSON で 180 字ほどなので、セル（5 万字まで）に収まる数に限る
+const OWNED_MAX_FARMS = 200;
+
+/** 配合牧場の一覧を検証して整える（形の合わないものは捨てる）。 */
+function cleanOwnedFarms(value) {
+  if (!Array.isArray(value)) return [];
+  const farms = [];
+  for (const farm of value.slice(0, OWNED_MAX_FARMS)) {
+    if (!farm || typeof farm !== 'object') continue;
+    const id = ownedText(farm.id, 40);
+    const parents = Array.isArray(farm.parents) ? farm.parents.filter((parent) => typeof parent === 'string').map((parent) => ownedText(parent, 40)).filter(Boolean) : [];
+    if (!id || parents.length > 2) continue;
+    farms.push({ id, baseId: ownedText(farm.baseId, 40), parents });
+  }
+  return farms;
+}
 
 function ownedText(value, max) {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, max);
@@ -124,6 +141,8 @@ function validateOwnedUpload(input) {
       saveUpdatedAt: new Date(saveTime).toISOString(),
       players: players.map((player) => ({ uid: ownedText(player && player.uid, 40), name: ownedText(player && player.name, 50) })).filter((player) => player.uid),
       bases: bases.map((base) => ({ id: ownedText(base && base.id, 40), label: ownedText(base && base.label, 60) })).filter((base) => base.id),
+      // 牧場を送らない古い画面からの共有では null（牧場の情報がない）
+      farms: source.farms === undefined || source.farms === null ? null : cleanOwnedFarms(source.farms),
       rows: cleanRows,
     },
   };
