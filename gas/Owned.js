@@ -4,7 +4,7 @@
  * 同じワールドに古いセーブが届いたときは書き込まない（新しいセーブを優先する）。
  */
 
-var OWNED_UPLOAD_FIELDS_ = ['action', 'passcode', 'userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'columns', 'rows'];
+var OWNED_UPLOAD_FIELDS_ = ['action', 'passcode', 'userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'];
 
 function ownedJson_(value, fallback) {
   try {
@@ -13,6 +13,12 @@ function ownedJson_(value, fallback) {
   } catch (error) {
     return fallback;
   }
+}
+
+function ownedFarmsCell_(table, cell) {
+  if (!Object.prototype.hasOwnProperty.call(table.index, 'farms')) return null;
+  var farms = ownedJson_(cell('farms'), null);
+  return Array.isArray(farms) ? cleanOwnedFarms(farms) : null;
 }
 
 function readOwnedWorlds_(env) {
@@ -28,7 +34,9 @@ function readOwnedWorlds_(env) {
         worldId: worldId, worldName: cell('worldName'), hostName: cell('hostName'),
         saveUpdatedAt: cell('saveUpdatedAt'), uploadedAt: cell('uploadedAt'), uploadedBy: cell('uploadedBy'),
         palCount: Number(cell('palCount')) || 0,
-        players: ownedJson_(cell('players'), []), bases: ownedJson_(cell('bases'), [])
+        players: ownedJson_(cell('players'), []), bases: ownedJson_(cell('bases'), []),
+        // farms 列は後から足した列。列がない（setup() を実行し直す前）・牧場を送らない古い画面から共有されたときは null（情報がない）
+        farms: ownedFarmsCell_(table, cell)
       }
     });
   });
@@ -102,13 +110,16 @@ function actionOwnedUpload_(req, env) {
     }
     var world = {
       worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
-      uploadedAt: serverTime, uploadedBy: uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases
+      uploadedAt: serverTime, uploadedBy: uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases,
+      farms: input.farms
     };
     var worldSheet = sheetFor_(env, 'ownedWorlds');
     writeTableRow_(worldSheet, current.table, existing ? existing.rowNumber : worldSheet.getLastRow() + 1, {
       worldId: world.worldId, worldName: quoteForSheet(world.worldName), hostName: quoteForSheet(world.hostName),
       saveUpdatedAt: world.saveUpdatedAt, uploadedAt: world.uploadedAt, uploadedBy: quoteForSheet(world.uploadedBy),
-      palCount: String(world.palCount), players: quoteForSheet(JSON.stringify(world.players)), bases: quoteForSheet(JSON.stringify(world.bases))
+      palCount: String(world.palCount), players: quoteForSheet(JSON.stringify(world.players)), bases: quoteForSheet(JSON.stringify(world.bases)),
+      // 列がない（setup() を実行し直す前の）シートでは書かれない
+      farms: quoteForSheet(JSON.stringify(world.farms))
     });
     return { stored: true, world: world, serverTime: serverTime };
   });

@@ -44,7 +44,7 @@ const actionFields = {
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'],
   delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
   ownedWorlds: [], owned: ['worldId'], ownedDelete: ['worldId'],
-  ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'columns', 'rows'],
+  ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'],
 };
 // 所持パルの共有（スプレッドシート）。配合の全件（snapshot）は返さない
 const ownedActions = new Set(['ownedWorlds', 'owned', 'ownedUpload', 'ownedDelete']);

@@ -11,7 +11,7 @@ const fields = {
   update: ['opId', 'id', 'expectedEtag', 'record', 'allowDifferentChild'],
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'], delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
   ownedWorlds: [], owned: ['worldId'], ownedDelete: ['worldId'],
-  ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'columns', 'rows'],
+  ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'],
 };
 const inputFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -156,6 +156,7 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
       const world = {
         worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
         uploadedAt: serverTime, uploadedBy: String(request.userId ?? '').slice(0, 20), palCount: input.rows.length, players: input.players, bases: input.bases,
+        farms: input.farms,
       };
       ownedWorlds.set(input.worldId, { world, rows: input.rows });
       return { stored: true, world, serverTime };

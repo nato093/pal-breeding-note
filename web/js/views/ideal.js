@@ -6,7 +6,8 @@ import { actionIcon, icons } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts } from '../core/owned.js';
-import { idealPairs, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, ALPHAS, TALENT_KEYS } from '../core/ideal.js';
+import { idealPlan, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS } from '../core/ideal.js';
+import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
 import { viewHeading, validId, navigateSelection, watchView, dataPending } from './shared.js';
@@ -74,37 +75,48 @@ function sourceText(pair) {
   return `登録済みの配合 ${palName(pair.male.palId)}♂ × ${palName(pair.female.palId)}♀`;
 }
 
-// 配合の計画の段（core/ideal.js の comparePlan）
-const TIER_LABELS = ['1 回で作れる', '世代を重ねる', 'その他の組'];
+// 配合の計画の組の目的（core/ideal.js の PLAN_GROUPS）
+const GROUP_LABELS = { complete: '完全体作成組', passive: 'パッシブ厳選組', talent: '個体値厳選組' };
 
-function pairCard(pair, rank, { cake = 'none' } = {}) {
-  const card = el('article', `ideal-pair tier-${pair.tier}`);
+// 組の目的ごとの見出し（太字）と内訳（小さい字）
+function pairMeasure(pair, cake) {
+  const estimate = cake === 'talent' ? 'キノコケーキは目安' : '';
+  if (pair.group === 'passive') {
+    const what = pair.gathered === pair.gatherTotal ? '欲しいパッシブが全部そろう' : `欲しいパッシブ ${pair.gatherTotal} 個のうち ${pair.gathered} 個がそろう`;
+    return [`${what}確率 ${percent(pair.gatherChance)}`, `${eggsText(pair.gatherChance)} · 個体値は見ていません`];
+  }
+  if (pair.group === 'talent') {
+    const head = Number.isFinite(pair.talentGenerations)
+      ? generationsText(pair.talentGenerations, pair.talentGenerationsUpper).replace(/^世代を重ねて/, '個体値がそろうまで')
+      : `個体値がそろう確率 ${percent(pair.talentChance)}`;
+    return [head, [`1 個のタマゴで ${percent(pair.talentChance)}`, 'パッシブは見ていません', Number.isFinite(pair.talentGenerations) ? estimate : ''].filter(Boolean).join(' · ')];
+  }
+  if (Number.isFinite(pair.generations)) {
+    // 子を同じ性別の親と入れ替えながら続けたときの平均と、この 2 体のまま続けたときの平均を並べる
+    const same = pair.chance > 0 ? `この 2 体のままなら${eggsText(pair.chance).replace(/^平均/, '')}` : 'この 2 体のままでは届きません';
+    return [generationsText(pair.generations, pair.generationsUpper), [same, `1 個のタマゴで ${percent(pair.chance)}`, estimate].filter(Boolean).join(' · ')];
+  }
+  return [`1 個のタマゴで ${percent(pair.chance)}`, `${eggsText(pair.chance)} · パッシブ ${percent(pair.passiveChance)} × 個体値 ${percent(pair.talentChance)}`];
+}
+
+function pairCard(pair, rank, { cake = 'none', placed = '', changed = false } = {}) {
+  const card = el('article', `ideal-pair group-${pair.group}`);
   card.setAttribute('aria-label', `${rank + 1} 番目の組`);
   const head = el('div', 'ideal-pair-head');
   const chance = el('div', 'ideal-chance');
-  const generations = Number.isFinite(pair.generations);
-  chance.append(el('span', `ideal-tier tier-${pair.tier}`, TIER_LABELS[pair.tier] ?? ''));
-  if (generations) {
-    // 子を同じ性別の親と入れ替えながら続けたときの平均と、この 2 体のまま続けたときの平均を並べる
-    const same = pair.chance > 0 ? `この 2 体のままなら${eggsText(pair.chance).replace(/^平均/, '')}` : 'この 2 体のままでは届きません';
-    chance.append(el('strong', '', generationsText(pair.generations, pair.generationsUpper)),
-      el('small', 'muted', [same, `1 個のタマゴで ${percent(pair.chance)}`, pair.alphaChance < 1 ? `アルファ ${percent(pair.alphaChance)} を含む` : '',
-        cake === 'talent' ? 'キノコケーキは目安' : ''].filter(Boolean).join(' · ')));
-  } else {
-    chance.append(el('strong', '', pair.chance > 0 ? `1 個のタマゴで ${percent(pair.chance)}` : '目標に届きません'),
-      el('small', 'muted', `${eggsText(pair.chance)} · パッシブ ${percent(pair.passiveChance)} × 個体値 ${percent(pair.talentChance)}`
-        + (pair.alphaChance < 1 ? ` × アルファ ${percent(pair.alphaChance)}` : '')));
-  }
+  const tags = el('div', 'ideal-tags');
+  tags.append(el('span', `ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? ''));
+  if (changed) tags.append(el('span', 'ideal-changed', '変更あり'));
+  if (placed) tags.append(el('span', 'ideal-placed', `${placed}に配置中`));
+  const [strong, small] = pairMeasure(pair, cake);
+  chance.append(tags, el('strong', '', strong), el('small', 'muted', small));
   head.append(el('span', 'step-number', String(rank + 1)), chance, el('span', 'ideal-source', sourceText(pair)));
   const notes = el('ul', 'ideal-notes');
   const note = (text, className = '') => notes.append(el('li', className, text));
-  // 余計なパッシブは、確率を下げているときだけ出す（欲しいパッシブを選ばない「全部持つ」などでは関係しない）
-  if (pair.extras.length && pair.cleanPassiveChance > pair.passiveChance) {
+  // 余計なパッシブは、完全体作成組で確率を下げているときだけ出す（欲しいパッシブを選ばない「全部持つ」などでは関係しない）
+  if (pair.group === 'complete' && pair.extras.length && pair.cleanPassiveChance > pair.passiveChance) {
     note(`余計なパッシブ: ${passiveNames(pair.extras)}（これがなければ、パッシブの確率は ${percent(pair.passiveChance)} → ${percent(pair.cleanPassiveChance)}）`);
   }
-  if (!pair.passiveChance) note('この組とケーキでは、パッシブの条件を満たせません。');
-  // 世代を重ねる組では、子を入れ替えていけば届くことがあるので出さない
-  if (!pair.talentChance && !generations) note('どちらの親も、個体値の目標に届くステータスを持っていないため、この組では届きません。');
   if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
@@ -119,8 +131,7 @@ const goalHash = (goal) => buildHash('ideal', { to: goal.palId, p: goal.passives
 /** 登録した条件の要約（個体値の目標・パッシブの条件・ケーキ）。 */
 function goalSummary(goal) {
   const targets = GOAL_STATS.map((key) => `${TALENT_LABELS[key]} ${goal.targets[key] || '気にしない'}`).join('・');
-  return [targets, choiceLabel(PASSIVE_MODES, goal.mode), choiceLabel(CAKES, goal.cake).replace(/（.*）$/, ''),
-    goal.alpha === 'any' ? '' : choiceLabel(ALPHAS, goal.alpha)].filter(Boolean).join(' · ');
+  return [targets, choiceLabel(PASSIVE_MODES, goal.mode), choiceLabel(CAKES, goal.cake).replace(/（.*）$/, '')].join(' · ');
 }
 
 /**
@@ -146,15 +157,16 @@ function explanation() {
     'ランダムに付くパッシブで偶然そろう分は数えていないため、実際より少し低めの値です。',
     '個体値: ステータスごとに、どちらかの親の値をそのまま写すか、0〜100 の乱数になります（親の値の中間にはなりません）。親から写る確率は HP が 2/3、攻撃と防御が 5/9 です。',
     'キノコケーキ・豪華野菜ケーキは、個体値にステータスごとに +1〜5 します。スペシャルケーキは、継ぐ数を抽選せず、両親のパッシブから 4 個まで継ぎます（足りない枠はランダムで埋まります）。',
-    '並び: 配合牧場に上から置く組を、別々の個体で並べます（上の組から順に、まだ使っていない個体どうしの組を選びます）。牧場が 3 つなら上から 3 組を置き、産まれたタマゴを孵化させて受け取り、並び直したら、また上から置いてください。タマゴは孵化するまで牧場に置けないので、親の候補にしません。',
-    '「1 回で作れる」と「世代を重ねる」の組を、完成品（パッシブの条件と個体値の目標を全部満たす子）が産まれるまでのタマゴの平均の少ない順にまとめて並べます。',
-    '「1 回で作れる」: 目標のパルが産まれる組（登録済みの配合を含む）で、両親で欲しいパッシブがそろい、目標のある各ステータスに目標以上（キノコケーキでは目標の 5 下以上）の親がいる組です。どのステータスも親から写るだけで目標に届くので、1 個のタマゴで完成品が産まれることがあります。',
-    '「世代を重ねる」: 同じ種族で、両親とも欲しいパッシブを全部持つ組です（1 回で作れる組でも、同じ種族で両親とも欲しいパッシブを全部持てば、世代の平均を出します）。欲しいパッシブを全部持つ子が産まれたら同じ性別の親と入れ替えながら続けたときの平均です（入れ替えは最も早くなるように選ぶ。この 2 体のまま続けるのより多くはなりません）。子の性別は半々、ランダムに足されるパッシブは新しいものとして計算しています。世代の平均が出ない組（異種の配合など）は、この 2 体のまま続けたときの平均で比べます。',
-    '「その他の組」: それ以外の、2 体でやっと欲しいパッシブがそろう組や、個体値の目標に届く親がいない異種の配合などです。上の 2 つの後に、1 個のタマゴで完成品が産まれる確率の高い順に並べます。パッシブの条件を満たす子が産まれない組（スペシャルケーキで 4 個未満の「欲しいものだけ」など）は出しません。',
+    '並び: 理想個体を作るのにおすすめの組を、配合牧場に上から置く順に、別々の個体で並べます（上の組から順に、まだ使っていない個体どうしの組を選びます）。牧場が 3 つなら上から 3 組を置いてください。タマゴは孵化するまで牧場に置けないので、親の候補にしません。',
+    '「完全体作成組」（いちばん上）: 欲しいパッシブと個体値の目標を全部満たす子（完全体）を作れる組です。2 体で欲しいパッシブがそろい、目標のある各ステータスに目標以上（キノコケーキでは目標の 5 下以上）の親がいる組（1 回で作れる）と、同じ種族で両親とも欲しいパッシブを全部持つ組（産まれた子を同じ性別の親と入れ替えながら作る）です。完全体が産まれるまでのタマゴの平均の少ない順です（入れ替えは最も早くなるように選び、この 2 体のまま続けるのより多くはなりません。子の性別は半々、ランダムに足されるパッシブは新しいものとして計算しています）。',
+    '「パッシブ厳選組」: 欲しいパッシブを全部、候補のだれかが持っているときに、個体値は見ずに、欲しいパッシブを 1 体に集める組です。3 体以上に分かれているときは、途中まで集める組も出します。集まる数の多い順、全部継ぐ確率の高い順です。',
+    '「個体値厳選組」: それ以外の組です。欲しいパッシブを候補のだれも持っていない（配合では作れない）ときは、全部この組になります。パッシブは後から手に入れる前提で見ずに、個体値の目標がそろう子が産まれるまでのタマゴの平均（同じ種族なら子を入れ替えながら）の少ない順です。',
+    'パッシブの条件を満たす子が産まれない組（スペシャルケーキで 4 個未満の「欲しいものだけ」など）は出しません。',
+    '配合牧場: 今この目標の組を置いている牧場（K か所）を、おすすめの上から K 組と比べます。入っていれば「そのまま」、入っていなければ、まだどの牧場にもない組への交換を勧めます（親の片方が同じ組を優先し、1 体の入れ替えで済むようにします）。空いている牧場に何を置くかは、おすすめの順を見て決めてください。',
+    '「変更あり」: 牧場の中身が最後に変わったときのおすすめになかった組に付きます。牧場の親を入れ替えたことがセーブから分かると消えます。',
     'キノコケーキ・豪華野菜ケーキでは、目標より下の値が +1〜5 で段階的に上がるため、厳密には計算できません。目標の 6 下までは届くとみなした目安で並べ、目標の 1 下までしか届かないとみなした上限（実際はこれより少ない）を「多くても」として添えます。目安は、目標の少し下の親どうしでは実際に近く、ずっと下の親では多めに出ます。',
-    '開いている間は 20 秒ごとにセーブを確かめ、孵化させて受け取ったパルも候補に入れて並べ直します（参加している人は、ホストが共有した内容で並べ直します）。',
-    'アルファ: 配合で産まれた子は、親がアルファかどうかによらず約 5% でアルファになります（wiki.gg とコミュニティの実測の値で、ゲームのデータでは確かめていません）。「アルファだけ」は成功率に 5%、「アルファ以外」は 95% を掛け、アルファの条件だけ満たさなかった完成品も親として入れ替えに使えるものとして計算します。タマゴを拾ったときにアルファにするパートナースキルは数えていません。',
-    '突然変異の子（別の種族になる）は数えていません。アルファの確率のほかは、Palworld v1.0.5 のゲームの仕組みで計算しています。',
+    '開いている間は 20 秒ごとにセーブを確かめ、孵化させて受け取ったパルも候補に入れて並べ直します（参加している人は、ホストが共有した内容で並べ直します。牧場の中身もホストの共有から分かります）。',
+    '突然変異やアルファの子は数えていません。Palworld v1.0.5 のゲームの仕組みで計算しています。',
   ]) list.append(el('li', '', text));
   details.append(list);
   return details;
@@ -167,16 +179,15 @@ export function idealView(context, route) {
   const passives = [...new Set((route.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, MAX_WANTED);
   // 画面の中の条件は、タブを切り替えても残す（ページを読み込み直すと既定に戻る）
   const memory = context.viewState?.('ideal');
-  const conditions = memory?.conditions ?? { holder: '', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none', alpha: 'any' };
+  const conditions = memory?.conditions ?? { holder: '', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
   conditions.holder ??= '';
-  conditions.alpha ??= 'any';
   if (memory) memory.conditions = conditions;
   const ideals = context.ideals;
   // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
   const goalId = route.params.get('g');
   if (goalId) {
     const goal = ideals?.find(goalId);
-    if (goal) Object.assign(conditions, { mode: goal.mode, cake: goal.cake, targets: { ...goal.targets }, alpha: goal.alpha });
+    if (goal) Object.assign(conditions, { mode: goal.mode, cake: goal.cake, targets: { ...goal.targets } });
     else toast('登録した理想個体が見つかりません');
     // 元の params から外す（ここから作る遷移先の URL や、作り直した画面に g を残さない）
     route.params.delete('g');
@@ -245,18 +256,23 @@ export function idealView(context, route) {
     field('所持者', holderSelect),
     field('パッシブの条件', select(PASSIVE_MODES, conditions.mode, (value) => { conditions.mode = value; renderResults(); })),
     group('個体値の目標（0 は気にしない）', targets),
-    field('ケーキ', select(CAKES, conditions.cake, (value) => { conditions.cake = value; renderResults(); })),
-    field('アルファ', select(ALPHAS, conditions.alpha, (value) => { conditions.alpha = value; renderResults(); })));
+    field('ケーキ', select(CAKES, conditions.cake, (value) => { conditions.cake = value; renderResults(); })));
 
   const note = el('p', 'result-note');
+  // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定
+  const missingBox = el('div', 'ideal-missing-note');
+  const farmBox = el('section', 'ideal-farms');
   const results = el('div', 'ideal-results');
+  // 配合牧場の中身が最後に変わったときのおすすめ（「変更あり」の基準）。アプリでは端末に残し、テストなどでは画面の中で覚える
+  const planMemory = context.planMemory ?? (() => {
+    const kept = memory?.planBaselines ?? new Map();
+    if (memory) memory.planBaselines = kept;
+    return { get: (id) => kept.get(id) ?? null, set: (id, value) => kept.set(id, value) };
+  })();
 
-  // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ・アルファ）を、名前を付けて登録する
-  const alphaName = () => (conditions.alpha === 'alpha' ? 'アルファの' : '');
-  const defaultName = () => `${alphaName()}${palName(to)}${passives.length ? `（${passiveNames(passives)}）` : ''}`.slice(0, GOAL_NAME_MAX);
-  const goalConditions = () => ({
-    palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, alpha: conditions.alpha, order: 'next',
-  });
+  // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ）を、名前を付けて登録する
+  const defaultName = () => `${palName(to)}${passives.length ? `（${passiveNames(passives)}）` : ''}`.slice(0, GOAL_NAME_MAX);
+  const goalConditions = () => ({ palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, order: 'next' });
   const nameInput = el('input');
   nameInput.type = 'text';
   nameInput.maxLength = GOAL_NAME_MAX;
@@ -336,7 +352,7 @@ export function idealView(context, route) {
       : [el('li', 'muted', '登録した理想個体はまだありません。条件を選んで「この条件を登録」を押すと、ここに並び、完成したら右上のベルで知らせます。')]));
   }
 
-  element.append(viewHeading('理想個体'), goalsBox, query, panel, registerRow, note, results, explanation());
+  element.append(viewHeading('理想個体'), goalsBox, query, panel, registerRow, note, missingBox, farmBox, results, explanation());
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(route.params);
@@ -357,22 +373,63 @@ export function idealView(context, route) {
     if (conditions.holder === 'mine' && ideals?.mine() === null) {
       lines.push('セーブのどのプレイヤーが自分か分かりません。設定タブの「登録者の対応」で選ぶか、所持者を「すべて」にしてください。');
     } else if (!result.candidates) lines.push(`${palName(to)}（と登録済みの配合の親）を、オスとメスで所持していません。`);
-    else if (result.missing.length) lines.push(`欲しいパッシブのうち、${passiveNames(result.missing)} を持つ個体が候補にいません。`);
     else if (result.blocked) {
       lines.push(conditions.cake === 'special' && conditions.mode === 'only' && passives.length < 4
         ? 'スペシャルケーキは空いた枠をランダムなパッシブで埋めるので、欲しいパッシブが 4 個未満では「欲しいものだけ」の子は産まれません。ケーキかパッシブの条件を変えてください。'
         : 'パッシブを持つ親からは、パッシブのない子は産まれません。パッシブを持たない ♂ と ♀ の組がありません。');
-    } else if (passives.length) lines.push('欲しいパッシブが 1 組の親にそろいません。3 体以上に分かれているか、オスとメスの組み合わせが合いません。先にいくつかのパッシブをまとめた個体を作ってください。');
-    else lines.push('オスとメスの組を作れる個体がいません。');
+    } else lines.push('オスとメスの組を作れる個体がいません。');
     if (holderName()) lines.push(`（所持者を「${holderName()}」に絞っています）`);
-    const node = empty(lines.join(''));
-    // 候補にないパッシブは、そのパッシブを持つ所持パルから目標へ運ぶ経路を探せる
-    if (result.missing.length) {
-      const actions = el('div', 'ideal-missing');
-      for (const id of result.missing) actions.append(link(`${passiveNames([id])}を運ぶ経路`, buildHash('route', { to, p: id }), 'button secondary'));
-      node.append(actions);
+    return empty(lines.join(''));
+  }
+
+  // 欲しいパッシブを候補のだれも持たないときは、配合では作れないので、個体値厳選組だけを並べていることを知らせる。
+  // そのパッシブを持つ所持パル（別の種族など）から目標へ運ぶ経路も探せる
+  function renderMissing(result) {
+    missingBox.replaceChildren();
+    if (!result?.missing.length) return;
+    const listed = result.total ? '個体値厳選組を並べています。' : '';
+    missingBox.append(el('p', 'ideal-warning', `欲しいパッシブのうち、${passiveNames(result.missing)} を持つ個体が候補にいないため、配合では作れません。${listed}足りないパッシブは別に手に入れてください。`));
+    const actions = el('div', 'ideal-missing');
+    for (const id of result.missing) actions.append(link(`${passiveNames([id])}を運ぶ経路`, buildHash('route', { to, p: id }), 'button secondary'));
+    missingBox.append(actions);
+  }
+
+  // 個体の短い説明（牧場の判定で、どの個体を入れ替えるか分かるように）
+  const palText = (pal) => `${pal.name}${pal.gender === 'M' ? '♂' : '♀'}（HP ${pal.talent.hp}・攻 ${pal.talent.shot}・防 ${pal.talent.defense}）`;
+  // 牧場の名前（拠点の名前。拠点が分からなければ「拠点の牧場」）
+  const farmName = (baseId) => {
+    const label = owned?.state?.owned?.bases?.find((base) => base.id === baseId)?.label;
+    return label ? `${label} の牧場` : '拠点の牧場';
+  };
+
+  // 配合牧場の判定。今この目標の組を置いている牧場を、おすすめの上から同じ数の組と比べる
+  function renderFarms(advice, changed) {
+    farmBox.replaceChildren();
+    if (!advice?.length) return;
+    const swaps = advice.filter((item) => item.status === 'swap').length;
+    farmBox.append(el('h3', '', `配合牧場（この目標の組を置いている ${advice.length} か所 · 交換推奨 ${swaps} か所）`));
+    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、おすすめに新しく入った組が ${changed} 組あります（「変更あり」）。`));
+    const list = el('ul', 'ideal-farm-list');
+    for (const item of advice) {
+      const row = el('li', `ideal-farm ${item.status}`);
+      const now = `${palText(item.farm.male)} × ${palText(item.farm.female)}`;
+      const where = farmName(item.farm.baseId);
+      row.append(el('strong', '', where), el('span', '', now));
+      if (item.status === 'keep') row.append(el('span', 'ideal-farm-status keep', `そのまま（おすすめ ${item.rank + 1} 番）`));
+      else if (item.status === 'swap') {
+        row.append(el('span', 'ideal-farm-status swap', `交換推奨 → おすすめ ${item.to + 1} 番`));
+        const detail = [
+          item.out.length ? `外す: ${item.out.map(palText).join('・')}` : '',
+          item.in.length ? `入れる: ${item.in.map((pal) => `${palText(pal)}（${pal.holder} · ${pal.placeLabel}）`).join('・')}` : '',
+        ].filter(Boolean).join(' / ');
+        row.append(el('small', 'muted', detail));
+      } else {
+        row.append(el('span', 'ideal-farm-status none', item.rank >= 0 ? `おすすめ ${item.rank + 1} 番（ほかに置く組がありません）` : 'おすすめにない組（ほかに置く組がありません）'));
+        if (item.out.length) row.append(el('small', 'muted', `外す: ${item.out.map(palText).join('・')}（ほかの牧場に入れます）`));
+      }
+      list.append(row);
     }
-    return node;
+    farmBox.append(list);
   }
 
   const holderName = () => (conditions.holder ? [...holderSelect.children].find((node) => node.value === conditions.holder)?.textContent ?? '' : '');
@@ -398,6 +455,9 @@ export function idealView(context, route) {
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
     note.textContent = '';
+    // 結果を出さないとき（データがない・読み込み中など）に、前の判定を残さない
+    missingBox.replaceChildren();
+    farmBox.replaceChildren();
     if (!pals) {
       results.replaceChildren(empty(owned && !owned.state.ready ? '読み込み中…'
         : '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、理想個体の親を探せます。'));
@@ -405,14 +465,32 @@ export function idealView(context, route) {
     }
     if (!to) { results.replaceChildren(empty('目標のパルを選んでください。')); return; }
     if (dataPending(results, state)) return;
-    const result = idealPairs({
-      pals: ofHolder(pals), index: state.index, target: to, passives,
-      mode: conditions.mode, targets: conditions.targets, cake: conditions.cake, alpha: conditions.alpha, order: 'plan', limit: LIMIT,
+    const candidates = ofHolder(pals);
+    const result = idealPlan({
+      pals: candidates, index: state.index, target: to, passives,
+      mode: conditions.mode, targets: conditions.targets, cake: conditions.cake, limit: LIMIT,
     });
     note.textContent = summaryText(result);
+    renderMissing(result);
+    // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）
+    const farms = owned?.state?.owned?.farms;
+    const placedFarms = Array.isArray(farms) ? targetFarms(farms, candidates.filter(isParentCandidate), result.layouts) : [];
+    const advice = farmAdvice(placedFarms, result.pairs);
+    let changed = new Set();
+    if (Array.isArray(farms)) {
+      const id = JSON.stringify([state.env ?? '', owned?.state?.meta?.worldId ?? '', to, [...passives].sort(), conditions.mode,
+        TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
+      const next = planChanges(planMemory.get(id), farmSignature(placedFarms), result.pairs);
+      if (next.reset) planMemory.set(id, next.baseline);
+      changed = next.changed;
+    }
+    renderFarms(advice, changed.size);
     if (!result.total) { results.replaceChildren(noPairs(result)); return; }
-    const options = { cake: conditions.cake };
-    results.replaceChildren(...result.pairs.map((pair, rank) => pairCard(pair, rank, options)));
+    const placed = new Map(placedFarms.map((farm) => [planPairKey(farm.male, farm.female), farmName(farm.baseId)]));
+    results.replaceChildren(...result.pairs.map((pair, rank) => {
+      const key = planPairKey(pair.male, pair.female);
+      return pairCard(pair, rank, { cake: conditions.cake, placed: placed.get(key) ?? '', changed: changed.has(key) });
+    }));
   }
 
   function update() {
