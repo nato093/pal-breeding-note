@@ -9,6 +9,8 @@ const HOST_UID = '00000000-0000-0000-0000-000000000001';
 export const GOAL_MODES = Object.freeze(['include', 'only']);
 export const GOAL_CAKES = Object.freeze(['none', 'talent', 'special']);
 export const GOAL_ORDERS = Object.freeze(['next', 'generations']);
+// アルファの条件（気にしない／アルファだけ／アルファ以外）
+export const GOAL_ALPHAS = Object.freeze(['any', 'alpha', 'normal']);
 export const GOAL_STATS = Object.freeze(['hp', 'shot', 'defense']);
 export const GOAL_NAME_MAX = 30;
 // 1 人が登録できる数と、1 件で覚えるワールドの数（端末の保存を膨らませないため）
@@ -61,6 +63,7 @@ export function cleanGoal(value) {
     mode: oneOf(GOAL_MODES, value.mode, 'include'),
     targets,
     cake: oneOf(GOAL_CAKES, value.cake, 'none'),
+    alpha: oneOf(GOAL_ALPHAS, value.alpha, 'any'),
     order: oneOf(GOAL_ORDERS, value.order, 'next'),
     addedAt: validTime(value.addedAt) ? value.addedAt : '',
     worlds: Object.fromEntries(kept),
@@ -85,11 +88,11 @@ export function parseGoals(source) {
 }
 
 /**
- * 同じ目標かを比べるための文字列。完成の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標）だけで比べる
+ * 同じ目標かを比べるための文字列。完成の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・アルファ）だけで比べる
  * （ケーキと並べ方は作り方なので含めない。含めると、同じ完成で通知が重なる）。パッシブの順番は問わない。
  */
 export function goalKey(goal) {
-  return JSON.stringify([goal.palId, [...goal.passives].sort(), goal.mode, GOAL_STATS.map((key) => goal.targets[key])]);
+  return JSON.stringify([goal.palId, [...goal.passives].sort(), goal.mode, GOAL_STATS.map((key) => goal.targets[key]), goal.alpha]);
 }
 
 /**
@@ -113,31 +116,41 @@ export function ownPlayerUids(players, { userId, users = [], mapping = {} }) {
 }
 
 /**
- * 自分の個体: 手持ち・パルボックス・パル次元ストレージ・自分が持っているタマゴ（所持者が自分）、自分が預けた拠点のパル、
- * 自分がホストならグローバルパルボックスの個体。自分のプレイヤーが分からなければ null。
+ * プレイヤーの個体: 手持ち・パルボックス・パル次元ストレージ・持っているタマゴ（所持者がそのプレイヤー）、
+ * そのプレイヤーが預けた拠点のパル、ホストならグローバルパルボックスの個体。
  * @param {{ players: object[], pals: object[] }} data normalizeOwned / ownedFromShared の結果
+ * @param {Set<string>} uids プレイヤーの UID
  */
+export function palsOfPlayers(data, uids) {
+  // 共有されたデータには預けた人の UID がなく、名前だけがある。同じ名前のプレイヤーが複数いるときは、どちらか分からないので数えない
+  const players = data.players ?? [];
+  const count = new Map();
+  for (const player of players) count.set(player.name, (count.get(player.name) ?? 0) + 1);
+  const names = new Set(players.filter((player) => player.name && uids.has(player.uid) && count.get(player.name) === 1).map((player) => player.name));
+  // 拠点に置かれたタマゴ（地面・孵化器・保管箱）には最後の持ち主が入らないので、誰の個体にもしない（孵化させて受け取った人の個体になる）
+  return data.pals.filter((pal) => (pal.holderUid && uids.has(pal.holderUid))
+    || (pal.place === 'base' && (pal.lastOwnerUid ? uids.has(pal.lastOwnerUid) : Boolean(pal.lastOwner) && names.has(pal.lastOwner)))
+    || (pal.place === 'global' && uids.has(HOST_UID)));
+}
+
+/** 自分の個体（palsOfPlayers の自分の分）。自分のプレイヤーが分からなければ null。 */
 export function ownPals(data, identity) {
   const mine = ownPlayerUids(data.players ?? [], identity);
-  if (!mine.size) return null;
-  // 共有されたデータには預けた人の UID がなく、名前だけがある
-  const names = new Set((data.players ?? []).filter((player) => mine.has(player.uid)).map((player) => player.name));
-  return data.pals.filter((pal) => (pal.holderUid && mine.has(pal.holderUid))
-    || (pal.place === 'base' && (pal.lastOwnerUid ? mine.has(pal.lastOwnerUid) : names.has(pal.lastOwner)))
-    || (pal.place === 'global' && mine.has(HOST_UID)));
+  return mine.size ? palsOfPlayers(data, mine) : null;
 }
 
 /**
  * 登録した理想個体の条件を満たす個体（完成品）。目標と同じ種族で、パッシブの条件（全部持つ／欲しいものだけ）と
- * 個体値の目標（0 は気にしない）を満たすもの。所持しているので、タマゴ（中身が分かるもの）とグローバルパルボックスの個体も含める。
- * 性別は問わない。中身の分からないタマゴ（性別が空）は数えない。
- * @param {{ palId: string, passives: string[], mode: 'include'|'only', targets: object }} goal cleanGoal で整えたもの
+ * 個体値の目標（0 は気にしない）とアルファの条件を満たすもの。所持しているので、グローバルパルボックスの個体も含める。
+ * 性別は問わない。タマゴは数えない（孵化させて受け取ったら完成）。
+ * @param {{ palId: string, passives: string[], mode: 'include'|'only', targets: object, alpha: 'any'|'alpha'|'normal' }} goal cleanGoal で整えたもの
  * @param {object[]} pals normalizeOwned の pals
  */
 export function goalMatches(goal, pals) {
   const wanted = [...new Set(goal.passives)];
   return pals.filter((pal) => {
-    if (!goal.palId || pal.palId !== goal.palId || (pal.egg && !pal.gender)) return false;
+    if (!goal.palId || pal.palId !== goal.palId || pal.egg) return false;
+    if ((goal.alpha === 'alpha' && !pal.alpha) || (goal.alpha === 'normal' && pal.alpha)) return false;
     const own = new Set(pal.passives);
     if (!wanted.every((id) => own.has(id)) || (goal.mode === 'only' && own.size !== wanted.length)) return false;
     return GOAL_STATS.every((key) => goal.targets[key] <= 0 || pal.talent[key] >= goal.targets[key]);
