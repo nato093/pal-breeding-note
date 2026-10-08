@@ -1044,6 +1044,18 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .ideal-missing { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .ideal-help { margin-top: 16px; font-size: 13px; color: var(--muted); }
 .ideal-help ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+/* 理想個体の登録（名前を付けて登録する欄と、登録した理想個体の一覧） */
+.ideal-register { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 8px; }
+.ideal-register .field-label { margin: 0; }
+.ideal-register input { flex: 1 1 16em; max-width: 360px; }
+.ideal-goals { margin: 4px 0 12px; padding: 0 16px; background: var(--md-sys-color-surface-container-low); border-radius: 16px; }
+.ideal-goal-list { list-style: none; margin: 0; padding: 0 0 8px; display: grid; }
+.ideal-goal { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ideal-goal:last-child { border-bottom: 0; }
+.ideal-goal-main { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.ideal-goal-title { display: flex; align-items: center; gap: 10px; }
+.ideal-goal-status { font-size: 12px; font-weight: 700; color: var(--muted); }
+.ideal-goal-status.ready { color: var(--md-sys-color-primary); }
 .owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
 .owned-auto-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 .owned-warnings { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 12px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }

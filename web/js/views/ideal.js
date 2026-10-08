@@ -1,8 +1,11 @@
-import { el, field, empty, link } from '../ui/dom.js';
+import { el, field, empty, link, button } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { palsById } from '../ui/pal-icon.js';
-import { passiveSelector, passivesById } from '../ui/passive-picker.js';
-import { passiveCounts } from '../core/owned.js';
+import { palsById, palTile } from '../ui/pal-icon.js';
+import { passiveSelector, passivesById, passiveList } from '../ui/passive-picker.js';
+import { actionIcon, icons } from '../ui/breeding-card.js';
+import { toast } from '../ui/toast.js';
+import { goalMatches, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
+import { passiveCounts, filterOwned } from '../core/owned.js';
 import { idealPairs, isParentCandidate, MAX_WANTED, CAKES, ORDERS, PASSIVE_MODES, TALENT_KEYS } from '../core/ideal.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
@@ -103,6 +106,29 @@ function pairCard(pair, rank, { generations = false, cake = 'none' } = {}) {
   return card;
 }
 
+const choiceLabel = (choices, value) => choices.find(([key]) => key === value)?.[1] ?? value;
+const goalHash = (goal) => buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id });
+
+/** 登録した条件の要約（個体値の目標・パッシブの条件・ケーキ・並べ方）。 */
+function goalSummary(goal) {
+  const targets = GOAL_STATS.map((key) => `${TALENT_LABELS[key]} ${goal.targets[key] || '気にしない'}`).join('・');
+  return [targets, choiceLabel(PASSIVE_MODES, goal.mode), choiceLabel(CAKES, goal.cake).replace(/（.*）$/, ''), choiceLabel(ORDERS, goal.order)].join(' · ');
+}
+
+/**
+ * 一覧での完成の状態（自分の個体で判定する）。所持パルのデータがない・自分のプレイヤーが分からないときは、
+ * 完成していないとは言えないので「未確認」にする。
+ */
+function goalStatus(goal, pals) {
+  if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）' };
+  if (pals === null) return { done: false, text: '未確認（セーブのどのプレイヤーが自分か分かりません。設定タブの「登録者の対応」で選んでください）' };
+  const found = goalMatches(goal, pals);
+  if (!found.length) return { done: false, text: '未完成' };
+  const [first] = found;
+  const where = `${first.holder} · ${first.placeLabel}`;
+  return { done: true, text: `完成済み: ${where}${found.length > 1 ? ` ほか ${found.length - 1} 体` : ''}` };
+}
+
 function explanation() {
   const details = el('details', 'ideal-help');
   details.append(el('summary', '', '計算のしくみ'));
@@ -128,9 +154,21 @@ export function idealView(context, route) {
   const passives = [...new Set((route.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, MAX_WANTED);
   // 画面の中の条件は、タブを切り替えても残す（ページを読み込み直すと既定に戻る）
   const memory = context.viewState?.('ideal');
-  const conditions = memory?.conditions ?? { order: 'next', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
+  const conditions = memory?.conditions ?? { holder: '', order: 'next', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
   conditions.order ??= 'next';
+  conditions.holder ??= '';
   if (memory) memory.conditions = conditions;
+  const ideals = context.ideals;
+  // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
+  const goalId = route.params.get('g');
+  if (goalId) {
+    const goal = ideals?.find(goalId);
+    if (goal) Object.assign(conditions, { mode: goal.mode, order: goal.order, cake: goal.cake, targets: { ...goal.targets } });
+    else toast('登録した理想個体が見つかりません');
+    // 元の params から外す（ここから作る遷移先の URL や、作り直した画面に g を残さない）
+    route.params.delete('g');
+    context.replace(buildHash('ideal', route.params));
+  }
 
   const toPicker = palPicker({ label: '目標', value: to, onChange: (id) => navigateSelection(context, route, 'to', id) });
   const passiveSlot = el('div', 'ideal-passives');
@@ -162,8 +200,28 @@ export function idealView(context, route) {
     wrapper.append(el('span', 'field-label', label), control);
     return wrapper;
   };
+  // 親にする個体の所持者（所持パルのタブと同じ。グローバルパルボックスは親の候補にしないので出さない）
+  const holderSelect = el('select');
+  holderSelect.addEventListener('change', () => {
+    conditions.holder = holderSelect.value;
+    renderPassives(owned?.state?.owned?.pals);
+    renderResults();
+  });
+  function renderHolders() {
+    const data = owned?.state?.owned;
+    holderSelect.replaceChildren(option('', 'すべて'));
+    for (const player of data?.players ?? []) holderSelect.append(option(`player:${player.uid}`, player.name));
+    for (const base of data?.bases ?? []) holderSelect.append(option(`base:${base.id}`, base.label));
+    // 選択肢にない所持者は選ばない（読み込む前は選択肢がそろっていないので、選んでいた値を消さずに残す）
+    const valid = [...holderSelect.children].some((node) => node.value === conditions.holder);
+    if (!valid && data) conditions.holder = '';
+    holderSelect.value = valid ? conditions.holder : '';
+  }
+  // 選んだ所持者の個体だけ（すべてのときはそのまま）
+  const ofHolder = (pals) => (conditions.holder ? filterOwned(pals, { holder: conditions.holder }) : pals);
   const panel = el('div', 'selection-panel ideal-conditions');
   panel.append(
+    field('所持者', holderSelect),
     field('並べ方', select(ORDERS, conditions.order, (value) => { conditions.order = value; renderResults(); })),
     field('パッシブの条件', select(PASSIVE_MODES, conditions.mode, (value) => { conditions.mode = value; renderResults(); })),
     group('個体値の目標（0 は気にしない）', targets),
@@ -171,7 +229,90 @@ export function idealView(context, route) {
 
   const note = el('p', 'result-note');
   const results = el('div', 'ideal-results');
-  element.append(viewHeading('理想個体'), query, panel, note, results, explanation());
+
+  // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ・並べ方）を、名前を付けて登録する
+  const defaultName = () => `${palName(to)}${passives.length ? `（${passiveNames(passives)}）` : ''}`.slice(0, GOAL_NAME_MAX);
+  const goalConditions = () => ({ palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, order: conditions.order });
+  const nameInput = el('input');
+  nameInput.type = 'text';
+  nameInput.maxLength = GOAL_NAME_MAX;
+  nameInput.setAttribute('aria-label', '登録する名前');
+  const registerButton = button('この条件を登録', () => registerGoal(), 'button secondary');
+  const registerRow = el('div', 'ideal-register');
+  registerRow.append(el('span', 'field-label', '理想個体として登録'), nameInput, registerButton);
+  registerRow.hidden = !ideals;
+  function renderRegister() {
+    if (!ideals) return;
+    const registered = Boolean(to) && ideals.has(goalConditions());
+    nameInput.placeholder = to ? defaultName() : '目標のパルを選ぶと登録できます';
+    registerButton.textContent = registered ? '登録済み' : 'この条件を登録';
+    registerButton.disabled = !to || registered;
+  }
+  function registerGoal() {
+    if (!to) return;
+    const name = nameInput.value.trim() || defaultName();
+    const result = ideals.add({ ...goalConditions(), name });
+    if (result === 'added') {
+      nameInput.value = '';
+      toast(`「${name}」を登録しました。完成したら右上のベルで知らせます`);
+    } else if (result === 'duplicate') toast('この条件はすでに登録しています');
+    else if (result === 'full') toast(`登録できるのは ${GOAL_LIMIT} 件までです`);
+    else if (context.store.state.renaming) toast('名前の変更が終わってから登録してください');
+    else toast('ログインしてから登録してください');
+  }
+
+  // 登録した理想個体の一覧（折りたたみ。開いているかはタブを切り替えても残す）
+  const goalsBox = el('details', 'ideal-goals');
+  goalsBox.hidden = !ideals;
+  goalsBox.open = Boolean(memory?.goalsOpen);
+  goalsBox.addEventListener('toggle', () => { if (memory) memory.goalsOpen = goalsBox.open; });
+  const goalsSummary = el('summary', '', '登録した理想個体');
+  const goalsWarning = el('p', 'form-errors', 'この端末に登録を保存できませんでした。ページを閉じると、保存できなかった変更は失われます。');
+  goalsWarning.setAttribute('role', 'alert');
+  const goalsList = el('ul', 'ideal-goal-list');
+  goalsBox.append(goalsSummary, goalsWarning, goalsList);
+  let shownGoals = null;
+  function removeGoal(goal) {
+    const key = ideals.scope();
+    const removed = ideals.remove(goal.id, key);
+    if (!removed) {
+      if (context.store.state.renaming) toast('名前の変更が終わってから外してください');
+      return;
+    }
+    toast(`「${goal.name}」の登録を外しました`, {
+      action: () => { if (!ideals.restore(removed.goal, removed.index, key)) toast('元に戻せませんでした'); },
+    });
+  }
+  function goalRow(goal, status) {
+    const row = el('li', `ideal-goal${status.done ? ' done' : ''}`);
+    const main = el('div', 'ideal-goal-main');
+    const title = el('div', 'ideal-goal-title');
+    title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), el('strong', '', goal.name));
+    main.append(title);
+    if (goal.passives.length) main.append(passiveList(goal.passives));
+    main.append(el('small', 'muted', goalSummary(goal)), el('span', `ideal-goal-status${status.done ? ' ready' : ''}`, status.text));
+    row.append(main, link('呼び出す', goalHash(goal), 'button secondary'),
+      actionIcon(`「${goal.name}」の登録を外す`, icons.remove, () => removeGoal(goal), 'danger-text'));
+    return row;
+  }
+  function renderGoals() {
+    if (!ideals) return;
+    goalsWarning.hidden = !ideals.saveFailed;
+    const goals = ideals.list();
+    const pals = ideals.mine();
+    const rows = goals.map((goal) => ({ goal, status: goalStatus(goal, pals) }));
+    // 完成済みを上に（それぞれ登録の新しい順）
+    const ordered = [...rows.filter((item) => item.status.done), ...rows.filter((item) => !item.status.done)];
+    // 所持パルを読み直すたびに作り直すと、操作中のフォーカスを失うので、中身が変わったときだけ描き直す
+    const key = JSON.stringify(ordered.map(({ goal, status }) => [goal.id, goal.name, status.text]));
+    if (key === shownGoals) return;
+    shownGoals = key;
+    goalsSummary.textContent = `登録した理想個体（${goals.length} 件）`;
+    goalsList.replaceChildren(...(ordered.length ? ordered.map(({ goal, status }) => goalRow(goal, status))
+      : [el('li', 'muted', '登録した理想個体はまだありません。条件を選んで「この条件を登録」を押すと、ここに並び、完成したら右上のベルで知らせます。')]));
+  }
+
+  element.append(viewHeading('理想個体'), goalsBox, query, panel, registerRow, note, results, explanation());
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(route.params);
@@ -183,7 +324,7 @@ export function idealView(context, route) {
   function renderPassives(pals) {
     passiveSlot.replaceChildren(passiveSelector({
       // 所持数も、親の候補にしない個体（グローバルパルボックス）を除いて数える
-      label: '欲しいパッシブ', selected: passives, counts: passiveCounts((pals ?? []).filter(isParentCandidate)), onChange: setPassives,
+      label: '欲しいパッシブ', selected: passives, counts: passiveCounts(ofHolder((pals ?? []).filter(isParentCandidate))), onChange: setPassives,
     }));
   }
 
@@ -201,6 +342,7 @@ export function idealView(context, route) {
     else if (result.missing.length) lines.push(`欲しいパッシブのうち、${passiveNames(result.missing)} を持つ個体が候補にいません。`);
     else if (passives.length) lines.push('欲しいパッシブが 1 組の親にそろいません。3 体以上に分かれているか、オスとメスの組み合わせが合いません。先にいくつかのパッシブをまとめた個体を作ってください。');
     else lines.push('オスとメスの組を作れる個体がいません。');
+    if (holderName()) lines.push(`（所持者を「${holderName()}」に絞っています）`);
     const node = empty(lines.join(''));
     // 候補にないパッシブは、そのパッシブを持つ所持パルから目標へ運ぶ経路を探せる
     if (result.missing.length) {
@@ -211,11 +353,14 @@ export function idealView(context, route) {
     return node;
   }
 
+  const holderName = () => (conditions.holder ? [...holderSelect.children].find((node) => node.value === conditions.holder)?.textContent ?? '' : '');
   function summaryText(result) {
+    const holderNote = holderName() ? `所持者: ${holderName()}` : '';
     if (conditions.order === 'generations') {
       return [
         `${result.total} 組${result.total > LIMIT ? `（平均の少ない ${LIMIT} 組を表示）` : ''}`,
         `${passives.length ? '欲しいパッシブを全部持つ ' : ''}♂ ${result.complete.M} 体・♀ ${result.complete.F} 体`,
+        holderNote,
         '同じ種族どうし',
         result.tooMany ? `パッシブが 5 個以上の ${result.tooMany} 体は除外` : '',
         result.unknownGender ? `性別不明の ${result.unknownGender} 体は除外` : '',
@@ -228,6 +373,7 @@ export function idealView(context, route) {
     return [
       `${result.total} 組${result.total > LIMIT ? `（確率の高い ${LIMIT} 組を表示）` : ''}`,
       `候補 ${result.candidates} 体`,
+      holderNote,
       records.size ? `同じ種族どうしと登録済みの配合 ${records.size} 件` : '同じ種族どうし',
       result.unknownGender ? `性別不明の ${result.unknownGender} 体は除外` : '',
       REFRESH_NOTE,
@@ -235,6 +381,7 @@ export function idealView(context, route) {
   }
 
   function renderResults() {
+    renderRegister();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
     note.textContent = '';
@@ -245,7 +392,7 @@ export function idealView(context, route) {
     }
     if (!to) { results.replaceChildren(empty('目標のパルを選んでください。')); return; }
     if (dataPending(results, state)) return;
-    const result = idealPairs({ pals, index: state.index, target: to, passives, ...conditions, limit: LIMIT });
+    const result = idealPairs({ pals: ofHolder(pals), index: state.index, target: to, passives, ...conditions, limit: LIMIT });
     note.textContent = summaryText(result);
     if (!result.total) { results.replaceChildren(noPairs(result)); return; }
     const options = { generations: conditions.order === 'generations', cake: conditions.cake };
@@ -253,13 +400,17 @@ export function idealView(context, route) {
   }
 
   function update() {
+    renderHolders();
     renderPassives(owned?.state?.owned?.pals);
     renderResults();
+    renderGoals();
   }
 
   const pickers = { destroy() { toPicker.destroy(); } };
   const view = watchView(context.store, element, update, [pickers]);
-  if (!owned) return view;
+  // 登録が変わったら（別のタブ・完成の判定を含む）、一覧と「登録済み」を描き直す
+  const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); }) ?? (() => {});
+  if (!owned) return { element, destroy() { unsubscribeGoals(); view.destroy(); } };
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
@@ -277,5 +428,5 @@ export function idealView(context, route) {
   };
   owned.load().then(refresh).catch(() => {});
   const timer = setInterval(refresh, REFRESH_INTERVAL);
-  return { element, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); view.destroy(); } };
+  return { element, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); unsubscribeGoals(); view.destroy(); } };
 }
