@@ -532,3 +532,17 @@ test('画面: 設定から名前を変えると、ログイン中の ID・登録
   assert.equal(values.has('pal-note.rename'), false);
   assert.deepEqual(calls.filter((request) => request.action === 'rename').map((request) => [request.userId, request.newUserId]), [['Taro', 'Jiro']]);
 });
+
+test('画面: 理想個体のタブから開け、所持パルがなければ案内を出す', async (t) => {
+  const { changeHash } = await boot(t, {
+    initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' },
+    api: createDevelopmentApi({ seed: '2' }), hash: '#/search',
+  });
+  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.endsWith('理想個体'));
+  assert.equal(tab.href, '#/ideal');
+  changeHash('#/ideal?to=SheepBall');
+  await flush();
+  assert.equal(tab.getAttribute('aria-current'), 'page');
+  assert.equal(byClass('ideal-view').querySelector('h1').textContent, '理想個体');
+  assert.match(byClass('ideal-view').textContent, /所持パルのデータがありません/);
+});
