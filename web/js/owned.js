@@ -302,8 +302,10 @@ export function createOwnedStore({
           if (scope() !== key) return 'skipped';
           state.shared.current = owned.world ? { world: owned.world, columns: owned.columns, rows: owned.rows } : null;
         } else {
-          // 所持パルは同じでも、共有した人の名前が変わっていることがある（名前の変更）
-          state.shared.current = { ...current, world: { ...current.world, ...meta } };
+          // 所持パルは同じでも、共有した人の名前が変わっていることがある（名前の変更）。
+          // 何も変わっていなければ置き換えない（置き換えると所持パルを作り直したことになり、画面が作り直される）
+          const world = { ...current.world, ...meta };
+          if (JSON.stringify(world) !== JSON.stringify(current.world)) state.shared.current = { ...current, world };
         }
         state.shared.fetchedAt = new Date(now()).toISOString();
         await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
