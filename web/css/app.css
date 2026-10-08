@@ -1031,7 +1031,11 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .ideal-results { display: grid; gap: 12px; }
 .ideal-pair { padding: 10px 18px 12px; background: var(--md-sys-color-surface-container-low); border-radius: 16px; }
 .ideal-pair-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.ideal-chance { display: flex; flex-direction: column; min-width: 0; }
+.ideal-chance { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+/* 配合の計画の段（1 回で作れる／世代を重ねる／その他の組） */
+.ideal-tier { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-bottom: 2px; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.ideal-tier.tier-0 { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+.ideal-tier.tier-1 { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 .ideal-chance strong { font-size: 16px; }
 .ideal-chance small { font-size: 12px; }
 .ideal-source { font-size: 12px; color: var(--muted); text-align: right; }
