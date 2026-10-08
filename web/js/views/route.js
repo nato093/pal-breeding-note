@@ -4,12 +4,14 @@ import { palTile, palsById } from '../ui/pal-icon.js';
 import { routeView } from '../ui/route-view.js';
 import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
-import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts } from '../core/owned.js';
+import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
 import { viewHeading, validId, navigateSelection, watchView, dataPending } from './shared.js';
 
 function holderSummary(carriers) {
-  const where = (pal) => (pal.egg ? `${pal.holder}（タマゴ）` : pal.holder === pal.placeLabel ? pal.holder : `${pal.holder}・${pal.placeLabel}`);
+  // 要約なので、パルボックスのページと位置までは出さない
+  const place = (pal) => (pal.place === 'palbox' ? PLACE_LABELS.palbox : pal.placeLabel);
+  const where = (pal) => (pal.egg ? `${pal.holder}（タマゴ）` : pal.holder === place(pal) ? pal.holder : `${pal.holder}・${place(pal)}`);
   const names = [...new Set(carriers.map(where))];
   return names.length > 2 ? `${names.slice(0, 2).join('、')} ほか` : names.join('、');
 }

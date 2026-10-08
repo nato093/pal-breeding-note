@@ -17,7 +17,7 @@ const snapshot = {
   version: 1, world: { name: 'テスト', hostName: 'Alice' }, players: [{ uid: P1, name: 'Alice', level: 50 }], bases: [],
   pals: [
     { instanceId: 'a', characterId: 'SheepBall', nickname: 'もこ', gender: 'Female', level: 12, rank: 3, passives: ['CraftSpeed_up2', 'Rare'],
-      talent: { hp: 10, shot: 20, defense: 30 }, isRare: true, location: { kind: 'palbox', playerUid: P1 } },
+      talent: { hp: 10, shot: 20, defense: 30 }, isRare: true, location: { kind: 'palbox', playerUid: P1, slotIndex: 31 } },
     { instanceId: 'b', characterId: 'PinkCat', gender: 'Male', level: 3, rank: 1, passives: [], talent: {}, location: { kind: 'party', playerUid: P1 } },
     { instanceId: 'c', characterId: 'FlowerDoll', passives: ['CraftSpeed_up2'], talent: {}, location: { kind: 'egg-ground', playerUid: P1 } },
     { instanceId: 'g', characterId: 'PinkCat', passives: [], talent: {}, location: { kind: 'global', playerUid: '' } },
@@ -64,7 +64,8 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.match(first.textContent, /ラッキー/);
   assert.deepEqual(first.querySelectorAll('.passive-chip').map((node) => node.textContent), ['職人気質', '希少']);
   assert.deepEqual(first.querySelectorAll('.passive-chip').map((node) => node.className), ['passive-chip passive-rank-3', 'passive-chip passive-rank-4']);
-  assert.match(first.textContent, /Alice.*パルボックス/);
+  // パルボックスはページと位置まで出す
+  assert.match(first.textContent, /Alice.*パルボックス 2 ページ・1 行 2 列/);
   assert.match(first.textContent, /★★/);
   assert.match(rows.find((row) => /タマゴ/.test(row.textContent)).textContent, /孵化前/);
   assert.equal(view.element.querySelector('.owned-world').textContent, '「テスト」（ホスト Alice） · 4 体');
@@ -222,7 +223,9 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルか
   assert.equal(view.element.querySelectorAll('.picker').length, 2);
   const starts = view.element.querySelectorAll('.route-start');
   assert.equal(starts.length, 1);
+  // 候補の要約は、パルボックスのページと位置までは出さない
   assert.match(starts[0].textContent, /モコロン.*最短 1 回の配合.*1 体 · Alice・パルボックス/);
+  assert.doesNotMatch(starts[0].textContent, /ページ/);
   const go = starts[0].querySelector('.button');
   assert.match(go.href, /from=SheepBall/);
   assert.match(go.href, /p=CraftSpeed_up2/);
