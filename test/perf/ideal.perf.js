@@ -51,5 +51,11 @@ test('性能: 世代を重ねる並べ方は、全員が欲しいパッシブを
     return result;
   };
   assert.equal(measure('世代・ケーキなし ♂1000×♀1000', make(1000, 0), {}).total, 1000000);
+  // 配合の計画（3 段で並べ、別々の個体の組を上から選ぶ）
+  assert.equal(measure('計画・ケーキなし ♂1000×♀1000', make(1000, 0), { order: 'plan' }).pairs.length, 20);
   measure('世代・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { cake: 'talent' });
+  // 配合の計画は、条件を満たす組すべてで世代の平均を求める。キノコケーキは最初の 1 個を実際の値で計算するので、
+  // 値が 0〜100 にばらけるなら ♂1000 × ♀1000、値が目標の近くに集まるなら（世代の並べ方と同じく）♂200 × ♀200 で 2 秒以内
+  assert.equal(measure('計画・キノコケーキ ♂1000×♀1000（0〜100）', make(1000, 0), { order: 'plan', cake: 'talent' }).pairs.length, 20);
+  assert.equal(measure('計画・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { order: 'plan', cake: 'talent' }).pairs.length, 20);
 });
