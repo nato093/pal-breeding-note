@@ -44,6 +44,18 @@ export const PASSIVE_MODES = Object.freeze([
   ['only', '欲しいものだけを持つ'],
 ]);
 
+// 配合で産まれた子がアルファになる確率。親がアルファかどうかによらない。ゲーム本体のデータでは確かめておらず、
+// wiki.gg の Breeding とコミュニティの実測の値（公式は v0.2.4.0 で「ごくまれに」とだけ告知）。
+// 突然変異のタマゴ（別の種族の子になる）と、拾ったときにタマゴをアルファにするパートナースキルは数えない
+export const ALPHA_RATE = 0.05;
+export const ALPHAS = Object.freeze([
+  ['any', 'アルファは気にしない'],
+  ['alpha', 'アルファだけ'],
+  ['normal', 'アルファ以外'],
+]);
+/** 子がアルファの条件を満たす確率。 */
+export const alphaChance = (alpha) => (alpha === 'alpha' ? ALPHA_RATE : alpha === 'normal' ? 1 - ALPHA_RATE : 1);
+
 function choose(n, r) {
   if (r < 0 || r > n) return 0;
   let value = 1;
@@ -183,11 +195,10 @@ export function breedingLayouts(index, target) {
 }
 
 /**
- * 親の候補にできる個体か。グローバルパルボックスの個体は使わない。
- * タマゴは中身（性別・個体値・パッシブ）がセーブで分かるので、孵化すれば親にできる候補として使う
- * （中身の分からないタマゴは性別が空なので、性別不明として除かれる）。
+ * 親の候補にできる個体か。タマゴ（孵化するまで牧場に置けない）とグローバルパルボックスの個体は使わない。
+ * 産まれたタマゴは、孵化させて受け取ると候補に入る。
  */
-export const isParentCandidate = (pal) => pal.place !== 'global';
+export const isParentCandidate = (pal) => !pal.egg && pal.place !== 'global';
 
 const compareIds = (a, b) => (a.male.id < b.male.id ? -1 : a.male.id > b.male.id ? 1 : 0)
   || (a.female.id < b.female.id ? -1 : a.female.id > b.female.id ? 1 : 0);
@@ -202,6 +213,21 @@ function compare(a, b) {
 // → 1 個のタマゴの成功率 → 個体値の期待値 → 余計なパッシブの数 → 個体 ID
 function compareGenerations(a, b) {
   return (a.generations - b.generations || 0) || (a.generationsUpper - b.generationsUpper || 0) || b.chance - a.chance
+    || b.expected - a.expected || a.extraCount - b.extraCount || compareIds(a, b);
+}
+
+// 並び（配合の計画）: 段（tier）は 3 つ。
+// 0: 1 回で作れる組（親から写すだけで全部の目標に届きうる）
+// 1: 世代を重ねる組（目標の種族の ♂×♀ で、両親とも欲しいパッシブを全部持つ。1 回では作れない）
+// 2: その他の組
+// 段 0 と 1 は、完成までのタマゴの平均（eggs。世代の平均が出る組はそれ、出ない組は 1 / 成功率）の少ない順にまとめて並べ、
+// 同じ組み合わせで別の子も登録されている組（ambiguous）を後ろに回す。段 2 はその後に、次の 1 回の並びで。最後は個体 ID で決める（全順序）
+function comparePlan(a, b) {
+  const restA = a.tier === 2;
+  const restB = b.tier === 2;
+  if (restA !== restB) return Number(restA) - Number(restB);
+  if (restA) return compare(a, b);
+  return Number(a.ambiguous) - Number(b.ambiguous) || (a.eggs - b.eggs || 0) || a.tier - b.tier || b.chance - a.chance
     || b.expected - a.expected || a.extraCount - b.extraCount || compareIds(a, b);
 }
 
@@ -281,12 +307,14 @@ function childTalentDistribution(fromMale, fromFemale, random) {
 
 /**
  * 子のパッシブ（欲しいものを全部持つもの）ごとの、入れ替え先（どちらの親か・余計の数 e・共有数 h）と確率。
- * all はすべて、ineligible はパッシブが完成品の条件を満たさないもの（欲しいものだけ、で余計があるなど）、eligible は満たす確率の合計。
+ * all はすべて、ineligible はパッシブが完成品の条件を満たさないもの（欲しいものだけ、で余計があるなど）、complete は満たすもの、
+ * eligible は満たす確率の合計。
  * ♂ を子と入れ替えると、共有数は「継いだ余計のうち ♀ のもの」（足したものは新しいので共有しない）。子の性別は半々。
  */
 function passiveMoves(passives, mode, extrasPool, maleExtras, femaleExtras, ignorePassives) {
   const all = [];
   const ineligible = [];
+  const complete = [];
   let eligible = 0;
   for (const { d, e, p } of passives) {
     const ok = mode !== 'only' || e === 0;
@@ -297,31 +325,37 @@ function passiveMoves(passives, mode, extrasPool, maleExtras, femaleExtras, igno
         if (!share) continue;
         const move = { male, e: ignorePassives ? 0 : e, h, p: p * share / 2 };
         all.push(move);
-        if (!ok) ineligible.push(move);
+        (ok ? complete : ineligible).push(move);
       }
     }
   }
-  return { all, ineligible, eligible };
+  return { all, ineligible, complete, eligible };
 }
 
 /**
  * 1 個のタマゴの結果を、成功の確率と、入れ替えられる子（欲しいパッシブを全部持つ）の行き先に分ける。
- * visit(male, childBits, childExtras, shared, rate) に入れ替え先ごとの確率を渡す。
+ * visit(male, childBits, childExtras, shared, rate) に入れ替え先ごとの確率を渡す。alpha は子がアルファの条件を満たす確率。
  */
-function eggOutcomes({ talent, moves, forced, visit }) {
+function eggOutcomes({ talent, moves, forced, alpha = 1, visit }) {
   let success = 0;
   for (let key = 0; key < 16; key++) {
     const rate = talent[key];
     if (!rate) continue;
     const bits = (key & 7) | forced;
-    // 個体値が全部目標以上なら、パッシブも条件を満たす分は完成品
-    if (key >= 8) success += rate * moves.eligible;
-    for (const move of key >= 8 ? moves.ineligible : moves.all) visit(move.male, bits, move.e, move.h, rate * move.p);
+    if (key < 8) {
+      for (const move of moves.all) visit(move.male, bits, move.e, move.h, rate * move.p);
+      continue;
+    }
+    // 個体値が全部目標以上なら、パッシブも条件を満たし、アルファの条件も満たす分は完成品。
+    // アルファの条件だけ満たさなかった完成品は、親として入れ替えられる（親がアルファかどうかは子に関係しない）
+    success += rate * moves.eligible * alpha;
+    for (const move of moves.ineligible) visit(move.male, bits, move.e, move.h, rate * move.p);
+    if (alpha < 1) for (const move of moves.complete) visit(move.male, bits, move.e, move.h, rate * move.p * (1 - alpha));
   }
   return success;
 }
 
-function buildGenerationTable(wanted, mode, cake, goal, reach) {
+function buildGenerationTable(wanted, mode, cake, goal, reach, alpha) {
   const bonus = cake === 'talent';
   const ignorePassives = mode !== 'only' && wanted === 0;
   const limit = ignorePassives ? 0 : MAX_WANTED - wanted;
@@ -358,7 +392,7 @@ function buildGenerationTable(wanted, mode, cake, goal, reach) {
       valid[s] = 1;
       const next = new Map();
       success[s] = eggOutcomes({
-        talent, moves: movesFor(em, ef, c), forced,
+        talent, moves: movesFor(em, ef, c), forced, alpha,
         visit: (male, bits, e, shared, rate) => {
           const u = male ? indexOf(bits, e, bf, ef, shared) : indexOf(bm, em, bits, e, shared);
           if (u !== s) next.set(u, (next.get(u) ?? 0) + rate);
@@ -419,7 +453,7 @@ function buildGenerationTable(wanted, mode, cake, goal, reach) {
     }
   }
   return {
-    wanted, mode, cake, goal, bonus, reach, ignorePassives, limit, forced, random, movesFor, firstTalent: new Map(),
+    wanted, mode, cake, goal, bonus, reach, alpha, ignorePassives, limit, forced, random, movesFor, firstTalent: new Map(),
     value: (bm, em, bf, ef, c) => (ignorePassives ? value[indexOf(bm | forced, 0, bf | forced, 0, 0)] : value[indexOf(bm | forced, em, bf | forced, ef, c)]),
   };
 }
@@ -430,16 +464,17 @@ const GENERATION_TABLES = new Map();
 const GENERATION_TABLE_LIMIT = 8;
 
 /**
- * 設定（欲しい数・条件・ケーキ・目標）ごとの表。作り直さないよう、新しく使ったものから 8 件まで覚える。
+ * 設定（欲しい数・条件・ケーキ・目標・アルファの条件）ごとの表。作り直さないよう、新しく使ったものから 8 件まで覚える。
  * bound はキノコケーキのときの見積もり（'upper': 上限、'estimate': 目安）。ほかのケーキでは厳密なので関係しない。
  */
-export function generationTable({ wanted = 0, mode = 'include', cake = 'none', targets = {}, bound = 'upper' } = {}) {
+export function generationTable({ wanted = 0, mode = 'include', cake = 'none', targets = {}, bound = 'upper', alpha = 'any' } = {}) {
   const goal = talentTargets(targets);
   const reach = cake !== 'talent' ? 0 : bound === 'estimate' ? ESTIMATE_REACH : 1;
-  const key = [wanted, mode, cake, goal.hp, goal.shot, goal.defense, reach].join('|');
+  const rate = alphaChance(alpha);
+  const key = [wanted, mode, cake, goal.hp, goal.shot, goal.defense, reach, rate].join('|');
   let table = GENERATION_TABLES.get(key);
   if (table) GENERATION_TABLES.delete(key);
-  else table = buildGenerationTable(wanted, mode, cake, goal, reach);
+  else table = buildGenerationTable(wanted, mode, cake, goal, reach, rate);
   GENERATION_TABLES.set(key, table);
   if (GENERATION_TABLES.size > GENERATION_TABLE_LIMIT) GENERATION_TABLES.delete(GENERATION_TABLES.keys().next().value);
   return table;
@@ -487,7 +522,7 @@ export function generationEggs(table, male, female, { maleExtras = 0, femaleExtr
   const values = [];
   const extras = table.ignorePassives ? [0, 0, 0] : [maleExtras, femaleExtras, shared];
   const success = eggOutcomes({
-    talent, moves: table.movesFor(...extras), forced: table.forced,
+    talent, moves: table.movesFor(...extras), forced: table.forced, alpha: table.alpha,
     visit: (male, bits, e, h, rate) => {
       const value = male ? table.value(bits, e, bf, femaleExtras, h) : table.value(bm, maleExtras, bits, e, h);
       if (Number.isFinite(value)) { rates.push(rate); values.push(value); }
@@ -510,27 +545,37 @@ export function generationEggs(table, male, female, { maleExtras = 0, femaleExtr
 
 /**
  * 所持パルの中から、理想個体の親の組（♂×♀）を確率の高い順に出す。
- * 候補は、グローバルパルボックス・人間・性別不明を除く個体（タマゴは中身が分かれば使う）。
+ * 候補は、タマゴ・グローバルパルボックス・人間・性別不明を除く個体。
  * order が 'generations' のときは、同じ種族どうしで、欲しいパッシブをそれぞれが全部持つ個体だけを候補にし、
  * 世代を重ねて完成品が産まれるまでのタマゴの平均数（generations）の少ない順に並べる。
+ * order が 'plan' のときは配合の計画: 組を段（tier）に分けて comparePlan で並べ、上から順に、まだ使っていない個体どうしの組を
+ * limit 件まで選ぶ（配合牧場に上から置く。同じ個体は 1 つの牧場にしか置けないため）。パッシブの条件を満たせない組
+ * （スペシャルケーキで「欲しいものだけ」など）は置いても進まないので出さず、blocked に数える。
+ * alpha はアルファの条件（'any'|'alpha'|'normal'）。成功率に、子がその条件を満たす確率（alphaChance）を掛ける。
  * @param {{ pals: object[], index: object, target: string, passives?: string[], mode?: 'include'|'only',
- *   targets?: { hp?: number, shot?: number, defense?: number }, cake?: string, order?: 'next'|'generations', limit?: number }} input
+ *   targets?: { hp?: number, shot?: number, defense?: number }, cake?: string, alpha?: string, order?: 'next'|'generations'|'plan', limit?: number }} input
  * @returns {{ pairs: object[], total: number, layouts: object[], candidates: number, unknownGender: number, missing: string[],
- *   complete: { M: number, F: number }, tooMany: number }}
+ *   complete: { M: number, F: number }, tooMany: number, blocked: number }}
  *   total は条件に合う組の数（上位 limit 件に切り詰める前）。missing は候補のどの個体も持たない欲しいパッシブ。
- *   complete は欲しいパッシブを全部持つ ♂・♀ の数、tooMany は世代の計算で扱えない（パッシブが 5 個以上の）個体の数
+ *   complete は欲しいパッシブを全部持つ ♂・♀ の数、tooMany は世代の計算で扱えない（パッシブが 5 個以上の）個体の数、
+ *   blocked は配合の計画で除いた、パッシブの条件を満たす子が産まれない組の数（total には数えない）
  */
 export function idealPairs({
-  pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none', order = 'next', limit = 20,
+  pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none', alpha = 'any', order = 'next', limit = 20,
 }) {
+  const alphaRate = alphaChance(alpha);
   const wanted = [...new Set(passives)].slice(0, MAX_WANTED);
   const goal = talentTargets(targets);
   const bonus = cake === 'talent';
+  // キノコケーキで親の値に足される最大
+  const reach = bonus ? BONUS.length : 0;
   const generations = order === 'generations';
+  const plan = order === 'plan';
   // 世代を重ねると子が目標の種族になり、異種の配合の次の結果は分からないので、同じ種族どうしだけ
   const layouts = breedingLayouts(index, target).filter((layout) => !generations || (layout.male === target && layout.female === target));
   const complete = { M: 0, F: 0 };
   let tooMany = 0;
+  let blocked = 0;
   const species = new Set(layouts.flatMap((layout) => [layout.male, layout.female]));
   const full = (1 << wanted.length) - 1;
   // 個体ごとの下ごしらえ（欲しいパッシブの持ち方・目標に届く確率・期待値）。組ごとには足し算と掛け算だけにする
@@ -551,8 +596,12 @@ export function idealPairs({
       if (own.length > MAX_WANTED) { tooMany++; continue; }
       complete[pal.gender]++;
     }
+    // 配合の計画で「世代を重ねる組」にできる個体（目標と同じ種族で、欲しいパッシブを全部持ち、5 個以上ではない）
+    const ready = plan && pal.palId === target && mask === full && own.length <= MAX_WANTED;
+    if (ready) complete[pal.gender]++;
+    else if (plan && pal.palId === target && mask === full) tooMany++;
     const entry = {
-      pal, own, mask, extras: own.filter((id) => !wanted.includes(id)), stage: [0, 0],
+      pal, own, mask, ready, extras: own.filter((id) => !wanted.includes(id)), stage: [0, 0],
       hit: TALENT_KEYS.map((key) => inheritedHit(pal.talent[key], goal[key], bonus)),
       mean: TALENT_KEYS.map((key) => inheritedMean(pal.talent[key], bonus)),
     };
@@ -570,8 +619,8 @@ export function idealPairs({
   const keep = Math.max(1, Math.trunc(Number(limit)) || 1);
   const ranking = generations ? compareGenerations : compare;
   // 表は ♂・♀ がそろうときだけ作る（作るのに時間がかかる）。キノコケーキでは目安と上限の 2 つ
-  const tables = generations && complete.M && complete.F
-    ? (bonus ? ['estimate', 'upper'] : ['upper']).map((bound) => generationTable({ wanted: wanted.length, mode, cake, targets: goal, bound })) : [];
+  const tables = (generations || plan) && complete.M && complete.F
+    ? (bonus ? ['estimate', 'upper'] : ['upper']).map((bound) => generationTable({ wanted: wanted.length, mode, cake, targets: goal, bound, alpha })) : [];
   if (tables.length) {
     for (const byMask of groups.values()) for (const list of byMask.values()) for (const entry of list) {
       entry.stage = tables.map((table) => TALENT_KEYS.reduce((code, key, s) => code + stageOf(entry.pal.talent[key], goal[key], table) * STAGES ** s, 0));
@@ -579,7 +628,7 @@ export function idealPairs({
   }
   // 世代の平均は、両親の値の段階と余計なパッシブの数・共有数だけで決まるので、この呼び出しの間だけ覚えておく
   const eggsCaches = tables.map(() => new Map());
-  const generationsOf = (male, female, shared) => tables.map((table, i) => {
+  const generationsOf = (male, female, shared, count = tables.length) => tables.slice(0, count).map((table, i) => {
     const extras = { maleExtras: male.extras.length, femaleExtras: female.extras.length, shared };
     if (!bonus) return generationEggs(table, male.pal.talent, female.pal.talent, extras);
     const key = (((male.stage[i] * STAGES ** 3 + female.stage[i]) * 5 + extras.maleExtras) * 5 + extras.femaleExtras) * 5 + shared;
@@ -591,6 +640,10 @@ export function idealPairs({
     return eggs;
   });
   const top = [];
+  // 配合の計画では、♂ ごとに良い組から 2×limit 件だけ残す。上から別々の個体の組を選ぶとき、i 番目に選ばれる組は、
+  // その ♂ の組のうち、それまでに使われた ♀（i−1 体以下）の組を除いた一番良い組なので、必ずこの中に入る
+  const byMale = new Map();
+  const perMale = 2 * keep;
   let total = 0;
   const inherited = [0, 0, 0];
   for (const layout of layouts) {
@@ -606,21 +659,43 @@ export function idealPairs({
             for (const id of male.own) if (female.own.includes(id)) shared++;
             const pool = male.own.length + female.own.length - shared;
             const passive = passiveRate(pool);
+            if (plan && !passive) { blocked++; continue; }
             for (let s = 0; s < 3; s++) inherited[s] = (male.hit[s] + female.hit[s]) / 2;
             const talent = combine(inherited, random);
             let expected = 0;
             for (let s = 0; s < 3; s++) expected += INHERIT_RATE[s] * (male.mean[s] + female.mean[s]) / 2 + (1 - INHERIT_RATE[s]) * randomMean;
             total++;
             const candidate = {
-              male: male.pal, female: female.pal, ambiguous: layout.ambiguous, chance: passive * talent, expected, extraCount: pool - wanted.length,
+              male: male.pal, female: female.pal, ambiguous: layout.ambiguous, chance: passive * talent * alphaRate, expected, extraCount: pool - wanted.length,
             };
-            if (generations) {
+            const sameSpecies = layout.male === target && layout.female === target;
+            // 配合の計画: 1 回で作れる組（目標のある各ステータスに、目標以上〈キノコケーキでは +5 で届く目標−5 以上〉の親がいる）
+            const oneShot = plan && candidate.chance > 0
+              && TALENT_KEYS.every((key) => goal[key] <= 0 || Math.max(male.pal.talent[key], female.pal.talent[key]) + reach >= goal[key]);
+            // 1 回で作れる組も、子を入れ替えた方が早く完成することがあるので、世代の平均を求めて比べる
+            if (generations || (plan && sameSpecies && male.ready && female.ready)) {
               let common = 0;
               for (const id of male.extras) if (female.extras.includes(id)) common++;
               // generations は並べるのに使う値（ケーキなし・スペシャルケーキでは厳密な値、キノコケーキでは目安）、generationsUpper は上限
-              const [low, high = low] = generationsOf(male, female, common);
+              // 配合の計画では並べるのに目安だけを使い、上限は選んだ組にだけ後で求める
+              const [low, high = low] = generationsOf(male, female, common, plan ? 1 : tables.length);
               candidate.generations = low;
               candidate.generationsUpper = high;
+              candidate.shared = common;
+            }
+            if (plan) {
+              candidate.tier = oneShot ? 0 : Number.isFinite(candidate.generations) ? 1 : 2;
+              // 完成までのタマゴの平均: 世代の平均（この 2 体のまま続ける場合も含めて最適に選ぶので、1 / 成功率 以下）か、1 / 成功率
+              candidate.eggs = Math.min(candidate.generations ?? Infinity, candidate.chance > 0 ? 1 / candidate.chance : Infinity);
+              candidate.entries = [male, female];
+              let list = byMale.get(male.pal.id);
+              if (!list) byMale.set(male.pal.id, list = []);
+              if (list.length >= perMale && comparePlan(candidate, list[list.length - 1]) >= 0) continue;
+              Object.assign(candidate, { layout, passiveChance: passive, talentChance: talent, poolSize: pool });
+              const at = list.findIndex((item) => comparePlan(candidate, item) < 0);
+              list.splice(at < 0 ? list.length : at, 0, candidate);
+              if (list.length > perMale) list.pop();
+              continue;
             }
             if (top.length >= keep && ranking(candidate, top[top.length - 1]) >= 0) continue;
             Object.assign(candidate, { layout, passiveChance: passive, talentChance: talent, poolSize: pool });
@@ -632,6 +707,21 @@ export function idealPairs({
       }
     }
   }
+  if (plan) {
+    // 上から順に、まだ使っていない個体どうしの組を選ぶ
+    const used = new Set();
+    for (const candidate of [...byMale.values()].flat().sort(comparePlan)) {
+      if (top.length >= keep) break;
+      if (used.has(candidate.male.id) || used.has(candidate.female.id)) continue;
+      top.push(candidate);
+      used.add(candidate.male.id);
+      used.add(candidate.female.id);
+    }
+    // キノコケーキで世代の平均を出す組には、表示する上限を求める
+    for (const pair of top) {
+      if (Number.isFinite(pair.generations) && bonus) pair.generationsUpper = generationsOf(...pair.entries, pair.shared)[1];
+    }
+  }
   // 表示用の項目は、上位に残った組にだけ作る
   const pairs = top.map((pair) => {
     const pool = [...new Set([...pair.male.passives, ...pair.female.passives])];
@@ -639,10 +729,11 @@ export function idealPairs({
     return {
       male: pair.male, female: pair.female, sources: pair.layout.sources,
       ambiguous: pair.layout.ambiguous, unverified: pair.layout.unverified, swapped: pair.layout.swapped,
-      chance: pair.chance, passiveChance: pair.passiveChance, talentChance: pair.talentChance, expected: pair.expected,
+      chance: pair.chance, passiveChance: pair.passiveChance, talentChance: pair.talentChance, alphaChance: alphaRate, expected: pair.expected,
       pool, extras, cleanPassiveChance: extras.length ? passiveChance(wanted.length, wanted.length, { mode, cake }) : pair.passiveChance,
-      ...(generations ? { generations: pair.generations, generationsUpper: pair.generationsUpper } : {}),
+      ...(generations || Number.isFinite(pair.generations) ? { generations: pair.generations, generationsUpper: pair.generationsUpper } : {}),
+      ...(plan ? { tier: pair.tier, eggs: pair.eggs } : {}),
     };
   });
-  return { pairs, total, layouts, candidates, unknownGender, missing: wanted.filter((id) => !held.has(id)), complete, tooMany };
+  return { pairs, total, layouts, candidates, unknownGender, missing: wanted.filter((id) => !held.has(id)), complete, tooMany, blocked };
 }

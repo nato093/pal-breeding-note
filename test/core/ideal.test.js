@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIndex } from '../../web/js/core/index.js';
 import {
-  passiveChance, talentChance, talentExpectation, talentTargets, breedingLayouts, idealPairs, isParentCandidate, TALENT_PATTERNS,
+  passiveChance, talentChance, talentExpectation, talentTargets, breedingLayouts, idealPairs, isParentCandidate, TALENT_PATTERNS, ALPHA_RATE, alphaChance,
   generationTable, generationEggs,
 } from '../../web/js/core/ideal.js';
 
@@ -146,7 +146,7 @@ test('理想個体: 親の置き方は同じ種族どうしと登録済みの配
   ]);
 });
 
-test('理想個体: 候補は人間・性別不明・グローバルボックスを除き（タマゴは使う）、確率の高い組から並べる', () => {
+test('理想個体: 候補はタマゴ・人間・性別不明・グローバルボックスを除き、確率の高い組から並べる', () => {
   const pals = [
     pal('m1', 'X', 'M', ['P1', 'J1'], talent(100, 100, 100)),
     pal('m2', 'X', 'M', ['P1'], talent(100, 100, 100)),
@@ -160,11 +160,11 @@ test('理想個体: 候補は人間・性別不明・グローバルボックス
     pal('y1', 'Y', 'F', ['P1', 'P2'], talent(100, 100, 100)),
   ];
   const result = idealPairs({ pals, index: index(), target: 'X', passives: ['P1', 'P2'] });
-  assert.equal(result.candidates, 6);
+  assert.equal(result.candidates, 5);
   assert.equal(result.unknownGender, 1);
   assert.deepEqual(result.missing, []);
-  assert.deepEqual(result.pairs.map((pair) => `${pair.male.id}×${pair.female.id}`), ['m2×e1', 'm2×f1', 'm2×f3', 'm1×e1', 'm1×f1', 'm1×f3', 'm2×f2', 'm1×f2']);
-  assert.equal(result.total, 8);
+  assert.deepEqual(result.pairs.map((pair) => `${pair.male.id}×${pair.female.id}`), ['m2×f1', 'm2×f3', 'm1×f1', 'm1×f3', 'm2×f2', 'm1×f2']);
+  assert.equal(result.total, 6);
   const [best] = result.pairs;
   near(best.passiveChance, 0.6);
   near(best.talentChance, ALL_100);
@@ -176,9 +176,9 @@ test('理想個体: 候補は人間・性別不明・グローバルボックス
   near(extra.passiveChance, 0.4);
   near(extra.cleanPassiveChance, 0.6);
   assert.deepEqual(best.sources, [{ kind: 'same' }]);
-  // グローバルパルボックスの個体は親の候補にしない。タマゴは中身が分かるので候補にする
-  assert.ok(result.pairs.every((pair) => ![pair.male.id, pair.female.id].includes('g1')));
-  assert.deepEqual(pals.filter(isParentCandidate).map((item) => item.id), ['m1', 'm2', 'f1', 'f2', 'f3', 'e1', 'u1', 'h1', 'y1']);
+  // グローバルパルボックスの個体と、孵化するまで牧場に置けないタマゴは親の候補にしない
+  assert.ok(result.pairs.every((pair) => ![pair.male.id, pair.female.id].some((id) => ['g1', 'e1'].includes(id))));
+  assert.deepEqual(pals.filter(isParentCandidate).map((item) => item.id), ['m1', 'm2', 'f1', 'f2', 'f3', 'u1', 'h1', 'y1']);
 });
 
 test('理想個体: 欲しいパッシブがそろわない組は出さず、だれも持たないパッシブを返す', () => {
@@ -293,8 +293,8 @@ test('理想個体: 性別で子が変わるフォレーナ×クレメーオだ�
 // ---------------------------------------------------------------------------
 
 // 表とは別に書いたシミュレーション（実際のパッシブ ID・重なり・子の性別つき）。入れ替えは表の平均が小さくなるときだけ
-function simulateGenerations({ wanted, mode = 'include', cake = 'none', targets }, male, female, runs, seed) {
-  const table = generationTable({ wanted: wanted.length, mode, cake, targets });
+function simulateGenerations({ wanted, mode = 'include', cake = 'none', targets, alpha = 'any' }, male, female, runs, seed) {
+  const table = generationTable({ wanted: wanted.length, mode, cake, targets, alpha });
   let state = seed >>> 0;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
   const pick = (weights) => { let x = random(); for (let i = 0; i < weights.length; i++) { if (x < weights[i]) return i; x -= weights[i]; } return weights.length - 1; };
@@ -320,7 +320,9 @@ function simulateGenerations({ wanted, mode = 'include', cake = 'none', targets 
       const added = cake === 'special' ? 4 - count : count < 4 ? Math.min(pick([0.4, 0.3, 0.2, 0.1]), 4 - count) : 0;
       for (let i = 0; i < added; i++) passives.push(`R${fresh++}`);
       const usable = wanted.every((id) => passives.includes(id));
-      if (usable && meets(childTalent) && (mode !== 'only' || passives.length === wanted.length)) { total += eggs; break; }
+      // アルファは親によらず 5%。条件だけ満たさなかった完成品は、ふつうの子として入れ替えに使う
+      const alphaOk = alpha === 'any' || (random() < 0.05) === (alpha === 'alpha');
+      if (usable && meets(childTalent) && (mode !== 'only' || passives.length === wanted.length) && alphaOk) { total += eggs; break; }
       if (!usable) continue;
       const child = { talent: childTalent, passives };
       const [na, nb] = random() < 0.5 ? [child, b] : [a, child];
@@ -349,6 +351,9 @@ test('理想個体（世代）: 表の平均は、実際のパッシブ・重な
     [{ wanted: [], targets: ALL }, parent([100, 100, 100]), parent([0, 0, 0]), 10.980, 4000],
     [{ wanted: ['W0', 'W1'], targets: ALL }, parent([100, 100, 100], ['W0', 'W1', 'J1']), parent([0, 0, 0], ['W0', 'W1', 'J1']), 33.425, 3000],
     [{ wanted: ['W0'], mode: 'only', targets: ALL }, parent([100, 0, 100], ['W0', 'J1', 'J2']), parent([0, 100, 0], ['W0', 'J1']), 106.119, 1500],
+    // アルファだけ: アルファでなかった完成品（両親とも完璧な状態）へ入れ替えてから、5% を待つ
+    [{ wanted: [], targets: ALL, alpha: 'alpha' }, parent([100, 100, 100]), parent([0, 0, 0]), 82.610, 1000],
+    [{ wanted: [], targets: ALL, alpha: 'normal' }, parent([100, 100, 100]), parent([0, 0, 0]), 11.284, 3000],
   ]) {
     const table = generationTable({ ...settings, wanted: settings.wanted.length });
     const ex = (p) => p.passives.filter((id) => !settings.wanted.includes(id));
@@ -402,12 +407,13 @@ test('理想個体（世代）: 欲しいパッシブをそれぞれ全部持つ
   ];
   const input = { pals, index: index(records), target: 'X', passives: ['P1', 'P2'], targets: ALL, order: 'generations' };
   const result = idealPairs(input);
-  assert.deepEqual(result.complete, { M: 1, F: 3 });
+  // タマゴの e1 は親の候補にしない
+  assert.deepEqual(result.complete, { M: 1, F: 2 });
   assert.equal(result.tooMany, 1);
-  assert.equal(result.total, 3);
+  assert.equal(result.total, 2);
   // 異種の登録済み配合（A×B）は対象外。初回 0% の m1×f1 も、平均が有限なら普通に並べる
   const order = result.pairs.map((pair) => `${pair.male.id}×${pair.female.id}`);
-  assert.deepEqual([...order].sort(), ['m1×e1', 'm1×f1', 'm1×f2']);
+  assert.deepEqual([...order].sort(), ['m1×f1', 'm1×f2']);
   const values = result.pairs.map((pair) => pair.generations);
   assert.deepEqual(values, [...values].sort((a, b) => a - b));
   assert.ok(values.every(Number.isFinite));
@@ -542,4 +548,197 @@ test('理想個体（世代）: スペシャルケーキの有限な平均も、
   const runs = 3000;
   const simulated = simulateGenerations(settings, male, female, runs, 77);
   assert.ok(Math.abs(simulated - exact) < 4 * exact / Math.sqrt(runs), `厳密 ${exact} / シミュレーション ${simulated}`);
+});
+
+// ---------------------------------------------------------------------------
+// 配合の計画（3 段で並べ、別々の個体の組を上から選ぶ）
+// ---------------------------------------------------------------------------
+
+const planOf = (pals, extra = {}) => idealPairs({ pals, index: index(extra.records ?? []), target: 'X', targets: ALL, order: 'plan', ...extra });
+const names = (result) => result.pairs.map((pair) => `${pair.male.id}×${pair.female.id}:${pair.tier}`);
+
+test('理想個体（計画）: 1 回で作れる組と世代を重ねる組を平均の少ない順に、最後にその他の組', () => {
+  const pals = [
+    pal('m100', 'X', 'M', ['P1'], talent(100, 100, 100)),
+    pal('f100', 'X', 'F', ['P1'], talent(100, 100, 100)),
+    pal('m90', 'X', 'M', ['P1'], talent(90, 90, 90)),
+    pal('f90', 'X', 'F', ['P1'], talent(90, 90, 90)),
+    pal('mA', 'X', 'M', [], talent(100, 0, 100)), // 欲しいパッシブがない
+    pal('fA', 'X', 'F', ['P1'], talent(100, 0, 100)),
+  ];
+  const result = planOf(pals, { passives: ['P1'] });
+  // m100×f100 は 1 回で作れる。m90×f90 は 1 回の成功率 0% だが、世代を重ねれば届く。
+  // m90 は、90 どうしより HP と防御が 100 の fA と組む方が完成に近い（世代の組）。
+  // 残った mA×f90 は攻撃 100 の親がいない（1 回では作れない）うえ、mA が P1 を持たないので世代の組にもならず第 3 段
+  assert.deepEqual(names(result), ['m100×f100:0', 'm90×fA:1', 'mA×f90:2']);
+  assert.ok(Number.isFinite(result.pairs[1].generations));
+  assert.equal(result.pairs[2].generations, undefined);
+  // 別々の個体なので、m100 は 1 組にしか出ない
+  assert.equal(result.pairs.filter((pair) => pair.male.id === 'm100').length, 1);
+  assert.equal(result.total, 9);
+});
+
+test('理想個体（計画）: 強い個体を使い回さず、上の組に使った個体は下の組に出さない', () => {
+  const pals = [
+    pal('star', 'X', 'M', [], talent(100, 100, 100)),
+    pal('m2', 'X', 'M', [], talent(100, 100, 0)),
+    pal('f1', 'X', 'F', [], talent(100, 100, 100)),
+    pal('f2', 'X', 'F', [], talent(0, 0, 100)),
+    pal('f3', 'X', 'F', [], talent(0, 0, 0)),
+  ];
+  const result = planOf(pals);
+  const used = result.pairs.flatMap((pair) => [pair.male.id, pair.female.id]);
+  assert.equal(new Set(used).size, used.length);
+  assert.deepEqual(result.pairs.map((pair) => `${pair.male.id}×${pair.female.id}`), ['star×f1', 'm2×f2']);
+});
+
+test('理想個体（計画）: ♂ ごとに上位だけ残しても、全部の組を並べてから選んだ結果と同じ', () => {
+  let state = 0x504c414e;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+  const value = () => [0, 90, 95, 99, 100][Math.floor(random() * 5)];
+  const passivePool = ['P1', 'P2', 'J1', 'J2'];
+  for (let round = 0; round < 12; round++) {
+    const pals = Array.from({ length: 24 }, (_, i) => pal(`i${round}-${i}`, 'X', random() < 0.5 ? 'M' : 'F',
+      passivePool.filter(() => random() < 0.5), talent(value(), value(), value()), { egg: random() < 0.1 }));
+    for (const cake of ['none', 'talent']) {
+      const input = { passives: ['P1'], cake };
+      const limited = planOf(pals, { ...input, limit: 3 });
+      const everything = planOf(pals, { ...input, limit: 1000 });
+      assert.deepEqual(names(limited), names(everything).slice(0, 3), `round ${round} ${cake}`);
+    }
+  }
+});
+
+test('理想個体（計画）: キノコケーキでは目標の 5 下の親でも 1 回で作れる組にし、異種の登録済み配合は第 3 段', () => {
+  const pals = [
+    pal('m95', 'X', 'M', [], talent(95, 95, 95)),
+    pal('f95', 'X', 'F', [], talent(95, 95, 95)),
+    pal('am', 'A', 'M', [], talent(100, 100, 100)),
+    pal('bf', 'B', 'F', [], talent(100, 100, 100)),
+  ];
+  const records = [rec('r1', 'A', 'B', 'X')];
+  assert.deepEqual(names(planOf(pals, { cake: 'talent', records })), ['am×bf:0', 'm95×f95:0']);
+  // ケーキなしなら 95 どうしは 1 回では作れない（世代を重ねる組）
+  assert.deepEqual(names(planOf(pals, { records })), ['am×bf:0', 'm95×f95:1']);
+  // 1 回で作れない異種の組は第 3 段
+  // （攻撃・防御が 100 の親がいない異種の組）
+  const weak = pals.map((item) => (item.id === 'am' ? { ...item, talent: talent(0, 0, 0) } : item.id === 'bf' ? { ...item, talent: talent(100, 0, 0) } : item));
+  assert.deepEqual(names(planOf(weak, { records })), ['m95×f95:1', 'am×bf:2']);
+});
+
+test('理想個体（計画）: 1 回で作れるのは、目標のある各ステータスに親から写すだけで届く組（目標 0 は見ない・キノコケーキは目標の 5 下まで）', () => {
+  const tierOf = (male, female, extra = {}) => planOf([pal('m', 'X', 'M', [], talent(...male)), pal('f', 'X', 'F', [], talent(...female))], extra).pairs[0].tier;
+  // 攻撃と防御に 100 の親がいなければ、HP が 100 でも 1 回では作れない
+  assert.equal(tierOf([100, 90, 90], [90, 90, 90]), 1);
+  assert.equal(tierOf([100, 90, 90], [90, 100, 100]), 0);
+  // 目標 0（気にしない）のステータスは見ない
+  assert.equal(tierOf([100, 0, 100], [0, 0, 0], { targets: { hp: 100, shot: 0, defense: 100 } }), 0);
+  // キノコケーキは +1〜5 なので、95 なら 100 に届くが 94 では届かない
+  assert.equal(tierOf([95, 95, 95], [0, 0, 0], { cake: 'talent' }), 0);
+  assert.equal(tierOf([94, 95, 95], [0, 0, 0], { cake: 'talent' }), 1);
+});
+
+test('理想個体（計画）: パッシブの条件を満たす子が産まれない組は出さず、blocked に数える', () => {
+  const pals = [
+    pal('m1', 'X', 'M', ['P1'], talent(100, 100, 100)),
+    pal('f1', 'X', 'F', ['P1'], talent(100, 100, 100)),
+    pal('m0', 'X', 'M', [], talent(100, 100, 100)),
+    pal('f0', 'X', 'F', [], talent(0, 0, 0)),
+  ];
+  // スペシャルケーキは空いた枠をランダムで埋めるので、欲しいパッシブが 4 個未満では「欲しいものだけ」にならない
+  const special = planOf(pals, { passives: ['P1'], mode: 'only', cake: 'special' });
+  assert.deepEqual(names(special), []);
+  assert.equal(special.total, 0);
+  assert.equal(special.blocked, 3);
+  // パッシブを持つ親からは、パッシブのない子は産まれない（パッシブを持たない ♂×♀ だけが残る）
+  const none = planOf(pals, { mode: 'only' });
+  assert.deepEqual(names(none), ['m0×f0:0']);
+  assert.equal(none.blocked, 3);
+  assert.equal(none.total, 1);
+});
+
+test('理想個体（計画）: 1 回で作れる組でも、世代を重ねる組より平均のタマゴが多ければ下に並べる', () => {
+  const records = [rec('r1', 'A', 'B', 'X')];
+  const pals = [
+    // 異種の組: 各ステータスに 100 の親がいて 1 回で作れるが、余計なパッシブが多く、平均 約 529 個
+    pal('am', 'A', 'M', ['P1', 'J1', 'J2', 'J3'], talent(100, 0, 0)),
+    pal('bf', 'B', 'F', ['P2', 'J4', 'J5', 'J6'], talent(0, 100, 100)),
+    // 同じ種族の組: 防御に 100 の親がいないので 1 回では作れないが、子を入れ替えながら 平均 約 405 個
+    pal('xm', 'X', 'M', ['P1', 'P2'], talent(100, 100, 90)),
+    pal('xf', 'X', 'F', ['P1', 'P2'], talent(100, 100, 90)),
+  ];
+  const result = planOf(pals, { passives: ['P1', 'P2'], records });
+  assert.deepEqual(names(result), ['xm×xf:1', 'am×bf:0']);
+  const [generation, oneShot] = result.pairs;
+  near(generation.eggs, generation.generations);
+  near(oneShot.eggs, 1 / oneShot.chance);
+  assert.ok(generation.eggs < oneShot.eggs);
+  // 1 回で作れる同じ種族の組も、子を入れ替えた方が早ければ、その平均で比べる（この 2 体のままより少ない）
+  const swap = planOf([pal('m100', 'X', 'M', ['P1'], talent(100, 100, 100)), pal('f0', 'X', 'F', ['P1'], talent(0, 0, 0))], { passives: ['P1'] }).pairs[0];
+  assert.equal(swap.tier, 0);
+  assert.ok(swap.generations < 1 / swap.chance);
+  near(swap.eggs, swap.generations);
+});
+
+test('理想個体（計画）: タマゴは孵化するまで牧場に置けないので、親の候補にしない', () => {
+  const pals = [
+    pal('m1', 'X', 'M', [], talent(100, 100, 100)),
+    pal('f1', 'X', 'F', [], talent(0, 0, 0)),
+    pal('egg', 'X', 'F', [], talent(100, 100, 100), { egg: true, place: 'egg-ground' }),
+  ];
+  const result = planOf(pals);
+  assert.deepEqual(names(result), ['m1×f1:0']);
+  assert.equal(result.candidates, 2);
+  // 孵化したら候補に入る
+  const hatched = pals.map((item) => (item.id === 'egg' ? { ...item, egg: false, place: 'palbox' } : item));
+  assert.deepEqual(names(planOf(hatched)), ['m1×egg:0']);
+});
+test('理想個体（計画）: 同じ値の組は個体 ID で並べ、入力の順に左右されない', () => {
+  const pals = ['m2', 'f2', 'm1', 'f1'].map((id) => pal(id, 'X', id[0] === 'm' ? 'M' : 'F', ['P1'], talent(100, 100, 100)));
+  const expected = ['m1×f1:0', 'm2×f2:0'];
+  assert.deepEqual(names(planOf(pals, { passives: ['P1'] })), expected);
+  assert.deepEqual(names(planOf([...pals].reverse(), { passives: ['P1'] })), expected);
+});
+
+test('理想個体（計画）: 異種の配合・同じ組み合わせで別の子・ケーキ・パッシブの条件を混ぜても、上位だけ残した結果は全部並べた結果と同じ', () => {
+  let state = 0x4d495844;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+  const value = () => [0, 88, 94, 95, 99, 100][Math.floor(random() * 6)];
+  const passivePool = ['P1', 'P2', 'J1', 'J2', 'J3'];
+  // A×B は X、B×A は X と Y（同じ組み合わせで別の子）
+  const records = [rec('r1', 'A', 'B', 'X', 'Male', 'Female'), rec('r2', 'B', 'A', 'X', 'Male', 'Female'), rec('r3', 'B', 'A', 'Y', 'Male', 'Female')];
+  for (let round = 0; round < 10; round++) {
+    const pals = Array.from({ length: 30 }, (_, i) => pal(`k${round}-${i}`, ['X', 'A', 'B'][Math.floor(random() * 3)], random() < 0.5 ? 'M' : 'F',
+      passivePool.filter(() => random() < 0.4), talent(value(), value(), value()), { egg: random() < 0.15 }));
+    for (const cake of ['none', 'special', 'talent']) {
+      for (const mode of ['include', 'only']) {
+        for (const passives of [['P1'], ['P1', 'P2'], []]) {
+          const input = { passives, cake, mode, records };
+          const everything = planOf(pals, { ...input, limit: 1000 });
+          for (const limit of [1, 3]) {
+            const limited = planOf(pals, { ...input, limit });
+            assert.deepEqual(names(limited), names(everything).slice(0, limit), `round ${round} ${cake} ${mode} ${passives} ${limit}`);
+            assert.deepEqual([limited.total, limited.blocked], [everything.total, everything.blocked]);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('理想個体: アルファの条件は、1 回の成功率に「アルファだけ」5%・「アルファ以外」95% を掛け、世代の平均にも入れる', () => {
+  const pals = [pal('m', 'X', 'M', ['P1'], talent(100, 100, 100)), pal('f', 'X', 'F', ['P1'], talent(100, 100, 100))];
+  const [any, alpha, normal] = ['any', 'alpha', 'normal'].map((value) => planOf(pals, { passives: ['P1'], alpha: value }).pairs[0]);
+  near(alpha.chance, any.chance * ALPHA_RATE);
+  near(normal.chance, any.chance * (1 - ALPHA_RATE));
+  assert.deepEqual([any.alphaChance, alpha.alphaChance, normal.alphaChance], [1, ALPHA_RATE, 1 - ALPHA_RATE]);
+  // 両親とも完璧なら、入れ替えても速くならないので、世代の平均は 1 / 成功率
+  near(alpha.generations, 1 / alpha.chance);
+  near(normal.generations, 1 / normal.chance);
+  // 片方が 0 の親なら、アルファでなかった完成品を親にできるので、気にしない場合の 20 倍よりずっと少ない
+  const table = (value) => generationTable({ wanted: 0, targets: ALL, alpha: value });
+  const weak = (value) => generationEggs(table(value), talent(100, 100, 100), talent(0, 0, 0));
+  assert.ok(weak('alpha') < weak('any') / ALPHA_RATE / 2, `${weak('alpha')}`);
+  assert.ok(weak('alpha') > weak('any'));
+  assert.equal(alphaChance('boss'), 1);
 });
