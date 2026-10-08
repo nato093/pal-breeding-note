@@ -25,6 +25,7 @@ import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
 import { listView } from './views/list.js';
 import { ownedView } from './views/owned.js';
+import { idealView } from './views/ideal.js';
 import { draftsView } from './views/drafts.js';
 import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
@@ -91,7 +92,7 @@ async function boot() {
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
   // 並びは 探す｜記録｜所持｜設定 の順（区切りの余白は CSS）
-  const tabs = [['search', '配合検索'], ['reverse', '逆引き'], ['route', '継承ルート'], ['list', '一覧'], ['drafts', '下書き'], ['wishlist', 'ウィッシュリスト'], ['owned', '所持パル'], ['settings', '設定']];
+  const tabs = [['search', '配合検索'], ['reverse', '逆引き'], ['route', '継承ルート'], ['list', '一覧'], ['drafts', '下書き'], ['wishlist', 'ウィッシュリスト'], ['owned', '所持パル'], ['ideal', '理想個体'], ['settings', '設定']];
   const tabLinks = new Map();
   for (const [view, label] of tabs) {
     const tab = link('', buildHash(view), 'nav-tab');
@@ -193,7 +194,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, owned: ownedView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
+  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, owned: ownedView, ideal: idealView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     const panel = el('section', 'login-panel');
