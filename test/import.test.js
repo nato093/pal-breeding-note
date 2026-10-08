@@ -34,6 +34,15 @@ test('INV-2: 配合表を読むのは自動登録だけ', () => {
   assert.match(fs.readFileSync('web/js/views/owned-settings.js', 'utf8'), /import \{ mappedUser \} from '\.\.\/core\/auto-breeding\.js'/);
 });
 
+// INV-2 の例外: 遺伝の仕組み（core/ideal.js）は理想個体の提案にだけ使う。配合表は読まない
+test('INV-2: 遺伝の仕組みを使うのは理想個体の画面だけ', () => {
+  const files = fs.readdirSync('web/js', { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join('web/js', f).replaceAll('\\', '/'));
+  const importing = (pattern) => files.filter((file) => pattern.test(fs.readFileSync(file, 'utf8'))).sort();
+  assert.deepEqual(importing(/(from |import\()["'](\.\.\/core\/|\.\/core\/|\.\/)ideal\.js["']/), ['web/js/views/ideal.js']);
+  const ideal = fs.readFileSync('web/js/core/ideal.js', 'utf8');
+  assert.deepEqual([...ideal.matchAll(/from '([^']+)'/g)].map((match) => match[1]), ['./index.js']);
+});
+
 test('マスター: ID は英数字と _ だけで重複しない', () => {
   const ids = pals.map((p) => p.id);
   assert.equal(new Set(ids).size, ids.length);
