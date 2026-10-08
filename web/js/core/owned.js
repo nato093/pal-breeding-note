@@ -30,6 +30,18 @@ export function placeGroupLabel(group) {
   return group === 'egg' ? 'タマゴ' : PLACE_LABELS[group] ?? '不明';
 }
 
+// パルボックスの並び。1 ページ 30 枠・横 6 列（ゲームの PalBoxSlotNumInPage。2026-10-08 にゲーム内で確認）
+export const PALBOX_PAGE_SIZE = 30;
+export const PALBOX_COLUMNS = 6;
+
+/** パルボックスの通し番号（セーブの SlotId.SlotIndex。0 始まり）から、ページと行・列（どれも 1 始まり）を求める。 */
+export function palboxPosition(slotIndex) {
+  const index = Number(slotIndex);
+  if (!Number.isInteger(index) || index < 0) return null;
+  const inPage = index % PALBOX_PAGE_SIZE;
+  return { page: Math.floor(index / PALBOX_PAGE_SIZE) + 1, row: Math.floor(inPage / PALBOX_COLUMNS) + 1, column: (inPage % PALBOX_COLUMNS) + 1 };
+}
+
 /**
  * 人間のキャラクター（密猟団・賞金首など。パルのマスターにはない）の名前とアイコンを引く。
  * 賞金首は BOSS_ 付きの行に専用の名前とアイコンがあるので、そのままの ID を先に引き、なければ接頭辞を外して引く。
@@ -115,7 +127,10 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     else if (kind === 'egg-guild') holder = 'ギルド保管庫';
     else holder = playerName(players, holderUid) || '不明';
     let placeDetail = PLACE_LABELS[kind];
-    if (kind === 'base') placeDetail = baseLabel(location.baseId);
+    // パルボックスはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
+    const boxAt = kind === 'palbox' ? palboxPosition(location.slotIndex) : null;
+    if (boxAt) placeDetail = `${PLACE_LABELS.palbox} ${boxAt.page} ページ・${boxAt.row} 行 ${boxAt.column} 列`;
+    else if (kind === 'base') placeDetail = baseLabel(location.baseId);
     else if (egg && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
     const passiveIds = (source.passives ?? []).filter((id) => typeof id === 'string' && id);
     const pal = palsById.get(palId);

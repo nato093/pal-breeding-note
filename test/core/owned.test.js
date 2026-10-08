@@ -6,7 +6,7 @@ import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
-  ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts,
+  ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
 } from '../../web/js/core/owned.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
@@ -58,7 +58,8 @@ test('所持パル: CharacterID の接頭辞と大文字小文字の違いを吸
 
 test('所持パル: 所持者と場所は入れ物で決め、拠点のタマゴは拠点の持ち物にする', () => {
   assert.deepEqual([byId.a.holder, byId.a.placeLabel], ['Alice', '手持ち']);
-  assert.deepEqual([byId.b.holder, byId.b.placeLabel], ['Bob', 'パルボックス']);
+  // パルボックスはページと位置まで出す（SlotIndex 0 は 1 ページ目の左上）
+  assert.deepEqual([byId.b.holder, byId.b.placeLabel], ['Bob', 'パルボックス 1 ページ・1 行 1 列']);
   assert.deepEqual([byId.c.holder, byId.c.placeLabel, byId.c.lastOwner], ['拠点 2', '拠点 2', 'Bob']);
   assert.deepEqual([byId.d.holder, byId.d.placeLabel, byId.d.egg, byId.d.level], ['拠点 2', 'タマゴ（地面）・拠点 2', true, 0]);
   // グローバルパルボックスは読み込んだ PC のアカウント（ホスト）のもの
@@ -118,4 +119,22 @@ test('継承ルート: パッシブを持つ所持パルから、登録済みの
   assert.deepEqual(partnerOwnership(bySpecies, 'SheepBall', ['CraftSpeed_up2']), { total: 3, matching: 2 });
   assert.deepEqual(partnerOwnership(bySpecies, 'PinkCat', []), { total: 1, matching: 0 });
   assert.equal(bySpecies.has(''), false);
+});
+
+test('所持パル: パルボックスの通し番号から、ページ（30 枠）と行・列（横 6 列）を求め、共有しても残る', () => {
+  const at = (index) => { const p = palboxPosition(index); return p && [p.page, p.row, p.column]; };
+  // 2026-10-08 にゲーム内で、29 が 1 ページ目の最後、30 が 2 ページ目の最初、59 が 2 ページ目の最後、60 が 3 ページ目の最初と確認
+  assert.deepEqual([0, 5, 6, 29, 30, 35, 36, 59, 60, 959].map(at), [
+    [1, 1, 1], [1, 1, 6], [1, 2, 1], [1, 5, 6], [2, 1, 1], [2, 1, 6], [2, 2, 1], [2, 5, 6], [3, 1, 1], [32, 5, 6],
+  ]);
+  assert.equal(palboxPosition(-1), null);
+  assert.equal(palboxPosition(undefined), null);
+  const owned = normalizeOwned({ ...snapshot, pals: [
+    pal('p', 'SheepBall', { kind: 'palbox', slotIndex: 36 }),
+    pal('q', 'SheepBall', { kind: 'party', slotIndex: 3 }),
+  ] }, { pals, passives });
+  assert.deepEqual(owned.pals.map((item) => item.placeLabel), ['パルボックス 2 ページ・2 行 1 列', '手持ち']);
+  // 参加している人には、共有の placeLabel でそのまま届く
+  const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...sharedUpload(owned) }, { pals, passives });
+  assert.deepEqual(shared.pals.map((item) => item.placeLabel), ['パルボックス 2 ページ・2 行 1 列', '手持ち']);
 });
