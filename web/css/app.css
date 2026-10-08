@@ -111,7 +111,9 @@ body { margin: 0; background: var(--md-sys-color-surface); min-height: 100dvh; m
 button, input, select, textarea { font: inherit; color: inherit; }
 button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
-button:disabled { opacity: .55; cursor: wait; }
+/* 押せないボタンは矢印のまま。読み込み中のカーソルは、押して処理している間（runButton が aria-busy を付ける）だけ */
+button:disabled { opacity: .55; cursor: default; }
+button[aria-busy="true"] { cursor: wait; }
 a { color: var(--md-sys-color-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button:hover { filter: none; }
