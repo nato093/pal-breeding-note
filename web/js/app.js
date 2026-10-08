@@ -3,6 +3,7 @@ import { createStore, safeStorage } from './store.js';
 import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
+import { createIdealStore, idealNotificationSource } from './ideals.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
@@ -68,11 +69,17 @@ async function boot() {
   const autoRegister = createAutoRegister({
     store, owned, storage: safeStorage(browserStorage), namespace, toast, onNotice: () => notifications.changed(),
   });
+  // 登録した理想個体（この端末に ID・環境ごと）。自分の個体で完成を判定して知らせる。
+  // 自分のプレイヤーは、配合牧場の自動登録と同じ「登録者の対応」（なければ同じ名前）で決める
+  const ideals = createIdealStore({
+    store, owned, storage: browserStorage, namespace,
+    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId) }),
+  });
   const notifications = createNotificationStore({
     store, storage: browserStorage, namespace,
-    sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), autoRegister.notices],
+    sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), idealNotificationSource({ store, ideals }), autoRegister.notices],
   });
-  const renamer = createRenamer({ store, drafts, wishlist, notifications, storage: browserStorage, namespace });
+  const renamer = createRenamer({ store, drafts, wishlist, ideals, notifications, storage: browserStorage, namespace });
   renamer.resumeLocal();
   const root = document.getElementById('app');
   const banner = el('div', 'environment-banner', 'テスト環境');
@@ -152,6 +159,7 @@ async function boot() {
     store,
     drafts,
     wishlist,
+    ideals,
     notifications,
     owned,
     autoRegister,
@@ -307,11 +315,13 @@ async function boot() {
     event.returnValue = true;
   });
   wishlist.subscribe(notifications.changed);
+  ideals.subscribe(notifications.changed);
   owned.subscribe(autoRegister.evaluate);
-  // 別のタブで下書き・ウィッシュリスト・既読を書き換えたら読み直す。
+  // 別のタブで下書き・ウィッシュリスト・理想個体の登録・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {
     drafts.reload(event.key);
     wishlist.reload(event.key);
+    ideals.reload(event.key);
     notifications.reload(event.key);
   });
   // 配信された版（version.json）を 5 分ごとと、タブに戻ったときに確かめる。版の無いローカルでは確かめない。

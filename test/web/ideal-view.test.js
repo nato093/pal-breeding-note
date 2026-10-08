@@ -8,6 +8,7 @@ import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
 import { idealView, percent, eggsText } from '../../web/js/views/ideal.js';
+import { createIdealStore } from '../../web/js/ideals.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const full = { hp: 100, shot: 100, defense: 100 };
@@ -328,5 +329,137 @@ test('理想個体画面: 新しく産まれたタマゴや孵化を読み込ん
   owned.emit();
   assert.doesNotMatch(cards(view)[0].textContent, /孵化前/);
   assert.match(cards(view)[0].textContent, /パルボックス 1 ページ・1 行 1 列/);
+  view.destroy();
+});
+
+test('理想個体画面: 所持者で親の候補とパッシブの所持数を絞り、選んだ所持者がいなくなったら「すべて」に戻す', (t) => {
+  install(t);
+  const P2 = '4de16e79-0000-0000-0000-000000000000';
+  const BASE = 'b6800a4a-4b60-f0bb-f425-53bf17b07603';
+  const list = [
+    palworldPal('a1', 'SheepBall', 'Male', ['Rare']),
+    palworldPal('a2', 'SheepBall', 'Female', ['Rare']),
+    palworldPal('b1', 'SheepBall', 'Female', ['Legend'], full, { kind: 'palbox', playerUid: P2 }),
+    palworldPal('c1', 'SheepBall', 'Male', ['Noukin'], full, { kind: 'base', playerUid: '', baseId: BASE }),
+  ];
+  const snapshotOf = (pals) => ({
+    version: 1, world: { name: 'テスト', hostName: 'Alice' }, bases: [{ id: BASE, number: 2, guildId: '', containerId: '', position: null }],
+    players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: P2, name: 'Bob', level: 40 }], pals, stats: {},
+  });
+  const owned = fakeOwned(list);
+  owned.state.owned = normalizeOwned(snapshotOf(list), { pals, passives });
+  const states = new Map();
+  const view = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
+  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', 'Alice', 'Bob', '拠点 2']);
+  // すべてなら ♂ 2 体 × ♀ 2 体
+  assert.equal(cards(view).length, 4);
+  holder.value = `player:${P1}`;
+  holder.dispatch('change');
+  assert.equal(cards(view).length, 1);
+  const counts = () => view.element.querySelector('.passive-add').querySelectorAll('option').map((node) => node.textContent);
+  assert.ok(counts().includes('希少（2）'));
+  assert.ok(!counts().some((text) => /^伝説（|^脳筋（/.test(text)));
+  holder.value = `base:${BASE}`;
+  holder.dispatch('change');
+  assert.equal(cards(view).length, 0);
+  assert.match(view.element.textContent, /オスとメスの組を作れる個体がいません/);
+  view.destroy();
+  // 選んだ所持者は残る。読み込んだデータにいなくなったら「すべて」に戻す
+  const without = list.filter((pal) => pal.instanceId !== 'c1');
+  owned.state.owned = normalizeOwned({ ...snapshotOf(without), bases: [] }, { pals, passives });
+  const again = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
+  const select = again.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  assert.equal(select.value, '');
+  assert.equal(cards(again).length, 2);
+  again.destroy();
+});
+
+// 理想個体の登録（この端末に保存）を画面につなぐ
+function withIdeals(ctx, owned, storage = new Map()) {
+  let ids = 0;
+  const memory = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)), removeItem: (key) => storage.delete(key) };
+  // 所持パルのテストデータのプレイヤーは Alice なので、Alice としてログインしている
+  const loginStore = { state: { env: 'test', userId: 'Alice', passcode: '入力', renaming: false, users: ['Alice'] }, subscribe: () => () => {} };
+  ctx.ideals = createIdealStore({ store: loginStore, owned, storage: memory, uuid: () => `goal-${++ids}` });
+  ctx.replacements = [];
+  ctx.replace = (hash) => ctx.replacements.push(hash);
+  return ctx;
+}
+const byLabel = (view, label) => view.element.querySelectorAll('button').find((node) => node.textContent === label);
+
+test('理想個体画面: 今の条件を名前を付けて登録し、一覧に完成の状態を出す', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', ['Rare'], full),
+    palworldPal('f1', 'SheepBall', 'Female', ['Rare'], { hp: 90, shot: 90, defense: 90 }),
+  ]);
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  const name = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === '登録する名前');
+  assert.equal(name.placeholder, 'モコロン（希少）');
+  name.value = '最強モコロン';
+  byLabel(view, 'この条件を登録').dispatch('click');
+  assert.deepEqual(ctx.ideals.list().map((goal) => [goal.name, goal.palId, goal.passives.join(','), goal.mode, goal.order]), [['最強モコロン', 'SheepBall', 'Rare', 'include', 'next']]);
+  // 同じ条件はもう登録できない
+  assert.equal(byLabel(view, '登録済み').disabled, true);
+  const box = view.element.querySelector('.ideal-goals');
+  assert.match(box.querySelector('summary').textContent, /登録した理想個体（1 件）/);
+  // m1 は 3 つとも 100 で希少を持つので完成済み
+  assert.match(box.querySelector('.ideal-goal').textContent, /最強モコロン.*完成済み: Alice · パルボックス/);
+  // 条件を変えると、また登録できる
+  const attack = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === '攻撃の目標');
+  attack.value = '90';
+  attack.dispatch('input');
+  assert.equal(byLabel(view, 'この条件を登録').disabled, false);
+  view.destroy();
+});
+
+test('理想個体画面: 一覧や通知から開くと（g）、登録した条件をそのまま使い、URL から外す', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const states = new Map();
+  const ctx = withIdeals(context(owned, [], states), owned);
+  ctx.ideals.add({ name: '攻撃型', palId: 'SheepBall', passives: ['Rare'], mode: 'only', targets: { hp: 0, shot: 100, defense: 90 }, cake: 'talent', order: 'generations' });
+  const [goal] = ctx.ideals.list();
+  const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`));
+  const value = (label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label).value;
+  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['0', '100', '90']);
+  const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
+  assert.deepEqual([selectHaving('only').value, selectHaving('talent').value, selectHaving('generations').value], ['only', 'talent', 'generations']);
+  assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
+  assert.equal(byLabel(view, '登録済み').disabled, true);
+  // 一覧の「呼び出す」は g つきのリンク
+  assert.equal(view.element.querySelector('.ideal-goal').querySelectorAll('a').find((node) => node.textContent === '呼び出す').href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
+  view.destroy();
+});
+
+test('理想個体画面: 登録を外すと一覧から消え、所持パルのデータがないときは「未確認」と出す', (t) => {
+  install(t);
+  const owned = fakeOwned(null);
+  const ctx = withIdeals(context(owned), owned);
+  ctx.ideals.add({ name: '目標', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none', order: 'next' });
+  const view = idealView(ctx, parseHash('#/ideal'));
+  assert.match(view.element.querySelector('.ideal-goal').textContent, /未確認（所持パルのデータがありません）/);
+  // 目標のパルを選ぶまでは登録できない
+  assert.equal(byLabel(view, 'この条件を登録').disabled, true);
+  const remove = view.element.querySelector('.ideal-goal').querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '「目標」の登録を外す');
+  remove.dispatch('click');
+  assert.equal(ctx.ideals.list().length, 0);
+  assert.match(view.element.querySelector('.ideal-goals').textContent, /登録した理想個体はまだありません/);
+  view.destroy();
+});
+
+test('理想個体画面: g で開いた後にパッシブを変えても、遷移先の URL に g を残さない', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  ctx.ideals.add({ name: '攻撃型', palId: 'SheepBall', passives: ['Rare'], mode: 'only', targets: { hp: 0, shot: 100, defense: 90 }, cake: 'talent', order: 'next' });
+  const [goal] = ctx.ideals.list();
+  const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`));
+  const add = view.element.querySelector('.passive-add');
+  add.value = 'Legend';
+  add.dispatch('change');
+  assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare%2CLegend']);
   view.destroy();
 });

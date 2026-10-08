@@ -37,6 +37,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
   const lists = [
     { prefix: `${namespace}.drafts.${env}.`, change: (items) => items.map(renameDraft) },
     { prefix: `${namespace}.wishlist.${env}.` },
+    { prefix: `${namespace}.ideals.${env}.` },
     { prefix: `${namespace}.autoBreeding.notices.${env}.` },
     // 既読は環境を含まないので、別の環境の同じ名前のために元を残す
     { prefix: `${namespace}.notifications.read.`, keep: true },
@@ -76,7 +77,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
  * 自分の名前を変える。サーバでの変更と、この端末のデータの移動をまとめて行う。
  * 途中で止まっても同じ opId でやり直せるよう、終わるまで予定を端末に残す。
  */
-export function createRenamer({ store, drafts, wishlist, notifications, storage, namespace = 'pal-note' }) {
+export function createRenamer({ store, drafts, wishlist, ideals, notifications, storage, namespace = 'pal-note' }) {
   const planKey = `${namespace}.rename`;
 
   function readPlan() {
@@ -87,7 +88,7 @@ export function createRenamer({ store, drafts, wishlist, notifications, storage,
   function clearPlan() {
     try { storage?.removeItem(planKey); } catch { /* 残っても、次に同じ予定をやり直すだけ。 */ }
   }
-  const localSaveFailed = () => Boolean(drafts?.saveFailed || wishlist?.saveFailed);
+  const localSaveFailed = () => Boolean(drafts?.saveFailed || wishlist?.saveFailed || ideals?.saveFailed);
 
   // 端末内のデータを移し、各ストアのキャッシュを捨てて描き直させる
   function moveLocal(plan) {
@@ -95,6 +96,7 @@ export function createRenamer({ store, drafts, wishlist, notifications, storage,
     const keys = (prefix) => [`${prefix}${userIdKey(plan.oldId)}`, `${prefix}${userIdKey(plan.newId)}`];
     for (const key of keys(`${namespace}.drafts.${plan.env}.`)) drafts?.reload(key);
     for (const key of keys(`${namespace}.wishlist.${plan.env}.`)) wishlist?.reload(key);
+    for (const key of keys(`${namespace}.ideals.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.notifications.read.`)) notifications?.reload(key);
     return ok;
   }
