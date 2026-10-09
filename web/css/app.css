@@ -952,6 +952,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-passives .passive-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 6px; }
 .owned-passives .passive-chip { min-width: 0; width: 100%; }
 .owned-passives .passive-name { white-space: normal; overflow-wrap: anywhere; }
+/* キーワードに一致したスキル（一覧に出していない項目）を、パッシブの下に出す */
+.owned-hit { margin: 4px 0 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
 .passive-selector .passive-list { margin-bottom: 8px; }
 .passive-selector .passive-list:empty { display: none; }
 .passive-add { max-width: 420px; }
