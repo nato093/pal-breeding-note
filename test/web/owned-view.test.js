@@ -139,6 +139,29 @@ test('所持パル画面: タブを切り替えて作り直しても絞り込み
   fresh.destroy();
 });
 
+test('所持パル画面: キーワードはスキルや属性でも探せ、一覧に出していないスキルで一致したときは行にその名前を出す', async (t) => {
+  installDom(t);
+  const data = {
+    version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles',
+    world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' },
+    snapshot: { ...snapshot, pals: snapshot.pals.map((pal) => (pal.instanceId === 'a' ? { ...pal, skills: ['Unique_SheepBall_Roll', 'AirCanon'] } : pal)) },
+  };
+  const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  const query = view.element.querySelectorAll('input').find((node) => node.type === 'search');
+  const search = async (text) => {
+    query.value = text;
+    await query.dispatch('input');
+    return view.element.querySelectorAll('.owned-row').map((row) => row.querySelectorAll('.owned-hit').map((node) => node.textContent));
+  };
+  // 一覧に出していないスキルで一致したら、パッシブの下に一致したスキルだけを出す
+  assert.deepEqual(await search('えあー'), [['アクティブスキル：エアーキャノン']]);
+  assert.deepEqual(await search('猫の手'), [['パートナースキル：猫の手も借りたい']]);
+  // 名前・属性・ラッキーなど、一覧に出している項目で一致したときは出さない
+  assert.deepEqual(await search('無 ラッキー'), [[]]);
+  assert.deepEqual(await search(''), [[], [], []]);
+  view.destroy();
+});
+
 test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体値で絞り込む', async (t) => {
   installDom(t);
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));

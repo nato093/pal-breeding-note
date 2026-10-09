@@ -24,6 +24,10 @@ var LOG_HEADERS_ = ['at', 'action', 'recordId', 'before', 'after'];
 function ownedPalHeaders_() {
   return ['worldId'].concat(OWNED_FIELDS, ['updatedAt']);
 }
+// 読み書きに要る列。後から足した列（OWNED_ADDED_FIELDS）は、setup() を実行し直して末尾に足すまでシートにないので除く
+function ownedPalRequiredHeaders_() {
+  return ownedPalHeaders_().filter(function (header) { return OWNED_ADDED_FIELDS.indexOf(header) === -1; });
+}
 var OWNED_WORLD_HEADERS_ = [
   'worldId', 'worldName', 'hostName', 'saveUpdatedAt', 'uploadedAt', 'uploadedBy', 'palCount', 'players', 'bases'
 ];

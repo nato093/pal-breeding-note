@@ -7,8 +7,9 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
+  keywordTerms, keywordHits,
 } from '../../web/js/core/owned.js';
-import { cleanOwnedFarms, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
+import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const P2 = '4de16e79-0000-0000-0000-000000000000';
@@ -107,6 +108,103 @@ test('所持パル: 所持者・場所・パル・パッシブ・キーワード
   assert.deepEqual(ids({ talent: { defense: 4 } }), []);
   assert.deepEqual(sortOwned(owned.pals, 'stars').slice(0, 1).map((p) => p.id), ['a']);
   assert.equal(passiveCounts(owned.pals).get('CraftSpeed_up2'), 3);
+});
+
+test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（数値は含めない）', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('a', 'SheepBall', { kind: 'party' }, { passives: ['Rare'], isRare: true, level: 30, skills: ['Unique_SheepBall_Roll', 'AirCanon'] }),
+    pal('b', 'BOSS_Kitsunebi', { kind: 'palbox', playerUid: P2, slotIndex: 31 }, { gender: 'Male', skills: ['FireBall'] }),
+    pal('c', 'PinkCat', { kind: 'base', playerUid: '', baseId: BASE }, { lastOwnerUid: P2, nickname: 'Tama', skills: ['Unknown_Waza', 'Railbolt'] }),
+    pal('d', 'PinkCat', { kind: 'egg-inventory', playerUid: P1 }, { lastOwnerUid: P2 }),
+  ] }, { pals, passives }).pals;
+  const [a, b, c] = list;
+  // 種類で決まる項目（英名・属性・パートナースキル）と、覚えているアクティブスキル（名前の表にないものは ID）
+  assert.deepEqual([a.en, a.elements, a.partnerSkill, a.skills, a.skillNames],
+    ['Lamball', ['無'], 'モコモコの盾', ['Unique_SheepBall_Roll', 'AirCanon'], ['コロコロモコロン', 'エアーキャノン']]);
+  // セーブと名前の表で大文字小文字が違う ID（セーブの Railbolt・表の RailBolt）も名前を引く
+  assert.deepEqual([b.elements, b.partnerSkill, b.skillNames, c.skillNames], [['炎'], 'だっこファイヤー', ['ファイアーボール'], ['Unknown_Waza', 'サンダーレール']]);
+  const ids = (query) => filterOwned(list, { query }).map((p) => p.id).sort();
+  assert.deepEqual(ids('モコロン'), ['a']);
+  assert.deepEqual(ids('foxparks'), ['b']);
+  assert.deepEqual(ids('炎'), ['b']);
+  assert.deepEqual(ids('猫の手'), ['c', 'd']);
+  assert.deepEqual(ids('エアーキャノン'), ['a']);
+  assert.deepEqual(ids('希少'), ['a']);
+  assert.deepEqual(ids('オス'), ['b']);
+  assert.deepEqual(ids('♀'), ['a', 'c', 'd']);
+  assert.deepEqual(ids('アルファ'), ['b']);
+  assert.deepEqual(ids('ラッキー'), ['a']);
+  assert.deepEqual(ids('タマゴ'), ['d']);
+  assert.deepEqual(ids('パルボックス 2 ページ'), ['b']);
+  assert.deepEqual(ids('拠点 2'), ['c']);
+  // 預けた人は、一覧に出している拠点の個体だけ探す（タマゴの d は Bob が預けていても出さない）
+  assert.deepEqual(ids('Bob'), ['b', 'c']);
+  // ひらがなとカタカナ・全角と半角・大文字と小文字の違いはそろえる
+  assert.deepEqual(ids('ふぁいあーぼーる'), ['b']);
+  assert.deepEqual(ids('ＴＡＭＡ'), ['c']);
+  assert.deepEqual(ids('lamball'), ['a']);
+  // 空白（全角も）で区切ると、すべてを含む個体に絞る
+  assert.deepEqual(ids('無　ラッキー'), ['a']);
+  assert.deepEqual(ids('猫の手 拠点'), ['c']);
+  assert.deepEqual(ids('炎 ラッキー'), []);
+  assert.deepEqual(ids('  '), ['a', 'b', 'c', 'd']);
+  // レベル・★・個体値は専用の絞り込みがあるので、キーワードでは探さない
+  assert.deepEqual(ids('30'), []);
+  // 一致した理由: 語を含む項目の値を項目ごとに返す
+  assert.deepEqual(keywordHits(a, keywordTerms('きゃのん モコ')), { name: ['モコロン'], partnerSkill: ['モコモコの盾'], skills: ['コロコロモコロン', 'エアーキャノン'] });
+  assert.deepEqual(keywordHits(b, keywordTerms('ファイ')), { partnerSkill: ['だっこファイヤー'], skills: ['ファイアーボール'] });
+});
+
+test('所持パル: スキルを読む前に読み込んだセーブ（skills がない）でも、スキルなしとして扱う', () => {
+  const old = normalizeOwned({ ...snapshot, pals: [pal('a', 'SheepBall', { kind: 'party' })] }, { pals, passives }).pals[0];
+  assert.deepEqual([old.skills, old.skillNames, old.partnerSkill], [[], [], 'モコモコの盾']);
+  // 人間のキャラクターには属性もパートナースキルもない
+  const human = normalizeOwned({ ...snapshot, pals: [pal('e', 'Male_Soldier01', {})] }, { pals, passives }).pals[0];
+  assert.deepEqual([human.en, human.elements, human.partnerSkill], ['', [], '']);
+});
+
+test('所持パル共有: 覚えているアクティブスキルを skillIds 列で送り、参加している人も探せる。列のない古いデータはスキルなし', () => {
+  const host = normalizeOwned({ ...snapshot, pals: [
+    pal('a', 'SheepBall', { kind: 'party' }, { skills: ['Unique_SheepBall_Roll', 'AirCanon'] }),
+    pal('b', 'PinkCat', { kind: 'party' }),
+  ] }, { pals, passives });
+  const upload = sharedUpload(host);
+  assert.equal(upload.columns.at(-1), 'skillIds');
+  assert.deepEqual(upload.rows.map((row) => row.at(-1)), ['Unique_SheepBall_Roll|AirCanon', '']);
+  const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...upload }, { pals, passives });
+  assert.deepEqual(shared.pals.map((p) => [p.skills, p.skillNames, p.partnerSkill, p.elements]), [
+    [['Unique_SheepBall_Roll', 'AirCanon'], ['コロコロモコロン', 'エアーキャノン'], 'モコモコの盾', ['無']],
+    [[], [], '猫の手も借りたい', ['無']],
+  ]);
+  assert.deepEqual(filterOwned(shared.pals, { query: 'エアーキャノン' }).map((p) => p.id), ['a']);
+  // skillIds 列を足す前に共有されたデータ（GAS が列を返さない）
+  const width = upload.columns.length - 1;
+  const legacy = ownedFromShared({ world: { worldName: 'テスト' }, columns: upload.columns.slice(0, width), rows: upload.rows.map((row) => row.slice(0, width)) }, { pals, passives });
+  assert.deepEqual(legacy.pals.map((p) => p.skills), [[], []]);
+});
+
+test('所持パル共有: 後から足した列のない古い画面からの共有も受け付け、足りない列は空にする', () => {
+  const upload = (columns, rows) => validateOwnedUpload({
+    worldId: '4A431AC14B58A7E31A76B2A991F79FE8', world: { name: 'LC9' }, saveUpdatedAt: '2026-10-05T10:00:00.000Z', columns, rows,
+  });
+  const row = (id, extra = {}) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : extra[field] ?? ''));
+  const legacyFields = OWNED_FIELDS.slice(0, OWNED_FIELDS.length - OWNED_ADDED_FIELDS.length);
+  assert.deepEqual(OWNED_ADDED_FIELDS, ['skillIds']);
+  const current = upload(OWNED_FIELDS, [row('p1', { skillIds: 'A|B' })]);
+  assert.equal(current.ok, true);
+  assert.equal(current.value.rows[0][OWNED_FIELDS.indexOf('skillIds')], 'A|B');
+  const legacy = upload(legacyFields, [row('p1').slice(0, legacyFields.length)]);
+  assert.equal(legacy.ok, true);
+  assert.equal(legacy.value.rows[0].length, OWNED_FIELDS.length);
+  assert.equal(legacy.value.rows[0][OWNED_FIELDS.indexOf('skillIds')], '');
+  // 列と行の幅が合わない・列の順番が違う・知らない列があるものは受け付けない
+  assert.deepEqual(upload(legacyFields, [row('p1')]).errors, [{ field: 'rows', code: 'INVALID_ROWS' }]);
+  assert.deepEqual(upload([...legacyFields].reverse(), [row('p1').slice(0, legacyFields.length)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
+  assert.deepEqual(upload([...OWNED_FIELDS, 'extra'], [[...row('p1'), '']]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
+  assert.deepEqual(upload(OWNED_FIELDS.slice(0, -2), [row('p1').slice(0, -2)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
+  // スキルの ID はほかの列より長く持てる（ほかの列は 200 字まで）
+  const long = upload(OWNED_FIELDS, [row('p1', { skillIds: 'x'.repeat(1200), nickname: 'y'.repeat(300) })]).value.rows[0];
+  assert.deepEqual([long[OWNED_FIELDS.indexOf('skillIds')].length, long[OWNED_FIELDS.indexOf('nickname')].length], [1000, 200]);
 });
 
 test('所持パル: 表計算の行は列名どおりで、式として解釈される文字列を無害にする', () => {

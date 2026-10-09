@@ -123,7 +123,7 @@ function recoverInto(malformed, errors, key) {
 // SaveParameter のうち使うものだけ読む（他はサイズで飛ばす）
 const PAL_FIELDS = [
   'CharacterID', 'NickName', 'Gender', 'Level', 'Rank', 'Talent_HP', 'Talent_Shot', 'Talent_Defense',
-  'PassiveSkillList', 'IsRarePal', 'IsPlayer', 'OwnerPlayerUId', 'OldOwnerPlayerUIds', 'SlotId',
+  'PassiveSkillList', 'EquipWaza', 'MasteredWaza', 'IsRarePal', 'IsPlayer', 'OwnerPlayerUId', 'OldOwnerPlayerUIds', 'SlotId',
 ];
 
 const uid = (v) => (typeof v === 'string' && v !== ZERO_GUID ? v : '');
@@ -134,6 +134,15 @@ function genderOf(v) {
   if (typeof v !== 'string') return '';
   const s = v.startsWith('EPalGenderType::') ? v.slice(16) : v;
   return s === 'Male' || s === 'Female' ? s : '';
+}
+
+/** 覚えているアクティブスキル（装備中の EquipWaza と、習得済みの MasteredWaza。片方にしかないものもある）の ID。装備中を先にする。 */
+function skillsOf(sp) {
+  const ids = [sp.EquipWaza, sp.MasteredWaza].flatMap((list) => (Array.isArray(list) ? list : []))
+    .filter((s) => typeof s === 'string')
+    .map((s) => (s.startsWith('EPalWazaID::') ? s.slice(12) : s))
+    .filter((s) => s && s !== 'None');
+  return [...new Set(ids)];
 }
 
 /**
@@ -152,6 +161,7 @@ function palFromParams(sp) {
     level: num(sp.Level, 1),
     rank: num(sp.Rank, 1),
     passives,
+    skills: skillsOf(sp),
     talent: { hp: num(sp.Talent_HP, 0), shot: num(sp.Talent_Shot, 0), defense: num(sp.Talent_Defense, 0) },
     isRare: sp.IsRarePal === true,
     isPlayer: sp.IsPlayer === true,
@@ -846,6 +856,7 @@ function palEntry(source, instanceId, p, loc) {
     level: p.level,
     rank: p.rank,
     passives: p.passives.slice(),
+    skills: p.skills.slice(),
     talent: { ...p.talent },
     isRare: p.isRare,
     ownerUid: p.ownerUid,
