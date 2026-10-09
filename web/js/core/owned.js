@@ -2,7 +2,10 @@
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
 import { OWNED_FIELDS, cleanOwnedFarms } from './owned-shared.js';
+import { normalizeQuery } from './kana.js';
 import humanList from '../../data/humans.js';
+import { ELEMENTS } from '../../data/pals.js';
+import { ACTIVE_SKILLS, PARTNER_SKILLS } from '../../data/skills.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
 const PREFIXES = ['BOSS_', 'GYM_', 'RAID_', 'PREDATOR_'];
@@ -85,6 +88,20 @@ export function playerName(players, uid) {
 
 const GENDERS = { Male: 'M', Female: 'F' };
 
+// 種類で決まる項目（キーワードで探す）。マスターにないもの（人間など）は空
+function speciesInfo(pal) {
+  return { en: pal?.en ?? '', elements: (pal?.el ?? []).map((element) => ELEMENTS[element] ?? element), partnerSkill: PARTNER_SKILLS[pal?.id] ?? '' };
+}
+
+// セーブとゲームの名前の表で、ID の大文字小文字が違うものがある（セーブの Railbolt と表の RailBolt）
+const activeSkillNames = new Map(Object.entries(ACTIVE_SKILLS).map(([id, name]) => [id.toLowerCase(), name]));
+
+// 覚えているアクティブスキル（ID と名前）。名前の表にないものは ID のまま出す
+function skillInfo(ids) {
+  const skills = ids.filter((id) => typeof id === 'string' && id);
+  return { skills, skillNames: skills.map((id) => activeSkillNames.get(id.toLowerCase()) ?? id) };
+}
+
 /**
  * スナップショットを画面用の一覧にする。
  * @param {object} snapshot buildSnapshot の結果
@@ -139,6 +156,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       palId,
       characterId: source.characterId,
       name: pal?.ja ?? (human?.ja || source.characterId),
+      ...speciesInfo(pal),
       human,
       no: pal?.no ?? Infinity,
       variant: Boolean(pal?.variant),
@@ -152,6 +170,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       stars: Math.max(0, Math.min(4, (Number(source.rank) || 1) - 1)),
       passives: passiveIds,
       passiveNames: passiveIds.map((id) => passiveById.get(id)?.ja ?? id),
+      // スキルを読むようになる前に読み込んだセーブには skills がない
+      ...skillInfo(source.skills ?? []),
       talent: {
         hp: Number(source.talent?.hp) || 0,
         shot: Number(source.talent?.shot) || 0,
@@ -184,6 +204,62 @@ export function hasPassives(pal, passiveIds) {
   return passiveIds.every((id) => pal.passives.includes(id));
 }
 
+const GENDER_WORDS = { M: ['オス', '♂'], F: ['メス', '♀'] };
+
+// キーワードで探す項目。数値（レベル・★・個体値）は専用の絞り込みがあるので含めない
+function keywordFields(pal) {
+  return {
+    name: [pal.name, pal.en, pal.characterId],
+    nickname: [pal.nickname],
+    elements: pal.elements ?? [],
+    partnerSkill: [pal.partnerSkill],
+    skills: pal.skillNames ?? [],
+    passives: pal.passiveNames,
+    gender: GENDER_WORDS[pal.gender] ?? [],
+    status: [pal.egg && 'タマゴ', pal.lucky && 'ラッキー', pal.alpha && 'アルファ'],
+    holder: [pal.holder],
+    place: [pal.placeLabel],
+    // 預けた人は拠点の個体にだけ出しているので、探すのもそれに合わせる
+    lastOwner: pal.place === 'base' ? [pal.lastOwner] : [],
+  };
+}
+
+// 入力のたびに全員の文字列をそろえ直さないよう、個体ごとに覚えておく
+const keywordCache = new WeakMap();
+
+function keywordTexts(pal) {
+  let texts = keywordCache.get(pal);
+  if (!texts) {
+    texts = Object.entries(keywordFields(pal)).flatMap(([field, values]) => values.filter(Boolean)
+      .map((value) => ({ field, value: String(value), text: normalizeQuery(value) })));
+    keywordCache.set(pal, texts);
+  }
+  return texts;
+}
+
+/**
+ * キーワードを、探す語に分ける（空白で区切ると、すべてを含む個体に絞る）。
+ * ひらがなとカタカナ・全角と半角・大文字と小文字の違いはそろえる。
+ */
+export function keywordTerms(query) {
+  return normalizeQuery(query).split(/\s+/).filter(Boolean);
+}
+
+/** 語がすべて、いずれかの項目に含まれるか。 */
+export function matchesKeywords(pal, terms) {
+  const texts = keywordTexts(pal);
+  return terms.every((term) => texts.some((entry) => entry.text.includes(term)));
+}
+
+/** 語を含む項目の値（項目ごと）。一覧で、一致した理由を出すのに使う。 */
+export function keywordHits(pal, terms) {
+  const hits = {};
+  for (const entry of keywordTexts(pal)) {
+    if (terms.some((term) => entry.text.includes(term))) (hits[entry.field] ??= []).push(entry.value);
+  }
+  return hits;
+}
+
 /**
  * 一覧の絞り込み。
  * @param {object[]} pals normalizeOwned の pals
@@ -194,7 +270,7 @@ export function hasPassives(pal, passiveIds) {
 export function filterOwned(pals, {
   holder = '', place = '', palId = '', passives = [], query = '', eggs = true, globals = true, stars = 0, talent = {},
 } = {}) {
-  const q = String(query).trim().toLocaleLowerCase('ja');
+  const terms = keywordTerms(query);
   const minStars = Number(stars) || 0;
   const min = { hp: Number(talent.hp) || 0, shot: Number(talent.shot) || 0, defense: Number(talent.defense) || 0 };
   return pals.filter((pal) => {
@@ -208,7 +284,7 @@ export function filterOwned(pals, {
     if (holder === 'global' && pal.place !== 'global') return false;
     if (palId && pal.palId !== palId) return false;
     if (passives.length && !hasPassives(pal, passives)) return false;
-    if (q && ![pal.name, pal.nickname, pal.characterId, ...pal.passiveNames].some((text) => String(text).toLocaleLowerCase('ja').includes(q))) return false;
+    if (terms.length && !matchesKeywords(pal, terms)) return false;
     return true;
   });
 }
@@ -350,7 +426,7 @@ export function sharedUpload(owned) {
       gender: pal.gender, level: String(pal.level), rank: String(pal.rank), stars: String(pal.stars),
       passiveIds: pal.passives.join('|'), talentHp: String(pal.talent.hp), talentShot: String(pal.talent.shot), talentDefense: String(pal.talent.defense),
       lucky: pal.lucky ? '1' : '', alpha: pal.alpha ? '1' : '', egg: pal.egg ? '1' : '', place: pal.place, placeLabel: pal.placeLabel,
-      holderUid: pal.holderUid, holder: pal.holder, baseId: pal.baseId, lastOwner: pal.lastOwner,
+      holderUid: pal.holderUid, holder: pal.holder, baseId: pal.baseId, lastOwner: pal.lastOwner, skillIds: pal.skills.join('|'),
     };
     for (let i = 0; i < 4; i++) value[`passive${i + 1}`] = pal.passiveNames[i] ?? '';
     return OWNED_FIELDS.map((field) => value[field] ?? '');
@@ -389,12 +465,15 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     list.push({
       id, palId, characterId: get('characterId'), human: pal ? null : resolveHuman(get('characterId')),
       name: pal?.ja ?? (resolveHuman(get('characterId'))?.ja || get('palName') || get('characterId')),
+      ...speciesInfo(pal),
       no: pal?.no ?? Infinity, variant: Boolean(pal?.variant), known: Boolean(pal), alpha: get('alpha') === '1', egg,
       nickname: get('nickname'), gender: ['M', 'F'].includes(get('gender')) ? get('gender') : '',
       level: egg ? 0 : Number(get('level')) || 1, rank: Number(get('rank')) || 1,
       stars: Math.max(0, Math.min(4, Number(get('stars')) || 0)),
       passives: passiveIds,
       passiveNames: passiveIds.map((passiveId, i) => passiveById.get(passiveId)?.ja ?? (get(`passive${i + 1}`) || passiveId)),
+      // skillIds は後から足した列。スキルを送らない古い画面から共有されたときは空
+      ...skillInfo(get('skillIds').split('|')),
       talent: { hp: Number(get('talentHp')) || 0, shot: Number(get('talentShot')) || 0, defense: Number(get('talentDefense')) || 0 },
       lucky: get('lucky') === '1', place: kind, placeGroup: placeGroup(kind), placeLabel: get('placeLabel') || PLACE_LABELS[kind],
       holderUid: get('holderUid'), holder: get('holder') || '不明', lastOwnerUid: '', lastOwner: get('lastOwner'), baseId: get('baseId'),

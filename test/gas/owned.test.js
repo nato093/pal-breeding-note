@@ -78,6 +78,37 @@ test('所持パル共有: 配合牧場をワールドの行に残して返す。
   assert.equal(old.call('ownedWorlds').worlds[0].farms, null);
 });
 
+test('所持パル共有: 覚えているアクティブスキル（skillIds 列）を残して返す。列のない古いシート・古い画面からの共有でも動き、setup をやり直すと列を足す', () => {
+  const skillAt = OWNED_FIELDS.indexOf('skillIds');
+  const env = fixture();
+  env.call('ownedUpload', upload(WORLD_A, [row('p1', { skillIds: 'AirCanon|PowerShot' })]));
+  assert.equal(env.call('owned', { worldId: WORLD_A }).rows[0][skillAt], 'AirCanon|PowerShot');
+  // 列を足す前のシート（skillIds 列がない）
+  const old = fixture();
+  const sheet = old.pals();
+  const at = sheet.data[0].indexOf('skillIds');
+  for (const line of sheet.data) line.splice(at, 1);
+  const stored = old.call('ownedUpload', upload(WORLD_A, [row('p1', { skillIds: 'AirCanon' })]));
+  assert.equal(stored.stored, true);
+  // 列がないので書かずに、空として返す（ほかの列はそのまま）
+  const before = old.call('owned', { worldId: WORLD_A });
+  assert.deepEqual(before.columns, OWNED_FIELDS);
+  assert.deepEqual([before.rows[0][0], before.rows[0][skillAt]], ['p1', '']);
+  // skillIds 列を知らない古い画面（開いたままのページ）からの共有も受け付ける
+  const legacyFields = OWNED_FIELDS.slice(0, skillAt);
+  const legacy = old.call('ownedUpload', upload(WORLD_A, [row('p2').slice(0, skillAt)], '2026-10-05T11:00:00.000Z', { columns: legacyFields }));
+  assert.equal(legacy.stored, true);
+  assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[skillAt]]), [['p2', '']]);
+  // 所有者が setup を実行し直すと、既存の列とデータはそのままで、末尾に skillIds 列が足される
+  old.gas.setup();
+  assert.equal(sheet.data[0][sheet.data[0].length - 1], 'skillIds');
+  assert.equal(old.call('owned', { worldId: WORLD_A }).rows[0][0], 'p2');
+  old.call('ownedUpload', upload(WORLD_A, [row('p3', { skillIds: 'FireBall' })], '2026-10-05T12:00:00.000Z'));
+  assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[skillAt]]), [['p3', 'FireBall']]);
+  old.gas.setup();
+  assert.equal(sheet.data[0].filter((header) => header === 'skillIds').length, 1);
+});
+
 test('所持パル共有: 同じワールドは丸ごと置き換え（消えたパルは消える）、他のワールドは残す', () => {
   const env = fixture({ spreadsheet: new FakeSpreadsheet({ stripQuotes: true }) });
   env.call('ownedUpload', upload(WORLD_A, [row('a1'), row('a2'), row('a3')]));

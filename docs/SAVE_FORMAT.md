@@ -71,11 +71,15 @@
 
 ## 使う項目
 
-`CharacterID`・`NickName`・`Gender`・`Level`（ないときは 1）・`Rank`（凝縮。ないときは 1 = 星なし）・`Talent_HP` / `Talent_Shot` / `Talent_Defense`（個体値）・`PassiveSkillList`（パッシブの内部名）・`IsRarePal`（ラッキー）・`OwnerPlayerUId`・`OldOwnerPlayerUIds`・`SlotId`。
+`CharacterID`・`NickName`・`Gender`・`Level`（ないときは 1）・`Rank`（凝縮。ないときは 1 = 星なし）・`Talent_HP` / `Talent_Shot` / `Talent_Defense`（個体値）・`PassiveSkillList`（パッシブの内部名）・`EquipWaza` / `MasteredWaza`（アクティブスキル）・`IsRarePal`（ラッキー）・`OwnerPlayerUId`・`OldOwnerPlayerUIds`・`SlotId`。
+
+`EquipWaza`（装備中）と `MasteredWaza`（習得済み）は、どちらも `EPalWazaID::<ID>` の EnumProperty の配列。手元のセーブ（1561 体）では、`EquipWaza` は全員にあり、`MasteredWaza` は 1039 体にだけあった。片方にしかないスキルもあるため、2 つを合わせたもの（装備中を先、重複を除く）を「覚えているアクティブスキル」とする（2026-10-10）。
 
 パルボックスの個体の `SlotId.SlotIndex` は、プレイヤーごとのパルボックスの通し番号（0 始まり・重複なし）。1 ページ 30 枠・横 6 列で、ページ＝番号÷30（切り捨て）＋1、ページ内の行・列は余りから求める（2026-10-08 にゲーム内で、29 が 1 ページ目の最後、30 が 2 ページ目の最初、59 が 2 ページ目の最後、60 が 3 ページ目の最初と確認。ゲームの設定は `PalBoxPageNum`・`PalBoxSlotNumInPage`）。計算は `web/js/core/owned.js` の `palboxPosition`。
 
 パッシブの日本語名は PalCalc のデータ（`npm run build:passives`）から引く。ゲーム本体の `DT_SkillNameText_Common` と照合し、名前のある 488 件はすべて一致した（2026-10-05）。
+
+アクティブスキルとパートナースキルの日本語名は、ゲーム本体の同じ `DT_SkillNameText_Common` の `ACTION_SKILL_<ID>`・`PARTNERSKILL_<パル ID>` の行から取り出す（`npm run extract:skills` → `web/data/skills.js`）。名前が `-` の行は捨てる。パートナースキルの行がないナエモチ（花）（`PlantSlime_Flower`）は、ナエモチ（`PlantSlime`）の名前を使う。
 
 ## 注意
 

@@ -55,12 +55,13 @@ function actionOwned_(req, env) {
   var entry = readOwnedWorlds_(env).worlds.find(function (item) { return item.world.worldId === worldId; });
   var serverTime = new Date().toISOString();
   if (!entry) return { world: null, columns: OWNED_FIELDS, rows: [], serverTime: serverTime };
-  var table = readTable_(sheetFor_(env, 'ownedPals'), ownedPalHeaders_());
+  var table = readTable_(sheetFor_(env, 'ownedPals'), ownedPalRequiredHeaders_());
   var rows = [];
   table.rows.forEach(function (values) {
     if (String(values[table.index.worldId]) !== worldId) return;
     rows.push(OWNED_FIELDS.map(function (field) {
-      var value = values[table.index[field]];
+      // 後から足した列がまだないシートでは空
+      var value = Object.prototype.hasOwnProperty.call(table.index, field) ? values[table.index[field]] : '';
       return String(value == null ? '' : value);
     }));
   });
@@ -88,7 +89,7 @@ function actionOwnedUpload_(req, env) {
       return { stored: false, reason: 'STALE', world: existing.world, serverTime: serverTime };
     }
     var sheet = sheetFor_(env, 'ownedPals');
-    var table = readTable_(sheet, ownedPalHeaders_());
+    var table = readTable_(sheet, ownedPalRequiredHeaders_());
     var width = table.headers.length;
     var kept = table.rows.filter(function (values) {
       return String(values[table.index.worldId]) !== input.worldId && values.some(function (value) { return value !== '' && value != null; });
@@ -97,7 +98,10 @@ function actionOwnedUpload_(req, env) {
       var line = table.headers.map(function () { return ''; });
       line[table.index.worldId] = input.worldId;
       line[table.index.updatedAt] = serverTime;
-      OWNED_FIELDS.forEach(function (field, i) { line[table.index[field]] = ownedSheetValue_(cells[i]); });
+      // 後から足した列がまだないシートには、その列を書かない
+      OWNED_FIELDS.forEach(function (field, i) {
+        if (Object.prototype.hasOwnProperty.call(table.index, field)) line[table.index[field]] = ownedSheetValue_(cells[i]);
+      });
       return line;
     });
     var all = kept.concat(added);
@@ -133,7 +137,7 @@ function actionOwnedDelete_(req, env) {
     var current = readOwnedWorlds_(env);
     var existing = current.worlds.find(function (item) { return item.world.worldId === worldId; });
     var sheet = sheetFor_(env, 'ownedPals');
-    var table = readTable_(sheet, ownedPalHeaders_());
+    var table = readTable_(sheet, ownedPalRequiredHeaders_());
     var width = table.headers.length;
     var kept = table.rows.filter(function (values) {
       return String(values[table.index.worldId]) !== worldId && values.some(function (value) { return value !== '' && value != null; });
