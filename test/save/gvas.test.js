@@ -303,7 +303,10 @@ test('palworld: synthetic world → snapshot', async () => {
       [P1, id(101), charBlob((s) => s.bool('IsPlayer', true).str('NickName', 'Alice').byte('Level', 10))],
       [P1, id(102), charBlob((s) => {
         s.name('CharacterID', 'NightFox').enumProp('Gender', 'EPalGenderType', 'EPalGenderType::Female').byte('Rank', 3)
-          .byte('Talent_HP', 50).array('PassiveSkillList', 'NameProperty', ['Rare', 'Legend']).bool('IsRarePal', true);
+          .byte('Talent_HP', 50).array('PassiveSkillList', 'NameProperty', ['Rare', 'Legend']).bool('IsRarePal', true)
+          // 覚えているアクティブスキルは、装備中と習得済みを合わせる（片方にしかないものもある）
+          .array('EquipWaza', 'EnumProperty', ['EPalWazaID::AirCanon', 'EPalWazaID::Unique_NightFox_Thunder'])
+          .array('MasteredWaza', 'EnumProperty', ['EPalWazaID::AirCanon', 'EPalWazaID::PowerShot']);
         owner(s, P1);
         s.structArray('OldOwnerPlayerUIds', 'Guid', [ZERO_GUID, P1], (e, g) => e.guid(g));
         slotId(s, C_PARTY, 2);
@@ -417,12 +420,15 @@ test('palworld: synthetic world → snapshot', async () => {
   const byChar = Object.fromEntries(snap.pals.map((p) => [p.characterId, p]));
   assert.deepEqual(byChar.NightFox, {
     instanceId: id(102), source: 'level', characterId: 'NightFox', nickname: '', gender: 'Female', level: 1, rank: 3,
-    passives: ['Rare', 'Legend'], talent: { hp: 50, shot: 0, defense: 0 }, isRare: true, ownerUid: P1, lastOwnerUid: P1,
+    passives: ['Rare', 'Legend'], skills: ['AirCanon', 'Unique_NightFox_Thunder', 'PowerShot'],
+    talent: { hp: 50, shot: 0, defense: 0 }, isRare: true, ownerUid: P1, lastOwnerUid: P1,
     location: { kind: 'party', playerUid: P1, baseId: '', containerId: C_PARTY, slotIndex: 2, mapObjectId: '', itemId: '', position: null },
   });
   assert.equal(byChar.SheepBall.location.kind, 'base');
   assert.equal(byChar.SheepBall.location.baseId, BASE1);
   assert.equal(byChar.SheepBall.level, 7);
+  // スキルのない個体は空
+  assert.deepEqual(byChar.SheepBall.skills, []);
   assert.equal(byChar.ChickenPal.location.kind, 'unknown');
   assert.deepEqual([byChar.Anubis.source, byChar.Anubis.location.kind, byChar.Anubis.location.slotIndex, byChar.Anubis.location.playerUid], ['dps', 'dps', 1, P1]);
   assert.deepEqual({ ...byChar.FoxMage.location }, {
