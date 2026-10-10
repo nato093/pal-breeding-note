@@ -582,3 +582,36 @@ test('理想個体画面: 牧場の中身が最後に変わってから新しく
   assert.match(again.element.querySelector('.ideal-farm').textContent, /そのまま（おすすめ 1 番）/);
   again.destroy();
 });
+
+test('理想個体画面: 牧場に置かない組（上から牧場の数より下）や、この目標の組を置いた牧場がないときは「変更あり」を付けない', (t) => {
+  install(t);
+  const list = [
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 100 }),
+    palworldPal('f1', 'SheepBall', 'Female', [], { hp: 100, shot: 100, defense: 100 }),
+  ];
+  // 50 の ♂ と ♀ を孵化させて受け取った。おすすめの 2 番に入るが、牧場は 1 か所で 1 番のまま
+  const hatched = [
+    palworldPal('m2', 'SheepBall', 'Male', [], { hp: 50, shot: 50, defense: 50 }),
+    palworldPal('f2', 'SheepBall', 'Female', [], { hp: 50, shot: 50, defense: 50 }),
+  ];
+  const owned = fakeOwned(list);
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }];
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  owned.state.owned = fakeOwned([...list, ...hatched]).state.owned;
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }];
+  owned.emit();
+  assert.equal(cards(view).length, 2);
+  assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
+  assert.doesNotMatch(view.element.querySelector('.ideal-farms').textContent, /新しく入った組/);
+  assert.match(view.element.querySelector('.ideal-farm').textContent, /そのまま（おすすめ 1 番）/);
+  view.destroy();
+  // この目標の組を置いた牧場がないときは、新しい組がおすすめに入っても付けない
+  const empty = fakeOwned(list);
+  empty.state.owned.farms = [];
+  const plain = idealView(context(empty, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  empty.state.owned = fakeOwned([...list, ...hatched]).state.owned;
+  empty.state.owned.farms = [];
+  empty.emit();
+  assert.equal(plain.element.querySelectorAll('.ideal-changed').length, 0);
+  plain.destroy();
+});
