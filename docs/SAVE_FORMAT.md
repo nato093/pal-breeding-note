@@ -81,6 +81,8 @@
 
 アクティブスキルとパートナースキルの日本語名は、ゲーム本体の同じ `DT_SkillNameText_Common` の `ACTION_SKILL_<ID>`・`PARTNERSKILL_<パル ID>` の行から取り出す（`npm run extract:skills` → `web/data/skills.js`）。名前が `-` の行は捨てる。パートナースキルの行がないナエモチ（花）（`PlantSlime_Flower`）は、ナエモチ（`PlantSlime`）の名前を使う。
 
+説明文は、アクティブスキルが `DT_SkillDescText_Common` の `ACTION_SKILL_<ID>`、パートナースキルが `DT_PalFirstActivatedInfoText` の `PAL_FIRST_SPAWN_DESC_<パル ID>`。文の中の参照（`<characterName id=|…|/>`・`<uiCommon id=|COMMON_ELEMENT_NAME_Dark|…/>` など）は、`DT_PalNameText_Common`（`PAL_NAME_`）・`DT_ItemNameText_Common`（`ITEM_NAME_`）・`DT_MapObjectNameText_Common`（`MAPOBJECT_NAME_`）・`DT_SkillNameText_Common`（`ACTION_SKILL_`）・`DT_UI_Common_Text_Common` から名前を引いて置き換える。アイコン（`<img …/>`）と文字の飾り（`<Status_Up>…</>`）は外し、レベルで変わる数値（`{Passive1_EffectValue1}` など）は ○、レベルで変わる追記（`{ReferenceMsgId_…}`。`DT_PartnerSkillAppendText` の行で、レベル 1 は空）は外す（2026-10-10）。
+
 ## 注意
 
 - ブラウザ（Chrome・Edge）は `AppData` 配下のフォルダを File System Access API で開けない（フォルダのドラッグ＆ドロップも同じ制限。Chromium の blocklist で `DIR_LOCAL_APP_DATA` が `kBlockAllChildren`）。ただし、ドロップした**ファイル**はこの確認を受けず、`DataTransferItem.getAsFileSystemHandle()` のハンドルを IndexedDB に保存して後から読み直せる（Chrome 154 で確認。ゲームが保存し直した後も同じハンドルで最新を読める。「毎回のアクセスを許可」を選ぶと、開き直しても確認なしで読める）。自動の読み込みはこの仕組みを使う（`web/js/save/handles.js`）。

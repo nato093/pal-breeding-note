@@ -7,7 +7,7 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
-  keywordTerms, keywordHits,
+  keywordTerms, keywordNotes,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 
@@ -110,7 +110,7 @@ test('所持パル: 所持者・場所・パル・パッシブ・キーワード
   assert.equal(passiveCounts(owned.pals).get('CraftSpeed_up2'), 3);
 });
 
-test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（数値は含めない）', () => {
+test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（レベル・★・個体値は含めない）', () => {
   const list = normalizeOwned({ ...snapshot, pals: [
     pal('a', 'SheepBall', { kind: 'party' }, { passives: ['Rare'], isRare: true, level: 30, skills: ['Unique_SheepBall_Roll', 'AirCanon'] }),
     pal('b', 'BOSS_Kitsunebi', { kind: 'palbox', playerUid: P2, slotIndex: 31 }, { gender: 'Male', skills: ['FireBall'] }),
@@ -148,16 +148,50 @@ test('所持パル: キーワードはすべての項目から探し、空白で
   assert.deepEqual(ids('猫の手 拠点'), ['c']);
   assert.deepEqual(ids('炎 ラッキー'), []);
   assert.deepEqual(ids('  '), ['a', 'b', 'c', 'd']);
-  // レベル・★・個体値は専用の絞り込みがあるので、キーワードでは探さない
+  // レベル・★・個体値は専用の絞り込みがあるので、キーワードでは探さない（a はレベル 30。パッシブの説明の「+15%」などの数値は探す）
   assert.deepEqual(ids('30'), []);
-  // 一致した理由: 語を含む項目の値を項目ごとに返す
-  assert.deepEqual(keywordHits(a, keywordTerms('きゃのん モコ')), { name: ['モコロン'], partnerSkill: ['モコモコの盾'], skills: ['コロコロモコロン', 'エアーキャノン'] });
-  assert.deepEqual(keywordHits(b, keywordTerms('ファイ')), { partnerSkill: ['だっこファイヤー'], skills: ['ファイアーボール'] });
+  assert.deepEqual(ids('+15%'), ['a']);
+  // 一致した理由: 一覧に出していないスキルは名前で一致したら出す（説明は付けない）。名前や属性など一覧に出ている項目は出さない
+  const notes = (item, query) => keywordNotes(item, keywordTerms(query));
+  assert.deepEqual(notes(a, 'きゃのん'), [{ label: 'アクティブスキル', name: 'エアーキャノン', desc: '' }]);
+  assert.deepEqual(notes(b, 'ファイ').map((note) => [note.label, note.name]), [['アクティブスキル', 'ファイアーボール'], ['パートナースキル', 'だっこファイヤー']]);
+  assert.deepEqual(notes(a, '無 ラッキー 希少'), []);
+});
+
+test('所持パル: パートナースキル・アクティブスキル・パッシブの説明文でも探し、説明で一致したときは説明を添えて理由に出す', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('a', 'SheepBall', { kind: 'party' }, { passives: ['Rare', 'CraftSpeed_up2'], skills: ['AirCanon'] }),
+    pal('g', 'GhostDragon', { kind: 'party' }, { skills: ['PowerShot'] }),
+    pal('h', 'Male_Soldier01', { kind: 'party' }),
+  ] }, { pals, passives }).pals;
+  const [a, g, h] = list;
+  // 説明は、ゲームの表の参照（属性名・パル名など）を名前に置き換え、レベルで変わる数値は ○
+  assert.equal(g.partnerSkill, '自由な翼竜');
+  assert.equal(g.partnerSkillDesc, '背中に乗って空を飛ぶことができる。このパルの攻撃力と移動速度は、手持ちにいるレイバーン以外の竜属性または闇属性パルの数×○%増加する。');
+  assert.equal(a.skillDescs[0], '高速で飛ぶ空気の塊を発射する。');
+  assert.deepEqual(a.passiveDescs, ['攻撃 +15% 防御 +15% 作業速度 +20%', '作業速度 +50%']);
+  assert.deepEqual([h.partnerSkillDesc, h.skillDescs, h.passiveDescs], ['', [], []]);
+  const ids = (query) => filterOwned(list, { query }).map((p) => p.id).sort();
+  assert.deepEqual(ids('闇属性'), ['g']);
+  assert.deepEqual(ids('空気の塊'), ['a']);
+  assert.deepEqual(ids('作業速度'), ['a']);
+  assert.deepEqual(ids('盾 作業速度'), ['a']);
+  // 説明で一致したときは、名前と説明を出す。パッシブは名前が一覧に出ているので、説明で一致したときだけ出す
+  const notes = (item, query) => keywordNotes(item, keywordTerms(query));
+  assert.deepEqual(notes(g, '闇属性'), [{ label: 'パートナースキル', name: '自由な翼竜', desc: g.partnerSkillDesc }]);
+  assert.deepEqual(notes(a, '作業速度 空気'), [
+    { label: 'アクティブスキル', name: 'エアーキャノン', desc: '高速で飛ぶ空気の塊を発射する。' },
+    { label: 'パッシブ', name: '希少', desc: '攻撃 +15% 防御 +15% 作業速度 +20%' },
+    { label: 'パッシブ', name: '職人気質', desc: '作業速度 +50%' },
+  ]);
+  assert.deepEqual(notes(a, '職人気質'), []);
+  // 名前と説明の両方で一致したときは、説明も添える
+  assert.deepEqual(notes(a, 'エアー 空気'), [{ label: 'アクティブスキル', name: 'エアーキャノン', desc: '高速で飛ぶ空気の塊を発射する。' }]);
 });
 
 test('所持パル: スキルを読む前に読み込んだセーブ（skills がない）でも、スキルなしとして扱う', () => {
   const old = normalizeOwned({ ...snapshot, pals: [pal('a', 'SheepBall', { kind: 'party' })] }, { pals, passives }).pals[0];
-  assert.deepEqual([old.skills, old.skillNames, old.partnerSkill], [[], [], 'モコモコの盾']);
+  assert.deepEqual([old.skills, old.skillNames, old.skillDescs, old.partnerSkill], [[], [], [], 'モコモコの盾']);
   // 人間のキャラクターには属性もパートナースキルもない
   const human = normalizeOwned({ ...snapshot, pals: [pal('e', 'Male_Soldier01', {})] }, { pals, passives }).pals[0];
   assert.deepEqual([human.en, human.elements, human.partnerSkill], ['', [], '']);
