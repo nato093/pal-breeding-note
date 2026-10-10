@@ -163,7 +163,7 @@ function explanation() {
     '「個体値厳選組」: それ以外の組です。欲しいパッシブを候補のだれも持っていない（配合では作れない）ときは、全部この組になります。パッシブは後から手に入れる前提で見ずに、個体値の目標がそろう子が産まれるまでのタマゴの平均（同じ種族なら子を入れ替えながら）の少ない順です。',
     'パッシブの条件を満たす子が産まれない組（スペシャルケーキで 4 個未満の「欲しいものだけ」など）は出しません。',
     '配合牧場: 今この目標の組を置いている牧場（K か所）を、おすすめの上から K 組と比べます。入っていれば「そのまま」、入っていなければ、まだどの牧場にもない組への交換を勧めます（親の片方が同じ組を優先し、1 体の入れ替えで済むようにします）。空いている牧場に何を置くかは、おすすめの順を見て決めてください。',
-    '「変更あり」: 牧場の中身が最後に変わったときのおすすめになかった組に付きます。牧場の親を入れ替えたことがセーブから分かると消えます。',
+    '「変更あり」: 牧場に置く組（この目標の組を置いている牧場が K か所なら、おすすめの上から K 組）のうち、牧場の中身が最後に変わったときには上から K 組に入っていなかった組に付きます。それより下の（牧場に置かない）組や、この目標の組を置いた牧場がないときは付きません。牧場の親を入れ替えたことがセーブから分かると消えます。',
     'キノコケーキ・豪華野菜ケーキでは、目標より下の値が +1〜5 で段階的に上がるため、厳密には計算できません。目標の 6 下までは届くとみなした目安で並べ、目標の 1 下までしか届かないとみなした上限（実際はこれより少ない）を「多くても」として添えます。目安は、目標の少し下の親どうしでは実際に近く、ずっと下の親では多めに出ます。',
     '開いている間は 20 秒ごとにセーブを確かめ、孵化させて受け取ったパルも候補に入れて並べ直します（参加している人は、ホストが共有した内容で並べ直します。牧場の中身もホストの共有から分かります）。',
     '突然変異やアルファの子は数えていません。Palworld v1.0.5 のゲームの仕組みで計算しています。',
@@ -408,7 +408,7 @@ export function idealView(context, route) {
     if (!advice?.length) return;
     const swaps = advice.filter((item) => item.status === 'swap').length;
     farmBox.append(el('h3', '', `配合牧場（この目標の組を置いている ${advice.length} か所 · 交換推奨 ${swaps} か所）`));
-    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、おすすめに新しく入った組が ${changed} 組あります（「変更あり」）。`));
+    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、牧場に置く組（おすすめの上から ${advice.length} 組）に新しく入った組が ${changed} 組あります（「変更あり」）。`));
     const list = el('ul', 'ideal-farm-list');
     for (const item of advice) {
       const row = el('li', `ideal-farm ${item.status}`);
@@ -480,7 +480,7 @@ export function idealView(context, route) {
     if (Array.isArray(farms)) {
       const id = JSON.stringify([state.env ?? '', owned?.state?.meta?.worldId ?? '', to, [...passives].sort(), conditions.mode,
         TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
-      const next = planChanges(planMemory.get(id), farmSignature(placedFarms), result.pairs);
+      const next = planChanges(planMemory.get(id), farmSignature(placedFarms), result.pairs, placedFarms.length);
       if (next.reset) planMemory.set(id, next.baseline);
       changed = next.changed;
     }
