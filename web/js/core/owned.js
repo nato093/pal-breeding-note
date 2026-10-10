@@ -5,7 +5,7 @@ import { OWNED_FIELDS, cleanOwnedFarms } from './owned-shared.js';
 import { normalizeQuery } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
-import { ACTIVE_SKILLS, PARTNER_SKILLS } from '../../data/skills.js';
+import { ACTIVE_SKILLS, PARTNER_SKILLS, ACTIVE_SKILL_DESCS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
 const PREFIXES = ['BOSS_', 'GYM_', 'RAID_', 'PREDATOR_'];
@@ -90,16 +90,25 @@ const GENDERS = { Male: 'M', Female: 'F' };
 
 // 種類で決まる項目（キーワードで探す）。マスターにないもの（人間など）は空
 function speciesInfo(pal) {
-  return { en: pal?.en ?? '', elements: (pal?.el ?? []).map((element) => ELEMENTS[element] ?? element), partnerSkill: PARTNER_SKILLS[pal?.id] ?? '' };
+  return {
+    en: pal?.en ?? '', elements: (pal?.el ?? []).map((element) => ELEMENTS[element] ?? element),
+    partnerSkill: PARTNER_SKILLS[pal?.id] ?? '', partnerSkillDesc: PARTNER_SKILL_DESCS[pal?.id] ?? '',
+  };
 }
 
-// セーブとゲームの名前の表で、ID の大文字小文字が違うものがある（セーブの Railbolt と表の RailBolt）
-const activeSkillNames = new Map(Object.entries(ACTIVE_SKILLS).map(([id, name]) => [id.toLowerCase(), name]));
+// セーブとゲームの表で、ID の大文字小文字が違うものがある（セーブの Railbolt と名前の表の RailBolt）
+const byLowerId = (object) => new Map(Object.entries(object).map(([id, text]) => [id.toLowerCase(), text]));
+const activeSkillNames = byLowerId(ACTIVE_SKILLS);
+const activeSkillDescs = byLowerId(ACTIVE_SKILL_DESCS);
 
-// 覚えているアクティブスキル（ID と名前）。名前の表にないものは ID のまま出す
+// 覚えているアクティブスキル（ID と名前・説明）。名前の表にないものは ID のまま出す
 function skillInfo(ids) {
   const skills = ids.filter((id) => typeof id === 'string' && id);
-  return { skills, skillNames: skills.map((id) => activeSkillNames.get(id.toLowerCase()) ?? id) };
+  return {
+    skills,
+    skillNames: skills.map((id) => activeSkillNames.get(id.toLowerCase()) ?? id),
+    skillDescs: skills.map((id) => activeSkillDescs.get(id.toLowerCase()) ?? ''),
+  };
 }
 
 /**
@@ -170,6 +179,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       stars: Math.max(0, Math.min(4, (Number(source.rank) || 1) - 1)),
       passives: passiveIds,
       passiveNames: passiveIds.map((id) => passiveById.get(id)?.ja ?? id),
+      passiveDescs: passiveIds.map((id) => passiveById.get(id)?.desc ?? ''),
       // スキルを読むようになる前に読み込んだセーブには skills がない
       ...skillInfo(source.skills ?? []),
       talent: {
@@ -206,15 +216,19 @@ export function hasPassives(pal, passiveIds) {
 
 const GENDER_WORDS = { M: ['オス', '♂'], F: ['メス', '♀'] };
 
-// キーワードで探す項目。数値（レベル・★・個体値）は専用の絞り込みがあるので含めない
+// キーワードで探す項目。数値（レベル・★・個体値）は専用の絞り込みがあるので含めない。
+// スキルとパッシブは、名前と説明を同じ順番で並べる（一致した理由を出すときに、説明から名前を引く）
 function keywordFields(pal) {
   return {
     name: [pal.name, pal.en, pal.characterId],
     nickname: [pal.nickname],
     elements: pal.elements ?? [],
     partnerSkill: [pal.partnerSkill],
+    partnerSkillDesc: [pal.partnerSkillDesc],
     skills: pal.skillNames ?? [],
+    skillDescs: pal.skillDescs ?? [],
     passives: pal.passiveNames,
+    passiveDescs: pal.passiveDescs ?? [],
     gender: GENDER_WORDS[pal.gender] ?? [],
     status: [pal.egg && 'タマゴ', pal.lucky && 'ラッキー', pal.alpha && 'アルファ'],
     holder: [pal.holder],
@@ -230,8 +244,9 @@ const keywordCache = new WeakMap();
 function keywordTexts(pal) {
   let texts = keywordCache.get(pal);
   if (!texts) {
-    texts = Object.entries(keywordFields(pal)).flatMap(([field, values]) => values.filter(Boolean)
-      .map((value) => ({ field, value: String(value), text: normalizeQuery(value) })));
+    texts = Object.entries(keywordFields(pal)).flatMap(([field, values]) => values
+      .map((value, index) => ({ field, index, text: value ? normalizeQuery(value) : '' }))
+      .filter((entry) => entry.text));
     keywordCache.set(pal, texts);
   }
   return texts;
@@ -251,13 +266,32 @@ export function matchesKeywords(pal, terms) {
   return terms.every((term) => texts.some((entry) => entry.text.includes(term)));
 }
 
-/** 語を含む項目の値（項目ごと）。一覧で、一致した理由を出すのに使う。 */
-export function keywordHits(pal, terms) {
-  const hits = {};
+// 一覧に出していない項目のうち、一致したら行に出すもの（見出し・名前の項目・説明の項目）
+const NOTE_FIELDS = [
+  { label: 'アクティブスキル', names: (pal) => pal.skillNames ?? [], descs: (pal) => pal.skillDescs ?? [], field: 'skills', descField: 'skillDescs' },
+  { label: 'パートナースキル', names: (pal) => [pal.partnerSkill], descs: (pal) => [pal.partnerSkillDesc], field: 'partnerSkill', descField: 'partnerSkillDesc' },
+  // パッシブの名前は一覧に出ているので、説明で一致したときだけ出す
+  { label: 'パッシブ', names: (pal) => pal.passiveNames, descs: (pal) => pal.passiveDescs ?? [], field: '', descField: 'passiveDescs' },
+];
+
+/**
+ * 一致した理由として行に出すもの。スキルは名前か説明で、パッシブは説明で語を含むもの。説明は、説明で一致したときだけ付ける。
+ * @returns {{ label: string, name: string, desc: string }[]}
+ */
+export function keywordNotes(pal, terms) {
+  const hit = new Set();
   for (const entry of keywordTexts(pal)) {
-    if (terms.some((term) => entry.text.includes(term))) (hits[entry.field] ??= []).push(entry.value);
+    if (terms.some((term) => entry.text.includes(term))) hit.add(`${entry.field}:${entry.index}`);
   }
-  return hits;
+  const notes = [];
+  for (const { label, names, descs, field, descField } of NOTE_FIELDS) {
+    const descList = descs(pal);
+    names(pal).forEach((name, index) => {
+      const byDesc = hit.has(`${descField}:${index}`);
+      if (name && (byDesc || hit.has(`${field}:${index}`))) notes.push({ label, name, desc: byDesc ? descList[index] : '' });
+    });
+  }
+  return notes;
 }
 
 /**
@@ -472,6 +506,7 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       stars: Math.max(0, Math.min(4, Number(get('stars')) || 0)),
       passives: passiveIds,
       passiveNames: passiveIds.map((passiveId, i) => passiveById.get(passiveId)?.ja ?? (get(`passive${i + 1}`) || passiveId)),
+      passiveDescs: passiveIds.map((passiveId) => passiveById.get(passiveId)?.desc ?? ''),
       // skillIds は後から足した列。スキルを送らない古い画面から共有されたときは空
       ...skillInfo(get('skillIds').split('|')),
       talent: { hp: Number(get('talentHp')) || 0, shot: Number(get('talentShot')) || 0, defense: Number(get('talentDefense')) || 0 },
