@@ -70,15 +70,18 @@ export function farmSignature(farms) {
 }
 
 /**
- * 「変更あり」の判定。基準（牧場の中身が最後に変わったときの計画の組）になかった組を返す。
+ * 「変更あり」の判定。牧場に置く組（対象の牧場が size か所なら、計画の上から size 組）のうち、
+ * 基準（牧場の中身が最後に変わったときの計画）の上から size 組になかった組を返す。それより下の組は牧場に関係しないので返さない。
  * 牧場の中身が基準と違えば、今の計画を新しい基準にする（印は消える）。
  * @param {{ farms: string, pairs: string[] } | null} baseline
+ * @param {number} size 対象の牧場の数
  * @returns {{ baseline: { farms: string, pairs: string[] }, changed: Set<string>, reset: boolean }}
  */
-export function planChanges(baseline, signature, pairs) {
+export function planChanges(baseline, signature, pairs, size) {
   const keys = pairs.map((pair) => pairKey(pair.male, pair.female));
   if (!baseline || baseline.farms !== signature) return { baseline: { farms: signature, pairs: keys }, changed: new Set(), reset: true };
-  const before = new Set(baseline.pairs);
-  return { baseline, changed: new Set(keys.filter((key) => !before.has(key))), reset: false };
+  // 牧場の中身が同じなら、対象の牧場の数も基準と同じ
+  const before = new Set(baseline.pairs.slice(0, size));
+  return { baseline, changed: new Set(keys.slice(0, size).filter((key) => !before.has(key))), reset: false };
 }
 

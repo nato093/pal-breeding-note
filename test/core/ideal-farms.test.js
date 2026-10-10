@@ -46,18 +46,27 @@ test('配合牧場: おすすめの上から牧場の数の組と比べ、入っ
   assert.deepEqual(third.map((item) => [item.status, item.rank, item.to]), [['swap', 2, 1], ['keep', 0, undefined]]);
 });
 
-test('配合牧場: 「変更あり」は、牧場の中身が最後に変わったときのおすすめになかった組。牧場の中身が変わったら基準を作り直す', () => {
-  const [m1, m2, f1, f2] = ['m1', 'm2', 'f1', 'f2'].map((id) => pal(id, 'X', id[0] === 'm' ? 'M' : 'F'));
+test('配合牧場: 「変更あり」は、牧場に置く組（上から牧場の数の組）のうち、牧場の中身が最後に変わったときの上から同じ数の組になかった組。牧場の中身が変わったら基準を作り直す', () => {
+  const [m1, m2, m3, f1, f2, f3] = ['m1', 'm2', 'm3', 'f1', 'f2', 'f3'].map((id) => pal(id, 'X', id[0] === 'm' ? 'M' : 'F'));
   const farms = [{ id: 'A', baseId: 'b1', male: m1, female: f1 }];
   const signature = farmSignature(farms);
   // 牧場の並びが違っても同じ中身なら同じ
   assert.equal(farmSignature([...farms, { id: 'B', baseId: 'b1', male: m2, female: f2 }]), farmSignature([{ id: 'B', baseId: 'b1', male: m2, female: f2 }, ...farms]));
-  const first = planChanges(null, signature, [pair(m1, f1)]);
+  const first = planChanges(null, signature, [pair(m1, f1)], 1);
   assert.deepEqual([first.reset, [...first.changed], first.baseline], [true, [], { farms: signature, pairs: ['m1|f1'] }]);
-  // 新しい個体が加わって、おすすめが変わった（牧場はそのまま）
-  const later = planChanges(first.baseline, signature, [pair(m2, f2), pair(m1, f1)]);
+  // 新しい個体が加わって、牧場に置く 1 番が変わった（牧場はそのまま）
+  const later = planChanges(first.baseline, signature, [pair(m2, f2), pair(m1, f1)], 1);
   assert.deepEqual([later.reset, [...later.changed]], [false, [planPairKey(m2, f2)]]);
+  // 新しく入ったのが牧場に置かない組（上から牧場の数より下）なら付けない
+  const below = planChanges(first.baseline, signature, [pair(m1, f1), pair(m2, f2)], 1);
+  assert.deepEqual([below.reset, [...below.changed]], [false, []]);
+  // 基準では牧場の数より下だった組が、牧場に置く組に上がったときは付ける
+  const wide = planChanges(null, signature, [pair(m1, f1), pair(m2, f2), pair(m3, f3)], 1).baseline;
+  assert.deepEqual([...planChanges(wide, signature, [pair(m3, f3), pair(m1, f1)], 1).changed], [planPairKey(m3, f3)]);
+  // この目標の組を置いた牧場がなければ、どの組にも付けない
+  const none = planChanges(null, farmSignature([]), [pair(m1, f1)], 0).baseline;
+  assert.deepEqual([...planChanges(none, farmSignature([]), [pair(m2, f2), pair(m1, f1)], 0).changed], []);
   // 牧場に置き直したら、今のおすすめが基準になる
-  const moved = planChanges(first.baseline, farmSignature([{ id: 'A', baseId: 'b1', male: m2, female: f2 }]), [pair(m2, f2), pair(m1, f1)]);
+  const moved = planChanges(first.baseline, farmSignature([{ id: 'A', baseId: 'b1', male: m2, female: f2 }]), [pair(m2, f2), pair(m1, f1)], 1);
   assert.deepEqual([moved.reset, [...moved.changed], moved.baseline.pairs], [true, [], ['m2|f2', 'm1|f1']]);
 });
