@@ -156,6 +156,14 @@ test('所持パル画面: キーワードはスキルや属性でも探せ、一
   // 一覧に出していないスキルで一致したら、パッシブの下に一致したスキルだけを出す
   assert.deepEqual(await search('えあー'), [['アクティブスキル：エアーキャノン']]);
   assert.deepEqual(await search('猫の手'), [['パートナースキル：猫の手も借りたい']]);
+  // 説明文で一致したときは、名前の下に説明を添える（パッシブは説明で一致したときだけ）
+  await search('空気の塊 作業速度');
+  const [row] = view.element.querySelectorAll('.owned-row');
+  assert.deepEqual(row.querySelectorAll('.owned-hit').map((node) => [node.querySelector('.owned-hit-name').textContent, node.querySelector('.owned-hit-desc')?.textContent]), [
+    ['アクティブスキル：エアーキャノン', '高速で飛ぶ空気の塊を発射する。'],
+    ['パッシブ：職人気質', '作業速度 +50%'],
+    ['パッシブ：希少', '攻撃 +15% 防御 +15% 作業速度 +20%'],
+  ]);
   // 名前・属性・ラッキーなど、一覧に出している項目で一致したときは出さない
   assert.deepEqual(await search('無 ラッキー'), [[]]);
   assert.deepEqual(await search(''), [[], [], []]);
