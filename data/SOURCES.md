@@ -9,7 +9,7 @@
 | 属性 | [MagitekZed/palworld-helper](https://github.com/MagitekZed/palworld-helper) の `data/pals_work_suitability.csv` | リポジトリのライセンスなし。属性は事実情報として利用 |
 | パル画像 | 同上の `icons/pals/` | リポジトリのライセンスなし。画像は © Pocketpair, Inc.（ユーザー判断で利用） |
 | パッシブの内部名・日本語名・英名・ランク・効果の説明（`data/passives.csv`・`web/data/passives.js`） | PalCalc の同じ `db.json`（`npm run build:passives` = `scripts/import-passives.mjs`） | 同上。日本語名はゲーム本体の `DT_SkillNameText_Common` と一致することを確認（2026-10-05、名前のある 488 件） |
-| アクティブスキル・パートナースキルの日本語名（`web/data/skills.js`） | ゲーム本体の `DT_SkillNameText_Common`（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-10 に取り出し） | © Pocketpair, Inc. |
+| アクティブスキル・パートナースキルの日本語名と説明文（`web/data/skills.js`） | ゲーム本体の `DT_SkillNameText_Common`・`DT_SkillDescText_Common`・`DT_PalFirstActivatedInfoText` ほか（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-10 に取り出し） | © Pocketpair, Inc. |
 
 ## セーブの読み込みに使うコード
 

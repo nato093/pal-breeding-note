@@ -32,7 +32,7 @@ npm run check:save    # 手元のセーブで所持パルの読み込みを確�
 npm run build:passives  # パッシブ名のマスターを生成
 npm run extract:passive-icons  # パッシブの画像をゲーム本体から取り出す
 npm run extract:humans  # 人間のキャラクターの名前とアイコンをゲーム本体から取り出す
-npm run extract:skills  # アクティブスキルとパートナースキルの名前をゲーム本体から取り出す
+npm run extract:skills  # アクティブスキルとパートナースキルの名前と説明文をゲーム本体から取り出す
 ```
 
 ## 権利表記

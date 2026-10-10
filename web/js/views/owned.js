@@ -6,7 +6,7 @@ import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-stat
 import { viewHeading } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
-import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordHits, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
+import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordNotes, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -47,11 +47,8 @@ function palCell(pal) {
   return cell;
 }
 
-// 一覧に出していない項目のうち、キーワードに一致したら行に出すもの
-const HIT_LABELS = [['skills', 'アクティブスキル'], ['partnerSkill', 'パートナースキル']];
-
-/** @param {{ hits?: Record<string, string[]> }} [options] hits はキーワードに一致した項目（core/owned.js の keywordHits） */
-export function ownedRow(pal, { hits = {} } = {}) {
+/** @param {{ notes?: { label: string, name: string, desc: string }[] }} [options] notes は一致した理由（core/owned.js の keywordNotes） */
+export function ownedRow(pal, { notes = [] } = {}) {
   const row = el('article', 'owned-row');
   row.setAttribute('aria-label', `${pal.name}${pal.nickname ? `（${pal.nickname}）` : ''}`);
   const level = el('div', 'owned-level');
@@ -61,8 +58,11 @@ export function ownedRow(pal, { hits = {} } = {}) {
   if (pal.place === 'base' && pal.lastOwner) where.append(el('small', 'muted', `預けた人 ${pal.lastOwner}`));
   const passives = el('div', 'owned-passives');
   passives.append(pal.passives.length ? passiveList(pal.passives) : el('span', 'muted', 'パッシブなし'));
-  for (const [key, label] of HIT_LABELS) {
-    if (hits[key]?.length) passives.append(el('p', 'owned-hit', `${label}：${hits[key].join('・')}`));
+  for (const note of notes) {
+    const line = el('p', 'owned-hit');
+    line.append(el('span', 'owned-hit-name', `${note.label}：${note.name}`));
+    if (note.desc) line.append(el('span', 'owned-hit-desc', note.desc));
+    passives.append(line);
   }
   row.append(palCell(pal), level, passives, el('div', 'owned-talent', talentText(pal.talent)), where);
   return row;
@@ -220,7 +220,7 @@ export function ownedView(context, route) {
     results.replaceChildren();
     if (!list.length) results.append(empty('条件に合うパルはいません。'));
     // 件数が多くても、最初からすべて出す
-    for (const pal of list) results.append(ownedRow(pal, { hits: terms.length ? keywordHits(pal, terms) : {} }));
+    for (const pal of list) results.append(ownedRow(pal, { notes: terms.length ? keywordNotes(pal, terms) : [] }));
   }
 
   let renderedOwned;
