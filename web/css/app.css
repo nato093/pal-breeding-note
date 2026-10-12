@@ -58,6 +58,19 @@
   --state-primary: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
   /* 左のナビゲーションの幅と、メイン画面の最大幅。広い画面では、ナビを除いた領域の中央に置く */
   --drawer: 96px;
+  /* ヘッダーの高さ（1 行・固定）。固定する帯の top と scroll-padding-top はこの変数を使う */
+  --header-h: 56px;
+  /* 重なり順（小さい順）。各テーマはこの変数だけを使い、数字を直接書かない。
+     ダイアログ（showModal）は top layer なので z-index は要らない */
+  --z-sticky: 2;     /* 2 段目の固定（所持パルの列見出し・理想個体の牧場の帯） */
+  --z-panel: 3;      /* 画面の条件パネル（sticky）と、本文の中で開く候補 */
+  --z-rail: 5;       /* 左のナビ（.navigation） */
+  --z-header: 6;     /* ヘッダー */
+  --z-drawer: 30;    /* 右のドロワー（フェーズ 3） */
+  --z-snackbar: 40;  /* 新しい版の案内（stable-render）。トーストより下 */
+  --z-toast: 50;     /* トースト */
+  --z-popover: 60;   /* 本文の外（body・dialog）に浮かせる候補・メニュー */
+  --z-skip: 70;      /* スキップリンク */
   --content-max: 1440px;
   --gutter: max(24px, calc((100% - var(--content-max)) / 2 + 24px));
   /* 動きの速さの変わり方（M3 の emphasized 系）。spring は、押したボタンが戻るときにわずかに行き過ぎてから止まる */
@@ -107,7 +120,9 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--md-sys-color-surface); min-height: 100dvh; min-width: 960px; position: relative; color: var(--md-sys-color-on-surface); }
+/* 件数が変わってスクロールバーが出入りしても横にずれない。固定したヘッダーの下に、フォーカス・scrollIntoView の先が隠れない */
+html { scrollbar-gutter: stable; scroll-padding-top: calc(var(--header-h) + 8px); }
+body { margin: 0; background: var(--md-sys-color-surface); min-height: 100dvh; min-width: 920px; position: relative; color: var(--md-sys-color-on-surface); }
 button, input, select, textarea { font: inherit; color: inherit; }
 button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
@@ -171,31 +186,39 @@ img, svg { max-width: 100%; }
   flex-shrink: 0;
   color: var(--md-sys-color-on-surface-variant);
 }
-.skip-link { position: fixed; top: -100px; left: 10px; z-index: 20; background: var(--surface); padding: 12px; }
+.skip-link { position: fixed; top: -100px; left: 10px; z-index: var(--z-skip); background: var(--surface); padding: 12px; }
 .skip-link:focus { top: 10px; }
-.environment-banner {
-  text-align: left;
-  padding: 4px var(--gutter);
-  color: var(--md-sys-color-warning);
-  background: var(--md-sys-color-warning-container);
-  font-weight: 800;
-  letter-spacing: .08em;
-  font-size: 12px;
-}
 .app-header {
+  /* 1 行・高さ固定で上に固定する。はみ出しは各部品の ellipsis で吸収し、折り返さない */
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 12px;
   padding: 0 var(--gutter);
   max-width: none;
   margin: 0;
-  min-height: 56px;
+  height: var(--header-h);
+  min-height: 0;
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface);
 }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--md-sys-color-on-surface); }
+.app-header > * { flex: none; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--md-sys-color-on-surface); white-space: nowrap; }
+/* テスト環境（ロゴの右のチップ。押せない） */
+.env-chip {
+  border-radius: 100px;
+  padding: 2px 10px;
+  color: var(--md-sys-color-warning);
+  background: var(--md-sys-color-warning-container);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
 .brand:hover { text-decoration: none; }
 .brand-mark {
   display: grid;
@@ -210,8 +233,136 @@ img, svg { max-width: 100%; }
 }
 .brand strong { font-size: 15px; display: block; line-height: 1.3; }
 .brand small { display: block; color: var(--md-sys-color-on-surface-variant); font-size: 11px; }
-.sync-status { font-size: 12px; color: var(--muted); margin: 0; overflow-wrap: anywhere; }
 .header-status { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* 幅が足りないときは、同期状況ではなくセーブ連携の状態のワールド名を縮める */
+.app-header .header-status { flex: none; margin-left: auto; align-items: flex-end; }
+.sync-line { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+/* 同期状況（押すと最新に更新）。保存中に押せないときも文は薄くしない */
+.sync-status {
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync-status:hover:not(:disabled) { background: var(--state-hover); }
+.sync-status:disabled { opacity: 1; }
+.sync-error {
+  flex: none;
+  border-radius: 100px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--md-sys-color-error);
+  background: var(--md-sys-color-error-container);
+}
+/* セーブ連携の状態（ベルの左）。点の色で状態を示し、文字は textContent */
+.save-status { position: relative; flex: 0 1 auto; min-width: 0; }
+.save-status-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: 100px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.save-status-button::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--save-dot, var(--md-sys-color-outline));
+}
+.save-status-button:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-high)); }
+/* 縮めるのはワールド名から（省略記号）。時刻は縮めない。区切りの空白は white-space: pre で残す */
+.save-status-text { display: flex; min-width: 0; overflow: hidden; }
+.save-status-text > span { flex: none; white-space: pre; }
+.save-status-text > span:empty { display: none; }
+.save-status-text > .save-status-world { flex: 0 1000 auto; min-width: 3em; max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ワールド名を縮めきっても足りないときだけ、自動登録の文を省略する */
+.save-status-text > .save-status-auto { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-status-button.tone-ok { --save-dot: var(--md-sys-color-primary); }
+.save-status-button.tone-stale, .save-status-button.tone-busy { --save-dot: var(--md-sys-color-outline); }
+.save-status-button.tone-none { --save-dot: transparent; background: transparent; box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant); }
+.save-status-button.tone-none::before { box-shadow: inset 0 0 0 1.5px var(--md-sys-color-outline); }
+.save-status-button.tone-warn { --save-dot: var(--md-sys-color-warning); color: var(--md-sys-color-warning); background: var(--md-sys-color-warning-container); font-weight: 700; }
+/* ID（右端に小さく） */
+.account-chip { position: relative; }
+.account-button {
+  display: block;
+  max-width: 8em;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 100px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-button:hover { background: var(--state-hover); }
+/* ヘッダーの小さなパネル（セーブ連携・ID のメニュー。ベルの通知欄と同じ見た目） */
+.header-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  max-height: min(480px, 70dvh);
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border-radius: 16px;
+  box-shadow: var(--elevation-3);
+  white-space: normal;
+}
+.header-panel h2 { font-size: 14px; margin: 8px 0; }
+.save-status-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.save-status-details dt { color: var(--muted); }
+.save-status-details dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.save-status-issues { margin: 10px 0 0; padding: 8px 12px 8px 28px; border-radius: 8px; font-size: 13px; color: var(--md-sys-color-warning); background: var(--md-sys-color-warning-container); }
+.header-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.save-status-settings { font-size: 13px; }
+.account-panel { width: 240px; padding-bottom: 8px; }
+.account-panel-id { margin: 0 0 8px; font-weight: 700; overflow-wrap: anywhere; }
+.header-menu-item {
+  display: block;
+  width: calc(100% + 32px);
+  margin: 0 -16px;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+}
+.header-menu-item:hover:not(:disabled) { background: var(--state-hover); }
+/* 幅が足りないときに隠す順番（ヘッダーは .app-main の外なので、窓の幅で決める）。
+   ベル・ID・「許可が必要」は隠さない */
+@media (width < 1200px) {
+  .brand small { display: none; }
+}
+@media (width < 1100px) {
+  .sync-label { display: none; }
+}
+@media (width < 980px) {
+  .brand-text { display: none; }
+  .save-status-world, .save-status-sep, .save-status-auto { display: none; }
+}
 .sync-progress {
   position: relative;
   width: 200px;
@@ -231,7 +382,7 @@ img, svg { max-width: 100%; }
   border-radius: 0;
   padding: 16px 6px;
   position: fixed;
-  z-index: 5;
+  z-index: var(--z-rail);
   inset: 0 auto 0 0;
   width: var(--drawer);
   flex-direction: column;
@@ -285,16 +436,6 @@ img, svg { max-width: 100%; }
 .view-heading { margin-bottom: 12px; }
 .view-heading h1 { margin: 0; white-space: nowrap; }
 .view-heading h1, .app-main h1 { font-size: 22px; font-weight: 700; line-height: 1.35; }
-.header-actions {
-  position: absolute;
-  z-index: 6;
-  top: 8px;
-  right: max(24px, calc((100% - var(--drawer) - var(--content-max)) / 2 + 24px));
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-#app:has(.environment-banner:not([hidden])) .header-actions { top: 35px; }
 .register-button {
   height: 40px;
   padding: 0 20px;
@@ -308,7 +449,6 @@ img, svg { max-width: 100%; }
   white-space: nowrap;
   letter-spacing: .02em;
 }
-.app-header .header-status { margin-right: 170px; margin-left: auto; align-items: flex-end; }
 .notification-menu { position: relative; }
 .notification-button {
   position: relative;
@@ -454,11 +594,12 @@ img, svg { max-width: 100%; }
   padding: 8px;
   box-shadow: var(--elevation-3);
   background: var(--md-sys-color-surface-container);
-  z-index: 4;
+  z-index: var(--z-panel);
 }
 .search-selection > .picker:last-child .picker-popover, .pair-selection > .picker:last-child .picker-popover { left: auto; right: 0; }
 .picker-popover-floating {
   position: fixed;
+  z-index: var(--z-popover);
   top: var(--picker-top, auto);
   bottom: var(--picker-bottom, auto);
   left: var(--picker-left);
@@ -614,7 +755,7 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .preflight-record { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 5px 0; }
 .warning-text { color: var(--warning); font-size: 13px; margin: 10px 0; }
 .form-errors { font-size: 13px; overflow-wrap: anywhere; }
-.toast-region { position: fixed; bottom: 24px; right: 24px; width: min(460px, calc(100% - 48px)); z-index: 20; display: grid; gap: 8px; pointer-events: none; }
+.toast-region { position: fixed; bottom: 24px; right: 24px; width: min(460px, calc(100% - 48px)); z-index: var(--z-toast); display: grid; gap: 8px; pointer-events: none; }
 .toast {
   pointer-events: auto;
   background: var(--md-sys-color-inverse-surface);
@@ -775,8 +916,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   .nav-tab .tab-icon { transition: stroke-width .2s var(--ease-emphasized); }
   .button[aria-busy="true"]::after, .register-button[aria-busy="true"]::after { animation: sweep 1.2s ease-in-out infinite; }
   .toast:has(.toast-action)::after { animation: countdown 3s linear forwards; }
+  /* セーブの読み込み中は、文を変えずに点だけを明滅させる */
+  .save-status-button.is-busy::before { animation: save-busy .8s ease-in-out infinite alternate; }
   /* メニューは開いた位置から下へ開く（M3 のメニュー） */
-  .picker-popover, .notification-panel {
+  .picker-popover, .notification-panel, .header-panel {
     transform-origin: top center;
     transition: opacity .12s linear, transform .22s var(--ease-decelerate);
     @starting-style { opacity: 0; transform: scaleY(.9) translateY(-4px); }
@@ -1281,7 +1424,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .dialog .card-stack { background: var(--md-sys-color-surface-container); }
 /* ログイン画面（ナビゲーションを出さない） */
 #app:has(.navigation[hidden]) { padding-left: 0; }
-#app:has(.navigation[hidden]) .app-header { padding: 12px 32px; border-bottom: 0; background: transparent; }
+#app:has(.navigation[hidden]) .app-header { padding: 0 32px; border-bottom: 0; background: transparent; }
 /* 押した位置から薄く広がる波紋（ui/ripple.js が .ripple を足す） */
 .ripple-host { position: relative; overflow: hidden; isolation: isolate; }
 .ripple {
@@ -1367,6 +1510,7 @@ input[type="checkbox"]:checked::after { clip-path: inset(0 0 0 0); }
 input[type="checkbox"]:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 3px; box-shadow: none; }
 @keyframes ripple { from { transform: scale(0); opacity: .12; } to { transform: scale(1); opacity: 0; } }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@keyframes save-busy { from { opacity: .25; transform: scale(.8); } to { opacity: 1; transform: scale(1.1); } }
 @keyframes countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @keyframes ring { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(12deg); } 55% { transform: rotate(-8deg); } 80% { transform: rotate(3deg); } }
 @keyframes badge-ping { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--md-sys-color-error) 45%, transparent); } to { box-shadow: 0 0 0 7px transparent; } }

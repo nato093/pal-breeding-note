@@ -76,10 +76,14 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   return { values, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
 }
 
+// ログイン画面で隠す（ログインした後に出す）部品
+const signedInParts = ['navigation', 'register-button', 'notification-menu', 'save-status', 'account-chip'];
+
 function assertLoginOnly() {
   assert.ok(byClass('login-form'));
   assert.equal(byClass('app-footer'), undefined);
-  for (const name of ['navigation', 'register-button', 'notification-menu']) assert.equal(byClass(name).hidden, true);
+  for (const name of signedInParts) assert.equal(byClass(name).hidden, true, name);
+  assert.equal(byClass('sync-status').disabled, true);
   assert.equal(byClass('brand').inert, true);
 }
 
@@ -123,8 +127,10 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   input('username').value = 'ＡｂＣ';
   await byText('登録してログイン').dispatch('click');
   assert.equal(byClass('login-form'), undefined);
-  for (const name of ['navigation', 'register-button', 'notification-menu']) assert.equal(byClass(name).hidden, false);
+  for (const name of signedInParts) assert.equal(byClass(name).hidden, false, name);
   assert.equal(byClass('brand').inert, false);
+  assert.equal(byClass('sync-status').disabled, false);
+  assert.equal(byClass('account-button').textContent, 'ＡｂＣ');
   const settings = byClass('settings-view');
   assert.match(settings.textContent, /ログイン中の ID: ＡｂＣ/);
   assert.doesNotMatch(settings.textContent, /仲間を招待|パスコード|新しいパスワード|出典と権利表記/);
@@ -274,6 +280,62 @@ test('画面: 削除は応答前に一覧から消し、送信待ちの間だけ
   assert.equal(leave().prevented, false);
 });
 
+test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状況 → セーブ連携 → ベル → 登録 → ID の順で並ぶ（Tab の順）', async (t) => {
+  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/list' });
+  const header = byClass('app-header');
+  assert.deepEqual(header.children.map((node) => node.className.split(' ')[0]),
+    ['brand', 'env-chip', 'header-status', 'save-status', 'notification-menu', 'register-button', 'account-chip']);
+  assert.equal(byClass('header-actions'), undefined);
+  assert.equal(byClass('environment-banner'), undefined);
+  // ベル・登録はヘッダーの中（main より前）にあり、ルートの子はスキップリンク・ヘッダー・ナビ・更新の帯・本文だけ
+  assert.deepEqual(document.getElementById('app').children.map((node) => node.className.split(' ')[0]),
+    ['skip-link', 'app-header', 'navigation', 'update-banner', 'app-main']);
+  // 開発 API はテスト環境なので、ロゴの右にチップを出す
+  assert.equal(byClass('env-chip').hidden, false);
+  assert.equal(byClass('env-chip').textContent, 'テスト環境');
+  // 同期状況は押せるボタンで、読み上げの告知（aria-live）は付けない
+  const status = byClass('sync-status');
+  assert.equal(status.tagName, 'button');
+  assert.equal(status.getAttribute('aria-live'), null);
+  assert.equal(status.title, '最新に更新');
+  assert.match(byClass('sync-label').textContent, /最新取得/);
+  assert.equal(byClass('account-button').textContent, '架空データ');
+  assert.equal(byClass('account-button').getAttribute('aria-label'), 'ログイン中の ID: 架空データ（名前の変更・ログアウト）');
+  // メニューの中身は開いたときだけ作る（設定タブの「ログアウト」と取り違えない）
+  assert.equal(byClass('account-panel'), undefined);
+});
+
+test('画面: 同期状況を押すと記録を取り直してトーストを出し、失敗しても前回の時刻と件数を残して「更新できませんでした」を出す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  let fail = false;
+  const api = async (request) => (fail && request.action === 'snapshot' ? { ok: false, code: 'INTERNAL' } : development(request));
+  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
+  const status = byClass('sync-status');
+  const failure = byClass('sync-error');
+  const before = status.textContent;
+  assert.match(before, /^最新取得 \d{2}:\d{2} · \d+ 件$/);
+  assert.equal(failure.hidden, true);
+  const snapshots = () => calls.filter((call) => call.action === 'snapshot').length;
+  const count = snapshots();
+  await status.dispatch('click');
+  assert.equal(snapshots(), count + 1);
+  assert.match(byClass('toast-region').textContent, /最新の記録に更新しました/);
+  assert.equal(failure.hidden, true);
+  fail = true;
+  await status.dispatch('click');
+  assert.equal(snapshots(), count + 2);
+  // 時刻と件数は残し、失敗はボタンの隣のチップに出す（ボタンの文は変えない）
+  assert.equal(status.textContent, before);
+  assert.equal(failure.hidden, false);
+  assert.equal(failure.textContent, '更新できませんでした');
+  assert.match(failure.title, /サーバでエラーが発生しました/);
+  assert.match(byClass('toast-region').textContent, /サーバでエラーが発生しました/);
+  // 取り直せたらチップを消す
+  fail = false;
+  await status.dispatch('click');
+  assert.equal(failure.hidden, true);
+});
+
 test('画面: 裏で送っている間はヘッダーに保存中の件数とバーを出し、送り終えたらすぐ消す', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   let release;
@@ -293,6 +355,8 @@ test('画面: 裏で送っている間はヘッダーに保存中の件数とバ
     await deletion;
   }
   assert.equal(status.textContent, 'サーバに保存中… 0 / 2 件');
+  // 保存中は押せない（文は薄くしない。CSS）
+  assert.equal(status.disabled, true);
   assert.equal(bar.hidden, false);
   assert.equal(bar.getAttribute('aria-valuenow'), '0');
   assert.equal(bar.getAttribute('aria-valuemax'), '2');
@@ -307,6 +371,7 @@ test('画面: 裏で送っている間はヘッダーに保存中の件数とバ
   await flush();
   assert.equal(bar.hidden, true);
   assert.match(status.textContent, /最新取得/);
+  assert.equal(status.disabled, false);
 });
 
 for (const [hash, next, label] of [

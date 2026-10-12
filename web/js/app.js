@@ -9,10 +9,13 @@ import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
 import { startRouter, buildHash, parseHash, sameScreen } from './router.js';
-import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
+import { el, button, link, field, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
 import { syncInBackground } from './ui/sync.js';
 import { syncProgress } from './ui/sync-progress.js';
+import { syncStatus } from './ui/sync-status.js';
+import { saveStatus } from './ui/save-status.js';
+import { accountMenu } from './ui/account-menu.js';
 import { confirmDialog, closeDialogs } from './ui/dialog.js';
 import { breedingCard } from './ui/breeding-card.js';
 import { openRecordEditor } from './ui/record-editor.js';
@@ -83,20 +86,22 @@ async function boot() {
   const renamer = createRenamer({ store, drafts, wishlist, ideals, notifications, storage: browserStorage, namespace });
   renamer.resumeLocal();
   const root = document.getElementById('app');
-  const banner = el('div', 'environment-banner', 'テスト環境');
-  banner.hidden = true;
   const header = el('header', 'app-header');
   const brand = link('', buildHash('search'), 'brand');
+  // 狭い窓では文字を隠してマークだけにする（CSS）ので、名前は aria-label で持つ
+  brand.setAttribute('aria-label', 'パル配合ノート（配合検索へ）');
   const mark = el('span', 'brand-mark', '◇');
-  const brandText = el('span');
+  const brandText = el('span', 'brand-text');
   brandText.append(el('strong', '', 'パル配合ノート'), el('small', '', '仲間と残す、冒険の発見。'));
   brand.append(mark, brandText);
-  const status = el('p', 'sync-status');
-  status.setAttribute('aria-live', 'polite');
+  // テスト環境はロゴの右のチップ（後から帯が入って本文がずれないように、ヘッダーの中に置く）
+  const envChip = el('span', 'env-chip', 'テスト環境');
+  envChip.hidden = true;
+  // 同期状況は押すと最新に更新する（読み上げの告知は付けない）
+  const sync = syncStatus({ store, locked: () => showingLogin });
   const progress = syncProgress();
   const headerStatus = el('div', 'header-status');
-  headerStatus.append(status, progress.element);
-  header.append(brand, headerStatus);
+  headerStatus.append(sync.element, progress.element);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
   // 並びは 探す｜記録｜所持｜設定 の順（区切りの余白は CSS）
@@ -136,8 +141,11 @@ async function boot() {
   }, 'register-button');
   register.setAttribute('aria-label', '配合を登録');
   const bell = notificationMenu(notifications);
-  const actions = el('div', 'header-actions');
-  actions.append(bell.element, register);
+  const save = saveStatus({ owned, autoRegister, store });
+  // 名前の変更とログアウトに使うのは store と renamer だけ（context はこの後で作る）
+  const account = accountMenu({ store, renamer });
+  // 並び（＝Tab の順）: ロゴ → 同期状況 → セーブ連携 → ベル → 登録 → ID
+  header.append(brand, envChip, headerStatus, save.element, bell.element, register, account.element);
   // 新しい版の配信を知らせる帯。再読み込みすると、送信待ちの操作や読み込み中のセーブが失われる。
   const version = runningVersion();
   const update = updateBanner({
@@ -150,7 +158,7 @@ async function boot() {
     served: () => servedVersion(location.href),
     reload: () => location.reload(),
   });
-  root.append(skip, banner, header, nav, update.element, main, actions);
+  root.append(skip, header, nav, update.element, main);
   installRipple();
   let route;
   let currentView;
@@ -316,7 +324,10 @@ async function boot() {
     nav.hidden = showingLogin;
     register.hidden = showingLogin;
     bell.element.hidden = showingLogin;
-    if (showingLogin) { bell.close(); forget(); loginView(); return; }
+    save.element.hidden = showingLogin;
+    account.element.hidden = showingLogin;
+    sync.update(store.state);
+    if (showingLogin) { bell.close(); save.close(); account.close(); forget(); loginView(); return; }
     // 画面の部品が URL を書き換える（不正な ID を消すなど）ときは、context.replace が route を入れ直して覚え直す。
     remember(route);
     markTabs(route);
@@ -341,7 +352,7 @@ async function boot() {
     render(reason);
   });
   store.subscribe((state) => {
-    banner.hidden = state.env !== 'test';
+    envChip.hidden = state.env !== 'test';
     const scope = state.passcode && state.userId && state.env ? state.env : '';
     if (scope !== ownedScope) {
       ownedScope = scope;
@@ -352,13 +363,11 @@ async function boot() {
     // ログインや記録の取得がセーブの読み込みより後に済んだときも、自動登録を確かめる
     autoRegister.evaluate();
     progress.update(state);
-    status.textContent = state.syncing ? `サーバに保存中… ${state.syncDone} / ${state.syncTotal} 件`
-      : state.loading ? '記録を更新中…' : state.error || (state.serverTime
-      ? `${state.cached ? '前回取得' : '最新取得'} ${formatTime(state.serverTime)}${state.cached ? ' 時点' : ''} · ${state.records.length} 件` : '仲間だけの配合ノート');
     if (showingLogin !== (!state.passcode || !state.userId)) {
       if (!state.passcode || !state.userId) closeDialogs();
       render('auth');
     }
+    sync.update(state);
   });
   async function refresh(options) {
     try { await store.refresh(options); } catch (error) { toast(error.message); }
@@ -389,7 +398,11 @@ async function boot() {
   }
   // セーブのファイルを登録していれば、タブが裏にあっても 1 分ごとに読み直す（配合牧場の自動登録で、タマゴを拾う前に読むため）。
   // 長く裏にあるタブのタイマーは、ブラウザが 1 分に 1 回まで遅らせる。
-  setInterval(() => { owned.pollAuto().catch(() => {}); }, SAVE_POLL_INTERVAL);
+  // 古いデータの印（時刻で変わる）も、このときに確かめ直す
+  setInterval(() => {
+    owned.pollAuto().catch(() => {});
+    save.update();
+  }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       watcher.check();

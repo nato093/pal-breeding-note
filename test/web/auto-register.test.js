@@ -177,6 +177,24 @@ test('自動登録: 設定オフ・参加している側・復元しただけの
   assert.equal(t.creates.length, 1);
 });
 
+test('自動登録: オン・オフと登録者の対応を変えると、購読した関数に知らせる（外した後は知らせない）', async () => {
+  const t = await setup();
+  let calls = 0;
+  const unsubscribe = t.auto.subscribe(() => { calls++; });
+  t.auto.setEnabled(false);
+  assert.equal(calls, 1);
+  assert.equal(t.auto.enabled(), false);
+  t.auto.setMapping(P2, '仲間');
+  assert.equal(calls, 2);
+  // ワールドが分からず保存しなかったときは知らせない
+  t.auto.setEnabled(true, '');
+  assert.equal(calls, 2);
+  unsubscribe();
+  t.auto.setEnabled(true);
+  assert.equal(calls, 2);
+  await t.auto.idle();
+});
+
 test('自動登録: ログインが後から済んだときも登録する', async () => {
   const t = await setup({ login: false });
   await t.run();

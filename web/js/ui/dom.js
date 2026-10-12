@@ -38,6 +38,15 @@ export function formatTime(value, full = false) {
     : { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+/** ヘッダーに出す短い時刻。今日なら 時:分、違う日なら 月/日 時:分（日付が分からない値は fallback）。 */
+export function formatShortTime(value, now = Date.now(), fallback = '未取得') {
+  const time = new Date(value);
+  if (!value || !Number.isFinite(time.getTime())) return fallback;
+  return formatTime(value, !sameDay(time, new Date(now)));
+}
+
 export async function runButton(node, action, onError) {
   if (node.disabled) return;
   node.disabled = true;
