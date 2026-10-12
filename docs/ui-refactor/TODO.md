@@ -192,7 +192,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 位置と条件の保持・フォーカスの一般化
 
-- 状態: 済 ／ ブランチ: `feature/keep-state` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/keep-state` ／ マージのコミット: `83232f2`
 - 文書と違う形にしたこと: 入力欄の合わせ直しは applyRoute の `restored`（エントリの条件を入れ直したとき）だけにし、起動では G-48 の保存を全画面に入れてから今のエントリで上書き、ワールドはどちらかが分からなければ比べず分かった所で所持者だけ外し、リンクの印は root（ヘッダーのリンクも先頭へ）に付けて ID のない新しいエントリは違う画面なら先頭、フォーカスは group が無ければ key と同じ名前の group へ移す形にした（`restoreScroll`・`routeKey`・`intIn`・`bool`・`passiveChip` の `focusGroup` を足し、`keepFocus` を消した。phase-1a の keep-state の「実装の記録」）
 
 - [x] ui/view-memory.js（エントリ・G-48 の保存・最後のタブ・clear）と単体テストを作る（restoreScroll も同じファイル）
@@ -214,22 +214,23 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ポップオーバーの共通化・パル選択・パッシブ選択
 
-- 状態: 未着手 ／ ブランチ: `feature/popovers` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/popovers` ／ マージのコミット: （マージの後に書く）
+- 文書と違う形にしたこと: `createPopover` に `tag`・`focusOut`・`place`・`onOpen` を足し（外側の pointerdown ではフォーカスを戻さない）、選んでいる行を見せるのは scrollIntoView ではなく一覧だけを動かす `scrollWithin`（offsetTop で測る。開く動きの途中で rect が縮むため）にし、describe に `orderLabel` を足し、登録件数は 1 件以上だけ文字を出し、所持パルのパル選択の候補を右端にそろえた（幅 920px で横にスクロールしたため）。注記は views/shared.js の `ownedSpeciesNotes`・`recordCountNotes`・`routeDistanceNotes`・`passivePresets`、語の分け方は core/kana.js の `queryTerms`（phase-1a の popovers の「実装の記録」）
 
-- [ ] ui/popover.js（placeFloating・createPopover）を作り、pal-picker の配置と閉じる処理を移す
-- [ ] core/pal-search.js（頭の 0・段階・英名・属性・パートナースキル・ID の完全一致）を作り、filterPals を置き換える
-- [ ] pal-picker に describe（order・badges・dim）と update を足し、選んでいる行と矢印の行を分ける（G-61・S-22）
-- [ ] speciesGenderCounts・distancesTo を足し、検索・逆引き・継承ルート・理想個体・所持パルの選択欄に注記を渡す
-- [ ] passiveSelector を 1 行の部品（ボタン＋チップ・ポップオーバー・検索・群・その場の onChange・update で閉じない）に作り替える
-- [ ] negatives・groups（I-49）・presets（I-51）を入れる
-- [ ] passiveChip に compact を足し、views/ideal.js:118・391・393 をチップにする
-- [ ] 所持パル・理想個体・継承ルートの呼び出し側を「作り直さず update」にする（O-14 の数え方）
-- [ ] header-frame のセーブ連携の状態と ID のメニューを ui/popover.js に移す（`ui/header-popup.js` の `headerPopup` を置き換えて消す）
-- [ ] CSS（1 行・候補・選択中と矢印・バッジ・compact・高さ）を入れる
-- [ ] pal-picker・ideal-view・owned-view のテストの期待値を直す
-- [ ] pal-search・popover・passive-picker・route・owned のテストを足す
-- [ ] release-notes に 1 件足す
-- [ ] モックで、ずれ・続けて選ぶ・フォーカス・自動の更新中も閉じない・注記を確かめる
+- [x] ui/popover.js（placeFloating・createPopover）を作り、pal-picker の配置と閉じる処理を移す（scrollWithin も同じファイル）
+- [x] core/pal-search.js（頭の 0・段階・英名・属性・パートナースキル・ID の完全一致）を作り、filterPals を置き換える
+- [x] pal-picker に describe（order・badges・dim。orderLabel を足した）と update を足し、選んでいる行と矢印の行を分ける（G-61・S-22）
+- [x] speciesGenderCounts・distancesTo を足し、検索・逆引き・継承ルート・理想個体・所持パルの選択欄に注記を渡す
+- [x] passiveSelector を 1 行の部品（ボタン＋チップ・ポップオーバー・検索・群・その場の onChange・update で閉じない）に作り替える
+- [x] negatives・groups（I-49）・presets（I-51）を入れる
+- [x] passiveChip に compact を足し、views/ideal.js の余計なパッシブ・配合では作れない警告・「○○を運ぶ経路」をチップにする
+- [x] 所持パル・理想個体・継承ルートの呼び出し側を「作り直さず update」にする（O-14 の数え方）
+- [x] header-frame のセーブ連携の状態と ID のメニューを ui/popover.js に移す（`ui/header-popup.js` の `headerPopup` を置き換えて消した）
+- [x] CSS（1 行・候補・選択中と矢印・バッジ・compact・高さ）を入れる
+- [x] pal-picker・ideal-view・owned-view のテストの期待値を直す（record-editor・app・views のテストも）
+- [x] pal-search・popover・passive-picker・route・owned のテストを足す（kana の queryTerms も）
+- [x] release-notes に 1 件足す
+- [x] モックで、ずれ・続けて選ぶ・フォーカス・自動の更新中も閉じない・注記を確かめる（phase-1a の「計測の記録」。モックでは自動の読み直しでデータが変わらないので、データの変化は登録・所持者・キーワードで起こした。日本語変換中の入力は見ていない）
 
 ### フェーズ 1a の終わり
 
@@ -1012,8 +1013,8 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 7 番目 popovers から**（[phase-1a-foundation.md の節](phase-1a-foundation.md#popovers-ポップオーバーの共通化パル選択パッシブ選択)）。始めに、TODO の keep-state の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。keep-state の「実装の記録」（`data-focus-key` の付け方と ui/focus.js の group の決まり・applyRoute の `restored`・`OWNED_MEMORY`／`IDEAL_MEMORY` の形）を読んでから入る。
-- ユーザーに確かめ中（フェーズ 1a の終わりの報告でまとめて聞く）: (1) 拡大 150%（1100px の窓で中身 733px）では body の min-width 920px のため横スクロールが出て、登録と ID が右外に出る。今の制約のままでよいか。(2) ログイン画面のヘッダーの同期状況は、押せないボタンとしてログインのエラーの文も出る（エラーはフォームにも出ている）。ログイン画面では隠すか、今のままか。 (3) 所持パル 20,000 行で同じ種族が 6 割（3,700 万組）だと、理想個体の計算の合計が約 12 秒かかる（画面は止まらず「計算中」が続く）。D18 の『合計が 5 秒を超えたら Worker を検討』に当たる。Worker にするか（import の制限と data/SOURCES.md の変更が要る）、このままか。(4) `npm run test:perf` は PC の負荷で、区切りの最大（上限 50ms）が 48ms、20,000 行の検証（上限 200ms）が 191ms まで来ることがあり、落ちるおそれがある。
+- **フェーズ 1a の終わりの作業（TODO の『フェーズ 1a の終わり』）から**（[phase-1a-foundation.md の「フェーズ 1a の終わりにすること」](phase-1a-foundation.md#フェーズ-1a-の終わりにすること)）。始めに、TODO の popovers の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。
+- ユーザーに確かめ中（フェーズ 1a の終わりの報告でまとめて聞く）: (1) 拡大 150%（1100px の窓で中身 733px）では body の min-width 920px のため横スクロールが出て、登録と ID が右外に出る。今の制約のままでよいか。(2) ログイン画面のヘッダーの同期状況は、押せないボタンとしてログインのエラーの文も出る（エラーはフォームにも出ている）。ログイン画面では隠すか、今のままか。 (3) 所持パル 20,000 行で同じ種族が 6 割（3,700 万組）だと、理想個体の計算の合計が約 12 秒かかる（画面は止まらず「計算中」が続く）。D18 の『合計が 5 秒を超えたら Worker を検討』に当たる。Worker にするか（import の制限と data/SOURCES.md の変更が要る）、このままか。(4) `npm run test:perf` は PC の負荷で、区切りの最大（上限 50ms）が 48ms、20,000 行の検証（上限 200ms）が 191ms まで来ることがあり、落ちるおそれがある。(5) 理想個体・継承ルートのパッシブの欄は横に半分の幅（幅 1100px で 463px）なので、3 個目のチップで 2 行になり、下の欄が 1 回だけ 38px 下がる（1・2・4 個目は動かない。所持パルは 4 個とも 1 行）。今のままか、2 行分の高さを取る・欄を広げる・チップを小さくするか（phase-1a の popovers の「実装の記録」11）。
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
 - 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。(7) 性能の予算の注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-rows-2000.js`・`inject-rows-20000.js`（inject.js の写し。画面に出る行がちょうどその数）。ログイン画面ではヘッダーの同期状況のボタンにもエラーの文が出るので、playwright で「新規登録」を押すときは `exact: true` にする。JS ヒープは CDP の `HeapProfiler.collectGarbage` の後に `Runtime.getHeapUsage` で測った。
-- 最終更新: 2026-10-13（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame・stable-render・keep-state を済ませた。ideal-calc のレビューで D19 を足した）
+- 最終更新: 2026-10-13（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame・stable-render・keep-state・popovers を済ませた。ideal-calc のレビューで D19 を足した）

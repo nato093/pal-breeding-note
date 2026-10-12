@@ -26,7 +26,7 @@
 | ヘッダーの高さ・重なり順の CSS 変数（ヘッダー・固定のパネル・候補・レール・トースト・ダイアログ・ドロワー）、セーブ連携の状態のポップオーバー | header-frame（1a） | ドロワーの `top` と `z-index`、接続中の仲間（F006）の表示先 |
 | `ui/dom.js` の `syncList(container, items, { key, create })`（`create` は `{element, update, destroy}`）、画面用の変更番号、区切って描く仕事の無効化 | stable-render（1a） | ドロワーの中の一覧・図鑑の格子・牧場ボードの差分更新 |
 | history.state にはエントリの ID だけを入れ、条件とスクロール位置（版・環境・利用者・ワールドつき）は sessionStorage にエントリごとに持つ（phase-1a の「プランと違っていた点」13） | keep-state（1a） | ドロワーの状態を history.state に**足す**（上書きしない） |
-| `ui/popover.js`（固定配置・`{element, update, destroy}`・AbortController）、パル選択の所持数・登録件数・検索の拡張、パッシブ選択の 1 行部品 | popovers（1a） | ホバーの解説（F059）、ヘッダーのパル検索、パル詳細のパル切り替え |
+| `ui/popover.js`（固定配置・`{element, update, destroy}`・AbortController）、パル選択の所持数・登録件数・検索の拡張、パッシブ選択の 1 行部品（追記 2026-10-13、実装の後: `createPopover({ anchor, wrapper, host, className, tag, focusOut, place, onOpen, onClose }) → { element, open, close, isOpen, reposition, destroy }`。パル選択の注記は `describe() → { order, badges, dim, orderLabel }` と `update()`、検索は core/pal-search.js の `searchPals`。phase-1a の popovers の「実装の記録」） | popovers（1a） | ホバーの解説（F059）、ヘッダーのパル検索、パル詳細のパル切り替え |
 | 牧場の状態の保持（`status: 'uncertain'` を捨てない）と完全性の判定、牧場の A／B の記号 | ideal-farms（1b） | farm-data・farm-board・route-progress がそのまま使う |
 | 所持パルの場所チップ（手持ち・パルボックス・拠点・次元・タマゴ・グローバル）と URL の表現、所持者の意味を palsOfPlayers にそろえる | owned-toolbar（1c） | 所持パルへのリンク（完成した目標・孵化待ちのタマゴ・牧場） |
 | `ownedRow` の `{element, update, destroy}` 化、個体値の 4 セル＋ミニバー、★4 枠、パッシブ 2×2、場所の 6×5 SVG（正規化に page/row/col）、行のホバーの操作 | owned-rows（1c） | 個体の詳細（owned-detail）・パル詳細の上位 5 体・牧場の親 |
@@ -655,7 +655,7 @@
    - 牧場のカードの親を押すと個体の詳細（`context.drawer.open({ kind: 'owned', id })`）。
 6. **置き場所**:
    - 所持パル（`web/js/views/owned.js`）: 要約の下、絞り込みのパネルの上に `details.farm-band`「配合牧場（N か所 · タマゴ M 個）」。既定は閉じる。開閉は `context.viewState('owned').farmsOpen`（タブを替えても残る）。帯の右に「右に開く」（ドロワーで同じボードを開く）。所持パルの sticky のパネルより上（スクロールで流れる位置）に置く。
-   - ドロワー: 中身の表に `farms: (entry, context) => farmBoard(context, { mode: 'drawer' })`。入口は、header-frame の状態のポップオーバー（ui/save-status.js の `headerPopup` の中身。操作は `.header-panel-actions` に並ぶ）に「配合牧場を見る」、理想個体の牧場の欄（ideal-farms の sticky 行）の見出しに「全部の牧場」。
+   - ドロワー: 中身の表に `farms: (entry, context) => farmBoard(context, { mode: 'drawer' })`。入口は、header-frame の状態のポップオーバー（ui/save-status.js の `headerPopup` の中身。操作は `.header-panel-actions` に並ぶ。追記 2026-10-13: popovers で `createPopover` の `onOpen` が呼ぶ `buildPanel` に変わった）に「配合牧場を見る」、理想個体の牧場の欄（ideal-farms の sticky 行）の見出しに「全部の牧場」。
 7. **孵化待ちのタマゴ（F048・N-16）**: `web/js/core/ideal-goals.js` に足す:
    ```js
    /** 目標の条件を満たすタマゴ（孵化させれば完成）。goalMatches と同じ条件をタマゴだけに当てる。goalMatches は変えない。 */
