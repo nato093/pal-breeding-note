@@ -54,7 +54,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 両親合わせてパッシブがそろう組も完全体作成組にし、交換推奨と「変更あり」を全体の速さの目安で決める
 
-- 状態: 済 ／ ブランチ: `feature/ideal-calc` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/ideal-calc` ／ マージのコミット: `76001f7`
 - 実装で決めたこと・文書との違いは phase-1-0-ideal-calc.md の「実装の記録」。D19（別の子も登録されている組は速さで比べない）をユーザーに確かめて足した
 - 順番: UI 改善の統合プランにはないテーマ。2026-10-12 に足し、1a の前に置いた（今の行番号がそのまま使え、後のテーマが新しい計算の上で作れるため。README の「2-8」）
 
@@ -89,18 +89,19 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 自動登録の通知から配合表の答えを外す
 
-- 状態: 未着手 ／ ブランチ: `feature/inv2-notice` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/inv2-notice` ／ マージのコミット: （マージの後に書く）
+- 文書と違う形にしたこと: release-notes の本文は、見送りの通知にはタマゴの中身も出るので「親・タマゴの中身・登録済みの子だけを出します」にした（44 字）。テストの :406-407 相当は登録済みの子が 2 つで、並びは登録の順なので、どちらの順でも通る形にした。コメントの「配合表は〜」の言い回しも、`grep -n "表は"` が旧本文を読む所だけになるように直した
 
-- [ ] auto-register.js に `AUTO_NOTICE_TITLES`・`anomalyText`・`conflictText` を足す
-- [ ] `anomalyNotice` を新しい文にする（expected を使わない）
-- [ ] `conflictNotice` を新しい文にする（候補の子を使わない・href は今のまま）
-- [ ] `safeAutoNotice` を足し、`readNotices` で通す
-- [ ] ファイル冒頭のコメントを直す
-- [ ] auto-register.test.js の title・body の期待値を直す（:128・149・280・393-394・406-407・474）
-- [ ] 生成した通知に配合表の答えが無いテスト（突然変異タマゴを含む）を足す
-- [ ] 旧本文の通知から起動するテストと、`safeAutoNotice` の単体テストを足す
-- [ ] release-notes に 1 件足す
-- [ ] `npm test`・モックのベルで確かめる
+- [x] auto-register.js に `AUTO_NOTICE_TITLES`・`anomalyText`・`conflictText` を足す
+- [x] `anomalyNotice` を新しい文にする（expected を使わない）
+- [x] `conflictNotice` を新しい文にする（候補の子を使わない・href は今のまま）
+- [x] `safeAutoNotice` を足し、`readNotices` で通す
+- [x] ファイル冒頭のコメントを直す
+- [x] auto-register.test.js の title・body の期待値を直す（:128・149・280・393-394・406-407・474）
+- [x] 生成した通知に配合表の答えが無いテスト（突然変異タマゴを含む）を足す
+- [x] 旧本文の通知から起動するテストと、`safeAutoNotice` の単体テストを足す
+- [x] release-notes に 1 件足す
+- [x] `npm test`・モックのベルで確かめる
 
 ### 2. [render-contract](phase-1a-foundation.md#render-contract-同じ画面なら作り直さない遷移の契約)（M）
 
@@ -1006,7 +1007,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 1 番目 inv2-notice**（[phase-1a-foundation.md の節](phase-1a-foundation.md#inv2-notice-自動登録の通知から配合表の答えを外す)）から。冒頭の「テーマの順番」「共通の決まり」「プランと違っていた点」「テスト環境の制約」を先に読む。
+- **フェーズ 1a の 2 番目 render-contract**（[phase-1a-foundation.md の節](phase-1a-foundation.md#render-contract-同じ画面なら作り直さない遷移の契約)）から。始めに、TODO の inv2-notice の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。phase-1a の冒頭の「テスト環境の制約」を読み直してから入る（多くのビューに触れるので、先に小さく入れて全タブのテストを通す。README の 8-1）。
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**1 テーマ終えるごとに報告して止まる**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
 - 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。
-- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0 と ideal-calc を済ませた。ideal-calc のレビューで D19 を足した）
+- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice を済ませた。ideal-calc のレビューで D19 を足した）
