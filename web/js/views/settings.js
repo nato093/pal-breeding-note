@@ -80,9 +80,16 @@ export function settingsView(context) {
     rename.disabled = state.renaming;
     logout.disabled = state.renaming;
   }
-  const unsubscribeAccount = store.subscribe(renderAccount);
+  // 整合性の警告と前回取得の時刻は、記録が同じでも変わる（記録の変更番号が増えない）ので、それらが変わったときも描き直す
+  const dataKey = (state) => JSON.stringify([state.warnings, state.serverTime, state.cached, state.env]);
+  let shownData = '';
+  const unsubscribeAccount = store.subscribe((state) => {
+    renderAccount(state);
+    if (dataKey(state) !== shownData) renderData(state);
+  });
   renderAccount(store.state);
-  const view = watchView(store, element, (state) => {
+  function renderData(state) {
+    shownData = dataKey(state);
     env.textContent = `環境: ${state.env === 'test' ? 'テスト' : state.env === 'prod' ? '本番' : '確認中'}`;
     time.textContent = `前回取得: ${formatTime(state.serverTime, true)}${state.cached ? '（キャッシュ）' : ''}`;
     warningList.replaceChildren();
@@ -102,6 +109,7 @@ export function settingsView(context) {
       }
       warningList.append(row);
     }
-  });
+  }
+  const view = watchView(store, element, renderData);
   return { element, destroy() { view.destroy(); unsubscribeAccount(); ownedCard?.destroy(); } };
 }

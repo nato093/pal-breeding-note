@@ -6,7 +6,7 @@ import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus, renderWhenIdle } from './shared.js';
 
 function holderSummary(carriers) {
   // 要約なので、パルボックスのページと位置までは出さない
@@ -125,11 +125,22 @@ export function inheritanceView(context, route) {
       : chips.find((chip) => chip.getAttribute('data-focus-key') === previous.getAttribute('data-focus-key'))));
   }
 
-  function renderOwned(state, pals, starts) {
+  // パッシブの選択欄は、選んだパッシブと所持数が同じなら作り直さない。データの更新では、選んでいる途中（フォーカス中）は待つ（force は条件の変更）
+  let shownPassives = '';
+  function renderPassives(pals, { force = false } = {}) {
+    const counts = passiveCounts(pals ?? []);
+    const signature = JSON.stringify([passives, [...counts]]);
+    if (signature === shownPassives) return;
+    if (!force) { renderWhenIdle(passiveSlot, () => renderPassives(owned?.state?.owned?.pals ?? null, { force: true })); return; }
+    shownPassives = signature;
     // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう追加欄へフォーカスを移す
     keepFocus(passiveSlot, () => passiveSlot.replaceChildren(passiveSelector({
-      label: '運びたいパッシブ（所持パルから探す）', selected: passives, counts: passiveCounts(pals ?? []), onChange: setPassives,
+      label: '運びたいパッシブ（所持パルから探す）', selected: passives, counts, onChange: setPassives,
     })), () => passiveSlot.querySelector('.passive-add'));
+  }
+
+  function renderOwned(state, pals, starts, force) {
+    renderPassives(pals, { force });
     ownedSection.replaceChildren();
     if (!pals) {
       if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
@@ -188,14 +199,15 @@ export function inheritanceView(context, route) {
     };
   }
 
-  function update(state) {
+  // force: 条件の変更（applyRoute）。データの更新では、選んでいる途中のパッシブの選択欄を作り直さない
+  function update(state, { force = false } = {}) {
     const pals = owned?.state?.owned?.pals ?? null;
     const filter = Boolean(pals);
     if (filter !== filterLayout) arrange(filter);
     const starts = pals && to && passives.length && state.env
       ? ownedRouteStarts({ graph: state.graph, pals, to, passives, shortestRoute }) : [];
     if (filter) renderStartFilter(starts);
-    if (owned) renderOwned(state, pals, starts);
+    if (owned) renderOwned(state, pals, starts, force);
     if (!to || (!from && !(owned && passives.length))) {
       // 開始を選ばない形で目標を選んだ後は、所持パルの欄が次の手順を案内する
       if (filter && to) results.replaceChildren();
@@ -219,7 +231,7 @@ export function inheritanceView(context, route) {
     readRoute(next);
     syncPicker(toPicker, to);
     if (!filterLayout) syncPicker(fromPicker, from);
-    update(context.store.state);
+    update(context.store.state, { force: true });
   }
   if (!owned) return { ...view, applyRoute };
   let lastData = owned.state.data;

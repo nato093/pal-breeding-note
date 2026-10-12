@@ -146,7 +146,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 固定ヘッダー・状態・ID・重なり順の変数
 
-- 状態: 済 ／ ブランチ: `feature/header-frame` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/header-frame` ／ マージのコミット: `517bcea`
 - 文書と違う形にしたこと: セーブ連携の状態の最大幅（22em・14em）をやめてワールド名だけを縮める形にし（測ると 22em では時刻と自動登録が切れた）、`ui/header-popup.js`（popovers で置き換える）・`formatShortTime`・`syncStatus` の部品を足し、`accountMenu({ store, renamer })` にした。読み込み中の印は `auto.status === 'checking'` の間も立てる（phase-1a の header-frame の「実装の記録」）
 
 - [x] app.css に `--header-h` と `--z-*` を足し、既存の z-index を置き換える
@@ -168,24 +168,25 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 差分更新・区切った描画・再計算の省略・ずれの解消
 
-- 状態: 未着手 ／ ブランチ: `feature/stable-render` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/stable-render` ／ マージのコミット: （マージの後に書く）
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D18。D18 で画面が止まる時間の上限を決めた）
+- 文書と違う形にしたこと: 表 1 つで 300ms を超える条件（最大 491ms）があったので表の作成も区切り、組のループの区切りを 1,024 組ごと・最後の選び方をヒープ・見る組のキーを ID の表から引く形にし（20,000 行の偏った分布で 55 → 12 秒、区切りの最大 160 → 32ms）、所持パルは先頭の 200 行だけすぐ書き換えて残りを区切り・キーワードの文字列を使い回す形にした（`startSliced` の `firstBudget`・`syncOptions`・`renderWhenIdle`・`hasGenerationTable`・`prepareKeywords` を足した。20,000 行・同じ種族 6 割の理想個体は合計約 12 秒で D18 の「Worker を検討」に当たるが、Worker にはしていない。phase-1a の stable-render の「実装の記録」）
 
-- [ ] store.js に revision と署名による index の据え置きを入れ、watchView と設定の警告を直す
-- [ ] ui/dom.js に syncList・listKeys・clearList（フォーカスの復元つき）とテストを作る
-- [ ] renderCards を syncList にし、検索・逆引き・パル詳細・一覧を寄せる（キーに表示の向きと版）
-- [ ] 所持パルの行を fillOwnedRow と ownedRowItem（署名で更新）に分ける
-- [ ] 所持パルの描画の仕事（先頭 200 行・16ms の区切り・古い仕事の破棄・destroy）を入れる
-- [ ] 自動の更新の後に先頭の行の位置を戻す（anchorOf・restoreAnchor）
-- [ ] ui/virtual-list.js を作り、2,000 行を超えたら仮想にする
-- [ ] core/ideal.js に idealPlanSteps を足し（ideal-calc の `prefer`・`watch`・`measures` を通す）、ui/slice.js と views/ideal.js の署名（牧場の署名と `prefer` を含む）・区切った計算を入れる（表の作成の前に「計算中」を描く。表の作成が 300ms を超えたら表の作成も分けて回す＝D18）
-- [ ] 所持パル・理想個体・継承ルート・設定の選択肢を署名で作り直さないようにする（フォーカス中は待つ）
-- [ ] debounce・onTextInput を作り、キーワード・個体値・登録者名に使う（テストの inputDelay）
-- [ ] .result-note の min-height と同期バーの場所を残す隠し方を入れる
-- [ ] 新しい版の案内を下端の固定スナックバーにし、ダイアログが開いていたら再読み込みを保留する
-- [ ] ui/motion.js（withTransition）を作り、所持パルと一覧の並べ替えに使う
-- [ ] 性能テスト（owned.perf.js・ideal.perf.js の追加分）と、ブラウザでの予算の計測をする
-- [ ] release-notes に 1 件足す
+- [x] store.js に revision と署名による index の据え置きを入れ、watchView と設定の警告を直す（設定は前回取得の時刻も同じ署名で描き直す）
+- [x] ui/dom.js に syncList・listKeys・clearList（フォーカスの復元つき）とテストを作る
+- [x] renderCards を syncList にし、検索・逆引き・パル詳細・一覧を寄せる（キーに表示の向きと版）
+- [x] 所持パルの行を fillOwnedRow と ownedRowItem（署名で更新）に分ける（一致の理由だけ変わったら理由の行だけ入れ直す）
+- [x] 所持パルの描画の仕事（先頭 200 行・16ms の区切り・古い仕事の破棄・destroy）を入れる
+- [x] 自動の更新の後に先頭の行の位置を戻す（anchorOf・restoreAnchor）
+- [x] ui/virtual-list.js を作り、2,000 行を超えたら仮想にする
+- [x] core/ideal.js に idealPlanSteps を足し（ideal-calc の `prefer`・`watch`・`measures` を通す）、ui/slice.js と views/ideal.js の署名（牧場の署名と `prefer` を含む）・区切った計算を入れる（表の作成の前に「計算中」を描く。表の作成が 300ms を超えたら表の作成も分けて回す＝D18。表の作成も区切った）
+- [x] 所持パル・理想個体・継承ルート・設定の選択肢を署名で作り直さないようにする（フォーカス中は待つ）
+- [x] debounce・onTextInput を作り、キーワード・個体値・登録者名に使う（テストの inputDelay）
+- [x] .result-note の min-height と同期バーの場所を残す隠し方を入れる
+- [x] 新しい版の案内を下端の固定スナックバーにし、ダイアログが開いていたら再読み込みを保留する
+- [x] ui/motion.js（withTransition）を作り、所持パルと一覧の並べ替えに使う
+- [x] 性能テスト（owned.perf.js・ideal.perf.js の追加分）と、ブラウザでの予算の計測をする（2,000 行・20,000 行とも予算の中。phase-1a の「計測の記録」）
+- [x] release-notes に 1 件足す
 
 ### 6. [keep-state](phase-1a-foundation.md#keep-state-位置と条件の保持フォーカスの一般化)（M）
 
@@ -1010,7 +1011,8 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 5 番目 stable-render**（[phase-1a-foundation.md の節](phase-1a-foundation.md#stable-render-差分更新区切った描画再計算の省略ずれの解消)）から。始めに、TODO の header-frame の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。header-frame の「実装の記録」（`--z-*` の値・セーブ連携の状態は前の文を残して is-busy だけ足す・同期バーは `.header-status` の中で文の下）を読んでから入る。
+- **フェーズ 1a の 6 番目 keep-state**（[phase-1a-foundation.md の節](phase-1a-foundation.md#keep-state-位置と条件の保持フォーカスの一般化)）から。始めに、TODO の stable-render の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。stable-render の「実装の記録」（`syncList` の `data-focus` とフォーカスの戻し方・`renderWhenIdle`・`.card-stack` と所持パルの一覧の `overflow-anchor: none`・所持パルの先頭 200 行の書き換え）を読んでから入る。
+- ユーザーに確かめ中（フェーズ 1a の終わりの報告でまとめて聞く）: (1) 拡大 150%（1100px の窓で中身 733px）では body の min-width 920px のため横スクロールが出て、登録と ID が右外に出る。今の制約のままでよいか。(2) ログイン画面のヘッダーの同期状況は、押せないボタンとしてログインのエラーの文も出る（エラーはフォームにも出ている）。ログイン画面では隠すか、今のままか。
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
-- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。
-- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame を済ませた。ideal-calc のレビューで D19 を足した）
+- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。(7) 性能の予算の注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-rows-2000.js`・`inject-rows-20000.js`（inject.js の写し。画面に出る行がちょうどその数）。ログイン画面ではヘッダーの同期状況のボタンにもエラーの文が出るので、playwright で「新規登録」を押すときは `exact: true` にする。JS ヒープは CDP の `HeapProfiler.collectGarbage` の後に `Runtime.getHeapUsage` で測った。
+- 最終更新: 2026-10-13（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame・stable-render を済ませた。ideal-calc のレビューで D19 を足した）

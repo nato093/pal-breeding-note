@@ -39,7 +39,7 @@
 |---|---|
 | render-contract | `context.update(hash)`（同じ画面なら作り直さない遷移）。ビューは `applyRoute(route)`（URL の条件・部品を最新の route に同期）と `update(state)`（データの描き直し）を持つ。理想個体の `to`・`passives`（今は views/ideal.js:178-179 の定数）は `applyRoute` で読み直す変数になっている。`navigateSelection`・`setPassives` は同じ画面なら `context.update` を使う。（追記 2026-10-12、実装の後: URL は生成時と applyRoute で同じ `readRoute(next)` が読む。g を読んだときは `showConditions()` が個体値・パッシブの条件・ケーキの入力欄を合わせる。作り直すパッシブの欄のフォーカスは views/shared.js の `keepFocus`。phase-1a の render-contract の「実装の記録」） |
 | header-frame | CSS 変数 `--header-h`（ヘッダーの高さ）と重なり順の変数（ヘッダー・固定のパネル・候補・レール・トースト・ダイアログ・ドロワー）。このドキュメントでは `--z-header`・`--z-panel`（条件のパネル）・`--z-sticky`（2 段目の固定＝牧場の帯・列見出し）・`--z-popover` と書く（値は phase-1a の header-frame の表）。ヘッダーにセーブ連携の状態（ワールド・セーブ時刻・自動登録）が出る |
-| stable-render | `ui/dom.js` の `syncList(container, items, { key, create })`（create は `{ element, update, destroy }`）。画面用の変更番号。理想個体の「データ・index・実効の条件・本人」の署名で再計算を省く仕組みと、idealPlan の区切った計算。所持パルの最初の 200 行を先に出して残りを区切って足す仕組み（古い仕事の無効化つき）。件数の行（`.result-note`）の min-height。View Transition のヘルパー |
+| stable-render | `ui/dom.js` の `syncList(container, items, { key, create })`（create は `{ element, update, destroy }`）。画面用の変更番号。理想個体の「データ・index・実効の条件・本人」の署名で再計算を省く仕組みと、idealPlan の区切った計算。所持パルの最初の 200 行を先に出して残りを区切って足す仕組み（古い仕事の無効化つき）。件数の行（`.result-note`）の min-height。View Transition のヘルパー。（追記 2026-10-13、実装の後: 理想個体は `idealPlanSteps` を `startSliced` で回し、結果を描くのは views/ideal.js の `showPlan(result, plan)`。計算中は前の結果を残して `.ideal-results` に `aria-busy`・`is-computing`。選択欄は views/shared.js の `syncOptions`・`renderWhenIdle` で、同じなら作り直さない。所持パルの行は views/owned.js の中の `ownedRowItem`（行に出す値と一致の理由の署名を分け、理由だけ変わったら理由の行だけ入れ直す。1 回の描き直しで書き換えるのは先頭の 200 行までで、残りは区切る）。ビューのテストの context は `inputDelay: 0`・`sliceBudget: Infinity`。phase-1a の stable-render の「実装の記録」） |
 | keep-state | 画面ごとの条件とスクロール位置の保持（viewState・history.state）。条件の適用 → 描画 → 位置の復元の順番 |
 | popovers | `ui/popover.js`（固定配置の計算。`{ element, update, destroy }`、document/window のリスナーは AbortController で外す）。パッシブ選択の 1 行部品（`passiveSelector` が `{ element, update({ selected, counts }), destroy }` を返す。開いている間に update が来ても閉じない） |
 | data-boundary | 読み戻しの検証（個体値 0〜100 の整数など）。このフェーズで足す値も同じ検証を通す |
@@ -822,7 +822,7 @@ owned-toolbar（パネルの高さ `--panel-h`・並べ替えの選択）、stab
    /** 互換のための薄い包み（理想個体のカード・テストで使う）。 */
    export const ownedRow = (pal, options) => ownedRowItem(pal, options).element;
    ```
-   - 変わったセルだけ書き換える（`update` は同じ pal なら何もしない）。キーは `pal.id`。stable-render の `syncList(results, list, { key: (pal) => pal.id, create: (pal) => ownedRowItem(pal, …) })` で並べる。最初の 200 行と区切った追加・古い仕事の無効化は stable-render の仕組みに乗せる。
+   - 変わったセルだけ書き換える（`update` は同じ pal なら何もしない）。キーは `pal.id`。stable-render の `syncList(results, list, { key: (pal) => pal.id, create: (pal) => ownedRowItem(pal, …) })` で並べる。最初の 200 行と区切った追加・古い仕事の無効化は stable-render の仕組みに乗せる。（追記 2026-10-13: stable-render では `ownedRowItem` を views/owned.js の `ownedView` の中に置いた〔キーワードの語を使うため〕。export にするときは、今の「先頭の 200 行だけすぐ書き換え、残りは区切って書き換える」〔`fillBudget`・`deferred`〕と「一致の理由だけ変わったら理由の行だけ入れ直す」〔`replaceNotes`〕を保つ。2,000 行でキーワードの入力が止まらないための仕組み。`fillOwnedRow`・`rowSignature` は export 済み。行の高さが固定になったら、ui/virtual-list.js の高さの測り直しを省いてよい）
    - **★（O-45）**: `span.owned-stars`（aria-label「パル濃縮 ★2」、0 なら「パル濃縮なし」）の中に塗りの `span`（★×n）と輪郭の `span`（☆×(4−n)）。色はトークン `--condense`（ライト・ダークの両方で見やすい青。ゲームの青い星に寄せる）。要素を増やさないため SVG にはしない。
    - **Lv**: タマゴは「—」（タマゴのバッジは残る）。
    - **パッシブ（F066・O-25）**: 行の中だけランクの高い順（同じランクは保存の順）に並べ、2×2 の固定の枠（2 段分の高さを常に確保）。5 個以上なら 3 個＋「+N」のボタン（`hint` の部品で残りのチップを板に出す。行内には広げない）。「パッシブなし」の文字は出さない（枠が空）。`highlight`（ideal-results）・`.is-wanted`・`.is-extra` はそのまま使う。

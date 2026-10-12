@@ -7,6 +7,7 @@ import { dateTime, worldName, roleLabel, timeLines } from '../ui/owned-status.js
 import { ownedRows, rowsToCsv } from '../core/owned.js';
 import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES } from '../save/handles.js';
 import { mappedUser } from '../core/auto-breeding.js';
+import { syncOptions } from './shared.js';
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -258,7 +259,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   }
 
   // ---- 所持パル（ワールドの行を開いたところで、そのワールドについて操作する） ----
-  function ownedPanel(world, view, busy) {
+  function ownedPanel(world, view) {
     const panel = el('div', 'owned-world-pals');
     panel.append(el('p', 'owned-step-title', '所持パル'));
     const csv = button('CSV で保存', () => runButton(csv, async () => {
@@ -266,7 +267,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       if (!found) { toast('このワールドの所持パルがまだありません'); return; }
       downloadCsv(found.owned, found.importedAt);
     }, (error) => toast(error.message)), 'button secondary');
-    csv.disabled = busy || !view.hasOwned;
+    busyButtons.push([csv, () => !view.hasOwned]);
     const row = el('div', 'owned-import-row');
     row.append(csv);
     // 共有した所持パルの削除は、この PC がホストとして共有したワールドだけ
@@ -275,7 +276,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         if (!await confirmDialog('共有した所持パルを削除しますか？', 'スプレッドシートから、このワールドの所持パルを消します。仲間の画面にも表示されなくなります。セーブは変わりません。', { confirmText: '削除', danger: true })) return;
         await runButton(remove, async () => { await owned.deleteShared(world.id); toast('共有した所持パルを削除しました'); }, (error) => toast(error.message));
       }, 'button quiet danger-text');
-      remove.disabled = busy;
+      busyButtons.push([remove, () => false]);
       row.append(remove);
     }
     panel.append(row);
@@ -296,6 +297,12 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // 選んでいる途中に作り直さないよう、表示する内容が変わったときだけ描き直す
   const openWorlds = new Set();
   let renderedWorlds = '';
+  // 読み込み中（busy）に押せないボタン。行を作り直さずに disabled だけを書き換える（60 秒ごとの読み直しで開いている select を閉じない）
+  let busyButtons = [];
+  const setBusy = (busy) => {
+    // 押して処理している途中のボタン（runButton が aria-busy を付ける）は、押せないままにする
+    for (const [node, extra] of busyButtons) node.disabled = busy || extra() || node.getAttribute('aria-busy') === 'true';
+  };
   function renderRegistered(state) {
     const env = context.store.state.env;
     const users = env ? context.store.state.users ?? [] : [];
@@ -311,9 +318,11 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       hasOwned: state.local?.world.id === world.id || sharedAt.has(world.id),
       sharedAt: sharedAt.get(world.id) ?? '',
     }));
-    const signature = JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind]), views, users, state.busy, Boolean(autoRegister)]);
+    // 署名に busy は入れない（読み込みのたびに一覧を 2 回作り直していた）。busy はボタンの disabled だけで表す
+    const signature = JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind]), views, users, Boolean(autoRegister)]);
     if (signature !== renderedWorlds) {
       renderedWorlds = signature;
+      busyButtons = [];
       registered.replaceChildren();
       state.auto.worlds.forEach((world, index) => {
         const item = el('li', 'owned-registered-item');
@@ -324,8 +333,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
           if (!await confirmDialog('このワールドの登録を削除しますか？', 'このブラウザに登録したファイルの記録を消します。セーブと、共有された所持パルは変わりません。', { confirmText: '削除', danger: true })) return;
           await runButton(remove, async () => { await owned.removeWorld(world.id); toast('登録を削除しました'); }, (error) => toast(error.message));
         }, 'button quiet danger-text');
-        edit.disabled = state.busy;
-        remove.disabled = state.busy;
+        busyButtons.push([edit, () => false], [remove, () => false]);
         const actions = el('span', 'owned-registered-actions');
         actions.append(edit, remove);
         const summary = el('summary', 'owned-world-summary');
@@ -344,33 +352,37 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         details.addEventListener('toggle', () => { if (details.open) openWorlds.add(world.id); else openWorlds.delete(world.id); });
         details.append(summary);
         if (autoRegister) details.append(breedingPanel(world, views[index], users, showState));
-        details.append(ownedPanel(world, views[index], state.busy));
+        details.append(ownedPanel(world, views[index]));
         item.append(details);
         registered.append(item);
       });
     }
+    setBusy(state.busy);
     registered.hidden = !state.auto.worlds.length;
     emptyNote.hidden = state.auto.worlds.length > 0;
   }
 
   // 登録したワールドがあれば、自動で読み込むワールドを選ぶ。なければ、共有されたワールドから表示するものを選ぶ
+  // 選択肢（id と表示名）の並びが変わったときだけ作り直す。それ以外は value と disabled だけ（開いている select を閉じない）
   function renderWorldSelect(state) {
     const registeredWorlds = state.auto.enabled ? state.auto.worlds : [];
     worldMode = registeredWorlds.length ? 'auto' : 'view';
-    worldSelect.replaceChildren();
+    let choices;
+    let value;
     if (worldMode === 'auto') {
       const latest = registeredWorlds.find((world) => world.playedAt);
-      worldSelect.append(option('', `自動（いま遊んでいるワールド${latest ? `: ${shortName(latest)}` : ''}）`));
-      for (const world of registeredWorlds) worldSelect.append(option(world.id, shortName(world)));
-      worldSelect.value = registeredWorlds.some((world) => world.id === state.auto.worldId) ? state.auto.worldId : '';
+      choices = [['', `自動（いま遊んでいるワールド${latest ? `: ${shortName(latest)}` : ''}）`], ...registeredWorlds.map((world) => [world.id, shortName(world)])];
+      value = registeredWorlds.some((world) => world.id === state.auto.worldId) ? state.auto.worldId : '';
     } else {
       const shared = state.shared.worlds ?? [];
-      worldSelect.append(option('', '自動（いちばん新しく共有されたワールド）'));
-      for (const world of shared) worldSelect.append(option(world.worldId, `${worldName(world)} · ${world.palCount} 体`));
-      worldSelect.value = shared.some((world) => world.worldId === state.viewWorldId) ? state.viewWorldId : '';
+      choices = [['', '自動（いちばん新しく共有されたワールド）'], ...shared.map((world) => [world.worldId, `${worldName(world)} · ${world.palCount} 体`])];
+      value = shared.some((world) => world.worldId === state.viewWorldId) ? state.viewWorldId : '';
     }
+    syncOptions(worldSelect, choices, () => {
+      if (worldSelect.value !== value) worldSelect.value = value;
+    });
     worldSelect.disabled = state.busy;
-    worldRow.hidden = worldSelect.children.length < 2;
+    worldRow.hidden = choices.length < 2;
   }
 
   function render(state) {

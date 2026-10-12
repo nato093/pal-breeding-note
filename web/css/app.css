@@ -373,6 +373,9 @@ img, svg { max-width: 100%; }
   overflow: hidden;
 }
 .sync-progress-fill { height: 100%; width: var(--progress, 0%); background: var(--md-sys-color-primary); }
+/* 送り終えたら、場所を残して隠す（出入りで同期状況の文が上下に動かないように） */
+.sync-progress[hidden] { display: block !important; visibility: hidden; opacity: 0; }
+.sync-progress[hidden]::after { animation: none; }
 .navigation {
   display: flex;
   max-width: none;
@@ -415,20 +418,28 @@ img, svg { max-width: 100%; }
 .tab-symbol { font-size: 20px; line-height: 1.1; }
 .nav-tab.active { color: var(--md-sys-color-on-secondary-container); background: transparent; }
 .app-main { max-width: var(--content-max); padding: 20px 24px 72px; margin: 0 auto; min-height: 65dvh; }
+/* 新しいバージョンの案内は、本文の流れから外した下端の固定のカード（出ても本文がずれない）。
+   右下のトースト（幅 460px・右の余白 24px）とぶつからないよう、左のナビの右から、トーストの左までに収める */
 .update-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
   flex-wrap: wrap;
-  max-width: calc(var(--content-max) - 48px);
-  margin: 12px auto 0;
+  position: fixed;
+  bottom: 24px;
+  left: calc(var(--drawer) + 24px);
+  width: auto;
+  min-width: 300px;
+  max-width: min(720px, calc(100% - var(--drawer) - 48px - 484px));
+  margin: 0;
   padding: 12px 16px;
   border: 0;
   border-radius: 12px;
   background: var(--md-sys-color-primary-container);
-  width: calc(100% - 48px);
   color: var(--md-sys-color-on-primary-container);
+  z-index: var(--z-snackbar);
+  box-shadow: var(--elevation-3);
 }
 .update-banner-message { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
 .update-banner-hint { margin: 2px 0 0; font-size: 13px; color: inherit; opacity: .8; }
@@ -706,7 +717,8 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .empty-state { text-align: center; padding: 40px 16px; color: var(--muted); }
 .empty-state p { max-width: 440px; margin: 0 auto 14px; font-size: 13px; }
 .empty-symbol { font-size: 45px; line-height: 1; color: var(--accent); opacity: .7; display: none; }
-.result-note { font-size: 12px; color: var(--muted); margin: 8px 0; }
+/* 件数の行は空のときも 1 行の高さを保つ（件数が出たり消えたりして、下の結果が上下に動かないように） */
+.result-note { font-size: 12px; color: var(--muted); margin: 8px 0; min-height: 1lh; }
 .dialog {
   border: 0;
   border-radius: 28px;
@@ -954,9 +966,11 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     @starting-style { opacity: 0; transform: translateY(12px); }
   }
   .update-banner {
-    transition: opacity .2s linear, transform .3s var(--ease-decelerate);
-    @starting-style { opacity: 0; transform: translateY(-8px); }
+    transition: opacity .2s linear, translate .3s var(--ease-decelerate);
+    @starting-style { opacity: 0; translate: 0 16px; }
   }
+  /* 理想個体の計算中は、前の結果を薄くする（高さは変えない） */
+  .ideal-results > * { transition: opacity .15s linear; }
   /* 配合の行に乗ると「→」が子の方へ少し進み、編集の鉛筆は書く向きに傾く */
   .equation-symbol.arrow { transition: transform .2s var(--ease-emphasized); }
   .breeding-card:hover .equation-symbol.arrow, .route-options > .breeding-equation:hover .equation-symbol.arrow { transform: translateX(3px); }
@@ -1074,6 +1088,14 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-unknown { color: var(--ink); }
 /* 件数が多くても全部出すので、画面外の行は描画を後回しにする */
 .owned-row { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+/* 2,000 行を超えたら見えている範囲だけを置く（ui/virtual-list.js）。上下の余白で全体の高さを保ち、行は実際の高さで測る */
+/* 行の要素を使い回すので、並べ替えで行が動いたときにブラウザが画面をその行へ追いかけない（スクロール位置は今までどおり。
+   自動の更新の後に位置を戻すのは views/owned.js の anchorOf・restoreAnchor）。見えている範囲だけ描くときは、測った高さの補正に任せる */
+.owned-list:not(.is-virtual), .card-stack { overflow-anchor: none; }
+.owned-list.is-virtual { display: block; }
+.owned-list.is-virtual .owned-row { content-visibility: visible; }
+.virtual-spacer { height: var(--space, 0px); }
+.virtual-rows { display: grid; }
 .owned-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
 .owned-badge {
   font-size: 11px;
@@ -1176,7 +1198,27 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 /* 理想個体: 組ごとに確率の見出しと、♂・♀の個体の行（所持パルの行と同じ形）を並べる */
 .ideal-conditions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 24px; }
 .ideal-conditions .field { min-width: 14em; }
-.ideal-results { display: grid; gap: 12px; }
+.ideal-results { display: grid; gap: 12px; position: relative; }
+/* 区切って計算している間（aria-busy）。前の結果を残したまま薄くし、上に「計算中…」を重ねる */
+.ideal-results.is-computing > * { opacity: .45; }
+.ideal-results.is-computing::after {
+  content: '計算中…';
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  translate: -50% 0;
+  padding: 6px 16px;
+  border-radius: 100px;
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: var(--elevation-2);
+  pointer-events: none;
+}
+/* まだ何も出していないときは、本文の「計算中…」だけを出す */
+.ideal-results.is-computing:has(> .empty-state:only-child)::after { content: none; }
+.ideal-results.is-computing > .empty-state:only-child { opacity: 1; }
 .ideal-pair { padding: 10px 18px 12px; background: var(--md-sys-color-surface-container-low); border-radius: 16px; }
 .ideal-pair-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .ideal-chance { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }

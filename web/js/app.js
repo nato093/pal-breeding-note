@@ -146,13 +146,15 @@ async function boot() {
   const account = accountMenu({ store, renamer });
   // 並び（＝Tab の順）: ロゴ → 同期状況 → セーブ連携 → ベル → 登録 → ID
   header.append(brand, envChip, headerStatus, save.element, bell.element, register, account.element);
-  // 新しい版の配信を知らせる帯。再読み込みすると、送信待ちの操作や読み込み中のセーブが失われる。
+  // 新しい版の配信を知らせる案内（画面の下端に固定。本文の流れの外）。再読み込みすると、送信待ちの操作や読み込み中のセーブ、開いている入力画面が失われる。
   const version = runningVersion();
   const update = updateBanner({
     current: version,
     busy: () => {
       if (store.state.syncing) return 'サーバへの保存が終わってから、もう一度押してください。';
       if (owned.state.busy || owned.state.upload.status === 'sending') return '所持パルの読み込み・共有が終わってから、もう一度押してください。';
+      // 登録の画面・ワールドの登録・名前の変更などの入力を、読み込み直して失わないように
+      if (document.querySelector?.('dialog[open]')) return '開いている入力画面を閉じてから、もう一度押してください。';
       return '';
     },
     served: () => servedVersion(location.href),

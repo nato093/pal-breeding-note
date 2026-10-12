@@ -21,16 +21,13 @@ export function reverseView(context, route) {
   const results = el('div', 'card-stack');
   element.append(panel, results);
   const view = watchView(context.store, element, (state) => {
-    if (!child) { results.replaceChildren(empty('探したい子を選んでください。')); return; }
+    if (!child) { renderCards(results, [], context, { empty: () => empty('探したい子を選んでください。') }); return; }
     if (dataPending(results, state)) return;
-    const records = findByChild(state.index, child);
-    if (!records.length) {
-      results.replaceChildren(empty('この子の配合はまだ登録されていません', button('この子の配合を登録', () => {
+    renderCards(results, findByChild(state.index, child).map((record) => ({ record })), context, {
+      empty: () => empty('この子の配合はまだ登録されていません', button('この子の配合を登録', () => {
         context.register({ childId: child });
-      }, 'button primary')));
-      return;
-    }
-    renderCards(results, records, context);
+      }, 'button primary')),
+    });
   }, [picker]);
   return {
     ...view,

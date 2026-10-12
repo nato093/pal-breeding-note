@@ -482,3 +482,55 @@ test('キャッシュ: 壊れた要素（null・id のない記録・同じ id�
   assert.equal(store.state.index.byChild.get(other.childId).length, 1);
   assert.deepEqual(store.state.warnings, [{ code: 'DUPLICATE_ID' }]);
 });
+
+test('画面用の変更番号: 同じ全件を取り直しても index と番号は同じで、etag が変われば増える', async () => {
+  const { store, sent } = await controlled([{ ...record, etag: 'e1', updatedAt: '2026-10-04T00:00:00Z' }]);
+  const { index, graph, revision, records } = store.state;
+  const emits = [];
+  store.subscribe((state) => emits.push(state.revision));
+  // 中身が同じ取得（自動の読み直し・タブに戻ったとき）
+  const same = store.refresh();
+  sent[1].resolve(response([{ ...record, etag: 'e1', updatedAt: '2026-10-04T00:00:00Z' }]));
+  await same;
+  assert.equal(store.state.index, index);
+  assert.equal(store.state.graph, graph);
+  assert.equal(store.state.revision, revision);
+  // index の中の記録と state.records の記録は同じもの
+  assert.equal(store.state.records, records);
+  assert.ok(emits.length > 0, '同期状況のために知らせる');
+  // etag が変わった（ほかの人が編集した）
+  const changed = store.refresh();
+  sent[2].resolve(response([{ ...record, etag: 'e2', updatedAt: '2026-10-04T00:00:00Z' }]));
+  await changed;
+  assert.notEqual(store.state.index, index);
+  assert.equal(store.state.revision, revision + 1);
+  assert.equal(store.state.records[0].etag, 'e2');
+});
+
+test('画面用の変更番号: 楽観更新（etag を変えない update）と失敗の巻き戻しでも増える', async () => {
+  const { store, sent } = await controlled([{ ...record, etag: 'e1' }]);
+  const before = store.state.revision;
+  const updated = store.mutate('update', { id: record.id, expectedEtag: 'e1', record: { ...fields, memo: '書き換え' } });
+  assert.equal(store.state.revision, before + 1);
+  assert.equal(store.state.records[0].etag, 'e1');
+  // サーバが断った（中身は前のまま）→ 巻き戻しで番号が増え、古い表示が残らない
+  sent[1].reject(new ApiError('CONFLICT'));
+  await assert.rejects(updated);
+  assert.equal(store.state.revision, before + 2);
+  assert.equal(store.state.records[0].memo, undefined);
+});
+
+test('画面用の変更番号: ログアウトでも増え、記録が同じで警告だけ変わったときも知らせる', async () => {
+  const { store, sent } = await controlled([{ ...record, etag: 'e1' }]);
+  const revision = store.state.revision;
+  const seen = [];
+  store.subscribe((state) => seen.push(JSON.stringify(state.warnings)));
+  const warned = store.refresh();
+  sent[1].resolve({ ...response([{ ...record, etag: 'e1' }]), warnings: [{ code: 'DUPLICATE_RECORD', id: record.id, rowNumber: 3 }] });
+  await warned;
+  assert.equal(store.state.revision, revision);
+  assert.deepEqual(store.state.warnings, [{ code: 'DUPLICATE_RECORD', id: record.id, rowNumber: 3 }]);
+  assert.ok(seen.some((text) => text.includes('DUPLICATE_RECORD')));
+  store.logout();
+  assert.equal(store.state.revision, revision + 1);
+});

@@ -349,10 +349,27 @@ function eggOutcomes({ talent, moves, forced, visit }) {
   return success;
 }
 
+// 区切って進める計算（ジェネレーター）を最後まで同期で回す
+function drain(steps) {
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+
+// 区切りの間隔（この回数ごとに yield する）。1 回の区切りの中で画面が止まる時間を短くする（stable-render の D18）
+// （回数 − 1 のビットの印。重い遷移〔キノコケーキ・「欲しいものだけ」〕でも 1 回が数 ms に収まる間隔）
+const TABLE_STATE_STEP = 15;
+const TABLE_SETTLE_STEP = 255;
+const PAIR_STEP = 1023;
+const PICK_STEP = 1023;
+
 // 状態の親の余計なパッシブの数の上限（parentLimit は正規化した値。effectiveParentExtras）。入れ替えに使う子は欲しいパッシブを
 // 全部持つので、子の余計は 4 − 欲しい数を超えない（usableChildPassives）。親は、両親合わせて欲しいものがそろえばよいので、
-// 欲しいものを欠く分だけ余計を多く持てる。どちらの親が欲しいものを持つかは確率に効かない（和集合から選ぶため）
-function buildGenerationTable(wanted, mode, cake, goal, reach, parentLimit) {
+// 欲しいものを欠く分だけ余計を多く持てる。どちらの親が欲しいものを持つかは確率に効かない（和集合から選ぶため）。
+// 表の作成は大きい表で数百 ms かかるので、状態のループと確定のループの中で yield する（区切っても表の値は同じ）
+function* buildGenerationTableSteps(wanted, mode, cake, goal, reach, parentLimit) {
+  let work = 0;
   const bonus = cake === 'talent';
   const ignorePassives = mode !== 'only' && wanted === 0;
   const limit = ignorePassives ? 0 : parentLimit;
@@ -396,6 +413,7 @@ function buildGenerationTable(wanted, mode, cake, goal, reach, parentLimit) {
         },
       });
       for (const [u, rate] of next) predecessors[u].push(s, rate);
+      if ((++work & TABLE_STATE_STEP) === 0) yield;
     }
   }
   // V(s) = (1 + Σ P·V(s')) / (成功の確率 + Σ P)。入れ替えるのは V(s') < V(s) のときだけなので、V の小さい状態から確定していく
@@ -435,6 +453,7 @@ function buildGenerationTable(wanted, mode, cake, goal, reach, parentLimit) {
   };
   for (let s = 0; s < size; s++) if (valid[s] && Number.isFinite(tentative[s])) push(s);
   while (heap.length) {
+    if ((++work & TABLE_SETTLE_STEP) === 0) yield;
     const [at, best] = pop();
     if (settled[best] || at !== tentative[best]) continue;
     settled[best] = 1;
@@ -483,14 +502,31 @@ function effectiveParentExtras(wanted, mode, parentExtras) {
  * parentExtras は親が持てる余計なパッシブの数（両親合わせて欲しいものがそろう組で、欲しいものを欠く親のため。既定は 4 − 欲しい数）。
  * 広げても、もとの範囲の状態の値は変わらない（子は欲しいものを全部持つので、入れ替えても余計は 4 − 欲しい数を超えない）
  */
-export function generationTable({ wanted = 0, mode = 'include', cake = 'none', targets = {}, bound = 'upper', parentExtras } = {}) {
+export function generationTable(options = {}) {
+  return drain(generationTableSteps(options));
+}
+
+// 表を覚えるときの名前と、表を作るのに使う値
+function tableSpec({ wanted = 0, mode = 'include', cake = 'none', targets = {}, bound = 'upper', parentExtras } = {}) {
   const goal = talentTargets(targets);
   const reach = cake !== 'talent' ? 0 : bound === 'estimate' ? ESTIMATE_REACH : 1;
   const parentLimit = effectiveParentExtras(wanted, mode, parentExtras);
-  const key = [wanted, mode, cake, goal.hp, goal.shot, goal.defense, reach, parentLimit].join('|');
+  return { wanted, mode, cake, goal, reach, parentLimit, key: [wanted, mode, cake, goal.hp, goal.shot, goal.defense, reach, parentLimit].join('|') };
+}
+
+/** その条件の表を覚えているか（generationTable と同じ引数。区切った計算で、作りかけの表を覚えないことを確かめるのに使う） */
+export function hasGenerationTable(options = {}) {
+  return GENERATION_TABLES.has(tableSpec(options).key);
+}
+
+/**
+ * generationTable を区切って作る（覚えている表はすぐ返す）。途中で止めた（ジェネレーターを閉じた）ときは、作りかけの表を覚えない
+ */
+function* generationTableSteps(options = {}) {
+  const { wanted, mode, cake, goal, reach, parentLimit, key } = tableSpec(options);
   let table = GENERATION_TABLES.get(key);
   if (table) GENERATION_TABLES.delete(key);
-  else table = buildGenerationTable(wanted, mode, cake, goal, reach, parentLimit);
+  else table = yield* buildGenerationTableSteps(wanted, mode, cake, goal, reach, parentLimit);
   GENERATION_TABLES.set(key, table);
   if (GENERATION_TABLES.size > GENERATION_TABLE_LIMIT) GENERATION_TABLES.delete(GENERATION_TABLES.keys().next().value);
   return table;
@@ -742,9 +778,18 @@ const bitCount = (mask) => {
  *   total は並べた組の数（blocked を除く）。missing は候補のどの個体も持たない欲しいパッシブ（あれば配合では作れない）。
  *   measures の rank は組の目的（PLAN_GROUPS の順）、ambiguous は同じ組み合わせで別の子も登録されている組
  */
-export function idealPlan({
+export function idealPlan(input) {
+  return drain(idealPlanSteps(input));
+}
+
+/**
+ * idealPlan を区切って進める（入力と戻り値は idealPlan と同じ）。♂×♀ の組のループの中と、新しく作る世代の表の作成の中で yield する。
+ * 画面は ui/slice.js の startSliced で 1 回 数十 ms ずつ進め、間で画面に戻す（組が多い・表が大きいときに入力を止めない）
+ */
+export function* idealPlanSteps({
   pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none', limit = 20, prefer, watch,
 }) {
+  let work = 0;
   const wanted = [...new Set(passives)].slice(0, MAX_WANTED);
   const goal = talentTargets(targets);
   const bonus = cake === 'talent';
@@ -817,11 +862,17 @@ export function idealPlan({
     }
   }
   // 表はその組があるときだけ作る（作るのに時間がかかる）。キノコケーキでは目安（並べる）と上限（表示）の 2 つ
+  // 新しく作る表は区切って作る（キノコケーキの 2 つの表も、1 つずつ・その中も区切る）
   const bounds = bonus ? ['estimate', 'upper'] : ['upper'];
-  const completeTables = parentExtras >= 0
-    ? bounds.map((bound) => generationTable({ wanted: wanted.length, mode, cake, targets: goal, bound, parentExtras })) : [];
+  const completeTables = [];
+  if (parentExtras >= 0) {
+    for (const bound of bounds) completeTables.push(yield* generationTableSteps({ wanted: wanted.length, mode, cake, targets: goal, bound, parentExtras }));
+  }
   // 個体値厳選組の表: パッシブを見ない（欲しいパッシブなし・全部持つ）
-  const talentTables = sameSpecies.M && sameSpecies.F ? bounds.map((bound) => generationTable({ wanted: 0, mode: 'include', cake, targets: goal, bound })) : [];
+  const talentTables = [];
+  if (sameSpecies.M && sameSpecies.F) {
+    for (const bound of bounds) talentTables.push(yield* generationTableSteps({ wanted: 0, mode: 'include', cake, targets: goal, bound }));
+  }
   const stageCode = (talent, table) => TALENT_KEYS.reduce((code, key, s) => code + stageOf(talent[key], goal[key], table) * STAGES ** s, 0);
   for (const list of groups.values()) {
     for (const entry of list) {
@@ -856,11 +907,27 @@ export function idealPlan({
   let total = 0;
   let blocked = 0;
   const inherited = [0, 0, 0];
-  // 優先と見張りは、指定があるときだけ組のキーを作る（100 万組でも文字列を作らないように）
+  // 優先と見張りは、指定があるときだけ組のキーを引く。組ごとに `♂|♀` の文字列を作ると、組が多い（数千万組）ときに
+  // 遅くなり、ごみ集めで画面が長く止まるので、指定されたキーを ♂ の個体 ID → ♀ の個体 ID → キー の表にしてから引く
+  //（キーの文字列が `♂の ID|♀の ID` と一致する組だけを引くので、文字列を作って比べるのと同じ結果）
   const placed = prefer?.placed?.size ? prefer.placed : null;
   const baseline = prefer?.baseline?.size ? prefer.baseline : null;
   const watching = watch?.size ? watch : null;
-  const keyed = Boolean(placed || baseline || watching);
+  const interest = new Map();
+  if (placed || baseline || watching) {
+    const ids = { M: new Set(), F: new Set() };
+    for (const list of groups.values()) for (const entry of list) ids[entry.pal.gender].add(entry.pal.id);
+    for (const key of new Set([...(placed ?? []), ...(baseline ?? []), ...(watching ?? [])])) {
+      if (typeof key !== 'string') continue;
+      for (let at = key.indexOf('|'); at >= 0; at = key.indexOf('|', at + 1)) {
+        const maleId = key.slice(0, at);
+        const femaleId = key.slice(at + 1);
+        if (!ids.M.has(maleId) || !ids.F.has(femaleId)) continue;
+        if (!interest.has(maleId)) interest.set(maleId, new Map());
+        interest.get(maleId).set(femaleId, key);
+      }
+    }
+  }
   const measures = new Map();
   const BLOCKED = Object.freeze({ status: 'blocked' });
   const measureOf = (candidate) => ({
@@ -873,9 +940,11 @@ export function idealPlan({
     if (!males || !females) continue;
     const same = layout.male === target && layout.female === target;
     for (const male of males) {
+      const keys = interest.get(male.pal.id);
       for (const female of females) {
-        const key = keyed ? `${male.pal.id}|${female.pal.id}` : '';
-        const watched = Boolean(watching?.has(key));
+        if ((++work & PAIR_STEP) === 0) yield;
+        const key = keys?.get(female.pal.id) ?? '';
+        const watched = Boolean(key && watching?.has(key));
         if (impossible) {
           blocked++;
           if (watched) measures.set(key, BLOCKED);
@@ -900,7 +969,7 @@ export function idealPlan({
         const candidate = {
           male: male.pal, female: female.pal, layout, ambiguous: layout.ambiguous, entries: [male, female],
           chance: passive * talent, passiveChance: passive, talentChance: talent, expected, extraCount: pool - wanted.length, poolSize: pool,
-          prefer: placed?.has(key) ? 2 : baseline?.has(key) ? 1 : 0,
+          prefer: !key ? 0 : placed?.has(key) ? 2 : baseline?.has(key) ? 1 : 0,
         };
         let list = byMale.get(male.pal.id);
         if (!list) byMale.set(male.pal.id, list = []);
@@ -938,11 +1007,36 @@ export function idealPlan({
       }
     }
   }
-  // 上から順に、まだ使っていない個体どうしの組を選ぶ
+  // 上から順に、まだ使っていない個体どうしの組を選ぶ。♂ が多いと候補（♂ ごとに 2×limit 件）の並べ替えが重いので、
+  // 全部を並べ替えずにヒープから良い順に取り出し、途中で区切る（comparePlan は全順序なので、並べ替えてから選ぶのと同じ結果）
+  const heap = [];
+  for (const list of byMale.values()) for (const candidate of list) heap.push(candidate);
+  const siftDown = (start) => {
+    for (let i = start; ;) {
+      const left = 2 * i + 1;
+      const right = left + 1;
+      let small = i;
+      if (left < heap.length && comparePlan(heap[left], heap[small]) < 0) small = left;
+      if (right < heap.length && comparePlan(heap[right], heap[small]) < 0) small = right;
+      if (small === i) return;
+      [heap[small], heap[i]] = [heap[i], heap[small]];
+      i = small;
+    }
+  };
+  for (let i = (heap.length >> 1) - 1; i >= 0; i--) {
+    siftDown(i);
+    if ((++work & PICK_STEP) === 0) yield;
+  }
   const top = [];
   const used = new Set();
-  for (const candidate of [...byMale.values()].flat().sort(comparePlan)) {
-    if (top.length >= keep) break;
+  while (top.length < keep && heap.length) {
+    const candidate = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      siftDown(0);
+    }
+    if ((++work & PICK_STEP) === 0) yield;
     if (used.has(candidate.male.id) || used.has(candidate.female.id)) continue;
     top.push(candidate);
     used.add(candidate.male.id);

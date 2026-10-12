@@ -1,4 +1,5 @@
-import { el, field, empty, link, button } from '../ui/dom.js';
+import { el, field, empty, link, button, debounce } from '../ui/dom.js';
+import { startSliced } from '../ui/slice.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile } from '../ui/pal-icon.js';
 import { passiveSelector, passivesById, passiveList } from '../ui/passive-picker.js';
@@ -6,11 +7,11 @@ import { actionIcon, icons } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts } from '../core/owned.js';
-import { idealPlan, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
+import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus, syncOptions, renderWhenIdle } from './shared.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
 const LIMIT = 20;
@@ -19,6 +20,14 @@ const TALENT_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
 // 所持パルの自動の読み込みは 20 秒以上空ける（owned.js の AUTO_INTERVAL）ので、タイマーのずれで読み飛ばさないよう少し足す
 const REFRESH_INTERVAL = 20 * 1000 + 500;
 const REFRESH_NOTE = '20 秒ごとに確認';
+// 区切った計算の 1 回の区切り（ms）。最初の区切りで終われば同期で描く（stable-render の D18: 1 区切り 50ms 以内）
+const SLICE_BUDGET = 30;
+const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
+
+// 中身が変わったときだけ作り直されるもの（所持パルのデータ・配合の index）を、計算の署名に入れる番号にする
+const objectIds = new WeakMap();
+let objectSeq = 0;
+const objectRev = (data) => (!data || typeof data !== 'object' ? 0 : objectIds.get(data) ?? (objectIds.set(data, ++objectSeq), objectSeq));
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -181,6 +190,10 @@ export function idealView(context, route) {
   conditions.holder ??= '';
   if (memory) memory.conditions = conditions;
   const ideals = context.ideals;
+  // 入力の間引きの待ち時間（テストの context は 0 にして同期で確かめる）
+  const inputDelay = context.inputDelay ?? 150;
+  // 区切った計算の 1 回の区切り（テストの context は Infinity にして、計算を同期で確かめる）
+  const sliceBudget = context.sliceBudget ?? SLICE_BUDGET;
   let current = route;
   let to = '';
   let passives = [];
@@ -220,10 +233,13 @@ export function idealView(context, route) {
     input.placeholder = '0';
     input.value = String(conditions.targets[key]);
     input.setAttribute('aria-label', `${TALENT_LABELS[key]}の目標`);
-    input.addEventListener('input', () => {
+    // 入力を間引き（打っている途中の値で重い計算を回さない）、確定（change）ですぐ計算する
+    const apply = debounce(() => {
       conditions.targets[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
       renderResults();
-    });
+    }, inputDelay);
+    input.addEventListener('input', apply);
+    input.addEventListener('change', () => apply.flush());
     const wrapper = el('label');
     wrapper.append(el('span', '', TALENT_LABELS[key]), input);
     targets.append(wrapper);
@@ -239,18 +255,19 @@ export function idealView(context, route) {
   const holderSelect = el('select');
   holderSelect.addEventListener('change', () => {
     conditions.holder = holderSelect.value;
-    renderPassives(owned?.state?.owned?.pals);
+    renderPassives(owned?.state?.owned?.pals, { force: true });
     renderResults();
   });
+  // 選択肢の並びが前と同じなら作り直さない。違っても、選んでいる途中（フォーカス中）は待つ
   function renderHolders() {
     const data = owned?.state?.owned;
-    holderSelect.replaceChildren(option('', 'すべて'));
-    if (ideals) holderSelect.append(option('mine', '自分の個体'));
-    for (const player of data?.players ?? []) holderSelect.append(option(`player:${player.uid}`, player.name));
-    // 選択肢にない所持者は選ばない（読み込む前は選択肢がそろっていないので、選んでいた値を消さずに残す）
-    const valid = [...holderSelect.children].some((node) => node.value === conditions.holder);
-    if (!valid && data) conditions.holder = '';
-    holderSelect.value = valid ? conditions.holder : '';
+    const choices = [['', 'すべて'], ...(ideals ? [['mine', '自分の個体']] : []), ...(data?.players ?? []).map((player) => [`player:${player.uid}`, player.name])];
+    syncOptions(holderSelect, choices, () => {
+      // 選択肢にない所持者は選ばない（読み込む前は選択肢がそろっていないので、選んでいた値を消さずに残す）
+      const valid = [...holderSelect.children].some((node) => node.value === conditions.holder);
+      if (!valid && data) conditions.holder = '';
+      holderSelect.value = valid ? conditions.holder : '';
+    });
   }
   // 選んだ所持者の個体だけ（すべてのときはそのまま。自分のプレイヤーが分からないときは空）
   function ofHolder(pals) {
@@ -379,11 +396,18 @@ export function idealView(context, route) {
     changeRoute(context, buildHash('ideal', params));
   };
 
-  function renderPassives(pals) {
+  // パッシブの選択欄は、選んだパッシブと所持数が同じなら作り直さない。データの更新では、選んでいる途中（フォーカス中）は待つ（force は条件の変更）
+  let shownPassives = '';
+  function renderPassives(pals, { force = false } = {}) {
+    // 所持数も、親の候補にしない個体（グローバルパルボックス）を除いて数える
+    const counts = passiveCounts(ofHolder((pals ?? []).filter(isParentCandidate)));
+    const signature = JSON.stringify([passives, [...counts]]);
+    if (signature === shownPassives) return;
+    if (!force) { renderWhenIdle(passiveSlot, () => renderPassives(owned?.state?.owned?.pals, { force: true })); return; }
+    shownPassives = signature;
     // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう追加欄へフォーカスを移す
     keepFocus(passiveSlot, () => passiveSlot.replaceChildren(passiveSelector({
-      // 所持数も、親の候補にしない個体（グローバルパルボックス）を除いて数える
-      label: '欲しいパッシブ', selected: passives, counts: passiveCounts(ofHolder((pals ?? []).filter(isParentCandidate))), onChange: setPassives,
+      label: '欲しいパッシブ', selected: passives, counts, onChange: setPassives,
     })), () => passiveSlot.querySelector('.passive-add'));
   }
 
@@ -478,21 +502,39 @@ export function idealView(context, route) {
     ].filter(Boolean).join(' · ');
   }
 
+  // 計算中の仕事（区切った計算）と、いま表示している計算の署名（同じなら計算も DOM も触らない）
+  let job = null;
+  let shownKey = '';
+  let destroyed = false;
+  function setComputing(on) {
+    results.classList.toggle('is-computing', on);
+    if (on) results.setAttribute('aria-busy', 'true');
+    else results.removeAttribute('aria-busy');
+  }
+  // 結果を出さないとき（データがない・読み込み中など）は、前の判定を残さず、次に条件がそろったら必ず計算する
+  function clearPlan() {
+    job?.cancel();
+    job = null;
+    shownKey = '';
+    setComputing(false);
+    note.textContent = '';
+    missingBox.replaceChildren();
+    farmBox.replaceChildren();
+  }
+
   function renderResults() {
+    const started = clock();
     renderRegister();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
-    note.textContent = '';
-    // 結果を出さないとき（データがない・読み込み中など）に、前の判定を残さない
-    missingBox.replaceChildren();
-    farmBox.replaceChildren();
     if (!pals) {
+      clearPlan();
       results.replaceChildren(empty(owned && !owned.state.ready ? '読み込み中…'
         : '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、理想個体の親を探せます。'));
       return;
     }
-    if (!to) { results.replaceChildren(empty('目標のパルを選んでください。')); return; }
-    if (dataPending(results, state)) return;
+    if (!to) { clearPlan(); results.replaceChildren(empty('目標のパルを選んでください。')); return; }
+    if (!state.env) { clearPlan(); dataPending(results, state); return; }
     const candidates = ofHolder(pals);
     // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）。
     // 今の牧場の組を計画で優先・見張るので、計画より先に求める
@@ -503,13 +545,68 @@ export function idealView(context, route) {
       TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
     const baseline = Array.isArray(farms) ? planMemory.get(memoryId) : null;
     const placedKeys = new Set(placedFarms.map((farm) => planPairKey(farm.male, farm.female)));
-    const result = idealPlan({
-      pals: candidates, index: state.index, target: to, passives,
-      mode: conditions.mode, targets: conditions.targets, cake: conditions.cake, limit: LIMIT,
-      // 物差しが同じ組どうしでは、今の牧場の組と前の基準の上位を先にする（値の小さな差で交換推奨や「変更あり」が出ないように）
-      prefer: { placed: placedKeys, baseline: new Set(baseline?.farms === signature ? baseline.pairs.slice(0, placedFarms.length) : []) },
-      watch: placedKeys,
+    // 物差しが同じ組どうしでは、今の牧場の組と前の基準の上位を先にする（値の小さな差で交換推奨や「変更あり」が出ないように）
+    const prefer = { placed: placedKeys, baseline: new Set(baseline?.farms === signature ? baseline.pairs.slice(0, placedFarms.length) : []) };
+    // 計算の署名: データ（配合の index・所持パル）・実効の条件・本人・牧場の署名・優先する組。
+    // prefer は並びを変えるので、入れないと、別のタブが基準を書き換えたときなどに古い並びが残る
+    const self = conditions.holder === 'mine' ? (ideals?.mine()?.map((pal) => pal.id).join(',') ?? 'unknown') : '';
+    const key = JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, objectRev(owned?.state?.owned), to, [...passives].sort(),
+      conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, conditions.holder, self, signature,
+      [...prefer.placed].sort(), [...prefer.baseline].sort()]);
+    if (job?.key === key) return;
+    // 出している結果と同じ条件に戻った（計算している途中なら、その計算は捨てる）
+    if (key === shownKey) {
+      job?.cancel();
+      job = null;
+      setComputing(false);
+      return;
+    }
+    job?.cancel();
+    job = null;
+    const plan = { placedFarms, signature, memoryId, baseline, farms, cake: conditions.cake };
+    const steps = idealPlanSteps({
+      pals: candidates, index: state.index, target: to, passives: [...passives],
+      mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys,
     });
+    // 最初の区切りは、ここまでの下ごしらえ（所持パルが多いと数十 ms）と合わせて 1 区切りに収める
+    const run = startSliced(steps, { budget: sliceBudget, firstBudget: Math.max(0, sliceBudget - (clock() - started)) });
+    if (run.done) {
+      setComputing(false);
+      showPlan(run.value, plan);
+      shownKey = key;
+      return;
+    }
+    // 終わらなければ、前の結果を残したまま「計算中」にする（高さは変えない）。何も出していなければ「計算中…」を出す
+    const current = { key, cancel: run.cancel };
+    job = current;
+    if (!shownKey) {
+      note.textContent = '';
+      missingBox.replaceChildren();
+      farmBox.replaceChildren();
+      results.replaceChildren(empty('計算中…'));
+    }
+    setComputing(true);
+    finishPlan(current, run.promise, plan);
+  }
+
+  // 区切った計算が終わったら、その仕事がまだ最新のときだけ描く
+  async function finishPlan(current, promise, plan) {
+    let result;
+    try {
+      result = await promise;
+    } catch (error) {
+      if (job === current) { job = null; setComputing(false); }
+      throw error;
+    }
+    if (destroyed || job !== current || result === null) return;
+    job = null;
+    setComputing(false);
+    showPlan(result, plan);
+    shownKey = current.key;
+  }
+
+  // 計算の結果を描く（要約・足りないパッシブ・配合牧場の判定・組のカード）
+  function showPlan(result, { placedFarms, signature, memoryId, baseline, farms, cake }) {
     note.textContent = summaryText(result);
     renderMissing(result);
     // 今の牧場の組は見張った物差しから、交換先の組（おすすめの組）は一覧から引く
@@ -536,7 +633,7 @@ export function idealView(context, route) {
     const placed = new Map(placedFarms.map((farm) => [planPairKey(farm.male, farm.female), farmName(farm.baseId)]));
     results.replaceChildren(...result.pairs.map((pair, rank) => {
       const key = planPairKey(pair.male, pair.female);
-      return pairCard(pair, rank, { cake: conditions.cake, placed: placed.get(key) ?? '', changed: changed.has(key) });
+      return pairCard(pair, rank, { cake, placed: placed.get(key) ?? '', changed: changed.has(key) });
     }));
   }
 
@@ -556,11 +653,11 @@ export function idealView(context, route) {
     if (to !== before) nameInput.value = '';
     if (fromGoal) showConditions();
     syncPicker(toPicker, to);
-    renderPassives(owned?.state?.owned?.pals);
+    renderPassives(owned?.state?.owned?.pals, { force: true });
     renderResults();
   }
 
-  const pickers = { destroy() { toPicker.destroy(); } };
+  const pickers = { destroy() { destroyed = true; job?.cancel(); job = null; toPicker.destroy(); } };
   const view = watchView(context.store, element, update, [pickers]);
   // 登録が変わったら（別のタブ・完成の判定を含む）、一覧と「登録済み」を描き直す
   const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); }) ?? (() => {});
@@ -574,8 +671,7 @@ export function idealView(context, route) {
     update();
   });
   // 開いている間は 20 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる。閉じた後と、タブが裏にある間は読まない
-  // （裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直しに任せる）
-  let destroyed = false;
+  // （裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直しに任せる。destroyed は区切った計算と同じ印）
   const refresh = () => {
     if (destroyed || globalThis.document?.visibilityState === 'hidden') return;
     owned.autoRefresh().catch(() => {});

@@ -32,6 +32,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
     body, createElement: (name) => new FakeElement(name), createElementNS: (namespace, name) => new FakeElement(name),
     getElementById: (id) => descendants(body).find((node) => node.id === id),
     addEventListener() {}, querySelectorAll: (selector) => body.querySelectorAll(selector),
+    querySelector: (selector) => body.querySelector(selector),
   };
   const values = new Map(Object.entries(initial));
   const events = new Map();
@@ -504,6 +505,8 @@ test('画面: タブを切り替えても選んだパルと絞り込みを残し
   assert.equal(location.hash, '#/list');
   registrant().value = '該当なし';
   await registrant().dispatch('input');
+  // 登録者名の入力は間引くので、確定（change）で絞り込む
+  await registrant().dispatch('change');
   assert.match(document.body.textContent, /条件に合う登録はありません/);
   // 配合検索のタブとロゴは、前に選んだ親のままの画面へ戻る
   assert.equal(tab('配合検索').href, '#/search?p1=SheepBall');
@@ -717,4 +720,16 @@ test('画面: 理想個体のタブから開け、所持パルがなければ案
   assert.equal(tab.getAttribute('aria-current'), 'page');
   assert.equal(byClass('ideal-view').querySelector('h1').textContent, '理想個体');
   assert.match(byClass('ideal-view').textContent, /所持パルのデータがありません/);
+});
+
+test('画面: 新しいバージョンの案内の「読み込み直す」は、入力画面（ダイアログ）が開いている間は読み込み直さず、閉じるよう案内する', async (t) => {
+  await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
+  const banner = byClass('update-banner');
+  // 登録の画面を開く
+  await byClass('register-button').dispatch('click');
+  assert.ok(find((node) => node.tagName === 'dialog' && node.open));
+  const reload = descendants(banner).find((node) => node.tagName === 'button' && node.textContent === '読み込み直す');
+  await reload.dispatch('click');
+  assert.equal(banner.querySelector('.update-banner-hint').textContent, '開いている入力画面を閉じてから、もう一度押してください。');
+  assert.equal(reload.disabled, false);
 });
