@@ -40,7 +40,7 @@ function cleanEntry(value) {
  * @param {() => { env: string, user: string, world: string }} deps.scope 今の環境・利用者（ID）・ワールド（分からなければ ''）
  * @param {Record<string, Record<string, (value: unknown) => unknown>>} deps.schemas 画面 → 条件の形（core/boundary.js の cleanSaved に渡す）
  * @param {string[]} deps.views 最後のタブ・タブの行き先として許す画面名（ナビのタブ）
- * @param {string[]} [deps.worldViews] 条件がワールドに依存する画面（ワールドが違えば使わない）
+ * @param {string[]} [deps.worldViews] 条件がワールドに依存する画面（保存したワールドと今のワールドが両方分かっていて違えば使わない）
  */
 export function createViewMemory({ storage, local, namespace, scope, schemas = {}, views = [], worldViews = [], now = Date.now, random = Math.random }) {
   const entriesKey = `${namespace}.entries`;
@@ -108,7 +108,9 @@ export function createViewMemory({ storage, local, namespace, scope, schemas = {
       write(storage, viewsKey, JSON.stringify({ v: MEMORY_VERSION, env: here.env, user: here.user, world: here.world, views: saved, tabs, at: now() }));
     },
     /**
-     * 読み込み直し用の保存。版・環境・利用者が違えば null。ワールドが違えば、ワールドに依存する画面の条件は使わない。
+     * 読み込み直し用の保存。版・環境・利用者が違えば null。保存したワールドと今のワールドが両方分かっていて違えば、
+     * ワールドに依存する画面の条件は使わない。起動した時点ではまだ所持パルを読んでおらずワールドが分からないので比べず、
+     * 保存したワールドを world で返す（app.js が覚え、所持パルを読んで別のワールドだと分かったら、forgetHolders が所持者だけを外す）。
      * 条件は項目ごとに形を確かめ（合わない項目だけ既定に戻す）、タブの行き先は #/ で始まりその画面のものだけ
      */
     loadViews() {

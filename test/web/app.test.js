@@ -89,8 +89,14 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
     values, sessionValues, scrolls, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash,
     // ブラウザと同じく、リンク・タブで移った先は state のない新しいエントリになる
     go(next) { history.state = null; changeHash(next); },
-    // 戻る・進む: そのエントリの state に戻ってから hashchange が来る
-    back(next, state) { history.state = state; changeHash(next); },
+    // 戻る・進む: ブラウザと同じく、そのエントリの state に戻ってから popstate が来て、URL のハッシュが変わったときだけ続けて hashchange が来る
+    back(next, state) {
+      history.state = state;
+      const moved = location.hash !== next;
+      location.hash = next;
+      events.get('popstate')?.();
+      if (moved) events.get('hashchange')();
+    },
   };
 }
 
@@ -894,7 +900,7 @@ test('画面: 戻る・進むのエントリは、表示中のワールドと違
 test('画面: 読み込み直したら、同じタブで保存した所持パルの絞り込み・理想個体の条件・一覧の並べ替えに戻し、形の合わない項目は既定に戻す', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   const saved = {
-    v: 1, env: 'test', user: '架空データ', world: '', appVersion: '前の版',
+    v: 1, env: 'test', user: '架空データ', world: '',
     views: {
       owned: { query: 'もこ', sort: 'xxx', stars: 2, eggs: false, globals: true, talent: { hp: 150, shot: 40, defense: -1 }, passives: ['Legend', 7], palId: 'SheepBall' },
       ideal: { holder: 'mine', mode: 'only', targets: { hp: 90, shot: 150, defense: 80 }, cake: 'talent', name: '保存しない' },
@@ -912,7 +918,7 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   assert.deepEqual(checks, [false, true]);
   assert.ok(find((node) => node.getAttribute('aria-label') === 'パル: No.1 モコロン'));
   // パッシブは文字列の ID だけ
-  assert.ok(find((node) => node.getAttribute('data-focus-key') === 'passive-chip:Legend'));
+  assert.ok(find((node) => node.getAttribute('data-focus-key') === 'passive-chip:パッシブ（すべて持つ個体）:Legend'));
   assert.equal(descendants(document.getElementById('main')).filter((node) => String(node.getAttribute('data-focus-key')).startsWith('passive-chip:')).length, 1);
   assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall');
   assert.equal(navTab('一覧').href, '#/list');
@@ -1009,7 +1015,7 @@ test('画面: 画面を作り直すときは、同じ役目の部品（data-focu
   assert.ok(byClass('ideal-view').contains(document.activeElement));
 });
 
-test('画面: 同じ画面の中で戻る（作り直さない）ときも、エントリの条件を入力欄に戻し、新しいエントリには新しい ID を付ける', async (t) => {
+test('画面: 同じ画面の中で戻る・進む（作り直さない）ときも、エントリの条件を入力欄に戻し、新しいエントリには新しい ID を付ける', async (t) => {
   const { back, pushes, sessionValues } = await boot(t, {
     initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/ideal?to=SheepBall', session: {}, pushState: true,
   });
@@ -1035,4 +1041,116 @@ test('画面: 同じ画面の中で戻る（作り直さない）ときも、エ
   assert.equal(byClass('ideal-view'), view);
   assert.equal(hp().value, '50');
   assert.equal(view.querySelectorAll('.passive-remove').length, 0);
+  // 進むと、離れたときの最新の条件（HP 70）に戻る（スクロールしていなくても、離れるエントリに書いておく）
+  back('#/ideal?to=SheepBall&p=Rare', { palEntry: second });
+  assert.equal(byClass('ideal-view'), view);
+  assert.equal(hp().value, '70');
+  assert.equal(view.querySelectorAll('.passive-remove').length, 1);
+  assert.equal(entriesOf(sessionValues).find((entry) => entry.id === second).cond.targets.hp, 70);
+});
+
+test('画面: 作り直す画面へ戻って進むと、離れたときの最新の条件（所持パルのキーワード）に戻る', async (t) => {
+  const { go, back, events } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search', session: {}, pushState: true });
+  const start = history.state.palEntry;
+  await clickLink(navTab('所持パル'));
+  go(navTab('所持パル').href);
+  const ownedEntry = history.state.palEntry;
+  // 裏に回った（ページを離れたときと同じく、今のエントリを書く。このときのキーワードは空）
+  events.get('pagehide')();
+  const keyword = () => find((node) => node.tagName === 'input' && node.type === 'search');
+  keyword().value = 'もこ';
+  await keyword().dispatch('input');
+  await keyword().dispatch('change');
+  back('#/search', { palEntry: start });
+  back('#/owned', { palEntry: ownedEntry });
+  assert.equal(keyword().value, 'もこ');
+});
+
+test('画面: 打ってから間引きの間（150ms）にタブを押しても、離れるエントリには打った後の条件を書き、閉じた画面は後から描かない', async (t) => {
+  const { go, sessionValues } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list', session: {} });
+  const first = history.state.palEntry;
+  const registrant = find((node) => node.placeholder === '登録者名で絞り込む');
+  const list = byClass('card-stack');
+  assert.ok(list.querySelectorAll('.breeding-card').length > 0);
+  registrant.value = '該当なし';
+  await registrant.dispatch('input');
+  await clickLink(navTab('配合検索'));
+  go(navTab('配合検索').href);
+  assert.equal(list.isConnected, false);
+  assert.deepEqual(entriesOf(sessionValues).find((entry) => entry.id === first).cond, { registrant: '該当なし', sort: 'parent-dex' });
+  // 間引きの時間が過ぎても、閉じた一覧は描き直さない
+  const left = list.querySelectorAll('.breeding-card').length;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(list.querySelectorAll('.breeding-card').length, left);
+});
+
+test('画面: 同じ URL のエントリどうし（理想個体の「呼び出す」で g を外す）を戻る・進むと、hashchange が来なくてもエントリの条件に戻す', async (t) => {
+  const { go, back } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/ideal?to=SheepBall', session: {}, pushState: true });
+  const hp = () => inputLabeled('HPの目標');
+  const setHp = async (value) => {
+    hp().value = value;
+    await hp().dispatch('input');
+    await hp().dispatch('change');
+  };
+  const first = history.state.palEntry;
+  // HP 50 の条件を登録してから、HP 70 にする
+  await setHp('50');
+  await byText('この条件を登録').dispatch('click');
+  await setHp('70');
+  const recall = find((node) => String(node.getAttribute('data-focus-key')).startsWith('goal:'));
+  assert.ok(recall);
+  // 「呼び出す」: 登録した条件（HP 50）を入れ、URL から g を外す（前のエントリと同じ URL になる）
+  await clickLink(recall);
+  go(recall.href);
+  assert.equal(location.hash, '#/ideal?to=SheepBall');
+  assert.equal(hp().value, '50');
+  const second = history.state.palEntry;
+  assert.notEqual(second, first);
+  // 戻る・進む（URL が同じなので popstate だけが来る）
+  back('#/ideal?to=SheepBall', { palEntry: first });
+  assert.equal(hp().value, '70');
+  back('#/ideal?to=SheepBall', { palEntry: second });
+  assert.equal(hp().value, '50');
+});
+
+test('画面: 戻る・進むで popstate と hashchange が続けて来ても、描くのは 1 回（URL が変わったときは hashchange で描く）', async (t) => {
+  const { go, events } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search', session: {} });
+  const main = document.getElementById('main');
+  const search = main.children[0];
+  const start = history.state.palEntry;
+  await clickLink(navTab('一覧'));
+  go(navTab('一覧').href);
+  const list = main.children[0];
+  assert.notEqual(list, search);
+  history.state = { palEntry: start };
+  location.hash = '#/search';
+  events.get('popstate')?.();
+  assert.equal(main.children[0], list);
+  events.get('hashchange')();
+  const shown = main.children[0];
+  assert.notEqual(shown, list);
+  assert.match(shown.textContent, /配合を見つけよう/);
+  // 同じエントリ・同じ URL の popstate（読み込んだときなど）では描き直さない
+  events.get('popstate')?.();
+  assert.equal(main.children[0], shown);
+});
+
+test('画面: 中身の無いエントリ（50 件の上限・名前の変更で消えた）へ戻る・進むで違う画面に移ると先頭から、同じ画面なら動かさない', async (t) => {
+  const { go, back, scrolls, sessionValues } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list', session: {}, scroll: true });
+  const listEntry = history.state.palEntry;
+  await clickLink(navTab('配合検索'));
+  go(navTab('配合検索').href);
+  await frame();
+  window.scrollY = 800;
+  sessionValues.delete('pal-note.entries');
+  const before = scrolls.length;
+  back('#/list', { palEntry: listEntry });
+  await frame();
+  assert.deepEqual(scrolls.slice(before), [0]);
+  // 同じ画面の中（URL だけ違う）では動かさない
+  window.scrollY = 300;
+  sessionValues.delete('pal-note.entries');
+  back('#/list?x=1', { palEntry: '消えたエントリ' });
+  await frame();
+  assert.deepEqual(scrolls.slice(before), [0]);
 });

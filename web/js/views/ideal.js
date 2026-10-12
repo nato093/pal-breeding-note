@@ -210,6 +210,8 @@ export function idealView(context, route) {
   const ideals = context.ideals;
   // 入力の間引きの待ち時間（テストの context は 0 にして同期で確かめる）
   const inputDelay = context.inputDelay ?? 150;
+  // 間引いて待っている入力（画面を閉じるときに取り消し、移る前の保存の前に flushInputs で当てる）
+  const pendingInputs = [];
   // 区切った計算の 1 回の区切り（テストの context は Infinity にして、計算を同期で確かめる）
   const sliceBudget = context.sliceBudget ?? SLICE_BUDGET;
   let current = route;
@@ -219,7 +221,8 @@ export function idealView(context, route) {
   function readRoute(next) {
     current = next;
     to = validId(next, 'to', context);
-    passives = [...new Set((next.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, MAX_WANTED);
+    // 重複とマスターにない ID は除く（知らない ID のチップを出さない）
+    passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => passivesById.has(id)))].slice(0, MAX_WANTED);
     // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
     const goalId = next.params.get('g');
     if (!goalId) return false;
@@ -261,6 +264,7 @@ export function idealView(context, route) {
       conditions.targets[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
       renderResults();
     }, inputDelay);
+    pendingInputs.push(apply);
     input.addEventListener('input', apply);
     input.addEventListener('change', () => apply.flush());
     const wrapper = el('label');
@@ -282,15 +286,30 @@ export function idealView(context, route) {
     renderResults();
   });
   // 選択肢の並びが前と同じなら作り直さない。違っても、選んでいる途中（フォーカス中）は待つ
+  let syncingHolders = false;
   function renderHolders() {
     const data = owned?.state?.owned;
     const choices = [['', 'すべて'], ...(ideals ? [['mine', '自分の個体']] : []), ...(data?.players ?? []).map((player) => [`player:${player.uid}`, player.name])];
-    syncOptions(holderSelect, choices, () => {
-      // 選択肢にない所持者は選ばない（読み込む前は選択肢がそろっていないので、選んでいた値を消さずに残す）
-      const valid = [...holderSelect.children].some((node) => node.value === conditions.holder);
-      if (!valid && data) conditions.holder = '';
-      holderSelect.value = valid ? conditions.holder : '';
-    });
+    syncingHolders = true;
+    try {
+      syncOptions(holderSelect, choices, () => {
+        // 選択肢にない所持者は選ばない（読み込む前は選択肢がそろっていないので、選んでいた値を消さずに残す）
+        const valid = [...holderSelect.children].some((node) => node.value === conditions.holder);
+        const latest = owned?.state?.owned;
+        if (!valid && latest && conditions.holder) {
+          conditions.holder = '';
+          // フォーカス中で待っていた作り直し（blur の後）で外したときは、パッシブの数と結果も計算し直す
+          //（renderHolders の中からのときは、呼んだ側がこの後で描く）
+          if (!syncingHolders) {
+            renderPassives(latest.pals);
+            renderResults();
+          }
+        }
+        holderSelect.value = valid ? conditions.holder : '';
+      });
+    } finally {
+      syncingHolders = false;
+    }
   }
   // 選んだ所持者の個体だけ（すべてのときはそのまま。自分のプレイヤーが分からないときは空）
   function ofHolder(pals) {
@@ -560,6 +579,8 @@ export function idealView(context, route) {
   }
 
   function renderResults() {
+    // 閉じた後に遅れて呼ばれたとき（間引いた入力など）は、計算を始めない
+    if (destroyed) return;
     const started = clock();
     renderRegister();
     const state = context.store.state;
@@ -698,11 +719,22 @@ export function idealView(context, route) {
     renderResults();
   }
 
-  const pickers = { destroy() { destroyed = true; job?.cancel(); job = null; toPicker.destroy(); passive.destroy(); } };
+  // 間引いて待っている個体値の入力をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
+  const flushInputs = () => { for (const input of pendingInputs) input.flush(); };
+  const pickers = {
+    destroy() {
+      destroyed = true;
+      for (const input of pendingInputs) input.cancel();
+      job?.cancel();
+      job = null;
+      toPicker.destroy();
+      passive.destroy();
+    },
+  };
   const view = watchView(context.store, element, update, [pickers]);
   // 登録が変わったら（別のタブ・完成の判定を含む）、一覧と「登録済み」を描き直す
   const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); passive.update({ presets: passivePresets(ideals) }); }) ?? (() => {});
-  if (!owned) return { element, update, applyRoute, destroy() { unsubscribeGoals(); view.destroy(); } };
+  if (!owned) return { element, update, applyRoute, flushInputs, destroy() { unsubscribeGoals(); view.destroy(); } };
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
@@ -719,5 +751,5 @@ export function idealView(context, route) {
   };
   owned.load().then(refresh).catch(() => {});
   const timer = setInterval(refresh, REFRESH_INTERVAL);
-  return { element, update, applyRoute, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); unsubscribeGoals(); view.destroy(); } };
+  return { element, update, applyRoute, flushInputs, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); unsubscribeGoals(); view.destroy(); } };
 }

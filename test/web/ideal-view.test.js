@@ -555,7 +555,7 @@ test('理想個体画面: 4 個目を足して追加欄が押せなくなった�
   const removes = view.element.querySelectorAll('.passive-remove');
   assert.equal(removes.length, 4);
   assert.equal(document.activeElement, removes.at(-1));
-  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_DEF');
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:欲しいパッシブ:WorldTree_DEF');
   await removes.at(-1).dispatch('click');
   assert.equal(document.activeElement, passiveAdd(view));
   assert.equal(document.activeElement.disabled, false);
@@ -1037,5 +1037,65 @@ test('理想個体画面: 所持者の選択欄は中身が同じなら作り直
   assert.equal(search.value, '脳筋');
   assert.equal(view.element.querySelector('[data-value="Noukin"]').querySelector('.passive-option-count').textContent, '1 体');
   assert.equal(passiveAdd(view), add);
+  view.destroy();
+});
+
+// ---- フェーズ 1a のレビューで直したもの ----
+test('理想個体画面: 個体値の目標の間引きの途中で画面を閉じたら、閉じた後に計算を始めない。flushInputs は待っている入力をすぐ当てる', async (t) => {
+  installDom(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const view = idealView({ ...context(fakeOwned()), inputDelay: 150, sliceBudget: 0 }, parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  t.mock.timers.runAll();
+  await settle();
+  const results = view.element.querySelector('.ideal-results');
+  assert.equal(results.getAttribute('aria-busy'), null);
+  const hp = input(view, 'HPの目標');
+  hp.value = '91';
+  await hp.dispatch('input');
+  view.destroy();
+  t.mock.timers.tick(150);
+  assert.equal(results.getAttribute('aria-busy'), null);
+  t.mock.timers.runAll();
+
+  const states = new Map();
+  const later = idealView({ ...context(fakeOwned(), [], states), inputDelay: 1000 }, parseHash('#/ideal?to=SheepBall'));
+  const shot = input(later, '攻撃の目標');
+  shot.value = '60';
+  await shot.dispatch('input');
+  assert.equal(states.get('ideal').conditions.targets.shot, 100);
+  later.flushInputs();
+  assert.equal(states.get('ideal').conditions.targets.shot, 60);
+  later.destroy();
+});
+
+test('理想個体画面: 選んでいる所持者が、フォーカス中の更新で選択肢から消えたら、離れた後に「すべて」に戻して計算し直す', async (t) => {
+  install(t);
+  const P2 = 'abcd1234-0000-0000-0000-000000000000';
+  const owned = fakeOwned();
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
+  document.body.append(view.element);
+  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  holder.value = `player:${P1}`;
+  await holder.dispatch('change');
+  const before = cards(view).length;
+  assert.ok(before > 0);
+  holder.focus();
+  // 同じワールドの更新で、同じ個体がすべて Bob のものになった（Alice は選択肢から消える）
+  const moved = basePals.map((pal) => ({ ...pal, location: { ...pal.location, playerUid: P2 } }));
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, players: [{ uid: P2, name: 'Bob', level: 3 }], pals: moved }, { pals, passives });
+  owned.emit();
+  assert.equal(cards(view).length, 0);
+  document.activeElement = document.body;
+  await holder.dispatch('blur');
+  await settle();
+  assert.equal(holder.value, '');
+  assert.equal(cards(view).length, before);
+  view.destroy();
+});
+
+test('理想個体画面: URL のパッシブの重複とマスターにない ID を除く', (t) => {
+  install(t);
+  const view = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare,Rare,知らないパッシブ'));
+  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す']);
   view.destroy();
 });

@@ -328,3 +328,53 @@ test('継承ルート: 開始の候補は、登録済みの配合で目標まで
   assert.equal((await pickerRows(none, 0)).status, '図鑑順で表示');
   none.destroy();
 });
+
+// ---- フェーズ 1a のレビューで直したもの ----
+test('一覧: 登録者名の入力の間引きの途中で画面を閉じたら、閉じた後に描かない。flushInputs は待っている入力をすぐ当てる', async (t) => {
+  installDom(t);
+  const typeIn = async (view, value) => {
+    const registrant = view.element.querySelectorAll('input')[0];
+    registrant.value = value;
+    await registrant.dispatch('input');
+  };
+  const cards = (view) => view.element.querySelectorAll('.breeding-card').length;
+  const view = listView({ ...context(), inputDelay: 20 });
+  const shown = cards(view);
+  assert.ok(shown > 0);
+  await typeIn(view, '該当なし');
+  view.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(cards(view), shown);
+  const later = listView({ ...context(), inputDelay: 1000 });
+  await typeIn(later, '該当なし');
+  assert.equal(cards(later), shown);
+  later.flushInputs();
+  assert.equal(cards(later), 0);
+  later.destroy();
+});
+
+test('一覧: 利用者が並べ替えを変えたら、結果の始まり（件数の行）が画面の上に隠れているときだけ見える位置へ移す。データの更新では動かさない', async (t) => {
+  installDom(t);
+  const source = context().store.state.records[0];
+  const app = liveContext([{ ...source, etag: 'e1' }]);
+  const view = listView(app);
+  const note = view.element.querySelector('.result-note');
+  const moves = [];
+  note.scrollIntoView = (options) => moves.push(options);
+  let top = 300;
+  note.getBoundingClientRect = () => ({ top, bottom: top + 20, left: 0, width: 100 });
+  const sort = view.element.querySelector('select');
+  // 始まりが見えているときは動かさない
+  sort.value = 'updated';
+  await sort.dispatch('input');
+  assert.deepEqual(moves, []);
+  // 下の方を見ていて（始まりが上に隠れている）並べ替えを変えると、始まりへ
+  top = -2000;
+  sort.value = 'child-dex';
+  await sort.dispatch('input');
+  assert.deepEqual(moves, [{ block: 'start' }]);
+  // データの更新では動かさない
+  app.store.emit({ records: [{ ...source, etag: 'e2' }] });
+  assert.equal(moves.length, 1);
+  view.destroy();
+});

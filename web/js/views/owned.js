@@ -1,7 +1,7 @@
 import { el, field, empty, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput } from '../ui/dom.js';
 import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { passiveList, passiveSelector } from '../ui/passive-picker.js';
+import { passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
@@ -25,6 +25,10 @@ const STAR_FILTERS = [['', 'すべて'], ['1', '★1 以上'], ['2', '★2 以�
 const TALENT_FILTERS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御']];
 
 const talentAtLeast = (value) => intIn(value, { min: 0, max: 100, fallback: 0 });
+const knownPassive = (value) => {
+  const id = idText(value, 64);
+  return passivesById.has(id) ? id : null;
+};
 /**
  * 保存して読み戻す絞り込みの形（ui/view-memory.js が sessionStorage・履歴のエントリから読むときに、項目ごとに確かめる）。
  * 合わない項目は既定の値に戻す。1c の owned-toolbar で絞り込みの形（場所のチップ・所持者）を変えたら、ここも直す
@@ -34,7 +38,8 @@ export const OWNED_MEMORY = {
   holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'global' || /^(player|base):\S/.test(value)) ? value : ''),
   place: (value) => oneOf(value, ['', ...PLACE_ORDER], ''),
   palId: (value) => (typeof value === 'string' && palsById.has(value) ? value : ''),
-  passives: (value) => list(value, { max: 4, map: (id) => idText(id, 64) || null, key: (id) => id }),
+  // パッシブはマスターにある ID だけ（知らない ID のチップを出して、一覧を 0 行にしない）
+  passives: (value) => list(value, { max: 4, map: knownPassive, key: (id) => id }),
   query: (value) => text(value, 100),
   sort: (value) => oneOf(value, OWNED_SORTS.map(([key]) => key), 'dex'),
   eggs: (value) => bool(value, true),
@@ -127,6 +132,9 @@ export function ownedView(context, route) {
   const owned = context.owned;
   // 入力の間引きの待ち時間（テストの context は 0 にして同期で確かめる）
   const inputDelay = context.inputDelay ?? 150;
+  // 間引いて待っている入力（画面を閉じるときに取り消し、移る前の保存の前に flushInputs で当てる）
+  const inputs = new AbortController();
+  const pendingInputs = [];
   const element = el('section', 'view owned-view');
   element.append(viewHeading('所持パル'));
   // タブを切り替えて戻ってきても、前の絞り込みのまま出す。読み込み直しても、同じタブ（sessionStorage）の間は残る（app.js が戻す）。
@@ -143,7 +151,7 @@ export function ownedView(context, route) {
     filter.holder = next.params.get('holder') ?? '';
     filter.place = next.params.get('place') ?? '';
     filter.palId = next.params.get('pal') ?? '';
-    filter.passives = (next.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
+    filter.passives = [...new Set((next.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, 4);
     // 画面内で変えた絞り込みは URL に出ないため、戻ってきたときに古い URL の指定で上書きしないよう外しておく。
     if (memory) context.replace(buildHash('owned'));
     return true;
@@ -209,6 +217,7 @@ export function ownedView(context, route) {
       filter.talent[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
       renderResults();
     }, inputDelay);
+    pendingInputs.push(apply);
     input.addEventListener('input', apply);
     input.addEventListener('change', () => apply.flush());
     const wrapper = el('label');
@@ -254,7 +263,7 @@ export function ownedView(context, route) {
     else withTransition(() => renderResults());
   });
   // キーワードは入力を間引き、日本語の変換中は絞らない
-  onTextInput(query, (value) => { filter.query = value; renderResults(); }, { delay: inputDelay });
+  pendingInputs.push(onTextInput(query, (value) => { filter.query = value; renderResults(); }, { delay: inputDelay, signal: inputs.signal }));
 
   function renderSummary(state) {
     const meta = state.meta;
@@ -266,25 +275,36 @@ export function ownedView(context, route) {
   }
 
   // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。
-  function keepChoice(select, key, state) {
+  // フォーカス中で待っていた作り直し（blur の後）で選んでいた値を外したときは、一覧とパッシブの数も数え直す
+  //（renderFilters の中からのときは、呼んだ側がこの後で描く）
+  let syncingFilters = false;
+  function keepChoice(select, key) {
     const valid = [...select.children].some((node) => node.value === filter[key]);
-    if (!valid && state.owned) filter[key] = '';
+    if (!valid && owned.state.owned && filter[key]) {
+      filter[key] = '';
+      if (!syncingFilters) renderResults();
+    }
     select.value = valid ? filter[key] : '';
   }
 
   // 選択肢は、並びが前と同じなら作り直さない（開いている選択肢を閉じない）。違っても、選んでいる途中（フォーカス中）は待つ
   function renderFilters(state) {
-    const list = state.owned?.pals ?? [];
-    const holders = [['', 'すべて'], ...(state.owned?.players ?? []).map((player) => [`player:${player.uid}`, player.name]),
-      ...(state.owned?.bases ?? []).map((base) => [`base:${base.id}`, base.label]),
-      ...(filter.globals && list.some((pal) => pal.place === 'global') ? [['global', 'グローバルパルボックス']] : [])];
-    syncOptions(holder, holders, () => keepChoice(holder, 'holder', state));
-    const places = [['', 'すべて'], ...PLACE_ORDER
-      .filter((group) => !((group === 'global' && !filter.globals) || (group === 'egg' && !filter.eggs)))
-      .filter((group) => list.some((pal) => pal.placeGroup === group))
-      .map((group) => [group, placeGroupLabel(group)])];
-    syncOptions(place, places, () => keepChoice(place, 'place', state));
-    sort.value = filter.sort;
+    syncingFilters = true;
+    try {
+      const list = state.owned?.pals ?? [];
+      const holders = [['', 'すべて'], ...(state.owned?.players ?? []).map((player) => [`player:${player.uid}`, player.name]),
+        ...(state.owned?.bases ?? []).map((base) => [`base:${base.id}`, base.label]),
+        ...(filter.globals && list.some((pal) => pal.place === 'global') ? [['global', 'グローバルパルボックス']] : [])];
+      syncOptions(holder, holders, () => keepChoice(holder, 'holder'));
+      const places = [['', 'すべて'], ...PLACE_ORDER
+        .filter((group) => !((group === 'global' && !filter.globals) || (group === 'egg' && !filter.eggs)))
+        .filter((group) => list.some((pal) => pal.placeGroup === group))
+        .map((group) => [group, placeGroupLabel(group)])];
+      syncOptions(place, places, () => keepChoice(place, 'place'));
+      sort.value = filter.sort;
+    } finally {
+      syncingFilters = false;
+    }
   }
 
   // ---- 一覧（行は個体の ID で使い回す。中身が同じ行は触らない） ----
@@ -358,6 +378,8 @@ export function ownedView(context, route) {
   };
   // keepPosition: データの更新のとき（条件の変更では戻さない）、見ていた行を同じ位置に戻す
   function renderResults({ keepPosition = false } = {}) {
+    // 閉じた後に遅れて呼ばれたとき（並べ替えの動きの後など）は描かない
+    if (destroyed) return;
     const job = ++jobSeq;
     fillBudget = FIRST_ROWS;
     const state = owned.state;
@@ -437,20 +459,23 @@ export function ownedView(context, route) {
   }
 
   let renderedOwned;
+  let renderedReady;
   function update(state) {
     renderSummary(state);
-    if (state.owned !== renderedOwned) {
-      renderedOwned = state.owned;
-      renderFilters(state);
-      // 候補を開いたままでも、所持数だけ描き直す（閉じない）
-      picker.update();
-      renderResults({ keepPosition: true });
-      warmKeywords(state.owned);
-    }
+    // データが変わったとき。データが無いままでも、読み込みが終わったら（ready）「読み込み中…」を案内に描き直す
+    if (state.owned === renderedOwned && (state.owned || state.ready === renderedReady)) return;
+    renderedOwned = state.owned;
+    renderedReady = state.ready;
+    renderFilters(state);
+    // 候補を開いたままでも、所持数だけ描き直す（閉じない）
+    picker.update();
+    renderResults({ keepPosition: true });
+    warmKeywords(state.owned);
   }
 
   const unsubscribe = owned.subscribe(update);
   renderedOwned = owned.state.owned;
+  renderedReady = owned.state.ready;
   renderSummary(owned.state);
   renderFilters(owned.state);
   renderResults();
@@ -468,8 +493,14 @@ export function ownedView(context, route) {
       renderFilters(owned.state);
       renderResults();
     },
+    // 間引いて待っている入力（キーワード・個体値）をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
+    flushInputs() {
+      for (const input of pendingInputs) input.flush();
+    },
     destroy() {
       destroyed = true;
+      inputs.abort();
+      for (const input of pendingInputs) input.cancel();
       jobSeq++;
       warmSeq++;
       unsubscribe();

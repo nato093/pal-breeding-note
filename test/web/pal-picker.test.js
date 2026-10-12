@@ -330,3 +330,31 @@ test('パル選択: update は開いたまま注記を描き直し、検索語�
   picker.update({ describe: () => ({}) });
   assert.equal(picker.element.querySelector('.picker-popover'), null);
 });
+
+test('パル選択: 候補を開いたまま setValue で値が変わったら、✓ と選択の印を新しい値に合わせ、検索語・矢印の行・一覧は保つ', async (t) => {
+  const { picker, trigger } = mountPicker(t, { value: 'SheepBall' });
+  await trigger.dispatch('click');
+  const input = picker.element.querySelector('input');
+  const list = picker.element.querySelector('.picker-options');
+  const options = () => picker.element.querySelectorAll('[role="option"]');
+  const rows = options();
+  await input.dispatch('keydown', { key: 'ArrowDown' });
+  const active = input.getAttribute('aria-activedescendant');
+  list.scrollTop = 120;
+  picker.setValue('PinkCat');
+  assert.equal(trigger.getAttribute('aria-label'), '親1: No.2 ツッパニャン');
+  assert.deepEqual(options(), rows);
+  const marked = options().filter((node) => /is-selected/.test(node.className));
+  assert.equal(marked.length, 1);
+  assert.match(marked[0].textContent, /ツッパニャン/);
+  assert.equal(marked[0].getAttribute('aria-selected'), 'true');
+  assert.equal(marked[0].querySelectorAll('svg').length, 1);
+  const lamb = options().find((node) => /モコロン/.test(node.textContent));
+  assert.equal(lamb.getAttribute('aria-selected'), 'false');
+  assert.equal(lamb.querySelectorAll('svg').length, 0);
+  assert.equal(input.getAttribute('aria-activedescendant'), active);
+  assert.equal(list.scrollTop, 120);
+  // 選択を外したときは、先頭の「パルを選択」の行に印
+  picker.setValue('');
+  assert.match(options().find((node) => /is-selected/.test(node.className)).textContent, /パルを選択/);
+});
