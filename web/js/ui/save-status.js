@@ -75,7 +75,7 @@ function problems(state) {
  * ヘッダーの部品。中身は textContent・className・title だけを書き換える（作り直さない）。
  * ヘッダーはアプリと同じ寿命だが、テストのために destroy で購読を全部外せる。
  */
-export function saveStatus({ owned, autoRegister, store, now = () => Date.now() }) {
+export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen }) {
   const element = el('div', 'save-status');
   const trigger = button('', onClick, 'save-status-button');
   trigger.setAttribute('aria-haspopup', 'dialog');
@@ -98,9 +98,11 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now() 
   let renderPanel = null;
   const popup = createPopover({
     anchor: trigger, wrapper: element, tag: 'section', className: 'header-panel save-status-panel',
-    onOpen: () => { renderPanel = buildPanel(); },
+    onOpen: () => { renderPanel = buildPanel(); onOpen?.(); },
     onClose: () => { renderPanel = null; popup.element.replaceChildren(); },
   });
+  // ボタンの aria-haspopup="dialog" と合わせる（モーダルではない小さなパネル）
+  popup.element.setAttribute('role', 'dialog');
   popup.element.setAttribute('aria-label', 'セーブ連携');
   function buildPanel() {
     const panel = popup.element;

@@ -329,6 +329,33 @@ test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状�
   assert.equal(byClass('account-panel'), undefined);
 });
 
+test('画面: ヘッダーのパネル（ベル・セーブ連携・ID）は、どれかを開くとほかを閉じ、ボタンの aria-controls は開いている間だけ付ける', async (t) => {
+  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/list' });
+  const panels = ['notification-panel', 'save-status-panel', 'account-panel'];
+  const opened = () => panels.filter((name) => byClass(name));
+  const [bell, save, account] = ['notification-button', 'save-status-button', 'account-button'].map(byClass);
+  for (const trigger of [bell, save, account]) assert.equal(trigger.getAttribute('aria-controls'), null);
+  // キーボード（Enter）でも同じ click なので、外側の pointerdown を待たずにほかを閉じる
+  await save.dispatch('click');
+  assert.deepEqual(opened(), ['save-status-panel']);
+  assert.equal(save.getAttribute('aria-controls'), byClass('save-status-panel').id);
+  assert.equal(byClass('save-status-panel').getAttribute('role'), 'dialog');
+  await bell.dispatch('click');
+  assert.deepEqual(opened(), ['notification-panel']);
+  assert.deepEqual([save.getAttribute('aria-controls'), save.getAttribute('aria-expanded')], [null, 'false']);
+  assert.equal(bell.getAttribute('aria-controls'), byClass('notification-panel').id);
+  await account.dispatch('click');
+  assert.deepEqual(opened(), ['account-panel']);
+  assert.deepEqual([bell.getAttribute('aria-controls'), bell.getAttribute('aria-expanded')], [null, 'false']);
+  assert.equal(byClass('account-panel').getAttribute('role'), 'dialog');
+  assert.deepEqual([save.getAttribute('aria-haspopup'), account.getAttribute('aria-haspopup')], ['dialog', 'dialog']);
+  await save.dispatch('click');
+  assert.deepEqual(opened(), ['save-status-panel']);
+  // 開いているボタンをもう一度押すと閉じる（ほかは開かない）
+  await save.dispatch('click');
+  assert.deepEqual(opened(), []);
+});
+
 test('画面: 同期状況を押すと記録を取り直してトーストを出し、失敗しても前回の時刻と件数を残して「更新できませんでした」を出す', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   let fail = false;
@@ -337,7 +364,8 @@ test('画面: 同期状況を押すと記録を取り直してトーストを出
   const status = byClass('sync-status');
   const failure = byClass('sync-error');
   const before = status.textContent;
-  assert.match(before, /^最新取得 \d{2}:\d{2} · \d+ 件$/);
+  // 取得した直後に日付が変わっても落ちないよう、違う日の形（月/日 時:分）も許す
+  assert.match(before, /^最新取得 (\d{1,2}\/\d{1,2} )?\d{2}:\d{2} · \d+ 件$/);
   assert.equal(failure.hidden, true);
   const snapshots = () => calls.filter((call) => call.action === 'snapshot').length;
   const count = snapshots();
@@ -779,12 +807,12 @@ async function cachedSignIn(development) {
   return { ...signedIn, 'pal-note.authenticated': 'test', 'pal-note.cache.test': JSON.stringify({ records, warnings, serverTime, users }) };
 }
 
-// 開発 API に 1 ワールドの所持パルを共有しておく（所持者のプレイヤーは PLAYER）
-async function shareWorld(development, worldId) {
+// 開発 API に 1 ワールドの所持パルを共有しておく（所持者のプレイヤーは PLAYER）。extra で個体の列を書き換える
+async function shareWorld(development, worldId, extra = {}) {
   const row = Object.fromEntries(OWNED_FIELDS.map((field) => [field, '']));
   Object.assign(row, { instanceId: `pal-${worldId.slice(0, 4)}`, palId: 'SheepBall', palName: 'モコロン', gender: 'M', level: '10', rank: '1', stars: '0',
     talentHp: '50', talentShot: '50', talentDefense: '50', lucky: 'false', alpha: 'false', egg: 'false', place: 'palbox', placeLabel: 'パルボックス',
-    holderUid: PLAYER, holder: 'アリス' });
+    holderUid: PLAYER, holder: 'アリス' }, extra);
   const response = await development({
     action: 'ownedUpload', passcode: '入力', userId: '架空データ', worldId, world: { name: 'ワールド', hostName: 'アリス' },
     saveUpdatedAt: new Date().toISOString(), players: [{ uid: PLAYER, name: 'アリス' }], bases: [], farms: [],
@@ -1047,6 +1075,49 @@ test('画面: 同じ画面の中で戻る・進む（作り直さない）とき
   assert.equal(hp().value, '70');
   assert.equal(view.querySelectorAll('.passive-remove').length, 1);
   assert.equal(entriesOf(sessionValues).find((entry) => entry.id === second).cond.targets.hp, 70);
+});
+
+test('画面: マスターにまだ無い内部名のパッシブを選ぶとチップが出て、戻る・進む・読み込み直しでも残る（所持パル・理想個体）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  // 所持パルに、パッシブのマスターにまだ無い内部名（ゲームの更新で増えたもの）が付いている
+  await shareWorld(development, WORLD_B, { passiveIds: 'Unknown_Passive_X' });
+  const initial = await cachedSignIn(development);
+  const { go, back, events, sessionValues } = await boot(t, { initial, api: development, hash: '#/owned', session: {}, pushState: true });
+  await untilShared();
+  const main = () => document.getElementById('main');
+  const chip = () => descendants(main()).find((node) => String(node.getAttribute('data-focus-key')).endsWith(':Unknown_Passive_X'));
+  const pick = async () => {
+    await main().querySelector('.passive-add').dispatch('click');
+    await main().querySelector('[data-value="Unknown_Passive_X"]').dispatch('click');
+  };
+  // 所持パル（条件は履歴のエントリと読み込み直し用の保存に持つ）
+  await pick();
+  assert.ok(chip());
+  assert.equal(main().querySelector('.result-note').textContent, '1 体');
+  const ownedEntry = history.state.palEntry;
+  // 理想個体（条件は URL の p）
+  await clickLink(navTab('理想個体'));
+  go('#/ideal?to=SheepBall');
+  const beforePick = history.state.palEntry;
+  await pick();
+  assert.equal(location.hash, '#/ideal?to=SheepBall&p=Unknown_Passive_X');
+  assert.ok(chip());
+  const idealEntry = history.state.palEntry;
+  // 戻る・進む
+  back('#/ideal?to=SheepBall', { palEntry: beforePick });
+  assert.equal(chip(), undefined);
+  back('#/owned', { palEntry: ownedEntry });
+  assert.ok(chip());
+  back('#/ideal?to=SheepBall', { palEntry: beforePick });
+  back('#/ideal?to=SheepBall&p=Unknown_Passive_X', { palEntry: idealEntry });
+  assert.ok(chip());
+  // 読み込み直し（同じタブの sessionStorage から戻す）
+  events.get('pagehide')();
+  const reloaded = await boot(t, { initial, api: development, hash: '#/ideal?to=SheepBall&p=Unknown_Passive_X', session: Object.fromEntries(sessionValues) });
+  assert.ok(chip());
+  reloaded.go('#/owned');
+  await untilShared();
+  assert.ok(chip());
 });
 
 test('画面: 作り直す画面へ戻って進むと、離れたときの最新の条件（所持パルのキーワード）に戻る', async (t) => {

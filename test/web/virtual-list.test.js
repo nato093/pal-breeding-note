@@ -26,6 +26,35 @@ test('見えている範囲: 先頭・途中・末尾と、前後の overscan', 
   assert.deepEqual(visibleRange({ offsets: [0, 10, 200, 210, 400], scrollTop: 150, viewport: 55, overscan: 0 }), { start: 1, end: 3 });
 });
 
+test('見えている範囲だけ描く: 更新で今の位置より前に多数の行が増えても、見ていた行（アンカー）の位置で先に描いて同じ位置に戻す', (t) => {
+  const { windowEvents } = installDom(t);
+  windowEvents.innerHeight = 600;
+  // ページのスクロール（一覧の上端は、スクロールしていなければ画面の上から 100px）
+  windowEvents.scrollY = 0;
+  windowEvents.scrollBy = (x, y) => { windowEvents.scrollY += y; };
+  const container = el('div', 'owned-list');
+  document.body.append(container);
+  container.getBoundingClientRect = () => ({ top: 100 - windowEvents.scrollY, bottom: 100 - windowEvents.scrollY + 60000, height: 60000 });
+  const list = virtualRows(container, {
+    key: (item) => item.id, estimate: 60, overscan: 2,
+    create: (item) => ({ element: el('article', 'row', item.id), update() {} }),
+  });
+  const items = Array.from({ length: 1000 }, (_, i) => ({ id: `r${i}` }));
+  // 500 行目が画面の上端に来るまでスクロールした
+  windowEvents.scrollY = 100 + 500 * 60;
+  list.render(items);
+  assert.ok(list.rows.children.some((node) => node.textContent === 'r500'));
+  // 先頭に 100 行増えた。見ていた行（r500・上端 0px）を新しい全件で探し、その位置で描いてから同じ位置へスクロールする
+  const added = [...Array.from({ length: 100 }, (_, i) => ({ id: `n${i}` })), ...items];
+  list.render(added, { anchor: { key: 'r500', top: 0 } });
+  assert.equal(windowEvents.scrollY, 100 + 600 * 60);
+  assert.ok(list.rows.children.some((node) => node.textContent === 'r500'));
+  // アンカーが新しい一覧に無いときは、今の位置のまま描く
+  list.render(items, { anchor: { key: 'n5', top: 0 } });
+  assert.equal(windowEvents.scrollY, 100 + 600 * 60);
+  list.destroy();
+});
+
 test('見えている範囲だけ描く: 上下の余白で全体の高さを保ち、行を使い回し、destroy で元に戻す', (t) => {
   const { windowEvents } = installDom(t);
   windowEvents.innerHeight = 600;

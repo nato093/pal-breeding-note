@@ -122,14 +122,18 @@ test('登録画面: Esc は候補を先に閉じ、次の Esc・×・キャン�
   assert.equal(modal.dialog.open, false);
 });
 
-test('登録画面: 候補内スクロールは開いたまま、本文スクロール・リサイズ・終了で候補と監視を片付ける', async (t) => {
+test('登録画面: 候補内スクロールは開いたまま、本文をホイールでスクロール・リサイズ・終了で候補と監視を片付ける', async (t) => {
   const { context, events, windowEvents } = await setup(t);
   const modal = openRecordEditor(context);
   const trigger = modal.body.querySelector('.picker-trigger');
   await trigger.dispatch('click');
   await events.dispatch('scroll', { target: modal.dialog.querySelector('.picker-options') });
+  await events.dispatch('wheel', { target: modal.dialog.querySelector('.picker-options') });
   assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  // ホイール・タッチ以外のスクロール（描き直しで位置が丸められたなど）では、トリガーが見えていれば開いたまま
   await events.dispatch('scroll', { target: modal.body });
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  await events.dispatch('wheel', { target: modal.body });
   assert.equal(trigger.getAttribute('aria-expanded'), 'false');
   assert.equal(modal.dialog.open, true);
   await trigger.dispatch('click');
@@ -138,7 +142,7 @@ test('登録画面: 候補内スクロールは開いたまま、本文スクロ
   await trigger.dispatch('click');
   await modal.close();
   assert.equal(modal.dialog.querySelector('.picker-popover'), null);
-  for (const event of ['scroll', 'pointerdown']) assert.equal(events.listeners.get(event).length, 0);
+  for (const event of ['scroll', 'wheel', 'touchmove', 'pointerdown']) assert.equal(events.listeners.get(event).length, 0);
   assert.equal(windowEvents.listeners.get('resize').length, 0);
   assert.equal(modal.dialog.listeners.get('cancel').length, 0);
 });

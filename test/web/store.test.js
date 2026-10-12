@@ -86,6 +86,30 @@ test('状態: 全件取得の失敗は業務エラーのコードでも同期状
   }
 });
 
+test('状態: 取得の失敗（fetchError。ヘッダーの「更新できませんでした」）は全件取得の失敗だけで立て、配合操作の失敗では立てない。取り直せたら消す', async () => {
+  let fail = '';
+  const store = createStore({ storage: memoryStorage(true), api: { request: async (action) => {
+    if (action === fail) throw new ApiError('INTERNAL');
+    return action === 'snapshot' ? response([record]) : { ...response(), record, snapshot: snapshot([record]) };
+  } } });
+  await store.refresh();
+  assert.deepEqual([store.state.error, store.state.fetchError], ['', '']);
+  fail = 'delete';
+  await assert.rejects(store.mutate('delete', inputs.delete), { code: 'INTERNAL' });
+  assert.deepEqual([store.state.error, store.state.fetchError], [new ApiError('INTERNAL').message, '']);
+  fail = 'snapshot';
+  await assert.rejects(store.refresh(), { code: 'INTERNAL' });
+  assert.equal(store.state.fetchError, new ApiError('INTERNAL').message);
+  fail = '';
+  await store.refresh();
+  assert.deepEqual([store.state.error, store.state.fetchError], ['', '']);
+  // ログアウトしたら消す
+  fail = 'snapshot';
+  await assert.rejects(store.refresh(), { code: 'INTERNAL' });
+  store.logout();
+  assert.equal(store.state.fetchError, '');
+});
+
 for (const code of ['CONNECTION', 'TIMEOUT', 'RESPONSE', 'INTERNAL', 'AUTH', 'USER_NOT_FOUND']) {
   test(`状態: 全件取得と配合操作の ${code} は同期状態に表示する`, async () => {
     for (const action of ['snapshot', 'create', 'update', 'merge', 'delete', 'restore']) {

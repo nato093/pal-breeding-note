@@ -723,6 +723,37 @@ test('所持パル画面: 区切って行を足している途中で画面を閉
   assert.equal(list.children.length, 0);
 });
 
+test('所持パル画面: 区切って行を足すときも、残る既存の行は消さずに使い回し、まだ無い行だけを並び順に足す（1,500 行を絞って外す）', (t) => {
+  installDom(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const view = ownedView(context(fakeOwned(manyData(1500))), parseHash('#/owned'));
+  t.mock.timers.runAll();
+  const list = view.element.querySelector('.owned-list');
+  const hp = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
+  // HP 30 以上に絞る（行は減る。残る行は使い回す）
+  hp.value = '30';
+  hp.dispatch('input');
+  t.mock.timers.runAll();
+  const kept = new Set(list.querySelectorAll('.owned-row'));
+  assert.ok(kept.size > 1000, `絞った後の行 ${kept.size}`);
+  // 絞り込みを外す（まだ無い行が 200 を超える）。外した直後も、絞っていた間の行は 1 つも消さない（一覧が 200 行に縮まない）
+  hp.value = '';
+  hp.dispatch('input');
+  const first = list.querySelectorAll('.owned-row');
+  assert.ok(first.length >= kept.size && first.length <= kept.size + 200, `外した直後の行 ${first.length}`);
+  assert.ok([...kept].every((row) => row.parentElement === list));
+  t.mock.timers.runAll();
+  const rows = list.querySelectorAll('.owned-row');
+  assert.equal(rows.length, Number(view.element.querySelector('.result-note').textContent.replace(/ 体$/, '')));
+  assert.equal(rows.filter((row) => kept.has(row)).length, kept.size);
+  // 並びは、最初から全部描いたときと同じ
+  const fresh = ownedView(context(fakeOwned(manyData(1500))), parseHash('#/owned'));
+  t.mock.timers.runAll();
+  assert.deepEqual(rows.map((row) => row.textContent), fresh.element.querySelectorAll('.owned-row').map((row) => row.textContent));
+  fresh.destroy();
+  view.destroy();
+});
+
 test('所持パル画面: 条件を変えたら、前の条件で区切って足していた仕事は捨てる', (t) => {
   installDom(t);
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -1019,19 +1050,19 @@ test('所持パル画面: 所持パルのデータが無いまま開いて読み
   view.destroy();
 });
 
-test('所持パル画面: URL のパッシブの重複を除き、保存した条件のパッシブはマスターにある ID だけを読み戻す', async (t) => {
+test('所持パル画面: URL のパッシブと保存した条件のパッシブは、重複と内部名の形でない値を除き、マスターにまだ無い内部名は残す', async (t) => {
   installDom(t);
-  const view = ownedView(context(fakeOwned()), parseHash('#/owned?p=Rare,Rare'));
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned?p=Rare,Rare,知らないパッシブ'));
   assert.equal(view.element.querySelectorAll('.passive-remove').length, 1);
   await passiveAdd(view).dispatch('click');
   assert.match(view.element.querySelector('.picker-status').textContent, /あと 3 個まで選べます/);
   view.destroy();
-  assert.deepEqual(cleanSaved({ passives: ['Rare', '知らないパッシブ', 'Rare', 'Legend'] }, OWNED_MEMORY).passives, ['Rare', 'Legend']);
+  assert.deepEqual(cleanSaved({ passives: ['Rare', '知らないパッシブ', 'Rare', 'Unknown_Passive_X', 7, 'Legend'] }, OWNED_MEMORY).passives, ['Rare', 'Unknown_Passive_X', 'Legend']);
 });
 
-test('継承ルート: URL のパッシブの重複とマスターにない ID を除く', (t) => {
+test('継承ルート: URL のパッシブは重複と内部名の形でない値を除き、マスターにまだ無い内部名は残す', (t) => {
   installDom(t);
-  const view = inheritanceView(context(fakeOwned()), parseHash('#/route?to=CuteFox&p=Rare,Rare,知らないパッシブ'));
-  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す']);
+  const view = inheritanceView(context(fakeOwned()), parseHash('#/route?to=CuteFox&p=Rare,Rare,知らないパッシブ,Unknown_Passive_X'));
+  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す', 'Unknown_Passive_X を外す']);
   view.destroy();
 });

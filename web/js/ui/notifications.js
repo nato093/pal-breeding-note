@@ -52,15 +52,16 @@ export function openNotificationList(notifications) {
 }
 
 // 右上のベル。未読の数を出し、開くと未読の通知を並べて既読にする（既読の通知は設定タブの通知一覧で見る）。
-export function notificationMenu(notifications) {
+// onOpen は開いたときに呼ぶ（app.js がヘッダーのほかのパネルを閉じる）
+export function notificationMenu(notifications, { onOpen } = {}) {
   let closePanel = null;
   let renderPanel = null;
   const wrapper = el('div', 'notification-menu');
   const trigger = button('', () => closePanel ? closePanel() : open(), 'icon-button notification-button');
   const panelId = `notifications-${crypto.randomUUID()}`;
   trigger.title = '通知';
+  // aria-controls は開いている間だけ（閉じている間はパネルが DOM に無い）
   trigger.setAttribute('aria-expanded', 'false');
-  trigger.setAttribute('aria-controls', panelId);
   const badge = el('span', 'notification-badge');
   badge.setAttribute('aria-hidden', 'true');
   trigger.append(svgIcon(BELL), badge);
@@ -96,9 +97,11 @@ export function notificationMenu(notifications) {
       closePanel = null;
       renderPanel = null;
       trigger.setAttribute('aria-expanded', 'false');
+      trigger.removeAttribute('aria-controls');
     };
     wrapper.append(panel);
     trigger.setAttribute('aria-expanded', 'true');
+    trigger.setAttribute('aria-controls', panelId);
     document.addEventListener('pointerdown', (event) => { if (!wrapper.contains(event.target)) closePanel?.(); }, { signal: controller.signal });
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
@@ -106,6 +109,7 @@ export function notificationMenu(notifications) {
       trigger.focus();
     }, { signal: controller.signal });
     notifications.markRead([...opened]);
+    onOpen?.();
   }
 
   notifications.subscribe(update);

@@ -2,12 +2,13 @@ import { el, button, empty, link } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palTile, palsById } from '../ui/pal-icon.js';
 import { routeView } from '../ui/route-view.js';
-import { passiveSelector, passiveList, passivesById } from '../ui/passive-picker.js';
+import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, ownedSpeciesNotes, routeDistanceNotes, passivePresets } from './shared.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
+import { internalName } from '../core/boundary.js';
 
 function holderSummary(carriers) {
   // 要約なので、パルボックスのページと位置までは出さない
@@ -52,8 +53,8 @@ export function inheritanceView(context, route) {
     current = next;
     from = validId(next, 'from', context);
     to = validId(next, 'to', context);
-    // 重複とマスターにない ID は除く（知らない ID のチップを出さない）
-    passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => passivesById.has(id)))].slice(0, 4);
+    // 重複と内部名の形でない値は除く（マスターにまだ無い内部名は、所持パルに付いていれば候補に出て選べるので残す）
+    passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => internalName(id)))].slice(0, 4);
   }
   readRoute(route);
   const selectPal = (key) => (id) => navigateSelection(context, current, key, id);

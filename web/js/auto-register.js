@@ -315,8 +315,9 @@ export function createAutoRegister({
           }
         }
       } catch (error) {
-        // 手元にない登録との食い違いもあるため、サーバが返した食い違う登録で知らせる
-        const existing = Array.isArray(error.response?.existing) ? error.response.existing : findConflict(store.state.index, record)?.existing ?? [];
+        // 手元にない登録との食い違いもあるため、サーバが返した食い違う登録で知らせる（object の要素だけ。null などで止まらないように）
+        const existing = Array.isArray(error.response?.existing) ? list(error.response.existing, { map: (item) => (isObject(item) ? item : null) })
+          : findConflict(store.state.index, record)?.existing ?? [];
         if (error.code === 'PAIR_CONFLICT') {
           notices.push(conflictNotice(ctx, candidate, existing));
           // 手元の一覧にない登録との食い違いは、手元では判定できず送り直してしまう。新しいセーブを読むまで送らず、

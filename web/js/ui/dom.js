@@ -62,7 +62,8 @@ const lists = new WeakMap();
 
 function listOf(container) {
   let list = lists.get(container);
-  if (!list) lists.set(container, list = { rows: new Map(), keys: new Map() });
+  // empty: 出している空の表示（同じ文なら作り直さない）
+  if (!list) lists.set(container, list = { rows: new Map(), keys: new Map(), empty: null });
   return list;
 }
 
@@ -97,7 +98,9 @@ function focusIn(row, focus) {
  * create(item) → { element, update(item), destroy() }。update は中身を書き換えてよいが element は差し替えない。
  * フォーカス: 同期の前にフォーカスのある行の key と、行の中の data-focus の値を覚え、同期の後で同じ行の同じ部品へ focus({ preventScroll: true })。
  *   行が消えたときは、次の行（なければ前の行）の最初の [data-focus] へ。どちらも無ければ fallbackFocus（任意の要素）へ。
- * items が空のとき、empty（任意。() => Element）があればその要素を 1 つだけ出す。
+ * items が空のとき、empty（任意。() => Element）があればその要素を 1 つだけ出す。出している空の表示と文（textContent）とクラスが
+ *   同じなら作り直さない（中のボタンのフォーカスが外れない）。そのため、空の表示の中のボタンが押されたときに使う値は、作った時点の値を
+ *   閉じ込めず、呼び出し側の今の値（変数）から読むこと。
  * 決まり: syncList で管理する入れ物に replaceChildren を直接使わない（ほかの表示を出すときは、先に clearList）。
  */
 export function syncList(container, items, { key, create, empty, fallbackFocus } = {}) {
@@ -127,8 +130,15 @@ export function syncList(container, items, { key, create, empty, fallbackFocus }
   });
   if (!nodes.length && empty) {
     const node = empty();
-    if (container.children.length !== 1 || container.children[0] !== node) container.replaceChildren(node);
+    const kept = list.empty;
+    const same = kept && container.children.length === 1 && container.children[0] === kept
+      && kept.className === node.className && kept.textContent === node.textContent;
+    if (!same) {
+      container.replaceChildren(node);
+      list.empty = node;
+    }
   } else {
+    list.empty = null;
     // 付け直すとフォーカスと開いている候補が外れるため、位置の違う行（新しい行・並びの変わった行）だけを差し込む
     nodes.forEach((node, index) => {
       if (container.children[index] !== node) container.insertBefore(node, container.children[index] ?? null);

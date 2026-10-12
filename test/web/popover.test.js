@@ -19,6 +19,8 @@ const count = (target, name) => (target.listeners.get(name) ?? []).length;
 
 test('ポップオーバー: open で wrapper の中に付け、外側の pointerdown で閉じる（中の pointerdown では閉じない）', async (t) => {
   const { body, events, wrapper, anchor, popover, log } = setup(t);
+  // 閉じている間は、DOM に無い id を指さないよう aria-controls を付けない
+  assert.equal(anchor.getAttribute('aria-controls'), null);
   popover.open();
   assert.equal(popover.element.parentElement, wrapper);
   assert.equal(popover.isOpen(), true);
@@ -34,6 +36,7 @@ test('ポップオーバー: open で wrapper の中に付け、外側の pointe
   assert.equal(popover.isOpen(), false);
   assert.equal(popover.element.parentElement, null);
   assert.equal(anchor.getAttribute('aria-expanded'), 'false');
+  assert.equal(anchor.getAttribute('aria-controls'), null);
   // 外側を押したときは、押した先にフォーカスを任せる（anchor へ戻さない）
   assert.equal(document.activeElement, body);
   assert.deepEqual(log, ['open', 'close']);
@@ -78,7 +81,7 @@ test('ポップオーバー: focusOut ならフォーカスが外へ出たとき
   assert.equal(document.activeElement, anchor);
 });
 
-test('ポップオーバー: host があれば host の中に浮かせ、外のスクロール・resize・ダイアログの cancel で閉じる', async (t) => {
+test('ポップオーバー: host があれば host の中に浮かせ、外でのホイール・タッチのスクロール・resize・ダイアログの cancel で閉じる', async (t) => {
   const dom = installDom(t);
   const dialog = document.createElement('dialog');
   dialog.getBoundingClientRect = () => ({ left: 240, width: 800 });
@@ -98,16 +101,32 @@ test('ポップオーバー: host があれば host の中に浮かせ、外の�
   const list = document.createElement('div');
   popover.element.append(list);
   await dom.events.dispatch('scroll', { target: list });
+  await dom.events.dispatch('wheel', { target: list });
   assert.equal(popover.isOpen(), true);
+  // 利用者が外でホイール・タッチでスクロールしたら閉じる
+  await dom.events.dispatch('wheel', { target: dialog });
+  assert.equal(popover.isOpen(), false);
+  popover.open();
+  await dom.events.dispatch('touchmove', { target: dom.body });
+  assert.equal(popover.isOpen(), false);
+  // それ以外の外のスクロール（データの更新でページが縮み、スクロール位置が丸められたなど）では閉じず、anchor に合わせて置き直す
+  popover.open();
+  anchor.getBoundingClientRect = () => ({ left: 300, top: 120, bottom: 172, width: 200 });
+  await dom.events.dispatch('scroll', { target: dialog });
+  assert.equal(popover.isOpen(), true);
+  assert.equal(popover.element.style.getPropertyValue('--picker-top'), '176px');
+  // anchor が画面の外へ出たら閉じる
+  anchor.getBoundingClientRect = () => ({ left: 300, top: -80, bottom: -28, width: 200 });
   await dom.events.dispatch('scroll', { target: dialog });
   assert.equal(popover.isOpen(), false);
+  anchor.getBoundingClientRect = () => ({ left: 300, top: 200, bottom: 252, width: 200 });
   popover.open();
   await dom.windowEvents.dispatch('resize');
   assert.equal(popover.isOpen(), false);
   popover.open();
   assert.equal((await dialog.dispatch('cancel')).defaultPrevented, true);
   assert.equal(popover.isOpen(), false);
-  for (const [target, name] of [[dom.events, 'scroll'], [dom.windowEvents, 'resize'], [dialog, 'cancel']]) assert.equal(count(target, name), 0, name);
+  for (const [target, name] of [[dom.events, 'scroll'], [dom.events, 'wheel'], [dom.events, 'touchmove'], [dom.windowEvents, 'resize'], [dialog, 'cancel']]) assert.equal(count(target, name), 0, name);
 });
 
 test('ポップオーバー: placeFloating は下に 200px 足りず上の方が広ければ上に開き、高さの上限は 560px', (t) => {

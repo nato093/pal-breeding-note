@@ -4,6 +4,13 @@ import { createOwnedStore, idbPersist } from '../../web/js/owned.js';
 import { safeStorage } from '../../web/js/store.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { fakeHandle, hostFiles, asDropped, memoryPersist, T0 } from '../helpers/file-handles.js';
+import { installDom } from '../helpers/dom.js';
+import pals from '../../web/data/pals.js';
+import { buildIndex } from '../../web/js/core/index.js';
+import { buildCarrierGraph } from '../../web/js/core/route.js';
+import { parseHash } from '../../web/js/router.js';
+import { ownedView } from '../../web/js/views/owned.js';
+import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 
 function memoryStorage() {
   const map = new Map();
@@ -496,6 +503,42 @@ test('所持パル（読み戻しの検証）: IndexedDB の手元のデータ�
   persist.map.set('pal-note.test.owned', saved({ id: WORLD_A.toLowerCase(), name: 'テスト' }, { importedAt: 'いつか' }));
   await store.load();
   assert.deepEqual([store.state.local.world.id, store.state.local.world.role, store.state.local.importedAt, store.state.owned.pals.length], [WORLD_A, 'host', '', 2]);
+});
+
+test('所持パル（読み戻しの検証）: IndexedDB の手元のセーブのプレイヤー・個体・拠点・ギルド・牧場に壊れた要素があっても、その要素だけを捨てて所持タブと設定タブを描く', async (t) => {
+  installDom(t);
+  const { make, persist, register } = setup();
+  await register(WORLD_A, hostFiles());
+  const saved = persist.map.get('pal-note.test.owned');
+  persist.map.set('pal-note.test.owned', {
+    ...saved,
+    snapshot: {
+      ...saved.snapshot,
+      players: [null, 'p', { uid: 7, name: '数の uid', level: 1 }, { name: 'uid なし', level: 1 }, ...saved.snapshot.players],
+      pals: [null, 'pal', ...saved.snapshot.pals],
+      bases: [null, 3], guilds: [null], breedFarms: [null, 'farm'],
+      files: { used: [PLAYERS], skipped: [] },
+    },
+  });
+  const store = make();
+  await store.load();
+  const { snapshot: local } = store.state.local;
+  assert.deepEqual([local.players.map((player) => player.uid), local.pals.length, local.bases, local.guilds, local.breedFarms], [['u1'], saved.snapshot.pals.length, [], [], []]);
+  assert.equal(store.state.owned.pals.length, saved.snapshot.pals.length);
+  const index = buildIndex([], pals);
+  const context = {
+    store: { state: { records: [], index, graph: buildCarrierGraph(index), env: 'test', warnings: [], users: ['Alice'], userId: 'Alice' }, subscribe: () => () => {} },
+    owned: store, navigate() {}, inputDelay: 0,
+    autoRegister: { enabled: () => true, setEnabled() {}, mapping: () => ({}), setMapping() {} },
+  };
+  // 所持タブ（案内に、登録していないプレイヤーのファイルを出すところで null のプレイヤーを読んでいた）
+  const view = ownedView(context, parseHash('#/owned'));
+  assert.equal(view.element.querySelectorAll('.owned-row').length, saved.snapshot.pals.length);
+  view.destroy();
+  // 設定タブ（登録者の対応で、セーブのプレイヤーを並べる）
+  const card = ownedSettingsCard(context);
+  assert.deepEqual(card.element.querySelectorAll('.owned-breeding-player').map((row) => row.children[0].textContent), ['Alice']);
+  card.destroy();
 });
 
 test('所持パル（読み戻しの検証）: 共有のキャッシュは要素ごとに整え、今のワールドの行が配列でなければ使わない', async () => {

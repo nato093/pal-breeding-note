@@ -73,6 +73,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   const state = {
     passcode: storage.get(`${namespace}.passcode`) ?? '', userId: storage.get(`${namespace}.userId`) ?? '', users: [], env: null,
     records: [], warnings: [], serverTime: '', cached: false, loading: false, syncing: false, error: '', renaming: false,
+    // 全件の取得（snapshot）の失敗だけ（ヘッダーの同期状況の隣の「更新できませんでした」）。配合の保存の失敗は error だけに入れる
+    fetchError: '',
     // 送信の進み具合（失敗して取り消した操作も済んだ数に入れる）。送信待ちが空なら両方 0。
     syncDone: 0, syncTotal: 0,
     index: buildIndex([], pals), graph: new Map(), revision: 0,
@@ -125,6 +127,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.users = [];
     state.serverTime = '';
     state.cached = false;
+    state.fetchError = '';
     state.index = buildIndex([], pals);
     state.graph = new Map();
     state.revision = ++revision;
@@ -171,6 +174,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.env = env;
     state.cached = cached;
     state.error = '';
+    state.fetchError = '';
     if (!cached) {
       storage.set(cacheKey(env, namespace), JSON.stringify(snapshot));
       storage.set(`${namespace}.authenticated`, env);
@@ -207,6 +211,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     } catch (error) {
       if (currentSession !== session) throw error;
       if (action === 'snapshot' || !mutationErrors.has(error.code)) state.error = error.message;
+      if (action === 'snapshot') state.fetchError = error.message;
       if (error.code === 'AUTH') {
         logout(error.message);
       }

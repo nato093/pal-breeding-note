@@ -379,6 +379,20 @@ test('所持パル（読み戻しの検証）: 手元のセーブの値も範囲
   assert.deepEqual([long.nickname.length, long.holder.length], [50, 50]);
 });
 
+test('所持パル（読み戻しの検証）: 場所の kind が文字列の列挙値に変換できる配列（["party"]）でも落ちず「不明」にし、正常な個体はそのまま読む', () => {
+  const list = normalizeOwned({
+    ...snapshot,
+    pals: [
+      pal('a', 'SheepBall', { kind: ['party'], playerUid: P1 }),
+      pal('b', 'PinkCat', { kind: 'party', playerUid: P1 }),
+      pal('c', 'PinkCat', { kind: ['egg-ground'], playerUid: P1 }),
+      pal('d', 'PinkCat', { kind: { toString: () => 'party' }, playerUid: P1 }),
+    ],
+  }, { pals, passives });
+  assert.deepEqual(list.pals.map((p) => [p.id, p.place, p.egg]), [['a', 'unknown', false], ['b', 'party', false], ['c', 'unknown', false], ['d', 'unknown', false]]);
+  assert.equal(list.pals[1].holder, 'Alice');
+});
+
 test('所持パル: 種族ごとの性別の数は、タマゴとマスター外（人間など）を数えず、性別の分からない個体は total だけに入れる', () => {
   const counts = speciesGenderCounts(owned.pals);
   // モコロンは a（♀）・b（♂）・c（♀）。ツッパニャンはタマゴの d を数えず、グローバルの f（♀）だけ。タマゴだけのタマコッコは入らない

@@ -172,7 +172,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const { palId, alpha } = resolve(characterId);
     const human = palId ? null : resolveHuman(characterId);
     const location = isObject(source.location) ? source.location : {};
-    const kind = Object.hasOwn(PLACE_LABELS, location.kind) ? location.kind : 'unknown';
+    // 配列（["party"]）なども Object.hasOwn では文字列に直されて通るので、文字列であることを先に確かめる
+    const kind = typeof location.kind === 'string' && Object.hasOwn(PLACE_LABELS, location.kind) ? location.kind : 'unknown';
     const egg = kind.startsWith('egg-');
     // 所持者: 手持ち・パルボックス・次元ストレージは入れ物の持ち主、タマゴは置いた人／持っている人
     // 拠点に置かれたタマゴ（地面・孵化器・保管箱）は拠点の持ち物として扱う

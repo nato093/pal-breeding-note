@@ -39,7 +39,11 @@ const cancelFrame = (id) => (typeof globalThis.cancelAnimationFrame === 'functio
  * container に上下の余白（spacer）と、見えている行だけを置く。行の高さは描いた後に測って key ごとに覚える（測っていない行は estimate）。
  * create(item) → { element, update(item), destroy() }（syncList と同じ）。topOffset() は固定のヘッダー・パネルの下端（画面の上からの px）。
  * 知っておく制限: 画面の外の行は DOM に無いので、ブラウザのページ内検索と Tab では届かない（キーワードの絞り込みで探す）
- * @returns {{ rows: Element, render(items: object[]): void, destroy(): void }} rows は行の入れ物（anchorOf・restoreAnchor に渡す）
+ * render(items, { anchor }) の anchor は anchorOf（ui/dom.js）で覚えた { key, top }。新しい全件の中で同じ key の行を探し、
+ * その行が前と同じ画面の位置（top）に来るスクロール位置で先に描いてから、そこへスクロールする
+ *（今の位置で描いてから探すと、前に多くの行が増えたとき行が描く範囲の外になって戻せない）。行が無ければ今の位置で描く
+ * @returns {{ rows: Element, render(items: object[], options?: { anchor?: { key: string, top: number } | null }): void, destroy(): void }}
+ *   rows は行の入れ物（anchorOf・restoreAnchor に渡す）
  */
 export function virtualRows(container, { key, create, estimate = 60, overscan = 10, topOffset = () => 0 }) {
   const top = el('div', 'virtual-spacer');
@@ -61,11 +65,12 @@ export function virtualRows(container, { key, create, estimate = 60, overscan = 
     for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + (heights.get(key(items[i])) ?? estimate);
   }
 
-  function paint() {
+  // listTop: 一覧の上端の画面の位置（渡さなければ今の位置）
+  function paint(listTop = container.getBoundingClientRect().top) {
     const win = globalThis.window;
     const viewTop = topOffset();
     const viewport = Math.max(0, (win?.innerHeight ?? 0) - viewTop);
-    const scrollTop = viewTop - container.getBoundingClientRect().top;
+    const scrollTop = viewTop - listTop;
     const { start, end } = visibleRange({ offsets, scrollTop, viewport, overscan });
     const shown = items.slice(start, end);
     syncList(rows, shown, { key, create });
@@ -90,10 +95,16 @@ export function virtualRows(container, { key, create, estimate = 60, overscan = 
 
   return {
     rows,
-    render(next) {
+    render(next, { anchor = null } = {}) {
       items = next;
       layout();
-      paint();
+      const index = anchor ? items.findIndex((item) => key(item) === anchor.key) : -1;
+      if (index < 0) { paint(); return; }
+      // 見ていた行が anchor.top に来るときの一覧の上端で描き（余白でページの高さも合わせてから）、その差だけスクロールする
+      const listTop = anchor.top - offsets[index];
+      paint(listTop);
+      const moved = container.getBoundingClientRect().top - listTop;
+      if (moved) globalThis.window?.scrollBy?.(0, moved);
     },
     destroy() {
       controller.abort();

@@ -441,6 +441,12 @@ img, svg { max-width: 100%; }
   z-index: var(--z-snackbar);
   box-shadow: var(--elevation-3);
 }
+/* 拡大して窓の幅が 928px を切ると、案内（最小 300px）とトースト（460px）が横に並ばず重なる（トーストが上に出て「閉じる」を隠す）。
+   案内が出ている間は、トーストの領域を案内の右（間 24px）から右の余白までに縮める（372px = 案内の左の余白 24 + 最小 300 + 間 24 + 右の余白 24）。
+   928px 以上では 460px のまま */
+body:has(.update-banner:not([hidden])) .toast-region {
+  width: min(460px, calc(100% - 48px), max(200px, calc(100% - var(--drawer) - 372px)));
+}
 .update-banner-message { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
 .update-banner-hint { margin: 2px 0 0; font-size: 13px; color: inherit; opacity: .8; }
 .update-banner-actions { display: flex; gap: 8px; }

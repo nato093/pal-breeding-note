@@ -114,6 +114,33 @@ test('syncList: 空のときは empty の要素を 1 つだけ出し、行が来
   assert.deepEqual(log.created, ['a', 'b', 'c', 'c']);
 });
 
+test('syncList: 空の表示は入れ物ごとに覚え、同じ文なら作り直さない（中のボタンのフォーカスが外れない）。文が変われば入れ替える', (t) => {
+  installDom(t);
+  const container = el('div');
+  document.body.append(container);
+  const { options } = rows();
+  const empty = (text) => () => {
+    const node = el('div', 'empty', text);
+    node.append(button('登録', null, 'register'));
+    return node;
+  };
+  syncList(container, [], { ...options, empty: empty('ありません') });
+  const [shown] = container.children;
+  const register = shown.querySelector('.register');
+  register.focus();
+  syncList(container, [], { ...options, empty: empty('ありません') });
+  assert.equal(container.children[0], shown);
+  assert.equal(document.activeElement, register);
+  syncList(container, [], { ...options, empty: empty('別の文') });
+  assert.notEqual(container.children[0], shown);
+  assert.equal(container.children[0].textContent, '別の文登録');
+  // 行が来たら空の表示を外し、空に戻ったらまた 1 つだけ出す
+  syncList(container, items('a'), options);
+  assert.deepEqual(labels(container), ['行 a']);
+  syncList(container, [], { ...options, empty: empty('別の文') });
+  assert.deepEqual(container.children.map((node) => node.textContent), ['別の文登録']);
+});
+
 test('anchorOf・restoreAnchor: 固定のヘッダーの下で最初に見えている行を覚え、同期の後で同じ位置に戻す', (t) => {
   const { windowEvents } = installDom(t);
   const container = el('div');
