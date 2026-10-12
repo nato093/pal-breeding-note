@@ -1948,7 +1948,7 @@ C-18 の後は、カードが 4 枚まで減る。高さも C-17 で 1 画面の
 
 **理由**（判断）
 
-技術的に成り立たない。docs/SAVE_FORMAT.md:88 に「Chromium の blocklist で DIR_LOCAL_APP_DATA が kBlockAllChildren」とあり、handles.js:2 にも「Chrome・Edge は AppData 配下のフォルダを開けない」と書かれている。showOpenFilePicker も同じ blocklist で確かめるため、%LOCALAPPDATA%\Pal\Saved\SaveGames の中のファイルを選ぶと、ブラウザが「システムファイルを含むため開けません」と止める。ドロップでしかハンドルを取れないから、今の設計になっている（commit f878d0e）。疑問欄の「2 回選ぶ必要がある」以前に、選ぶこと自体ができない。キーボードで操作できるようにしたい点は、説明の改善（C-27/C-28）で補う。
+技術的に成り立たない。docs/SAVE_FORMAT.md:88 に「Chromium の blocklist で DIR_LOCAL_APP_DATA が kBlockAllChildren」とあり、handles.js:2 にも「Chrome・Edge は AppData 配下のフォルダを開けない」と書かれている。showOpenFilePicker も同じ blocklist で確かめるため、%LOCALAPPDATA%\Pal\Saved\SaveGames の中のファイルを選ぶと、ブラウザが「システムファイルを含むため開けません」と止める。ドロップでしかハンドルを取れないから、今の設計になっている（commit 162bc2b）。疑問欄の「2 回選ぶ必要がある」以前に、選ぶこと自体ができない。キーボードで操作できるようにしたい点は、説明の改善（C-27/C-28）で補う。
 
 **もう一方の判定**（事実確認・直す）
 

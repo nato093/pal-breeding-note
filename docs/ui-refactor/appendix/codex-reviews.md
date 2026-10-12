@@ -1,12 +1,12 @@
 # 付録: Codex のプランレビューの履歴（7 回）
 
-> 2026-10-12 に書き出した。**正は README と phase-*.md**。Codex（gpt-6.1-sol・sandbox read-only・reasoning effort high）が、統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`）を 7 回レビューした記録。どの回も Codex はファイルを変えておらず、HEAD は `6028a48` のまま（各回の「検証」の欄）。
+> 2026-10-12 に書き出した。**正は README と phase-*.md**。Codex（gpt-6.1-sol・sandbox read-only・reasoning effort high）が、統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`）を 7 回レビューした記録。どの回も Codex はファイルを変えておらず、HEAD は `c5c0683` のまま（各回の「検証」の欄）。
 
 ## 読み方
 
 - レビューの中の「プラン:NNN」「L84」などは、**その回のときのプランの行番号**。プランは回ごとに書き換わっているので、今のプランの写し（[plan-snapshot.md](plan-snapshot.md)。冒頭に 2 行足したので、元のファイルより 2 行うしろにずれる）とは合わない。テーマの key で探す。
 - 「Codex の最終回答と検証の欄」は、Codex の出力の最後の「tokens used」の行から後ろを、手を加えずに写した。「検証」の欄は、委譲のスクリプトが機械的に取った exit code・HEAD・git status の差（Codex の自己申告ではない）。
-- 2026-10-12: 公開リポジトリにコミットする前に、この付録を含む docs/ui-refactor/ の全文書で、ユーザー名を含むパス（`C:\Users\<ユーザー名>` と `C:/Users/<ユーザー名>`）だけを `~` に置き換えた（README の「8-2」）。ほかの文字は変えていない。
+- 2026-10-12: 公開リポジトリにコミットする前に、この付録を含む docs/ui-refactor/ の全文書で、ユーザー名を含むパス（`C:\Users\<ユーザー名>` と `C:/Users/<ユーザー名>`）だけを `~` に置き換えた（README の「8-2」）。同じ日に履歴を書き換えたので、2026-10-05 以降のコミットの番号も新しい番号に直した。ほかの文字は変えていない。
 - 3 回目の検証の欄にある git status の差（`?? .mso/` が消えて ` M .gitignore` が増えた）は、Codex ではなく、同じ時刻に別の Claude Code セッションが .gitignore に `.mso/` を足したため（統合プランのフェーズ 0 の 0 番）。
 - Codex の指摘は「Codex の主張」。委譲エージェント（Claude）が引用の行を確かめた回もあるが、全部を裏取りしたわけではない。実装の前にコードで確かめる。
 
@@ -767,7 +767,7 @@ Codex の再レビュー結果は「まだ直すべき」です。前回の 20 �
   (実行前後で差分なし)
 ```
 - 食い違いはありません。read_only で差分はゼロ、HEAD も変わっておらず、偽装ヘッダの警告も出ていません。
-- 私自身も Codex の実行中と終了後に `git rev-parse HEAD` と `git status --porcelain` を確認しました。HEAD は 6028a48 のまま、未追跡の 3 件（`.mso/`・`.playwright-cli/`・`Claude outputs/`）も開始時と同じでした。
+- 私自身も Codex の実行中と終了後に `git rev-parse HEAD` と `git status --porcelain` を確認しました。HEAD は c5c0683 のまま、未追跡の 3 件（`.mso/`・`.playwright-cli/`・`Claude outputs/`）も開始時と同じでした。
 - Codex は最初の PowerShell 実行に失敗し（`helper_unknown_error: setup refresh had errors`）、その後は node_repl MCP でファイルを読んでいます。
 - プランの行番号とコードの file:line はどちらも Codex の主張で、私は照合していません。
 
