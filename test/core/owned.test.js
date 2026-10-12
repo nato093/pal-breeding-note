@@ -304,3 +304,77 @@ test('所持パル共有: 配合牧場は形を確かめ、親が 3 体以上・
   assert.deepEqual(cleanOwnedFarms('F1'), []);
   assert.equal(cleanOwnedFarms(Array.from({ length: OWNED_MAX_FARMS + 5 }, (_, i) => ({ id: `F${i}`, parents: [] }))).length, OWNED_MAX_FARMS);
 });
+
+test('所持パル共有（読み戻しの検証）: 壊れた値は範囲に収め、個体 ID の重複・パッシブ・人数の上限を守る', () => {
+  const row = (id, extra = {}) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : extra[field] ?? ''));
+  const talents = ['Infinity', '150', '-5', 'abc'];
+  const many = Array.from({ length: 20 }, (_, i) => `P${i}`);
+  const shared = ownedFromShared({
+    world: {
+      worldName: 'テスト',
+      players: Array.from({ length: 150 }, (_, i) => ({ uid: `u${i}`, name: i === 0 ? '' : `P${i}` })),
+      bases: [null, { id: '' }, { id: 'b1', label: '' }],
+    },
+    columns: OWNED_FIELDS,
+    rows: [
+      ...talents.map((value, i) => row(`t${i}`, { palId: 'SheepBall', talentHp: value, talentShot: value, talentDefense: value, level: value, rank: value, stars: value })),
+      row('t0', { palId: 'PinkCat' }),
+      row('m', { palId: 'SheepBall', passiveIds: [...many, 'P0'].join('|'), nickname: 'n'.repeat(80) }),
+      null, 'row', row(''), row('x'.repeat(65)),
+    ],
+  }, { pals, passives });
+  const byIdShared = Object.fromEntries(shared.pals.map((p) => [p.id, p]));
+  assert.deepEqual(shared.pals.map((p) => p.id), ['t0', 't1', 't2', 't3', 'm']);
+  assert.deepEqual(talents.map((_, i) => Object.values(byIdShared[`t${i}`].talent)), [[0, 0, 0], [100, 100, 100], [0, 0, 0], [0, 0, 0]]);
+  // レベル 1〜999・ランク 1〜5・★ 0〜4。数にならなければ今までと同じ既定の値
+  assert.deepEqual(talents.map((_, i) => [byIdShared[`t${i}`].level, byIdShared[`t${i}`].rank, byIdShared[`t${i}`].stars]), [[1, 1, 0], [150, 5, 4], [1, 1, 0], [1, 1, 0]]);
+  // 同じ個体 ID は先の行を使う
+  assert.equal(byIdShared.t0.palId, 'SheepBall');
+  // パッシブは重複を除き 16 個まで（5 個以上も切り詰めない）
+  assert.deepEqual(byIdShared.m.passives, many.slice(0, 16));
+  assert.equal(byIdShared.m.nickname.length, 50);
+  assert.equal(shared.players.length, 100);
+  assert.deepEqual(shared.players[0], { uid: 'u0', name: '不明', level: 0 });
+  assert.deepEqual(shared.bases, [{ id: 'b1', label: '拠点' }]);
+  // 行・世界が壊れていても落ちない
+  assert.deepEqual(ownedFromShared({ world: 'x', columns: OWNED_FIELDS, rows: 'rows' }, { pals, passives }).pals, []);
+  assert.deepEqual(ownedFromShared({ world: { players: 'p', bases: 3 }, rows: [] }, { pals, passives }).players, []);
+});
+
+test('所持パル（読み戻しの検証）: 手元のセーブの値も範囲に収め、個体 ID のない・重複した個体と壊れた要素を捨てる', () => {
+  const list = normalizeOwned({
+    ...snapshot,
+    players: [null, 'p', { uid: P1, name: 'Alice' }, { name: 'uid なし' }],
+    bases: [null, { id: BASE, number: 2, guildId: '', containerId: '', position: null }],
+    guilds: 'guilds',
+    breedFarms: [null, { id: 'F1', baseId: BASE, status: 'ok', parents: [{ instanceId: 'a' }, null] }],
+    pals: [
+      pal('a', 'SheepBall', { kind: 'party' }, { talent: { hp: 150, shot: 'Infinity', defense: -5 }, level: 0, rank: 9, passives: ['Rare', 'Rare', 5, '', ...Array.from({ length: 20 }, (_, i) => `P${i}`)] }),
+      pal('a', 'PinkCat', { kind: 'party' }),
+      pal('', 'PinkCat', { kind: 'party' }),
+      { ...pal('b', 'PinkCat', {}), instanceId: undefined },
+      null,
+      'pal',
+      pal('c', 'PinkCat', { kind: 'toString' }, { talent: null, level: '12.7', gender: 'constructor', nickname: 7, skills: 'x' }),
+      { ...pal('d', 'PinkCat', {}), location: 'palbox', passives: 'Rare' },
+    ],
+  }, { pals, passives });
+  assert.deepEqual(list.pals.map((p) => p.id), ['a', 'c', 'd']);
+  const [a, c, d] = list.pals;
+  assert.deepEqual([a.palId, a.talent, a.level, a.rank, a.stars], ['SheepBall', { hp: 100, shot: 0, defense: 0 }, 1, 5, 4]);
+  assert.deepEqual(a.passives, ['Rare', ...Array.from({ length: 15 }, (_, i) => `P${i}`)]);
+  assert.deepEqual([c.talent, c.level, c.gender, c.nickname, c.skills, c.place], [{ hp: 0, shot: 0, defense: 0 }, 12, '', '', [], 'unknown']);
+  assert.deepEqual([d.place, d.passives], ['unknown', []]);
+  assert.deepEqual(list.players.map((p) => p.uid), [P1]);
+  assert.deepEqual(list.farms, [{ id: 'F1', baseId: BASE, parents: ['a'] }]);
+  // 正しいデータの個体値は今と同じ（欠けている値は 0）
+  assert.deepEqual(byId.a.talent, { hp: 1, shot: 2, defense: 3 });
+  assert.deepEqual(normalizeOwned({ ...snapshot, pals: [pal('z', 'PinkCat', {}, { talent: {} })] }, { pals, passives }).pals[0].talent, { hp: 0, shot: 0, defense: 0 });
+  // 一覧に出すプレイヤーは 100 人まで（所持者の名前は、すべてのプレイヤーから引く）
+  const crowd = Array.from({ length: 150 }, (_, i) => ({ uid: `uid-${i}`, name: `プレイヤー${i}`, level: 1 }));
+  const big = normalizeOwned({ ...snapshot, players: crowd, pals: [pal('z', 'PinkCat', { kind: 'party', playerUid: 'uid-149' })] }, { pals, passives });
+  assert.deepEqual([big.players.length, big.pals[0].holder], [100, 'プレイヤー149']);
+  // 文字数の上限: ニックネーム 50・場所 200・所持者 60
+  const long = normalizeOwned({ ...snapshot, players: [{ uid: P1, name: 'あ'.repeat(80) }], pals: [pal('z', 'PinkCat', { kind: 'party' }, { nickname: 'n'.repeat(80) })] }, { pals, passives }).pals[0];
+  assert.deepEqual([long.nickname.length, long.holder.length], [50, 50]);
+});

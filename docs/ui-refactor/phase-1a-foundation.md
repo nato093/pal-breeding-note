@@ -70,7 +70,7 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 | 画面内の遷移の共通口 | views/shared.js | render-contract | `changeRoute(context, hash)` |
 | 選択欄の値合わせ・作り直す欄のフォーカス | views/shared.js | render-contract（実装で足した） | `syncPicker(picker, value)`（値が違うときだけ setValue）・`keepFocus(container, render, target)`（keep-state で ui/focus.js に置き換える） |
 | ビューの契約 | 各 views | render-contract | `{ element, destroy, applyRoute?(route, { reason }), update?(state) }` |
-| 読み戻しの検証 | core/boundary.js（新規） | data-boundary | `int`・`intOrNull`・`text`・`oneOf`・`isoTime`・`list`・`worldId`・`cleanRecords`・`cleanOwnedWorlds`・`cleanOwnedPayload`・`cleanSaved` |
+| 読み戻しの検証 | core/boundary.js（新規） | data-boundary | `int`・`intOrNull`・`text`・`oneOf`・`isoTime`・`list`・`worldId`・`cleanRecords`・`cleanOwnedWorlds`・`cleanOwnedPayload`・`cleanSaved`。実装で `isObject`・`idText`・`screenHref`・`cleanUsers`・`cleanSnapshot`・`cleanSharedPlayers`・`cleanSharedBases`・`PLAYERS_MAX`・`BASES_MAX` を足した（data-boundary の「実装の記録」） |
 | 高さと重なり順 | app.css の :root | header-frame | `--header-h`・`--z-sticky`・`--z-panel`・`--z-rail`・`--z-header`・`--z-drawer`・`--z-snackbar`・`--z-toast`・`--z-popover`・`--z-skip` |
 | セーブ連携の状態 | ui/save-status.js（新規） | header-frame | `saveStatusModel(ownedState, opts)`・`saveStatus(deps) → { element, update, destroy }` |
 | 自動登録の設定の購読 | auto-register.js | header-frame | `autoRegister.subscribe(fn) → unsubscribe` |
@@ -600,6 +600,21 @@ GAS と画面で同じにしてある上限（そろえる相手）: core/owned-
 - [ ] test/perf に 20,000 行の計測を足す
 - [ ] release-notes に 1 件足す
 - [ ] モックで壊れたデータから起動して確かめる
+
+### 実装の記録（2026-10-12、セッション `300704ce`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマはこちらを正とする）。
+
+1. **足した部品**（core/boundary.js。表の名前のほか）: `isObject`・`idText(value, max = 64)`（ID のようにそのまま比べる文字列。1〜max 字ならそのまま、違えば ''。切り詰めると別の ID になるので切らない）・`screenHref(value, max = 300)`（`#/` で始まり max 字までならそのまま。notifications.js の `cleanNotification` と自動登録の通知が使う）・`cleanUsers`・`cleanSnapshot(snapshot)`（records・warnings・users をまとめて整える。api.js の応答と store.js のキャッシュの読み出しが同じものを使う）・`cleanSharedPlayers`・`cleanSharedBases`・`PLAYERS_MAX`（100）・`BASES_MAX`（200）。`cleanLocalData`・`cleanSharedCache` は owned.js の中（export しない）。
+2. **text の前後の空白と速さ**: `text` は core/validate.js の `sanitizeText` と同じく前後の空白も除く。整える必要のない文字列（制御文字も前後の空白もなく上限に収まる）はそのまま返す速い道を入れた（20,000 行 × 27 列の整え直しが 44 → 24ms）。cleanOwnedPayload は直すセルのない行は元の配列をそのまま使い、ownedFromShared は列の位置を 1 回だけ引いて行ごとには位置で読む（`npm run test:perf` 全体で予算 200ms を超えたため。計測の記録）。共有の値は GAS（`ownedText`）がすでに前後の空白を除いているので変わらない。手元のセーブのニックネーム・プレイヤー名に前後の空白があれば、手元の表示でも除くようになった（共有したときの表示と同じになる）。
+3. **intOrNull の壊れた値**: 欠けている値（undefined・null・''）だけでなく、数にならない値も既定は null（不明）にした（設計の表の最後の行「欠け・不正のとき『不明』」に合わせた）。`fallback` を渡せば変えられる。
+4. **list の max**: 残した要素の数で数える（捨てた要素は数えない）。map が undefined を返した要素も捨てる。
+5. **cleanRecords は届いた項目だけを直す**: 欠けている項目は足さず、知らない項目（開発用 API の `deleted` など）はそのまま残す。項目のない記録を既定の値で埋めると、正しいデータの結果が変わる（store.test.js が項目の少ない記録で `deepEqual` している）ため。id は `idText`（1〜64 字の文字列、切り詰めない）。
+6. **cleanOwnedPayload**: 設計の「columns は文字列の配列だけ残す」は、要素を抜くと行のセルと列の位置がずれるので、**文字列でない列名は ''（どの項目にも使わない）にして位置を保つ**形にした。行は列の幅にそろえ（足りないセルは ''・余るセルは捨てる）、個体 ID が空の行も捨てる（ownedFromShared は今も捨てている）。同じ列名が 2 つあれば ownedFromShared と同じく後の列を使う。world が不正なら null（データなし）。ownedUpload の応答の world が不正なら `RESPONSE`（owned.js が `response.world.worldId` を使うため）。
+7. **ワールドの行の項目は決め打ち**: `cleanWorld`（cleanOwnedWorlds・cleanOwnedPayload の world）は GAS の `readOwnedWorlds_` と同じ項目・同じ順（worldId・worldName・hostName・saveUpdatedAt・uploadedAt・uploadedBy・palCount・players・bases・farms）だけを写す。owned.js の fetchShared が JSON の文字列で変化を比べるので、一覧と 1 ワールドの応答で同じ形にするため。**後のテーマでワールドの行・プレイヤー・拠点に項目を足すときは、cleanWorld・cleanSharedPlayers・cleanSharedBases にも足す**（足さないと画面で落ちる。phase-3-4-drawer-data.md の 0-4 に書き足した）。farms は `cleanOwnedFarms`（owned-shared.js）を通すので、farm-data がそちらを広げればそのまま通る。
+8. **手元のセーブの検証の置き場所**: owned.js の `cleanLocalData` は外形（版・world・32 桁のワールド ID・snapshot.pals が配列で 100,000 件以下・importedAt・source）だけを見て、個体・プレイヤー・拠点・ギルド・牧場の要素ごとの検証は core/owned.js の `normalizeOwned` で行う（null の要素・ID のない個体・重複・形の違う location や passives を捨てる）。プレイヤー 100 人・拠点 200 か所の上限は**一覧に出す分**（normalizeOwned の戻り値）にかけ、所持者の名前はすべてのプレイヤーから引く。
+9. **ほかに直した所**: 場所（`PLACE_LABELS`）と性別（`GENDERS`）の引き当てを `Object.hasOwn` にした（'toString' などの値で関数が入らないように）。characterId も 200 字の文字列にそろえる（数値などが来るとキーワード検索で落ちるため）。既読の ID は読み出しだけでなく**保存するときも新しい方の 2,000 件まで**にした（読み出しの上限と同じ。書き込みが際限なく増えないように）。自動登録の対応表は、形の合う対応（uid 1〜40 字・ノートの ID 1〜20 字）だけを 100 件まで残す。
+10. **テスト**: 新しいテストは、変える前のコード（web/ だけを `git stash`）で落ち、変えた後で通ることを確かめた。計測は新しいファイル test/perf/owned.perf.js（`npm run test:perf` に入る）。
 
 ---
 
@@ -1529,4 +1544,6 @@ export function withTransition(fn) {
 | 2026-10-12 | ideal-calc（画面） | モックに画像の 4 体（ゴウカブキ。拠点 4 の牧場に ♂A×♀B）を注入して理想個体タブを開く | 1 番 ♂A×♀D「世代を重ねて 平均 約 3,592 個」、2 番 ♂C×♀B（約 4,948 個）。牧場は「交換推奨 → おすすめ 1 番」「外す: ゴウカブキ♀（HP 97・攻 99・防 96） / 入れる: ゴウカブキ♀（HP 100・攻 14・防 96）」 | 完了の条件の画面の確認 | 注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`（inject.js を元に 4 体だけにしたもの。注入 → 読み込み直し → 新規登録し直し）、確かめは同じ場所の `check-kabuki.js`（playwright-cli の run-code） |
 | 2026-10-12 | フェーズ 0（0-8） | モックで基準の再現（`?mock=1&seed=80`・1280×900） | 配合検索で親 1 を選ぶ: `.card-stack` の top 223 → 250（+27px、件数の行のぶん）。一覧で scrollY=800: `.app-header` top −773（position: static）・`.header-actions` top −765（absolute）・`.navigation` は fixed | README 7-2 の基準と同じ値 | モックの配合は `Math.random` なので、配合のある親（一覧の先頭の配合の親）を選んで測る |
 | 2026-10-12 | render-contract（画面） | モック（`?mock=1&seed=80`、ヘッドレスの Chromium）で、配合検索・継承ルート（inject.js の所持パルあり）・理想個体を操作。選ぶ前の `.picker-trigger`・`#main` の子・`.route-query`・「登録する名前」の要素を覚えて比べる | 配合検索: 親 1 → 親 2 を選んでも `.picker-trigger` と `#main` の子が同じ。1 選択ごとに `history.length` が 1 増え、戻る・進むで同じ画面のまま前の選択と件数に戻る。親 1 の × を Enter で押すとフォーカスは親 1 のトリガーに残る。継承ルート: パッシブを足す → 追加欄、開始チップ（`start:SheepBall`）と「すべて」を Enter → 押したチップ、チップの × → 追加欄（どれも body にならない）。理想個体: 名前を入れてパッシブを足すと名前が残り、同じ画面の一覧の「呼び出す」で攻撃の目標の欄が登録の 90 に戻り URL から g が外れ、目標を変えると名前が消える。コンソールのエラー 0 件 | 完了の条件の画面の確認 | 確かめのスクリプトはセッションの一時フォルダに置いた（find/login.js・owned/inject.js の写しと、run-code で動かす確かめ用の js）。実機の戻る・進むの手応え（スワイプ・マウスのボタン）は確かめていない |
+| 2026-10-12 | data-boundary | `npm run test:perf` の test/perf/owned.perf.js（共有の所持パル 20,000 行 × 27 列の初回の 1 回。変える前の ownedFromShared と交互に測った） | 最終のコード: 整え直し（cleanOwnedPayload）21.7〜24.7 ms ＋ 画面用の変換（ownedFromShared）122〜132 ms ＝ 合計 146〜157 ms（単独で 3 回）。同じ時間の変える前の ownedFromShared は 100〜129 ms。`npm run test:perf` 全体（ほかの性能テストと並んで動く）では合計 149〜171 ms（4 回とも通る）。温まった後の 5 回の最小は、変える前 43〜44 ms・後 51 ms、整え直し 11〜14 ms | 合計 200ms 以内 | この時間帯は PC の負荷が高く、変える前の ownedFromShared が普段（72〜73 ms）の 1.4〜1.8 倍だった。途中の形（行ごとに列名で探す・行の配列を作り直す・Set でパッシブの重複を見る）では、`npm run test:perf` 全体で 203.5・205.5 ms と予算を超えたので、列の位置を 1 回だけ引く・直すセルのない行は元の配列を使う・整える必要のない文字列はそのまま返す、に直した。共有を読み直すとき・IndexedDB の共有のキャッシュを読むときに 1 回ずつ |
+| 2026-10-12 | data-boundary（画面） | モック（`?mock=1&seed=80`、ヘッドレスの Chromium）で、inject.js の所持パル 138 体の 1 体（アヌビス。ニックネーム「しらべ」）の個体値を HP 150・攻 'Infinity'・防 −5 にし、null・個体 ID なし・同じ ID・文字列の要素を pals に混ぜて読み込み直す。配合のキャッシュ（`pal-note.local.cache.test`）の records に null・id なし・文字列・同じ id の後の要素を混ぜ、`#/search?p1=<先頭の記録の親1>` で読み込み直す | 所持パル: 行は「HP 100 / 攻 0 / 防 0」、混ぜた要素は出ず、所持パルの数は 138 体のまま。ページのエラー 0 件。配合検索: 読み込み直した直後にキャッシュの索引で「3 件の登録済み配合」（同じ id の重複を数えない）、エラー 0 件。最終のコード（計測で直した後）で測り直しても同じ（件数は選んだ親で変わる）。変える前のコード（web/ を `git stash`）では、所持パルは「表示できる所持パルがありません。」（0 行）、配合検索はキャッシュから 1 件も出なかった | 完了の条件の画面の確認 | モックは読み込み直すとユーザーを作り直すので、キャッシュで描いた後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（モックの動き）。新規登録し直すと配合検索は今どおり動く。確かめのスクリプト（find/login.js・owned/inject.js の写しと、壊す・確かめる js）はセッションの一時フォルダに置いた |
 

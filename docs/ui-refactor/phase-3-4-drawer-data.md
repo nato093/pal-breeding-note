@@ -59,6 +59,7 @@
 3. したがって、**新しい値は既存の `farms` の各牧場・`players` の各プレイヤーの中に足す**（古い GAS では落ちるだけで、今の表示に戻る）。新しい列（個体の列・ワールドの列）が要るときは、`OWNED_ADDED_FIELDS`（`owned-shared.js:13`）の仕組みで末尾に足し、`setup()` をやり直すまで GAS は書かずに読む（今の `skillIds` と同じ）。
 4. ワールドの行の `farms` の列はすでにある（`gas/Sheets.js:35` の `OWNED_WORLD_OPTIONAL_HEADERS_ = ['farms']`）。**farms の中身を広げるだけなら `setup()` は要らず、`npm run gas:push` だけでよい**（統合プランの farm-data の「setup() のやり直しが要る」は、farms の列がないシートのときだけ）。
 5. スプレッドシートの 1 セルは 50,000 字まで。`OWNED_MAX_FARMS = 200` は「1 件 180 字」の見積もり（`owned-shared.js:17-19`）で、タマゴを足すと保証が崩れる。上限の扱いは farm-data で決める。
+6. **画面の読み戻しの検証も、知っている項目だけを写す**（data-boundary の実装、2026-10-12 追記）。共有のワールドの行は core/boundary.js の `cleanWorld`（GAS の `readOwnedWorlds_` と同じ項目）、プレイヤーは `cleanSharedPlayers`（uid・name）、拠点は `cleanSharedBases`（id・label）が写す。**ワールドの行・プレイヤー・拠点に項目を足すときは、ここにも足す**（足さないと、GAS が返しても画面で落ちる）。牧場は `cleanOwnedFarms` を通すので、farm-data がそちらを広げればそのまま通る。個体の列は `cleanOwnedPayload` が列名ごとに 200 字（`skillIds` は 1000 字）で残すので、長い列を足すときは core/boundary.js の `CELL_LONG` にも足す。手元のセーブ（IndexedDB）の要素ごとの検証は core/owned.js の `normalizeOwned` で行う（owned.js の `cleanLocalData` は外形だけ）。
 
 ## 1. フェーズの目的とテーマの順番
 

@@ -5,6 +5,8 @@
 import pals from '../data/pals.js';
 import passives from '../data/passives.js';
 import { normalizeOwned, ownedFromShared, sharedUpload } from './core/owned.js';
+import { OWNED_MAX_ROWS } from './core/owned-shared.js';
+import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
 
 const DATA_VERSION = 1;
@@ -105,12 +107,27 @@ export function runImportInWorker(files, onProgress = () => {}) {
   });
 }
 
-function validData(value) {
-  return value && typeof value === 'object' && value.version === DATA_VERSION && value.snapshot && Array.isArray(value.snapshot.pals) ? value : null;
+// 手元のセーブのデータが、共有できる行数の 5 倍を超えていたら壊れているとみなす（黙って一部を捨てない）
+const LOCAL_PALS_MAX = OWNED_MAX_ROWS * 5;
+
+/**
+ * IndexedDB から読んだ手元のセーブのデータ。形が違えば null（データなし。登録したファイルから読み直せる）。
+ * 個体ごとの値は、画面用の変換（core/owned.js の normalizeOwned）で確かめる
+ */
+function cleanLocalData(value) {
+  if (!isObject(value) || value.version !== DATA_VERSION || !isObject(value.world) || !isObject(value.snapshot)
+    || !Array.isArray(value.snapshot.pals) || value.snapshot.pals.length > LOCAL_PALS_MAX) return null;
+  const id = worldId(value.world.id);
+  if (!id) return null;
+  // 古い版で保存したデータは、Level.sav から読んだものなのでホスト扱い
+  return { ...value, importedAt: isoTime(value.importedAt), source: text(value.source, 20), world: { ...value.world, id, role: value.world.role || 'host' } };
 }
 
-function validShared(value) {
-  return value && typeof value === 'object' && Array.isArray(value.worlds) ? value : null;
+/** IndexedDB に保存した共有のキャッシュ。worlds が配列でなければ null。今のワールドの所持パル（current）は形が違えば null */
+function cleanSharedCache(value) {
+  if (!isObject(value) || !Array.isArray(value.worlds)) return null;
+  const current = cleanOwnedPayload(value.current);
+  return { worlds: cleanOwnedWorlds(value.worlds), current: current?.world ? current : null, fetchedAt: isoTime(value.fetchedAt) };
 }
 
 const timeOf = (value) => {
@@ -166,7 +183,7 @@ export function createOwnedStore({
     // この PC での、連携しているワールドの役割（'host' | 'guest' | ''）と ID
     role: '', linkedWorldId: '',
     // 表示するワールド（空なら自動）
-    viewWorldId: typeof saved.viewWorldId === 'string' ? saved.viewWorldId : '',
+    viewWorldId: worldId(saved.viewWorldId),
     local: null,
     shared: { worlds: [], current: null, fetchedAt: '', error: '' },
     upload: { status: '', at: '', error: '', worldId: '' },
@@ -238,7 +255,7 @@ export function createOwnedStore({
     const key = scope();
     if (loadedScope === key) return;
     loadedScope = key;
-    const cached = key ? validShared(await persist.get(sharedKey(key))) : null;
+    const cached = key ? cleanSharedCache(await persist.get(sharedKey(key))) : null;
     state.shared = { worlds: cached?.worlds ?? [], current: cached?.current ?? null, fetchedAt: cached?.fetchedAt ?? '', error: '' };
   }
 
@@ -251,9 +268,7 @@ export function createOwnedStore({
         state.auto.enabled = true;
         saveSettings();
       }
-      const local = validData(await persist.get(dataKey));
-      // 古い版で保存したデータは、Level.sav から読んだものなのでホスト扱い
-      if (local) local.world = { ...local.world, id: String(local.world.id ?? '').toUpperCase(), role: local.world.role || 'host' };
+      const local = cleanLocalData(await persist.get(dataKey));
       state.local = local;
       if (local && !state.linkedWorldId && linked()) state.linkedWorldId = local.world.id;
       if (local && state.linkedWorldId === local.world.id && !state.role) state.role = 'host';

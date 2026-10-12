@@ -2,6 +2,7 @@
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
 import { OWNED_FIELDS, cleanOwnedFarms } from './owned-shared.js';
+import { isObject, int, text, idText, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
@@ -103,13 +104,34 @@ const activeSkillDescs = byLowerId(ACTIVE_SKILL_DESCS);
 
 // 覚えているアクティブスキル（ID と名前・説明）。名前の表にないものは ID のまま出す
 function skillInfo(ids) {
-  const skills = ids.filter((id) => typeof id === 'string' && id);
+  const skills = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id) : [];
   return {
     skills,
     skillNames: skills.map((id) => activeSkillNames.get(id.toLowerCase()) ?? id),
     skillDescs: skills.map((id) => activeSkillDescs.get(id.toLowerCase()) ?? ''),
   };
 }
+
+// 読み戻した値の範囲（core/boundary.js）。欠けている・壊れているときは今までと同じ既定の値にする
+const TALENT = { min: 0, max: 100, fallback: 0 };
+const LEVEL = { min: 1, max: 999, fallback: 1 };
+const RANK = { min: 1, max: 5, fallback: 1 };
+const STARS_RANGE = { min: 0, max: 4, fallback: 0 };
+// パッシブは 5 個以上も切り詰めない（理想個体の計算が別に扱う）。重複を除き 16 個まで。
+// 共有の 20,000 行で行ごとに Set や関数を作らないよう、ループで書く（数が少ないので重複は includes で見る）
+const PASSIVES_MAX = 16;
+function cleanPassives(ids) {
+  if (!Array.isArray(ids)) return [];
+  const result = [];
+  for (const value of ids) {
+    const id = text(value, 64);
+    if (!id || result.includes(id)) continue;
+    result.push(id);
+    if (result.length >= PASSIVES_MAX) break;
+  }
+  return result;
+}
+const talentOf = (hp, shot, defense) => ({ hp: int(hp, TALENT), shot: int(shot, TALENT), defense: int(defense, TALENT) });
 
 /**
  * スナップショットを画面用の一覧にする。
@@ -122,10 +144,13 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   const resolveHuman = createHumanResolver(humans);
   const palsById = new Map(pals.map((pal) => [pal.id, pal]));
   const passiveById = new Map(passives.map((passive) => [passive.id, passive]));
-  const players = new Map((snapshot?.players ?? []).map((player) => [player.uid, player]));
-  const bases = new Map((snapshot?.bases ?? []).map((base) => [base.id, base]));
+  // 読み戻したセーブの解析結果は、要素ごとに形を確かめる（壊れた要素だけを捨てる）。uid・拠点の ID は個体の所持者・場所と比べるので切り詰めない
+  const objects = (value) => list(value, { map: (item) => (isObject(item) ? item : null) });
+  const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
+    .map((player) => [player.uid, { ...player, name: text(player.name, 50) }]));
+  const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
   // ギルドが複数あるワールドでは、拠点の番号がギルドごとに重なるのでギルド名を添える
-  const guildNames = new Map((snapshot?.guilds ?? []).map((guild) => [guild.id, guild.name]));
+  const guildNames = new Map(objects(snapshot?.guilds).map((guild) => [guild.id, guild.name]));
   const multiGuild = new Set([...bases.values()].map((base) => base.guildId)).size > 1;
   const baseLabel = (id) => {
     const base = bases.get(id);
@@ -135,13 +160,19 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     return `${label}（${guild && !/^[0-9a-f]{32}$/i.test(guild) ? guild : `ギルド ${shortUid(base.guildId)}`}）`;
   };
   // グローバルパルボックスは、セーブを読み込んだ PC のアカウント（協力プレイのホスト）のもの
-  const globalHolder = players.get(HOST_UID)?.name || snapshot?.world?.hostName || 'ホスト';
-  const list = [];
-  for (const source of snapshot?.pals ?? []) {
-    const { palId, alpha } = resolve(source.characterId);
-    const human = palId ? null : resolveHuman(source.characterId);
-    const location = source.location ?? {};
-    const kind = PLACE_LABELS[location.kind] ? location.kind : 'unknown';
+  const globalHolder = players.get(HOST_UID)?.name || text(snapshot?.world?.hostName, 50) || 'ホスト';
+  const entries = [];
+  const seen = new Set();
+  for (const source of objects(snapshot?.pals)) {
+    // 個体 ID（1〜64 字）がない個体・同じ ID の後の個体は捨てる（先勝ち。共有も同じ）
+    const id = idText(source.instanceId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const characterId = text(source.characterId, 200);
+    const { palId, alpha } = resolve(characterId);
+    const human = palId ? null : resolveHuman(characterId);
+    const location = isObject(source.location) ? source.location : {};
+    const kind = Object.hasOwn(PLACE_LABELS, location.kind) ? location.kind : 'unknown';
     const egg = kind.startsWith('egg-');
     // 所持者: 手持ち・パルボックス・次元ストレージは入れ物の持ち主、タマゴは置いた人／持っている人
     // 拠点に置かれたタマゴ（地面・孵化器・保管箱）は拠点の持ち物として扱う
@@ -158,13 +189,14 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     if (boxAt) placeDetail = `${PLACE_LABELS.palbox} ${boxAt.page} ページ・${boxAt.row} 行 ${boxAt.column} 列`;
     else if (kind === 'base') placeDetail = baseLabel(location.baseId);
     else if (egg && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
-    const passiveIds = (source.passives ?? []).filter((id) => typeof id === 'string' && id);
+    const passiveIds = cleanPassives(source.passives);
     const pal = palsById.get(palId);
-    list.push({
-      id: source.instanceId,
+    const rank = int(source.rank, RANK);
+    entries.push({
+      id,
       palId,
-      characterId: source.characterId,
-      name: pal?.ja ?? (human?.ja || source.characterId),
+      characterId,
+      name: text(pal?.ja ?? (human?.ja || characterId), 50),
       ...speciesInfo(pal),
       human,
       no: pal?.no ?? Infinity,
@@ -172,27 +204,23 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       known: Boolean(pal),
       alpha,
       egg,
-      nickname: source.nickname ?? '',
-      gender: GENDERS[source.gender] ?? '',
-      level: egg ? 0 : Number(source.level) || 1,
-      rank: Number(source.rank) || 1,
-      stars: Math.max(0, Math.min(4, (Number(source.rank) || 1) - 1)),
+      nickname: text(source.nickname, 50),
+      gender: Object.hasOwn(GENDERS, source.gender) ? GENDERS[source.gender] : '',
+      level: egg ? 0 : int(source.level, LEVEL),
+      rank,
+      stars: rank - 1,
       passives: passiveIds,
-      passiveNames: passiveIds.map((id) => passiveById.get(id)?.ja ?? id),
-      passiveDescs: passiveIds.map((id) => passiveById.get(id)?.desc ?? ''),
+      passiveNames: passiveIds.map((passiveId) => passiveById.get(passiveId)?.ja ?? passiveId),
+      passiveDescs: passiveIds.map((passiveId) => passiveById.get(passiveId)?.desc ?? ''),
       // スキルを読むようになる前に読み込んだセーブには skills がない
-      ...skillInfo(source.skills ?? []),
-      talent: {
-        hp: Number(source.talent?.hp) || 0,
-        shot: Number(source.talent?.shot) || 0,
-        defense: Number(source.talent?.defense) || 0,
-      },
+      ...skillInfo(source.skills),
+      talent: isObject(source.talent) ? talentOf(source.talent.hp, source.talent.shot, source.talent.defense) : talentOf(),
       lucky: source.isRare === true,
       place: kind,
       placeGroup: placeGroup(kind),
-      placeLabel: placeDetail,
+      placeLabel: text(placeDetail, 200),
       holderUid,
-      holder,
+      holder: text(holder, 60),
       lastOwnerUid: source.lastOwnerUid ?? '',
       lastOwner: playerName(players, source.lastOwnerUid),
       baseId: location.baseId ?? '',
@@ -200,12 +228,14 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   }
   return {
     world: snapshot?.world ?? {},
-    players: [...players.values()],
-    bases: [...bases.values()].sort((a, b) => (a.number || Infinity) - (b.number || Infinity)).map((base) => ({ ...base, label: baseLabel(base.id) })),
-    pals: list,
+    // 一覧に出すプレイヤーと拠点は、共有と同じ件数まで（所持者の名前は、上ですべてのプレイヤーから引いている）
+    players: [...players.values()].slice(0, PLAYERS_MAX),
+    bases: [...bases.values()].sort((a, b) => (a.number || Infinity) - (b.number || Infinity)).slice(0, BASES_MAX)
+      .map((base) => ({ ...base, label: baseLabel(base.id) })),
+    pals: entries,
     // 配合牧場（親が読めた牧場だけ）。理想個体の配合の計画で、置いてある組と比べる。牧場を読む前の解析結果では null（情報がない）
-    farms: Array.isArray(snapshot?.breedFarms) ? snapshot.breedFarms.filter((farm) => farm.status !== 'uncertain')
-      .map((farm) => ({ id: farm.id, baseId: farm.baseId ?? '', parents: farm.parents.map((parent) => parent.instanceId) })) : null,
+    farms: Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).filter((farm) => farm.status !== 'uncertain')
+      .map((farm) => ({ id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }) })) : null,
     stats: snapshot?.stats ?? {},
   };
 }
@@ -483,42 +513,60 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   const resolveHuman = createHumanResolver(humans);
   const palsById = new Map(pals.map((pal) => [pal.id, pal]));
   const passiveById = new Map(passives.map((passive) => [passive.id, passive]));
-  const world = shared?.world ?? {};
+  const world = isObject(shared?.world) ? shared.world : {};
   const columns = Array.isArray(shared?.columns) ? shared.columns : OWNED_FIELDS;
   const index = new Map(columns.map((field, i) => [field, i]));
-  const list = [];
-  for (const cells of shared?.rows ?? []) {
-    const get = (field) => String(cells[index.get(field)] ?? '');
-    const id = get('instanceId');
-    if (!id) continue;
-    const palId = palsById.has(get('palId')) ? get('palId') : '';
+  // 列の位置は 1 回だけ引き、行ごとには位置で読む（20,000 行で列名を何度も探さない）
+  const at = (field) => index.get(field) ?? -1;
+  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS] = [
+    'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars', 'passiveIds', 'talentHp', 'talentShot', 'talentDefense',
+    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds',
+  ].map(at);
+  const PASSIVE_NAMES = [at('passive1'), at('passive2'), at('passive3'), at('passive4')];
+  const entries = [];
+  const seen = new Set();
+  // 読み戻した共有の行は、要素ごとに形を確かめる（配列でない行・個体 ID（1〜64 字）がない行・同じ ID の後の行は捨てる）
+  for (const cells of Array.isArray(shared?.rows) ? shared.rows : []) {
+    if (!Array.isArray(cells)) continue;
+    const get = (i) => (i < 0 ? '' : String(cells[i] ?? ''));
+    const id = idText(get(ID));
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const sharedPalId = get(PAL_ID);
+    const palId = palsById.has(sharedPalId) ? sharedPalId : '';
     const pal = palsById.get(palId);
-    const passiveIds = get('passiveIds').split('|').filter(Boolean);
-    const kind = PLACE_LABELS[get('place')] ? get('place') : 'unknown';
-    const egg = get('egg') === '1' || kind.startsWith('egg-');
-    list.push({
-      id, palId, characterId: get('characterId'), human: pal ? null : resolveHuman(get('characterId')),
-      name: pal?.ja ?? (resolveHuman(get('characterId'))?.ja || get('palName') || get('characterId')),
+    const passiveText = get(PASSIVE_IDS);
+    const passiveIds = passiveText ? cleanPassives(passiveText.split('|')) : [];
+    const place = get(PLACE);
+    const kind = Object.hasOwn(PLACE_LABELS, place) ? place : 'unknown';
+    const egg = get(EGG) === '1' || kind.startsWith('egg-');
+    const characterId = text(get(CHARACTER), 200);
+    const human = pal ? null : resolveHuman(characterId);
+    const gender = get(GENDER);
+    const skillText = get(SKILL_IDS);
+    entries.push({
+      id, palId, characterId, human,
+      name: text(pal?.ja ?? (human?.ja || get(PAL_NAME) || characterId), 50),
       ...speciesInfo(pal),
-      no: pal?.no ?? Infinity, variant: Boolean(pal?.variant), known: Boolean(pal), alpha: get('alpha') === '1', egg,
-      nickname: get('nickname'), gender: ['M', 'F'].includes(get('gender')) ? get('gender') : '',
-      level: egg ? 0 : Number(get('level')) || 1, rank: Number(get('rank')) || 1,
-      stars: Math.max(0, Math.min(4, Number(get('stars')) || 0)),
+      no: pal?.no ?? Infinity, variant: Boolean(pal?.variant), known: Boolean(pal), alpha: get(ALPHA) === '1', egg,
+      nickname: text(get(NICKNAME), 50), gender: gender === 'M' || gender === 'F' ? gender : '',
+      level: egg ? 0 : int(get(LEVEL_AT), LEVEL), rank: int(get(RANK_AT), RANK),
+      stars: int(get(STARS), STARS_RANGE),
       passives: passiveIds,
-      passiveNames: passiveIds.map((passiveId, i) => passiveById.get(passiveId)?.ja ?? (get(`passive${i + 1}`) || passiveId)),
+      passiveNames: passiveIds.map((passiveId, i) => passiveById.get(passiveId)?.ja ?? (get(PASSIVE_NAMES[i] ?? -1) || passiveId)),
       passiveDescs: passiveIds.map((passiveId) => passiveById.get(passiveId)?.desc ?? ''),
       // skillIds は後から足した列。スキルを送らない古い画面から共有されたときは空
-      ...skillInfo(get('skillIds').split('|')),
-      talent: { hp: Number(get('talentHp')) || 0, shot: Number(get('talentShot')) || 0, defense: Number(get('talentDefense')) || 0 },
-      lucky: get('lucky') === '1', place: kind, placeGroup: placeGroup(kind), placeLabel: get('placeLabel') || PLACE_LABELS[kind],
-      holderUid: get('holderUid'), holder: get('holder') || '不明', lastOwnerUid: '', lastOwner: get('lastOwner'), baseId: get('baseId'),
+      ...skillInfo(skillText ? skillText.split('|') : []),
+      talent: talentOf(get(HP), get(SHOT), get(DEFENSE)),
+      lucky: get(LUCKY) === '1', place: kind, placeGroup: placeGroup(kind), placeLabel: text(get(PLACE_LABEL), 200) || PLACE_LABELS[kind],
+      holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
     });
   }
   return {
-    world: { name: world.worldName ?? '', hostName: world.hostName ?? '' },
-    players: (world.players ?? []).filter((player) => player?.uid).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
-    bases: (world.bases ?? []).filter((base) => base?.id).map((base) => ({ id: base.id, label: base.label || '拠点' })),
-    pals: list,
+    world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50) },
+    players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
+    bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
+    pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
     farms: Array.isArray(world.farms) ? cleanOwnedFarms(world.farms) : null,
     stats: {},

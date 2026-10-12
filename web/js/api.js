@@ -1,4 +1,5 @@
 import { API_URL } from './config.js';
+import { cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
 
 const messages = {
   AUTH: 'パスワードが違います。もう一度入力してください。',
@@ -78,7 +79,8 @@ export function validateResponse(response, action) {
   if (!['prod', 'test'].includes(response.env) || !response.api
     || !validSnapshot(action === 'snapshot' || account ? response : response.snapshot)
     || (account ? typeof response.userId !== 'string' : action !== 'snapshot' && !response.record)) throw new ApiError('RESPONSE');
-  return response;
+  // 形を確かめた後で、全件の要素を整える（壊れた要素だけを捨てる。core/boundary.js）
+  return action === 'snapshot' || account ? cleanSnapshot(response) : { ...response, snapshot: cleanSnapshot(response.snapshot) };
 }
 
 function validateOwnedResponse(response, action) {
@@ -90,6 +92,14 @@ function validateOwnedResponse(response, action) {
     ownedDelete: () => typeof response.deleted === 'boolean',
   })[action]();
   if (!ok) throw new ApiError('RESPONSE');
+  // 形を確かめた後で、中身を整える（壊れた要素だけを捨てる。core/boundary.js）
+  if (action === 'ownedWorlds') return { ...response, worlds: cleanOwnedWorlds(response.worlds) };
+  if (action === 'owned') return { ...response, ...cleanOwnedPayload(response) };
+  if (action === 'ownedUpload') {
+    const [world] = cleanOwnedWorlds([response.world]);
+    if (!world) throw new ApiError('RESPONSE');
+    return { ...response, world };
+  }
   return response;
 }
 

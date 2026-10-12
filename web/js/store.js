@@ -4,6 +4,7 @@ import { buildCarrierGraph } from './core/route.js';
 import { ApiError, validSnapshot } from './api.js';
 import { userIdKey } from './core/user.js';
 import { normalizeRecord } from './core/pair.js';
+import { cleanSnapshot } from './core/boundary.js';
 
 const mutationErrors = new Set(['DUPLICATE', 'PAIR_CONFLICT', 'ID_CONFLICT', 'VALIDATION', 'CONFLICT', 'NOT_FOUND']);
 const PENDING_ETAG = 'pending:';
@@ -164,7 +165,8 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   if (state.passcode && state.userId && ['prod', 'test'].includes(authenticatedEnv)) {
     const cached = readJson(storage, cacheKey(authenticatedEnv, namespace));
     if (validSnapshot(cached) && cached.serverTime) {
-      try { apply(cached, authenticatedEnv, ++sequence, true); } catch { /* 削除済みの ID ではキャッシュを利用しない。 */ }
+      // 壊れた要素（null・id のない記録など）だけを捨てて使う（サーバの応答と同じ。core/boundary.js）
+      try { apply(cleanSnapshot(cached), authenticatedEnv, ++sequence, true); } catch { /* 削除済みの ID ではキャッシュを利用しない。 */ }
     }
   }
 

@@ -469,3 +469,16 @@ test('状態: 確定データは送信待ちを含まず、応答で更新し、
   store.logout();
   assert.deepEqual(store.state.confirmedRecords, []);
 });
+
+test('キャッシュ: 壊れた要素（null・id のない記録・同じ id）が混ざっていても起動し、壊れた要素だけを捨てて索引を作る', () => {
+  const storage = memoryStorage(true);
+  const other = { id: '別', parent1Id: pals[3].id, parent2Id: pals[4].id, childId: pals[5].id };
+  storage.set(cacheKey('test'), JSON.stringify({ ...snapshot([null, record, { parent1Id: pals[0].id }, 'r', { ...record, memo: '後の重複' }, other]), warnings: [null, { code: 'DUPLICATE_ID' }] }));
+  storage.set('pal-note.authenticated', 'test');
+  const store = createStore({ storage, api: {} });
+  assert.equal(store.state.cached, true);
+  assert.deepEqual(store.state.records, [record, other]);
+  assert.equal(store.state.index.byChild.get(record.childId).length, 1);
+  assert.equal(store.state.index.byChild.get(other.childId).length, 1);
+  assert.deepEqual(store.state.warnings, [{ code: 'DUPLICATE_ID' }]);
+});

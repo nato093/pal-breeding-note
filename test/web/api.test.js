@@ -127,3 +127,54 @@ test('API: signup の自動再送は生成した UUID を再利用し、次の�
   await api.request('signup', '入力', { userId: '次のID' });
   assert.notEqual(requests[2].opId, requests[0].opId);
 });
+
+// 読み戻しの境界（core/boundary.js）: 形を確かめた後で、要素ごとに整える
+const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+const ownedWorld = (worldId = WORLD, extra = {}) => ({
+  worldId, worldName: 'World9', hostName: 'Alice', saveUpdatedAt: '2026-10-05T10:00:00.000Z', uploadedAt: '2026-10-05T10:01:00.000Z',
+  uploadedBy: 'ホスト', palCount: 1, players: [], bases: [], farms: null, ...extra,
+});
+const ownedBase = { ok: true, env: 'test', api: 1, serverTime: '2026-10-05T10:02:00.000Z' };
+const respond = (body) => createApi({ transport: async () => body });
+
+test('API: 共有のワールドの一覧は、worldId が不正な要素と重複を捨て、正しい応答はそのまま返す', async () => {
+  const good = { ...ownedBase, worlds: [ownedWorld()] };
+  assert.deepEqual(await respond(good).request('ownedWorlds', '入力'), good);
+  const other = 'FEDCBA9876543210FEDCBA9876543210';
+  const result = await respond({ ...ownedBase, worlds: [ownedWorld('W1'), ownedWorld(), ownedWorld(WORLD, { worldName: '後の重複' }), ownedWorld(other.toLowerCase())] }).request('ownedWorlds', '入力');
+  assert.deepEqual(result.worlds.map((world) => [world.worldId, world.worldName]), [[WORLD, 'World9'], [other, 'World9']]);
+});
+
+test('API: 共有の所持パルは、行数を OWNED_MAX_ROWS に限り、配列でない行・重複した個体を捨てる', async () => {
+  const { OWNED_FIELDS, OWNED_MAX_ROWS } = await import('../../web/js/core/owned-shared.js');
+  const row = (id) => [id, ...Array(OWNED_FIELDS.length - 1).fill('')];
+  const good = { ...ownedBase, world: ownedWorld(), columns: OWNED_FIELDS, rows: [row('p1'), row('p2')] };
+  assert.deepEqual(await respond(good).request('owned', '入力', { worldId: WORLD }), good);
+  const big = await respond({ ...good, rows: Array.from({ length: OWNED_MAX_ROWS + 1 }, (_, i) => row(`p${i}`)) }).request('owned', '入力', { worldId: WORLD });
+  assert.equal(big.rows.length, OWNED_MAX_ROWS);
+  const broken = await respond({ ...good, rows: [null, 'p', row('p1'), row('p1'), 5, row('p2')] }).request('owned', '入力', { worldId: WORLD });
+  assert.deepEqual(broken.rows.map((cells) => cells[0]), ['p1', 'p2']);
+  // 共有されていないワールド（world: null）はそのまま
+  assert.equal((await respond({ ...good, world: null, rows: [] }).request('owned', '入力', { worldId: WORLD })).world, null);
+  // 形が根本から違う応答は今までどおり受け付けない
+  await assert.rejects(respond({ ...good, rows: 'rows' }).request('owned', '入力', { worldId: WORLD }), { code: 'RESPONSE' });
+});
+
+test('API: 共有の結果のワールドが読めなければ、応答を受け付けない', async () => {
+  const good = { ...ownedBase, stored: true, world: ownedWorld() };
+  assert.deepEqual(await respond(good).request('ownedUpload', '入力', { worldId: WORLD }), good);
+  await assert.rejects(respond({ ...good, world: ownedWorld('W1') }).request('ownedUpload', '入力', { worldId: WORLD }), { code: 'RESPONSE' });
+});
+
+test('API: 全件の記録は、id のない要素・同じ id の後の要素を捨て、正しい応答はそのまま返す', async () => {
+  const record = { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', parent1Gender: '', parent2Gender: 'F',
+    registrant: '登録者', memo: '', confirmCount: 1, createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-05T00:00:00.000Z', etag: 'e1' };
+  const good = { ok: true, env: 'test', api: 1, records: [record], warnings: [], users: ['登録者'], serverTime: '2026-10-05T00:00:00.000Z' };
+  assert.deepEqual(await respond(good).request('snapshot', '入力'), good);
+  const broken = await respond({ ...good, records: [null, { parent1Id: 'A' }, record, { ...record, memo: '後の重複' }, 'r'], users: ['登録者', '', '登録者'] }).request('snapshot', '入力');
+  assert.deepEqual([broken.records, broken.users], [[record], ['登録者']]);
+  // 書き込みの応答に入っている全件も同じく整える
+  const created = await respond({ ok: true, env: 'test', api: 1, record, snapshot: { ...good, records: [record, null] } }).request('create', '入力', { opId: 'op', record });
+  assert.deepEqual(created.snapshot.records, [record]);
+  assert.deepEqual(created.record, record);
+});

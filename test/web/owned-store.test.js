@@ -478,3 +478,58 @@ test('所持パル: ワールドを指定して、CSV 用の所持パルを取�
   assert.equal(await store.deleteShared(WORLD_A), true);
   assert.ok(!store.state.shared.worlds.some((world) => world.worldId === WORLD_A));
 });
+
+test('所持パル（読み戻しの検証）: IndexedDB の手元のデータは、ワールド ID が不正・形が違えば「データなし」として扱う', async () => {
+  const saved = (world, extra = {}) => ({ version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world, snapshot: snapshot(2), ...extra });
+  for (const broken of [
+    saved({ id: 'W1', name: 'テスト' }), saved({ name: 'ID なし' }), saved('world'), saved({ id: WORLD_A }, { snapshot: { pals: 'pals' } }),
+    saved({ id: WORLD_A }, { version: 2 }), saved({ id: WORLD_A }, { snapshot: { pals: { length: 3 } } }), 'data', null,
+  ]) {
+    const { store, persist } = setup();
+    persist.map.set('pal-note.test.owned', broken);
+    await store.load();
+    assert.equal(store.state.local, null, JSON.stringify(broken));
+    assert.equal(store.state.owned, null);
+  }
+  // 正しいデータは今と同じく読み、ワールド ID は大文字にそろえる。日時が読めなければ空にする
+  const { store, persist } = setup();
+  persist.map.set('pal-note.test.owned', saved({ id: WORLD_A.toLowerCase(), name: 'テスト' }, { importedAt: 'いつか' }));
+  await store.load();
+  assert.deepEqual([store.state.local.world.id, store.state.local.world.role, store.state.local.importedAt, store.state.owned.pals.length], [WORLD_A, 'host', '', 2]);
+});
+
+test('所持パル（読み戻しの検証）: 共有のキャッシュは要素ごとに整え、今のワールドの行が配列でなければ使わない', async () => {
+  const { OWNED_FIELDS } = await import('../../web/js/core/owned-shared.js');
+  const world = { worldId: WORLD_A, worldName: 'A', hostName: 'Alice', saveUpdatedAt: '2026-10-05T01:00:00.000Z', uploadedAt: '2026-10-05T01:01:00.000Z', uploadedBy: 'ホスト', palCount: 1, players: [], bases: [], farms: null };
+  const row = (id) => [id, ...Array(OWNED_FIELDS.length - 1).fill('')];
+  const cache = (current) => ({ worlds: [null, { ...world, worldId: 'W1' }, world, world], current, fetchedAt: '2026-10-05T01:02:00.000Z' });
+  const open = async (value) => {
+    const shared = sharedServer();
+    const { store, persist } = setup({ server: shared.server });
+    persist.map.set('pal-note.test.owned.shared.test', value);
+    await store.load();
+    return store;
+  };
+  const good = await open(cache({ world, columns: OWNED_FIELDS, rows: [row('p1'), null, row('p1'), row('p2')] }));
+  assert.deepEqual(good.state.shared.worlds.map((item) => item.worldId), [WORLD_A]);
+  assert.deepEqual(good.state.shared.current.rows.map((cells) => cells[0]), ['p1', 'p2']);
+  assert.deepEqual([good.state.meta.worldId, good.state.owned.pals.length], [WORLD_A, 2]);
+  for (const current of [{ world, columns: OWNED_FIELDS, rows: 'rows' }, { world: { ...world, worldId: 'W1' }, columns: OWNED_FIELDS, rows: [] }, 'current', null]) {
+    const store = await open(cache(current));
+    assert.equal(store.state.shared.current, null, JSON.stringify(current));
+    assert.equal(store.state.owned, null);
+    assert.equal(store.state.shared.worlds.length, 1);
+  }
+  // worlds が配列でないキャッシュは今までどおり使わない
+  const none = await open({ worlds: 'worlds', current: null });
+  assert.deepEqual(none.state.shared.worlds, []);
+});
+
+test('所持パル（読み戻しの検証）: セーブ連携の設定の表示するワールドは、32 桁の ID でなければ自動にする', async () => {
+  for (const [viewWorldId, expected] of [[WORLD_B.toLowerCase(), WORLD_B], ['W1', ''], [7, ''], [null, '']]) {
+    const storage = memoryStorage();
+    storage.map.set('pal-note.test.owned.bridge', JSON.stringify({ enabled: false, worldId: '', viewWorldId }));
+    const { store } = setup({ storage });
+    assert.equal(store.state.viewWorldId, expected);
+  }
+});

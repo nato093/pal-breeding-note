@@ -107,7 +107,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 同じ画面なら作り直さない遷移の契約
 
-- 状態: 済 ／ ブランチ: `feature/render-contract` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/render-contract` ／ マージのコミット: `a1faa29`
 - 文書と違う形にしたこと: 開始チップとパッシブの欄はビューの中で作り直すため（手順 6 の「要素が残る」は誤り）、views/shared.js に `keepFocus` を足し、開始チップに `data-focus-key` を付けた（keep-state で ui/focus.js に置き換える）。ほかに `syncPicker`・各ビューの `readRoute`（生成時は applyRoute を呼ばない）・理想個体の g での入力欄の合わせ直し（`showConditions`）・同じ URL への update は何もしない、を足した（phase-1a の render-contract の「実装の記録」）
 
 - [x] router.js に `sameScreen` を足し、onChange に第 2 引数を渡す
@@ -127,19 +127,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 読み戻しの境界の共通の検証
 
-- 状態: 未着手 ／ ブランチ: `feature/data-boundary` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/data-boundary` ／ マージのコミット: （マージの後に書く）
+- 文書と違う形にしたこと: `isObject`・`idText`・`screenHref`・`cleanSnapshot` などを足し、cleanRecords は届いた項目だけを直す（欠けた項目は足さない）、cleanOwnedPayload は文字列でない列名を '' にして列の位置を保つ、ワールドの行・プレイヤー・拠点は知っている項目だけを写す（後のテーマで項目を足すときはそこにも足す）、既読は保存するときも 2,000 件まで（phase-1a の data-boundary の「実装の記録」）
 
-- [ ] core/boundary.js（int・intOrNull・text・oneOf・isoTime・list・worldId・cleanSaved）と単体テストを作る
-- [ ] core/owned.js の normalizeOwned・ownedFromShared の数値・ID の重複・パッシブ・文字数・件数を直す
-- [ ] owned.js の validData を cleanLocalData に、validShared を cleanSharedCache にする
-- [ ] core/boundary.js に cleanOwnedWorlds・cleanOwnedPayload を足し、api.js の共有の応答で通す
-- [ ] cleanRecords・cleanUsers を足し、api.js の応答と store.js のキャッシュの読み出しで通す
-- [ ] 既読・自動登録の通知・対応表・viewWorldId の読み出しを直す
-- [ ] cleanNotification に id・href の長さの上限を足す
-- [ ] owned・api・store・owned-store・notifications・auto-register のテストを足す
-- [ ] test/perf に 20,000 行の計測を足す
-- [ ] release-notes に 1 件足す
-- [ ] モックで壊れたデータから起動して確かめる
+- [x] core/boundary.js（int・intOrNull・text・oneOf・isoTime・list・worldId・cleanSaved）と単体テストを作る
+- [x] core/owned.js の normalizeOwned・ownedFromShared の数値・ID の重複・パッシブ・文字数・件数を直す
+- [x] owned.js の validData を cleanLocalData に、validShared を cleanSharedCache にする
+- [x] core/boundary.js に cleanOwnedWorlds・cleanOwnedPayload を足し、api.js の共有の応答で通す
+- [x] cleanRecords・cleanUsers を足し、api.js の応答と store.js のキャッシュの読み出しで通す
+- [x] 既読・自動登録の通知・対応表・viewWorldId の読み出しを直す
+- [x] cleanNotification に id・href の長さの上限を足す
+- [x] owned・api・store・owned-store・notifications・auto-register のテストを足す
+- [x] test/perf に 20,000 行の計測を足す（test/perf/owned.perf.js。負荷の高い時間帯で合計 146〜171 ms・予算 200ms）
+- [x] release-notes に 1 件足す
+- [x] モックで壊れたデータから起動して確かめる（所持パルの個体値 150 → 「HP 100」、配合のキャッシュに null を混ぜても配合検索が出る）
 
 ### 4. [header-frame](phase-1a-foundation.md#header-frame-固定ヘッダー状態id重なり順の変数)（M）
 
@@ -1008,7 +1009,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 3 番目 data-boundary**（[phase-1a-foundation.md の節](phase-1a-foundation.md#data-boundary-読み戻しの境界の共通の検証)）から。始めに、TODO の render-contract の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。render-contract の「実装の記録」（`keepFocus`・`syncPicker`・`readRoute`・app.test.js の boot の `pushState`）を読んでから入る。
+- **フェーズ 1a の 4 番目 header-frame**（[phase-1a-foundation.md の節](phase-1a-foundation.md#header-frame-固定ヘッダー状態id重なり順の変数)）から。始めに、TODO の data-boundary の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。data-boundary の「実装の記録」（足した部品・ワールドの行とプレイヤーと拠点は知っている項目だけを写す・cleanRecords は届いた項目だけを直す）を読んでから入る。
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
-- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。
-- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract を済ませた。ideal-calc のレビューで D19 を足した）
+- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。
+- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary を済ませた。ideal-calc のレビューで D19 を足した）
