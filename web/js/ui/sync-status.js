@@ -3,8 +3,9 @@ import { el, button, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 
 /**
- * 同期状況の文の部品。取得に失敗しても（error があっても）前回の時刻と件数を残す。
- * time が空のときは label だけを出す（保存中・更新中・未取得）。
+ * 同期状況の文の部品。取得に失敗しても前回の時刻と件数を残し、取得の失敗（fetchError）は error で別に返す
+ *（配合の保存の失敗は返さない。保存の失敗は登録の画面・トーストで知らせる）。
+ * time が空のときは label だけを出す（保存中・更新中・未取得。未取得の失敗は store の error をそのまま出す）。
  */
 export function syncStatusText(state, now = Date.now()) {
   const only = (label) => ({ label, time: '', count: '', error: '' });
@@ -15,7 +16,7 @@ export function syncStatusText(state, now = Date.now()) {
     label: state.cached ? '前回取得' : '最新取得',
     time: `${formatShortTime(state.serverTime, now)}${state.cached ? ' 時点' : ''}`,
     count: `${state.records.length} 件`,
-    error: state.error,
+    error: state.fetchError ?? '',
   };
 }
 

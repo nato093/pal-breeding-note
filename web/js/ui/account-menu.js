@@ -4,19 +4,22 @@ import { el, button } from './dom.js';
 import { createPopover } from './popover.js';
 import { openRenameDialog, confirmLogout } from './account-actions.js';
 
+// context.onOpen は開いたときに呼ぶ（app.js がヘッダーのほかのパネルを閉じる）
 export function accountMenu(context) {
-  const { store, renamer } = context;
+  const { store, renamer, onOpen } = context;
   const element = el('div', 'account-chip');
   const trigger = button('', () => (popup.isOpen() ? popup.close({ focus: false }) : popup.open()), 'account-button');
+  trigger.setAttribute('aria-haspopup', 'dialog');
   element.append(trigger);
 
   // 開いている間の書き換え（閉じているときは null）
   let renderPanel = null;
   const popup = createPopover({
     anchor: trigger, wrapper: element, tag: 'section', className: 'header-panel account-panel',
-    onOpen: () => { renderPanel = buildPanel(); },
+    onOpen: () => { renderPanel = buildPanel(); onOpen?.(); },
     onClose: () => { renderPanel = null; popup.element.replaceChildren(); },
   });
+  popup.element.setAttribute('role', 'dialog');
   popup.element.setAttribute('aria-label', 'アカウント');
   function buildPanel() {
     const id = el('p', 'account-panel-id');

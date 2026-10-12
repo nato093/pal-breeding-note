@@ -49,7 +49,9 @@ export function scrollWithin(list, row, { center = false } = {}) {
 /**
  * 開閉と外側の操作。open() で element を付ける（host があれば host＝document.body かダイアログの中に浮かせ、
  * 無ければ wrapper の中）。外側（wrapper と element の外）の pointerdown・Escape で閉じ、focusOut なら
- * フォーカスが外へ出たときも閉じる。浮かせているときは、element の外のスクロール・resize・ダイアログの cancel でも閉じる。
+ * フォーカスが外へ出たときも閉じる。浮かせているときは、element の外でのホイール・タッチのスクロール（利用者がページを動かした）・
+ * resize・ダイアログの cancel でも閉じる。それ以外の外のスクロール（データの更新でページが縮み、スクロール位置が丸められたなど）では
+ * 閉じず、anchor が画面の中にあれば置き直す（画面の外へ出たら閉じる）。
  * onOpen は付けた後（中身を作る）、onClose は外した後に呼ぶ。
  * @param {{ anchor: Element, wrapper: Element, host?: Element | null, className?: string, tag?: string, focusOut?: boolean,
  *   place?: { minWidth?: number, maxHeight?: number }, onOpen?: () => void, onClose?: () => void }} options
@@ -58,8 +60,8 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
   const element = el(tag, className);
   element.id = `popover-${++sequence}`;
   if (host) element.classList.add('picker-popover-floating');
+  // aria-controls は開いている間だけ（閉じている間は element が DOM に無いので、無い id を指さない）
   anchor.setAttribute('aria-expanded', 'false');
-  anchor.setAttribute('aria-controls', element.id);
   let controller = null;
   const inside = (node) => wrapper.contains(node) || element.contains(node);
 
@@ -74,6 +76,7 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     controller = null;
     element.remove();
     anchor.setAttribute('aria-expanded', 'false');
+    anchor.removeAttribute('aria-controls');
     if (focus && anchor.isConnected) anchor.focus();
     onClose?.();
   }
@@ -84,6 +87,7 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     const { signal } = controller;
     (host ?? wrapper).append(element);
     anchor.setAttribute('aria-expanded', 'true');
+    anchor.setAttribute('aria-controls', element.id);
     document.addEventListener('pointerdown', (event) => { if (!inside(event.target)) close({ focus: false }); }, { signal });
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); }, { signal });
     if (focusOut) {
@@ -93,8 +97,17 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     }
     if (host) {
       reposition();
-      // 本文のスクロール・窓の大きさの変更で anchor と離れるので閉じる（候補の中のスクロールでは閉じない）
-      document.addEventListener('scroll', (event) => { if (!element.contains(event.target)) close(); }, { capture: true, signal });
+      // 利用者が本文をスクロールした（ホイール・タッチ）・窓の大きさを変えたときは anchor と離れるので閉じる（候補の中のスクロールでは閉じない）
+      const userScroll = (event) => { if (!element.contains(event.target)) close(); };
+      document.addEventListener('wheel', userScroll, { capture: true, passive: true, signal });
+      document.addEventListener('touchmove', userScroll, { capture: true, passive: true, signal });
+      // そのほかのスクロール（開いたまま描き直してページが縮み、位置が丸められたなど）では、anchor が見えていれば置き直す
+      document.addEventListener('scroll', (event) => {
+        if (element.contains(event.target)) return;
+        const rect = anchor.getBoundingClientRect();
+        if (rect.bottom > 0 && rect.top < window.innerHeight) reposition();
+        else close();
+      }, { capture: true, signal });
       window.addEventListener('resize', () => close(), { signal });
       if (host.tagName?.toLowerCase() === 'dialog') host.addEventListener('cancel', (event) => { event.preventDefault(); close(); }, { signal });
     }

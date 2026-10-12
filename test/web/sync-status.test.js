@@ -4,7 +4,7 @@ import { installDom } from '../helpers/dom.js';
 import { syncStatusText, syncStatusLine, syncStatus } from '../../web/js/ui/sync-status.js';
 
 const NOW = new Date(2026, 9, 12, 9, 30).getTime();
-const base = { syncing: false, syncDone: 0, syncTotal: 0, loading: false, serverTime: '', cached: false, error: '', records: [{}, {}, {}], renaming: false };
+const base = { syncing: false, syncDone: 0, syncTotal: 0, loading: false, serverTime: '', cached: false, error: '', fetchError: '', records: [{}, {}, {}], renaming: false };
 const line = (state) => syncStatusLine(syncStatusText({ ...base, ...state }, NOW));
 
 test('同期状況: 今日の取得は 時:分、前の日の取得は 月/日 時:分、キャッシュは「前回取得 … 時点」', () => {
@@ -15,10 +15,13 @@ test('同期状況: 今日の取得は 時:分、前の日の取得は 月/日 �
     { label: '前回取得', time: '08:00 時点', count: '3 件', error: '' });
 });
 
-test('同期状況: 取得に失敗しても前回の時刻と件数を残し、エラーは別に返す', () => {
-  const parts = syncStatusText({ ...base, serverTime: new Date(2026, 9, 12, 9, 5).toISOString(), error: 'サーバに接続できません' }, NOW);
+test('同期状況: 取得に失敗しても前回の時刻と件数を残し、エラーは別に返す（保存の失敗では返さない）', () => {
+  const failed = { ...base, serverTime: new Date(2026, 9, 12, 9, 5).toISOString(), error: 'サーバに接続できません', fetchError: 'サーバに接続できません' };
+  const parts = syncStatusText(failed, NOW);
   assert.equal(syncStatusLine(parts), '最新取得 09:05 · 3 件');
   assert.equal(parts.error, 'サーバに接続できません');
+  // 配合の保存（mutate）の失敗は store の error だけに入る。同期状況の隣の「更新できませんでした」は出さない
+  assert.equal(syncStatusText({ ...failed, fetchError: '' }, NOW).error, '');
   // 一度も取得できていなければ、エラーをそのまま出す
   assert.equal(line({ error: 'サーバに接続できません' }), 'サーバに接続できません');
   assert.equal(line({}), '仲間だけの配合ノート');
@@ -44,7 +47,8 @@ test('同期状況のボタン: 取得している間の 2 回目の押下は無
   const part = syncStatus({ store, locked: () => locked });
   part.update(store.state);
   const trigger = part.button;
-  assert.match(trigger.textContent, /^最新取得 \d{2}:\d{2} · 3 件$/);
+  // 取得した直後に日付が変わっても落ちないよう、違う日の形（月/日 時:分）も許す
+  assert.match(trigger.textContent, /^最新取得 (\d{1,2}\/\d{1,2} )?\d{2}:\d{2} · 3 件$/);
   assert.equal(part.element.querySelector('.sync-label').textContent, '最新取得 ');
   const first = trigger.dispatch('click');
   await trigger.dispatch('click');

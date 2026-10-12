@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { buildIndex } from '../../web/js/core/index.js';
 import {
   passiveChance, talentChance, talentExpectation, talentTargets, breedingLayouts, idealPairs, idealPlan, PLAN_GROUPS, isParentCandidate, TALENT_PATTERNS,
@@ -904,7 +905,17 @@ function runSteps(input) {
   }
 }
 
-test('理想個体（区切った計算）: idealPlanSteps を最後まで回した結果は idealPlan と同じ（牧場の優先・見張り・物差しも）', () => {
+// 結果を比べるための文字列（個体は ID に、配合の記録の参照は外し、measures は並べた組の配列。数は有効数字 12 桁）
+const canonicalPlan = (result) => JSON.stringify({
+  ...result, layouts: undefined, measures: [...result.measures].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  pairs: result.pairs.map((pair) => ({ ...pair, male: pair.male.id, female: pair.female.id, sources: undefined })),
+}, (key, value) => (typeof value === 'number' && Number.isFinite(value) ? Number(value.toPrecision(12)) : value));
+
+test('理想個体（区切った計算）: idealPlanSteps を最後まで回した結果は、区切る前の idealPlan と同じ（牧場の優先・見張り・物差しも）', () => {
+  // idealPlan は idealPlanSteps を最後まで回すだけなので、2 つを比べても同じ処理どうしになる。区切る前の実装（76001f7 の core/ideal.js）の
+  // idealPlan で同じ 96 通りを計算した結果の SHA-256（canonicalPlan を改行でつないだもの）を、固定の期待値にする
+  const EXPECTED = 'da4a0eef1f72652ce0e0699508880841426069958b0e3dd51c6b6d129ab79ff8';
+  const results = [];
   let state = 0x53544550;
   const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
   const value = () => [0, 88, 94, 95, 99, 100][Math.floor(random() * 6)];
@@ -927,10 +938,13 @@ test('理想個体（区切った計算）: idealPlanSteps を最後まで回し
           const stepped = runSteps(input).value;
           assert.deepEqual(stepped, idealPlan(input), `round ${round} ${cake} ${mode} ${passives}`);
           assert.ok(stepped.measures instanceof Map);
+          results.push(canonicalPlan(stepped));
         }
       }
     }
   }
+  assert.equal(results.length, 96);
+  assert.equal(createHash('sha256').update(results.join('\n')).digest('hex'), EXPECTED);
 });
 
 test('理想個体（区切った計算）: 組が多いときは組のループの中で区切る', () => {
@@ -940,6 +954,15 @@ test('理想個体（区切った計算）: 組が多いときは組のループ
   // ♂200 × ♀200 = 4 万組。1,024 組ごとに区切る
   assert.ok(yields >= 39, `区切り ${yields} 回`);
   assert.deepEqual(value, idealPlan(input));
+});
+
+test('理想個体（区切った計算）: 組のループより前の下ごしらえ（個体の振り分け・段階の計算）も 1,024 体ごとに区切る', () => {
+  // ♂ だけ 4,096 体（組が 1 つもないので、組のループでは区切らない）
+  const pals = Array.from({ length: 4096 }, (_, i) => pal(`q${i}`, 'X', 'M', ['P1'], talent(i % 101, (i * 7) % 101, (i * 13) % 101)));
+  const input = { pals, index: index(), target: 'X', passives: ['P1'], targets: ALL };
+  const { yields, value } = runSteps(input);
+  assert.ok(yields >= 4, `区切り ${yields} 回`);
+  assert.deepEqual([value.total, value.candidates], [0, 4096]);
 });
 
 test('理想個体（区切った計算）: 新しい世代の表は作る途中でも区切り、キノコケーキの 2 つの表も 1 つずつ作る。途中で止めたら作りかけの表を覚えない', () => {
@@ -963,10 +986,12 @@ test('理想個体（区切った計算）: 新しい世代の表は作る途中
   assert.equal(hasGenerationTable(table('estimate')), true);
   assert.equal(hasGenerationTable(table('upper')), true);
   assert.equal(value.pairs[0].group, 'complete');
-  assert.ok(Number.isFinite(value.pairs[0].generations));
-  // 覚えた表を使う 2 回目も同じ結果（区切って作った表の値は、同期で作った表と同じ）
+  // 区切って作った表の値は、区切る前の実装（76001f7 の core/ideal.js）が同期で作った表から求めた平均と同じ（固定の期待値）
+  near(value.pairs[0].generations, 919.1295926158073);
+  near(value.pairs[0].generationsUpper, 919.5830623697547);
+  // 覚えた表を使う 2 回目も同じ結果
   assert.deepEqual(idealPlan(input), value);
-  const sync = generationTable(table('upper'));
-  assert.equal(sync.limit, 4);
-  assert.equal(generationEggs(sync, pals[0].talent, pals[1].talent, { maleExtras: 4, femaleExtras: 0, shared: 0 }), value.pairs[0].generationsUpper);
+  const memo = generationTable(table('upper'));
+  assert.equal(memo.limit, 4);
+  near(generationEggs(memo, pals[0].talent, pals[1].talent, { maleExtras: 4, femaleExtras: 0, shared: 0 }), 919.5830623697547);
 });

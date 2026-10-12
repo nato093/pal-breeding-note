@@ -734,6 +734,7 @@ title 13 字・body 43 字。
      - `ui/notifications.js:89`（ベルの空の文）→ 「新しい通知はありません。」と、ボタン「これまでの通知」（`openNotificationList(notifications)` を開き、パネルを閉じる）。設定の「通知一覧」カードはこのフェーズでは残す。
    - `settingsHash('')`（ワールドの指定なし）でも、設定はセーブ連携のカードまでスクロールし、「このワールドでの自分」（出ていれば）かカードの見出しにフォーカスする（participant-self の `reveal` の ④⑤）。
 6. **状態表示を分ける**（`ui/dom.js`・`views/shared.js`）
+   - 追記（2026-10-13、フェーズ 1a のレビューの直し `fix/phase-1a-review-render`）: syncList は、空の表示（`empty` に渡した要素）が前と同じ文（textContent）とクラスなら作り直さない（中のボタンのフォーカスを保つ）。errorState・loadingState・アイコンつきの empty を syncList の `empty` に渡すときも、中のボタン（再試行・絞り込みを解除など）が使う値は作った時点の値を閉じ込めず、今の値を読む。store には全件の取得の失敗だけを持つ `state.fetchError` もある（`state.error` は配合の保存の失敗も入る。dataPending は今のまま `state.error` でよい）。
    - `errorState(message, retry)` を足す: `role="alert"`、error の左の帯、ボタン「もう一度読み込む」（`runButton` で `retry()` を呼ぶ）。
    - `loadingState(text)` を足す: `empty(text)` と同じ見た目で `role="status"`。
    - `dataPending(target, state, retry)`（`views/shared.js:34-38`）: `state.error` があれば `errorState(state.error, retry)`、なければ `loadingState('登録済みの配合を読み込み中…')`。呼んでいる画面（search・reverse・list・pal・route・ideal・drafts）は `() => context.store.refresh()` を渡す。

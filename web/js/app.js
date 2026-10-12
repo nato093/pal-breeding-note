@@ -199,10 +199,12 @@ async function boot() {
     context.register();
   }, 'register-button');
   register.setAttribute('aria-label', '配合を登録');
-  const bell = notificationMenu(notifications);
-  const save = saveStatus({ owned, autoRegister, store });
+  // ヘッダーのパネル（ベル・セーブ連携・ID）は 1 つだけ開く。キーボードで別のボタンを押したときは外側の pointerdown が来ないので、開いたときにほかを閉じる
+  const closeOthers = (opened) => { for (const part of [bell, save, account]) if (part !== opened) part.close(); };
+  const bell = notificationMenu(notifications, { onOpen: () => closeOthers(bell) });
+  const save = saveStatus({ owned, autoRegister, store, onOpen: () => closeOthers(save) });
   // 名前の変更とログアウトに使うのは store と renamer だけ（context はこの後で作る）
-  const account = accountMenu({ store, renamer });
+  const account = accountMenu({ store, renamer, onOpen: () => closeOthers(account) });
   // 並び（＝Tab の順）: ロゴ → 同期状況 → セーブ連携 → ベル → 登録 → ID
   header.append(brand, envChip, headerStatus, save.element, bell.element, register, account.element);
   // 新しい版の配信を知らせる案内（画面の下端に固定。本文の流れの外）。再読み込みすると、送信待ちの操作や読み込み中のセーブ、開いている入力画面が失われる。

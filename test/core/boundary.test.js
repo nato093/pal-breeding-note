@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isObject, int, intOrNull, intIn, bool, text, idText, oneOf, isoTime, list, worldId, screenHref, cleanSaved,
+  isObject, int, intOrNull, intIn, bool, text, idText, internalName, oneOf, isoTime, list, worldId, screenHref, cleanSaved,
   cleanRecords, cleanUsers, cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload,
 } from '../../web/js/core/boundary.js';
 import { OWNED_FIELDS, OWNED_MAX_ROWS } from '../../web/js/core/owned-shared.js';
@@ -41,6 +41,12 @@ test('境界: text は文字列だけを受け取り、制御文字を除いて�
   assert.equal(text({ toString: () => 'x' }, 10), '');
   assert.equal(idText('a'.repeat(64)), 'a'.repeat(64));
   assert.deepEqual([idText('a'.repeat(65)), idText(''), idText(5), idText('abc', 2)], ['', '', '', '']);
+});
+
+test('境界: internalName はゲームの内部名の形（英数字と _ の 1〜64 字）だけを通す。マスターに無い名前も形が合えば通す', () => {
+  assert.deepEqual(['Rare', 'CraftSpeed_up2', 'Unknown_Passive_X', 'a'.repeat(64)].map((value) => internalName(value)), ['Rare', 'CraftSpeed_up2', 'Unknown_Passive_X', 'a'.repeat(64)]);
+  assert.deepEqual(['', 'a'.repeat(65), '知らないパッシブ', 'Rare,Legend', 'Rare Legend', 'a"b', 'a\nb', 7, null, ['Rare']].map((value) => internalName(value)), Array(10).fill(''));
+  assert.equal(internalName('abcd', 3), '');
 });
 
 test('境界: oneOf・isoTime・worldId・screenHref', () => {

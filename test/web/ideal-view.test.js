@@ -934,8 +934,13 @@ test('理想個体画面: 同じデータ・同じ条件で描き直しても（
   owned.emit();
   assert.equal(cards(view)[0], card);
   assert.equal(view.element.querySelector('.result-note').textContent, note);
-  // 所持パルの中身が読み直された（新しいデータ）ときは計算し直す
+  // 所持パルが中身の同じまま読み直された（新しいデータ）ときも、計算もカードもそのまま
   owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
+  owned.emit();
+  assert.equal(cards(view)[0], card);
+  // 計算に効く値（個体値）が変わったら計算し直す
+  const changed = owned.state.data.snapshot.pals.map((pal) => (pal.instanceId === 'm1' ? { ...pal, talent: { hp: 99, shot: 100, defense: 100 } } : pal));
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, pals: changed }, { pals, passives });
   owned.emit();
   assert.notEqual(cards(view)[0], card);
   const again = cards(view)[0];
@@ -1093,9 +1098,78 @@ test('理想個体画面: 選んでいる所持者が、フォーカス中の更
   view.destroy();
 });
 
-test('理想個体画面: URL のパッシブの重複とマスターにない ID を除く', (t) => {
+test('理想個体画面: URL のパッシブは重複と内部名の形でない値を除き、マスターにまだ無い内部名は残す', (t) => {
   install(t);
-  const view = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare,Rare,知らないパッシブ'));
-  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す']);
+  const view = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare,Rare,知らないパッシブ,Unknown_Passive_X'));
+  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す', 'Unknown_Passive_X を外す']);
+  view.destroy();
+});
+
+test('理想個体画面: マスターにまだ無い内部名のパッシブ（所持パルに付いていれば候補に出る）を選ぶと、チップが出て条件に入る', async (t) => {
+  install(t);
+  const owned = fakeOwned([...basePals, palworldPal('n1', 'SheepBall', 'Male', ['Unknown_Passive_X'])]);
+  const ctx = context(owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' });
+  await pickPassive(view, 'Unknown_Passive_X');
+  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['Unknown_Passive_X を外す']);
+  assert.match(view.element.querySelector('.ideal-results').textContent, /Unknown_Passive_X/);
+  view.destroy();
+});
+
+test('理想個体画面: 計算に効かない値（レベル・ニックネームなど）だけが変わっても計算中の仕事を捨てず、描くときと描いた後は新しいデータの個体を出す', async (t) => {
+  install(t);
+  // 区切った計算の続き（setTimeout）を手で 1 回ずつ進める
+  const queue = [];
+  const original = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { queue.push(fn); return queue.length; };
+  t.after(() => { globalThis.setTimeout = original; });
+  const list = (level, nickname = '') => Array.from({ length: 120 }, (_, i) => ({
+    ...palworldPal(`k${i}`, 'SheepBall', i % 2 ? 'Male' : 'Female', i % 3 ? ['Rare'] : ['CraftSpeed_up2'], { hp: i % 101, shot: 50, defense: 50 }), level, nickname,
+  }));
+  const hash = '#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare';
+  const busy = (view) => view.element.querySelector('.ideal-results').getAttribute('aria-busy') === 'true';
+  // 終わるまでに進めた区切りの数
+  const finish = async (view) => {
+    let ticks = 0;
+    for (; busy(view) && queue.length; ticks++) { queue.shift()(); await settle(); }
+    return ticks;
+  };
+  // 世代の表を先に作っておき（表は覚えて使い回す）、表を使い回すときに終わるまでの区切りの数を数える
+  const warm = idealView({ ...context(fakeOwned(list(10))), sliceBudget: 0 }, parseHash(hash));
+  await finish(warm);
+  warm.destroy();
+  const counted = idealView({ ...context(fakeOwned(list(10))), sliceBudget: 0 }, parseHash(hash));
+  const total = await finish(counted);
+  counted.destroy();
+  assert.ok(total >= 3, `区切り ${total} 回`);
+  const owned = fakeOwned(list(10));
+  const view = idealView({ ...context(owned), sliceBudget: 0 }, parseHash(hash));
+  queue.shift()();
+  await settle();
+  assert.ok(busy(view));
+  // 計算の途中で、全員のレベルとニックネームだけが変わったデータが届いた（20 秒ごとの読み直しなど）
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, pals: list(30, 'ぽち') }, { pals, passives });
+  owned.emit();
+  assert.ok(busy(view));
+  const rest = await finish(view);
+  assert.ok(rest < total, `続きの区切り ${rest} 回（最初からは ${total} 回）`);
+  assert.ok(cards(view).length > 0);
+  assert.ok(cards(view).every((card) => /Lv 30/.test(card.textContent) && /「ぽち」/.test(card.textContent) && !/Lv 10/.test(card.textContent)));
+  // 描いた後に、計算に効かない値だけが変わった: 計算し直さず、カードの個体を新しいデータで描き直す
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, pals: list(40, 'ぽち') }, { pals, passives });
+  owned.emit();
+  assert.ok(!busy(view));
+  assert.ok(cards(view).every((card) => /Lv 40/.test(card.textContent)));
+  // 中身が同じデータでは、カードを作り直さない
+  const shown = cards(view);
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, pals: list(40, 'ぽち') }, { pals, passives });
+  owned.emit();
+  assert.deepEqual(cards(view), shown);
+  // 個体値が変わったら計算し直す
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, pals: list(40, 'ぽち').map((pal) => ({ ...pal, talent: { hp: 100, shot: 100, defense: 100 } })) }, { pals, passives });
+  owned.emit();
+  assert.ok(busy(view));
+  await finish(view);
   view.destroy();
 });

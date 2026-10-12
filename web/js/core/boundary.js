@@ -42,6 +42,14 @@ export function idText(value, max = 64) {
   return typeof value === 'string' && value.length > 0 && value.length <= max ? value : '';
 }
 
+/**
+ * ゲームの内部名（パッシブの ID など。英数字と _ の 1〜max 字）ならそのまま、違えば ''。
+ * マスターにまだ無い新しい内部名も通す（所持パルに付いていれば、パッシブの候補に出て選べるため。マスターにあるかは見ない）
+ */
+export function internalName(value, max = 64) {
+  return typeof value === 'string' && value.length <= max && /^[A-Za-z0-9_]+$/.test(value) ? value : '';
+}
+
 export const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 
 /** 範囲の中の整数ならそのまま、違えば fallback（範囲に丸めない。保存した画面の条件のように、合わない値を既定に戻すとき） */

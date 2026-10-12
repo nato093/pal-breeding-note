@@ -10,10 +10,10 @@ import { passiveCounts } from '../core/owned.js';
 import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
-import { ownedRow } from './owned.js';
+import { ownedRow, rowSignature } from './owned.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets } from './shared.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
-import { cleanSaved, oneOf, intIn } from '../core/boundary.js';
+import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
 const LIMIT = 20;
@@ -39,10 +39,24 @@ const REFRESH_NOTE = '20 秒ごとに確認';
 const SLICE_BUDGET = 30;
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
 
-// 中身が変わったときだけ作り直されるもの（所持パルのデータ・配合の index）を、計算の署名に入れる番号にする
+// 中身が変わったときだけ作り直されるもの（配合の index）を、計算の署名に入れる番号にする
 const objectIds = new WeakMap();
 let objectSeq = 0;
 const objectRev = (data) => (!data || typeof data !== 'object' ? 0 : objectIds.get(data) ?? (objectIds.set(data, ++objectSeq), objectSeq));
+
+/**
+ * 計算に効く個体の値（ID・種族・性別・パッシブ・個体値）の署名。親になれる個体（目標の配合の種族で、タマゴ・グローバルパルボックスでない）だけ。
+ * レベル・場所・ニックネームなどは計算に効かないので入れない（それだけが変わった読み直しで、計算中の仕事を捨てて最初からやり直さない。
+ * 描いている組の個体は、描くときに新しいデータの個体に入れ替える）
+ */
+function candidateSignature(pals, species) {
+  let signature = '';
+  for (const pal of pals) {
+    if (!species.has(pal.palId) || !isParentCandidate(pal)) continue;
+    signature += `${pal.id}\u0001${pal.palId}\u0001${pal.gender}\u0001${pal.passives.join(',')}\u0001${pal.talent.hp},${pal.talent.shot},${pal.talent.defense}\u0002`;
+  }
+  return signature;
+}
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -222,7 +236,7 @@ export function idealView(context, route) {
     current = next;
     to = validId(next, 'to', context);
     // 重複とマスターにない ID は除く（知らない ID のチップを出さない）
-    passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => passivesById.has(id)))].slice(0, MAX_WANTED);
+    passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => internalName(id)))].slice(0, MAX_WANTED);
     // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
     const goalId = next.params.get('g');
     if (!goalId) return false;
@@ -561,6 +575,8 @@ export function idealView(context, route) {
   // 計算中の仕事（区切った計算）と、いま表示している計算の署名（同じなら計算も DOM も触らない）
   let job = null;
   let shownKey = '';
+  // 描いている結果（計算に効かない値だけが変わったデータでは、計算し直さずに個体を入れ替えて描き直す）
+  let shown = null;
   let destroyed = false;
   function setComputing(on) {
     results.classList.toggle('is-computing', on);
@@ -572,6 +588,7 @@ export function idealView(context, route) {
     job?.cancel();
     job = null;
     shownKey = '';
+    shown = null;
     setComputing(false);
     note.textContent = '';
     missingBox.replaceChildren();
@@ -597,7 +614,8 @@ export function idealView(context, route) {
     // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）。
     // 今の牧場の組を計画で優先・見張るので、計画より先に求める
     const farms = owned?.state?.owned?.farms;
-    const placedFarms = Array.isArray(farms) ? targetFarms(farms, candidates.filter(isParentCandidate), breedingLayouts(state.index, to)) : [];
+    const layouts = breedingLayouts(state.index, to);
+    const placedFarms = Array.isArray(farms) ? targetFarms(farms, candidates.filter(isParentCandidate), layouts) : [];
     const signature = farmSignature(placedFarms);
     const memoryId = JSON.stringify([state.env ?? '', owned?.state?.meta?.worldId ?? '', to, [...passives].sort(), conditions.mode,
       TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
@@ -605,23 +623,26 @@ export function idealView(context, route) {
     const placedKeys = new Set(placedFarms.map((farm) => planPairKey(farm.male, farm.female)));
     // 物差しが同じ組どうしでは、今の牧場の組と前の基準の上位を先にする（値の小さな差で交換推奨や「変更あり」が出ないように）
     const prefer = { placed: placedKeys, baseline: new Set(baseline?.farms === signature ? baseline.pairs.slice(0, placedFarms.length) : []) };
-    // 計算の署名: データ（配合の index・所持パル）・実効の条件・本人・牧場の署名・優先する組。
+    // 計算の署名: 配合の index・候補の個体の計算に効く値・実効の条件・本人・牧場の署名・優先する組。
     // prefer は並びを変えるので、入れないと、別のタブが基準を書き換えたときなどに古い並びが残る
     const self = conditions.holder === 'mine' ? (ideals?.mine()?.map((pal) => pal.id).join(',') ?? 'unknown') : '';
-    const key = JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, objectRev(owned?.state?.owned), to, [...passives].sort(),
+    const species = new Set(layouts.flatMap((layout) => [layout.male, layout.female]));
+    const key = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
       conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, conditions.holder, self, signature,
-      [...prefer.placed].sort(), [...prefer.baseline].sort()]);
+      [...prefer.placed].sort(), [...prefer.baseline].sort()])}\u0003${candidateSignature(candidates, species)}`;
+    // 同じ計算をしている途中（計算に効かない値だけが変わった）。終わって描くときに、新しいデータの個体に入れ替える
     if (job?.key === key) return;
-    // 出している結果と同じ条件に戻った（計算している途中なら、その計算は捨てる）
+    // 出している結果と同じ条件に戻った（計算している途中なら、その計算は捨てる）。データだけが変わっていれば個体を入れ替えて描き直す
     if (key === shownKey) {
       job?.cancel();
       job = null;
       setComputing(false);
+      if (shown) drawLatest(shown);
       return;
     }
     job?.cancel();
     job = null;
-    const plan = { placedFarms, signature, memoryId, baseline, farms, cake: conditions.cake };
+    const plan = { placedFarms, signature, memoryId, baseline, farms, cake: conditions.cake, data: owned.state.owned };
     const steps = idealPlanSteps({
       pals: candidates, index: state.index, target: to, passives: [...passives],
       mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys,
@@ -659,30 +680,64 @@ export function idealView(context, route) {
     if (destroyed || job !== current || result === null) return;
     job = null;
     setComputing(false);
-    showPlan(result, plan);
+    // 計算している間にデータが読み直されていたら（計算に効かない値だけの変化）、組の個体を新しいデータに入れ替えて描く
+    const latest = owned.state.owned !== plan.data ? withLatestPals({ result, plan }) : { result, plan };
+    showPlan(latest.result, latest.plan);
     shownKey = current.key;
   }
 
-  // 計算の結果を描く（要約・足りないパッシブ・配合牧場の判定・組のカード）
-  function showPlan(result, { placedFarms, signature, memoryId, baseline, farms, cake }) {
-    note.textContent = summaryText(result);
-    renderMissing(result);
-    // 今の牧場の組は見張った物差しから、交換先の組（おすすめの組）は一覧から引く
-    const listed = new Map(result.pairs.map((pair) => [planPairKey(pair.male, pair.female), {
-      status: 'ok', rank: PLAN_GROUPS.indexOf(pair.group), ambiguous: pair.ambiguous, eggs: pair.eggs, gathered: pair.gathered,
-      gatherChance: pair.gatherChance, talentEggs: pair.talentEggs, chance: pair.chance,
-    }]));
-    const measureOf = (key) => result.measures.get(key) ?? listed.get(key);
-    const advice = farmAdvice(placedFarms, result.pairs, { measureOf });
+  // 結果の組・牧場の個体を、今のデータの同じ ID の個体に入れ替える（計算に効く値は同じなので、組と順位はそのまま）
+  function withLatestPals({ result, plan }) {
+    const byId = new Map((owned.state.owned?.pals ?? []).map((pal) => [pal.id, pal]));
+    const swap = (pal) => byId.get(pal.id) ?? pal;
+    return {
+      result: { ...result, pairs: result.pairs.map((pair) => ({ ...pair, male: swap(pair.male), female: swap(pair.female) })) },
+      plan: { ...plan, data: owned.state.owned, placedFarms: plan.placedFarms.map((farm) => ({ ...farm, male: swap(farm.male), female: swap(farm.female) })) },
+    };
+  }
+  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・牧場の拠点の名前）。同じなら描き直さない
+  const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female])]
+    .map((pal) => rowSignature(pal, [])).concat(holderName(), plan.placedFarms.map((farm) => farmName(farm.baseId))).join('\u0003');
+  // 描いている結果を、今のデータの個体で描き直す（データが変わっていて、出す値も変わったときだけ）
+  function drawLatest(current) {
+    if (owned.state.owned === current.plan.data) return;
+    const latest = withLatestPals(current);
+    const display = displayKey(latest);
+    shown = { ...latest, changed: current.changed, display };
+    if (display !== current.display) drawPlan(latest.result, latest.plan, current.changed);
+  }
+
+  // 計算の結果を描く。「変更あり」の基準（planMemory）もここで更新する
+  function showPlan(result, plan) {
+    const { placedFarms, signature, memoryId, baseline, farms } = plan;
     let changed = new Set();
     if (Array.isArray(farms)) {
       const next = planChanges(baseline, signature, result.pairs, placedFarms.length);
       if (next.reset) planMemory.set(memoryId, next.baseline);
       // 「変更あり」は、採った交換推奨の行き先の組だけ（交換推奨と同じ考え方）
-      const swapTargets = new Set(advice.filter((item) => item.status === 'swap')
+      const swapTargets = new Set(farmAdviceOf(result, placedFarms).advice.filter((item) => item.status === 'swap')
         .map((item) => planPairKey(result.pairs[item.to].male, result.pairs[item.to].female)));
       changed = new Set([...next.changed].filter((key) => swapTargets.has(key)));
     }
+    shown = { result, plan, changed, display: displayKey({ result, plan }) };
+    drawPlan(result, plan, changed);
+  }
+
+  // 配合牧場の判定。今の牧場の組は見張った物差しから、交換先の組（おすすめの組）は一覧から引く
+  function farmAdviceOf(result, placedFarms) {
+    const listed = new Map(result.pairs.map((pair) => [planPairKey(pair.male, pair.female), {
+      status: 'ok', rank: PLAN_GROUPS.indexOf(pair.group), ambiguous: pair.ambiguous, eggs: pair.eggs, gathered: pair.gathered,
+      gatherChance: pair.gatherChance, talentEggs: pair.talentEggs, chance: pair.chance,
+    }]));
+    const measureOf = (key) => result.measures.get(key) ?? listed.get(key);
+    return { measureOf, advice: farmAdvice(placedFarms, result.pairs, { measureOf }) };
+  }
+
+  // 要約・足りないパッシブ・配合牧場の判定・組のカードを描く
+  function drawPlan(result, { placedFarms, cake }, changed) {
+    note.textContent = summaryText(result);
+    renderMissing(result);
+    const { measureOf, advice } = farmAdviceOf(result, placedFarms);
     renderFarms(advice, changed.size, (item) => [
       measureOf(planPairKey(item.farm.male, item.farm.female))?.ambiguous ? '牧場の組' : '',
       item.status === 'swap' && result.pairs[item.to].ambiguous ? '交換先の組' : '',

@@ -1,7 +1,7 @@
 import { el, field, empty, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput } from '../ui/dom.js';
 import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
+import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
@@ -9,7 +9,7 @@ import { viewHeading, syncPicker, syncOptions, ownedSpeciesNotes } from './share
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
-import { cleanSaved, list, idText, text, oneOf, intIn, bool } from '../core/boundary.js';
+import { cleanSaved, list, internalName, text, oneOf, intIn, bool } from '../core/boundary.js';
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -25,10 +25,6 @@ const STAR_FILTERS = [['', 'すべて'], ['1', '★1 以上'], ['2', '★2 以�
 const TALENT_FILTERS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御']];
 
 const talentAtLeast = (value) => intIn(value, { min: 0, max: 100, fallback: 0 });
-const knownPassive = (value) => {
-  const id = idText(value, 64);
-  return passivesById.has(id) ? id : null;
-};
 /**
  * 保存して読み戻す絞り込みの形（ui/view-memory.js が sessionStorage・履歴のエントリから読むときに、項目ごとに確かめる）。
  * 合わない項目は既定の値に戻す。1c の owned-toolbar で絞り込みの形（場所のチップ・所持者）を変えたら、ここも直す
@@ -38,8 +34,8 @@ export const OWNED_MEMORY = {
   holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'global' || /^(player|base):\S/.test(value)) ? value : ''),
   place: (value) => oneOf(value, ['', ...PLACE_ORDER], ''),
   palId: (value) => (typeof value === 'string' && palsById.has(value) ? value : ''),
-  // パッシブはマスターにある ID だけ（知らない ID のチップを出して、一覧を 0 行にしない）
-  passives: (value) => list(value, { max: 4, map: knownPassive, key: (id) => id }),
+  // パッシブは内部名の形の ID だけ（重複は除く）。マスターにまだ無い内部名も残す（所持パルに付いていれば候補に出て選べる）
+  passives: (value) => list(value, { max: 4, map: (id) => internalName(id) || null, key: (id) => id }),
   query: (value) => text(value, 100),
   sort: (value) => oneOf(value, OWNED_SORTS.map(([key]) => key), 'dex'),
   eggs: (value) => bool(value, true),
@@ -151,7 +147,8 @@ export function ownedView(context, route) {
     filter.holder = next.params.get('holder') ?? '';
     filter.place = next.params.get('place') ?? '';
     filter.palId = next.params.get('pal') ?? '';
-    filter.passives = [...new Set((next.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, 4);
+    // 重複と内部名の形でない値は除く（マスターにまだ無い内部名は残す）
+    filter.passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => internalName(id)))].slice(0, 4);
     // 画面内で変えた絞り込みは URL に出ないため、戻ってきたときに古い URL の指定で上書きしないよう外しておく。
     if (memory) context.replace(buildHash('owned'));
     return true;
@@ -406,7 +403,8 @@ export function ownedView(context, route) {
         clearList(results);
         virtual = virtualRows(results, { key: rowOptions.key, create: ownedRowItem, estimate: 60, topOffset: headerBottom });
       }
-      virtual.render(list);
+      // 見ていた行の位置で先に描く（今の位置より前に多数の行が増えても戻せる）。測った高さとのずれは restoreAnchor で直す
+      virtual.render(list, { anchor });
       restoreAnchor(virtual.rows, anchor);
       flushDeferred();
       return;
@@ -422,19 +420,28 @@ export function ownedView(context, route) {
       flushDeferred();
       return;
     }
-    let shown = FIRST_ROWS;
+    // 出す行 = 残る既存の行 ∪ 先頭の 200 行。既存の行は消さずに使い回し（一覧が縮んで位置が飛ばない）、
+    // まだ無い行を並び順に step 件ずつ足していく
+    const present = new Set();
+    list.forEach((pal, i) => { if (i < FIRST_ROWS || existing.has(pal.id)) present.add(pal.id); });
+    const inPresent = () => list.filter((pal) => present.has(pal.id));
+    let next = FIRST_ROWS;
     let step = 100;
-    syncList(results, list.slice(0, shown), rowOptions);
+    syncList(results, inPresent(), rowOptions);
     let anchored = restoreAnchor(results, anchor);
     const tick = () => {
       if (job !== jobSeq || destroyed) return;
       const start = clock();
-      shown = Math.min(list.length, shown + step);
-      syncList(results, list.slice(0, shown), rowOptions);
+      for (let added = 0; next < list.length && added < step; next++) {
+        if (present.has(list[next].id)) continue;
+        present.add(list[next].id);
+        added++;
+      }
+      syncList(results, inPresent(), rowOptions);
       if (!anchored) anchored = restoreAnchor(results, anchor);
       const spent = clock() - start;
       step = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.round(spent > 0 ? step * (SLICE_MS * 0.75) / spent : STEP_MAX)));
-      if (shown < list.length) nextFrame(tick);
+      if (next < list.length) nextFrame(tick);
       else flushDeferred();
     };
     nextFrame(tick);

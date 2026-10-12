@@ -5,6 +5,7 @@ import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, ApiError } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { createAutoRegister, safeAutoNotice, AUTO_NOTICE_TITLES } from '../../web/js/auto-register.js';
+import { moveUserStorage } from '../../web/js/user-rename.js';
 
 const PASS = '自動登録の試験用';
 const P1 = 'p-1';
@@ -426,6 +427,21 @@ test('自動登録: 前の版が保存した通知の「表は X」は、読み�
   assert.ok(notices.every((n) => !/表は|セレムーン|ヤクモマル/.test(`${n.title}${n.body}`)));
 });
 
+test('自動登録: 名前の変更で新しい名前へ移した前の版の通知も、読み出すときに配合表の子（「表は X」）を外す', async () => {
+  const raw = memoryStorage();
+  const t = await setup({ farms: [], storage: safeStorage(raw) });
+  const date = '2026-10-06T00:00:00.000Z';
+  // 前の名前（旧名）で、前の版が保存した通知
+  raw.setItem('t.autoBreeding.notices.test.旧名', JSON.stringify([
+    { id: 'auto-breed:test:conflict:f2:e2', date, title: '登録済みの配合と違います', body: 'モコロン×オオタチウオ：表はヤクモマル、登録はツッパニャン', href: '#/list' },
+    { id: 'auto-breed:test:anomaly:f1:e1', date, title: '配合の結果が表と違います', body: 'モコロン×ツッパニャン：表はセレムーン、新しいタマゴはフラリーナ' },
+  ]));
+  assert.equal(moveUserStorage(raw, 't', 'test', '旧名', '自分'), true);
+  const notices = t.auto.notices();
+  assert.deepEqual(notices.map((n) => n.id), ['auto-breed:test:conflict:f2:e2', 'auto-breed:test:anomaly:f1:e1']);
+  assert.ok(notices.every((n) => !/表は|ヤクモマル|セレムーン/.test(`${n.title}${n.body}`)), JSON.stringify(notices));
+});
+
 test('自動登録: safeAutoNotice は自動登録の保留・見送りの通知だけを直し、ほかの通知はそのまま返す', () => {
   assert.deepEqual(AUTO_NOTICE_TITLES, { anomaly: '自動登録しなかったタマゴ', conflict: '自動登録を保留した配合' });
   const other = { id: 'release:2026-10-12-x', title: '表はどこ？', body: '表は X' };
@@ -471,6 +487,17 @@ test('自動登録: サーバで食い違いと分かったときは、サーバ
   assert.equal(notice.title, '自動登録を保留した配合');
   assert.match(notice.body, /子 ツッパニャン）と食い違うため、保留しました$/);
   assert.doesNotMatch(notice.body, /ヤクモマル|表は/);
+});
+
+test('自動登録（読み戻しの検証）: サーバの食い違いの応答の登録済みに形の違う要素があっても止まらず、object の要素の子だけを通知に出す', async () => {
+  const t = await setup();
+  t.store.mutate = async (action) => {
+    if (action === 'create') throw new ApiError('PAIR_CONFLICT', { ok: false, code: 'PAIR_CONFLICT', existing: [null, 'PinkCat', 3, ['PinkCat'], { childId: 'PinkCat' }] });
+  };
+  await t.run();
+  const [notice] = t.auto.notices();
+  assert.equal(notice?.title, '自動登録を保留した配合');
+  assert.match(notice.body, /登録済みの配合（子 ツッパニャン）と食い違うため、保留しました$/);
 });
 
 test('自動登録: 性別で変わる組み合わせを別の結果として送った後、性別の並びまで同じ食い違いが増えていたら通知する', async () => {

@@ -265,6 +265,25 @@ test('配合検索: 親を選んだ後に記録が取り直されても、同じ
   view.destroy();
 });
 
+test('配合検索: 登録の無い組み合わせで「この組み合わせを登録」にフォーカスしたまま記録が取り直されても、空の表示を作り直さずフォーカスも外れない', async (t) => {
+  installDom(t);
+  const app = liveContext();
+  const registers = [];
+  app.register = (fields) => registers.push(fields);
+  const view = searchView(app, parseHash('#/search?p1=PinkCat&p2=SheepBall'));
+  document.body.append(view.element);
+  const register = view.element.querySelectorAll('button').find((node) => node.textContent === 'この組み合わせを登録');
+  register.focus();
+  // 別の配合が増えた（この組み合わせはまだ無い）
+  app.store.emit({ records: [...app.store.state.records, { ...app.store.state.records[0], id: '別の配合', parent1Id: 'Kitsunebi' }] });
+  assert.equal(view.element.querySelectorAll('button').find((node) => node.textContent === 'この組み合わせを登録'), register);
+  assert.equal(document.activeElement, register);
+  // 押したときは、今の親で登録の画面を開く
+  await register.dispatch('click');
+  assert.deepEqual(registers, [{ parent1Id: 'PinkCat', parent2Id: 'SheepBall' }]);
+  view.destroy();
+});
+
 test('設定: 記録が同じで整合性の警告だけ変わったときも、警告を描き直す', (t) => {
   installDom(t);
   const app = liveContext();

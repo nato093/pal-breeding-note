@@ -361,6 +361,7 @@ function drain(steps) {
 // （回数 − 1 のビットの印。重い遷移〔キノコケーキ・「欲しいものだけ」〕でも 1 回が数 ms に収まる間隔）
 const TABLE_STATE_STEP = 15;
 const TABLE_SETTLE_STEP = 255;
+// 組のループと、その前の下ごしらえ（個体の振り分け・段階の計算）は 1,024 回ごと
 const PAIR_STEP = 1023;
 const PICK_STEP = 1023;
 
@@ -783,7 +784,8 @@ export function idealPlan(input) {
 }
 
 /**
- * idealPlan を区切って進める（入力と戻り値は idealPlan と同じ）。♂×♀ の組のループの中と、新しく作る世代の表の作成の中で yield する。
+ * idealPlan を区切って進める（入力と戻り値は idealPlan と同じ）。♂×♀ の組のループの中と、その前の下ごしらえ（個体の振り分け・
+ * 段階の計算）の中と、新しく作る世代の表の作成の中で yield する。
  * 画面は ui/slice.js の startSliced で 1 回 数十 ms ずつ進め、間で画面に戻す（組が多い・表が大きいときに入力を止めない）
  */
 export function* idealPlanSteps({
@@ -806,6 +808,8 @@ export function* idealPlanSteps({
   const held = new Set();
   const groups = new Map();
   for (const pal of pals) {
+    // 最初の yield より前の下ごしらえも区切る（所持パルが 2 万体だと、ここだけで数十 ms かかる）
+    if ((++work & PAIR_STEP) === 0) yield;
     if (!species.has(pal.palId) || !isParentCandidate(pal)) continue;
     if (pal.gender !== 'M' && pal.gender !== 'F') { unknownGender++; continue; }
     candidates++;
@@ -876,6 +880,7 @@ export function* idealPlanSteps({
   const stageCode = (talent, table) => TALENT_KEYS.reduce((code, key, s) => code + stageOf(talent[key], goal[key], table) * STAGES ** s, 0);
   for (const list of groups.values()) {
     for (const entry of list) {
+      if ((++work & PAIR_STEP) === 0) yield;
       entry.stage = completeTables.map((table) => stageCode(entry.pal.talent, table));
       entry.talentStage = talentTables.map((table) => stageCode(entry.pal.talent, table));
     }
