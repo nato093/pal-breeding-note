@@ -317,7 +317,7 @@
    - 「この子の配合を登録」: register-entry の決まり（登録が 1 件でもあれば secondary）をそのまま使う。
    - アイコンは `navIcon` を 16px で使う。
 6. **配合の件数と上位 3 件（S-04）**: 「このパルが生まれる配合 n 件」「このパルを親に使う配合 n 件（相手 → 子）」の 2 節。各節は上位 3 件のカード（`breedingCard`。親に使う配合は今どおり `focusParent: palId`）と、4 件以上のときだけ「すべて見る →」（`buildHash('search', { c: palId })`・`buildHash('search', { p1: palId })`。find-merge の URL）。0 件なら「まだ登録されていません」。並びは find-merge の既定（更新日の新しい順）にそろえる。
-7. **ヘッダーのパル検索と「/」（G-03・G-06）**: header-frame のヘッダーに `palPicker({ label: 'パルを探す', placeholder: 'パルを探す（/）', popupHost: document.body, onChange })` を 1 つ置く（ラベルは visually-hidden、トリガーは小さく。CSS でヘッダー用の小さい見た目を足す。`web/css/app.css:394-412` の大きなトリガーのままではヘッダーに入らない）。選んだら `context.drawer.open({ kind: 'pal', id })` して選択を空に戻す（`setValue('')`）。header-frame で決めた「幅が足りないときの隠す順番」にこの部品を入れる。
+7. **ヘッダーのパル検索と「/」（G-03・G-06）**: header-frame のヘッダーに `palPicker({ label: 'パルを探す', placeholder: 'パルを探す（/）', popupHost: document.body, onChange })` を 1 つ置く（ラベルは visually-hidden、トリガーは小さく。CSS でヘッダー用の小さい見た目を足す。`web/css/app.css:394-412` の大きなトリガーのままではヘッダーに入らない）。選んだら `context.drawer.open({ kind: 'pal', id })` して選択を空に戻す（`setValue('')`）。header-frame で決めた「幅が足りないときの隠す順番」にこの部品を入れる。追記（header-frame の実装、2026-10-12）: ヘッダーで縮むのはセーブ連携の状態のワールド名だけ（`.header-status` は `flex: none`）。1100px（テスト環境のチップあり）の残りは、ワールド名を縮めて 50px ほどしかないので、この部品の幅の分だけ閾値（1200・1100・980px）を測り直す（phase-1a の header-frame の「実装の記録」4）。
    - 「/」: `document` の `keydown` で、修飾キーなし・`event.isComposing` でない・フォーカスが `input`・`textarea`・`select`・`[contenteditable]` でない・モーダルのダイアログが開いていないときに `preventDefault()` して、ヘッダーのパル選択を開く（register-entry の「N」と同じ判定の関数を共通にする）。
 8. **パル選択の群（F077）**: popovers で入れた件数の仕組みに、群の見出しを足す。`palPicker` に `groupOf?: (palId) => 'data'|'other'` と見出しの文字を渡せるようにし、検索が空のときだけ「データあり（N）」「その他」の 2 群に分けて出す。ヘッダーのパル検索とパル詳細のパル切り替えでは「データあり」＝子か親として登録がある種族、または所持している種族。件数は popovers と同じく、データの更新時に 1 回集計して Map で引く（候補ごとに数え直さない）。
 9. **パル選択のキー操作（F078）**: `web/js/ui/pal-picker.js`:
@@ -655,7 +655,7 @@
    - 牧場のカードの親を押すと個体の詳細（`context.drawer.open({ kind: 'owned', id })`）。
 6. **置き場所**:
    - 所持パル（`web/js/views/owned.js`）: 要約の下、絞り込みのパネルの上に `details.farm-band`「配合牧場（N か所 · タマゴ M 個）」。既定は閉じる。開閉は `context.viewState('owned').farmsOpen`（タブを替えても残る）。帯の右に「右に開く」（ドロワーで同じボードを開く）。所持パルの sticky のパネルより上（スクロールで流れる位置）に置く。
-   - ドロワー: 中身の表に `farms: (entry, context) => farmBoard(context, { mode: 'drawer' })`。入口は、header-frame の状態のポップオーバーに「配合牧場を見る」、理想個体の牧場の欄（ideal-farms の sticky 行）の見出しに「全部の牧場」。
+   - ドロワー: 中身の表に `farms: (entry, context) => farmBoard(context, { mode: 'drawer' })`。入口は、header-frame の状態のポップオーバー（ui/save-status.js の `headerPopup` の中身。操作は `.header-panel-actions` に並ぶ）に「配合牧場を見る」、理想個体の牧場の欄（ideal-farms の sticky 行）の見出しに「全部の牧場」。
 7. **孵化待ちのタマゴ（F048・N-16）**: `web/js/core/ideal-goals.js` に足す:
    ```js
    /** 目標の条件を満たすタマゴ（孵化させれば完成）。goalMatches と同じ条件をタマゴだけに当てる。goalMatches は変えない。 */

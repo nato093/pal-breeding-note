@@ -193,7 +193,7 @@
      1. 所持パルの状態がまだ読み込み前（`owned.state.ready` が false）なら、`pendingReveal` に覚えて、次の `render` で行う。
      2. `worldId` が登録したワールド（`state.auto.worlds`）にあれば `openWorlds.add(worldId)`、`renderedWorlds = ''` にして `renderRegistered(owned.state)` を呼び、行を開いた状態で描く。
      3. フォーカスの先（上から順に最初に当てはまるもの）: ① `selfRow` が出ていて、表示中のワールドが `worldId` と同じで、「自分」が未保存 → `selfSelect`。② 開いたワールドの行の「登録者」の select のうち値が `''`（未設定）の最初のもの。③ その行の自動登録のチェック。④ `selfSelect`（出ていれば）。⑤ カードの見出し（`tabIndex = -1` を付けてから）。
-     4. 先に `target.scrollIntoView({ block: 'center' })`、それから `target.focus({ preventScroll: true })`（ヘッダーの高さは header-frame の CSS 変数で `scroll-margin-top` を付けておく）。光らせる動きは付けない。
+     4. 先に `target.scrollIntoView({ block: 'center' })`、それから `target.focus({ preventScroll: true })`（ヘッダーの高さは header-frame の CSS 変数で `scroll-margin-top` を付けておく。追記（header-frame の実装、2026-10-12）: header-frame で `html { scroll-padding-top: calc(var(--header-h) + 8px) }` を入れたので、ページ全体のスクロールでは要らない）。光らせる動きは付けない。
    - ID の大文字・小文字の揺れ（`owned.js` で `toUpperCase` している）があるので、比べるときは両方 `ownedWorldId` を通す。
 
 7. **理想個体の案内をボタンにする**（`views/ideal.js`）
@@ -682,7 +682,7 @@ title 13 字・body 43 字。
    - 6 か所の `viewHeading('…')` を `viewHeading(tabLabel('<view>'))` にする（search・reverse・route・list・settings）。drafts・wishlist・owned・ideal も同じ形にそろえる（文言は今と同じ）。
    - パル詳細（`views/pal.js:15-17`）: h1 を `No.${pal.label} ${pal.ja}` にする。hero は名前を重ねないよう、`palTile(…, { large: true })` の代わりに画像（`palIcon(pal, { large: true })`、`ui/pal-icon.js:31`）と属性のチップ（`elementChips`）だけにする。CSS の `.pal-hero` の並びを画像＋チップに合わせる。
    - 見出しの階層: `ui/route-view.js:43`・`views/route.js:128・139`・`views/ideal.js:410`（ideal-farms の後はその見出し）の h3 を h2 にする。`app.css` の `.route-owned-box h3`（`:1011`）・`.ideal-farms h3`（`:1050`）を h2 に替え、`.route-card h2 { font-size: 15px; }` を足して今の大きさを保つ。
-   - ヘッダーのロゴの副題（`app.js:92`）が header-frame の後も残っていれば消す（キャッチコピーの削除）。
+   - ヘッダーのロゴの副題（`app.js:92`）が header-frame の後も残っていれば消す（キャッチコピーの削除）。追記（header-frame の実装、2026-10-12）: 残っている（`brandText`＝`span.brand-text` の中の `small`）。消すときは app.css の `@media (width < 1200px) { .brand small { display: none; } }` も消し、app.test.js の `/仲間と残す、冒険の発見。/` の確認を直す。
 2. **用語表と文言のテスト**
    - README.md の「開発」の節に「表記の決まり」を表で置く（8 行ほど）:
 

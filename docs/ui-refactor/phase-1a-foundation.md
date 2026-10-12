@@ -72,7 +72,11 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 | ビューの契約 | 各 views | render-contract | `{ element, destroy, applyRoute?(route, { reason }), update?(state) }` |
 | 読み戻しの検証 | core/boundary.js（新規） | data-boundary | `int`・`intOrNull`・`text`・`oneOf`・`isoTime`・`list`・`worldId`・`cleanRecords`・`cleanOwnedWorlds`・`cleanOwnedPayload`・`cleanSaved`。実装で `isObject`・`idText`・`screenHref`・`cleanUsers`・`cleanSnapshot`・`cleanSharedPlayers`・`cleanSharedBases`・`PLAYERS_MAX`・`BASES_MAX` を足した（data-boundary の「実装の記録」） |
 | 高さと重なり順 | app.css の :root | header-frame | `--header-h`・`--z-sticky`・`--z-panel`・`--z-rail`・`--z-header`・`--z-drawer`・`--z-snackbar`・`--z-toast`・`--z-popover`・`--z-skip` |
-| セーブ連携の状態 | ui/save-status.js（新規） | header-frame | `saveStatusModel(ownedState, opts)`・`saveStatus(deps) → { element, update, destroy }` |
+| セーブ連携の状態 | ui/save-status.js（新規） | header-frame | `saveStatusModel(ownedState, opts)`（戻り値に `world`・`time`・`auto`・`busy` も）・`saveStatus(deps) → { element, update, close, destroy }`。実装で `saveStatusLine`・`STALE_LOCAL_MS`・`STALE_SHARED_MS` も export（header-frame の「実装の記録」） |
+| 同期状況 | ui/sync-status.js（新規） | header-frame | `syncStatusText(state, now)`・`syncStatusLine(parts)`・`syncStatus({ store, locked }) → { element, button, update }` |
+| ID とアカウントの操作 | ui/account-menu.js・ui/account-actions.js（新規） | header-frame | `accountMenu({ store, renamer }) → { element, update, close, destroy }`・`openRenameDialog(context)`・`confirmLogout(store)` |
+| ヘッダーの小さなパネル | ui/header-popup.js（新規。実装で足した） | header-frame | `headerPopup({ wrapper, trigger, create }) → { open, close, toggle, isOpen, update }`（popovers で ui/popover.js に置き換える） |
+| 短い時刻 | ui/dom.js | header-frame（実装で足した） | `formatShortTime(value, now, fallback)`（今日なら 時:分、違う日なら 月/日 時:分） |
 | 自動登録の設定の購読 | auto-register.js | header-frame | `autoRegister.subscribe(fn) → unsubscribe` |
 | キーで使い回す一覧 | ui/dom.js | stable-render | `syncList(container, items, { key, create, empty })`・`clearList(container)` |
 | 入力の間引き | ui/dom.js | stable-render | `debounce(fn, ms)`・`onTextInput(input, fn, { delay })` |
@@ -833,6 +837,18 @@ GAS と画面で同じにしてある上限（そろえる相手）: core/owned-
 - [ ] release-notes に 1 件足す
 - [ ] モックと実機で、固定・幅・許可・テスト環境を確かめる
 
+### 実装の記録（2026-10-12、セッション `300704ce`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマはこちらを正とする）。
+
+1. **足した部品**: `ui/header-popup.js` の `headerPopup({ wrapper, trigger, create })`（セーブ連携の状態と ID のメニューが共通で使う、開いたときだけ中身を作るパネル。外側の pointerdown・Esc で閉じ、Esc ではボタンへフォーカスを戻す。`create({ close })` が `{ panel, update }` を返し、開いている間の `update` は閉じずに書き換える）。**popovers のテーマで ui/popover.js の `createPopover` に置き換える**（ベルの notificationMenu は今のまま）。`ui/dom.js` に `formatShortTime(value, now, fallback = '未取得')`（今日なら 時:分、違う日なら 月/日 時:分）を足し、同期状況とセーブ連携の状態が使う。
+2. **同期状況**: `ui/sync-status.js` に `syncStatusText(state, now)`（`{ label, time, count, error }`。保存中・更新中・未取得は label だけ）・`syncStatusLine(parts)`（button の textContent と同じ文）・`syncStatus({ store, locked }) → { element, button, update(state) }`（`.sync-line` に button と `.sync-error` のチップ）を置いた。button の中は `.sync-label`（「最新取得 」）と `.sync-time`（時刻と件数、または保存中などの文）。**取り直している間は disabled にしない**（押した button が disabled になるとフォーカスを失うため。`aria-busy` を付け、2 回目の押下を無視する）。保存中・名前の変更中・ログイン画面だけ disabled にし、そのときも文は薄くしない（`.sync-status:disabled { opacity: 1 }`）。ログイン画面では今までどおり状況の文（ログインのエラーを含む）を出したまま押せない。
+3. **セーブ連携の状態**: `saveStatusModel` の戻り値に、文の部品 `world`・`time`・`auto` と `busy` を足した（狭い窓でワールド名と自動登録を隠すため、部品ごとの span に入れる）。**busy は `state.busy` のほか、自動の読み込みが `auto.status === 'checking'` の間も立てる**（owned.js の autoTask は busy より先に status を checking にして emit するので、そのままだと許可の警告などの文が 1 分ごとに揺れる）。「読み込み中は文を変えない」は `saveStatus` の側で、前に出した文と色を残して `is-busy` と title の進み具合だけを足す（最初の「所持パルを確認中…」だけは置き換える）。押したときの動き（許可を求める／ポップオーバー）は、残している文ではなく今の状態で決める。古いデータの title は、手元のデータは「最後に読み込んだのは …」、共有のデータは「最後に共有されたのは …」にした。共有の時刻が無ければセーブの時刻を使う。時刻が読めないときは「不明」。古いデータの印は時刻で変わるので、app.js の 1 分ごとのタイマー（セーブの読み直し）の中でも `update()` する。ポップオーバーの「表示中」の体数は設定タブと同じ `owned.pals.length`、読み込み中は「読み込み」の行に progress、困っていること（許可・読めない・共有できない・共有を読めない・セーブの読み込みの失敗）は警告色の一覧に出す。
+4. **幅（手順 7・8 の直し）**: モックで測ると、ホストの最も長い文「「もふもふワールド」· セーブ 10/12 22:41 · 自動登録 オン」の文字は 319px で、`.save-status-button { max-width: 22em }`（264px）だと末尾の時刻と自動登録が切れた。→ **最大幅の em の指定（22em・1100px 未満の 14em）をやめ、文を flex に並べてワールド名だけを縮める**（`.save-status-world` は 3em〜10em で省略記号。縮めきっても足りないときだけ `.save-status-auto` を省略）。区切りの空白は `white-space: pre` で残し、空の span は `:empty` で隠す。ヘッダーの中で縮むのはセーブ連携の状態だけにした（`.header-status { flex: none }`。同期状況の件数を切らない）。隠す順番の閾値（1200・1100・980px）は文書のまま。テスト環境のチップとホストの別の日の時刻が重なる 980〜1030px だけ「自動登録」が省略記号になる（本番はチップがないので収まる）。
+5. **ID**: `accountMenu` は app.js で context より前に作るので、`accountMenu({ store, renamer })` と必要なものだけを渡す（context と同じ形の object）。ヘッダーの子は `div.account-chip`（ログイン画面で hidden にする要素。app.test.js の一覧と同じ名前）で、ID の文字と ellipsis（最大 8em・12px）は中の `button.account-button` に付けた。メニューは見出し「ログイン中の ID」・ID の全文・「名前を変更」（途中で止まった変更があるときは隠す。再試行は設定タブ）・「ログアウト」。押すとメニューを閉じてボタンへフォーカスを戻してから、名前の変更のダイアログ・ログアウトの確認を開く（閉じた後のフォーカスがボタンに戻る）。`confirmLogout(store)` は承認したら true を返す。
+6. **ほか**: ロゴのリンクには常に aria-label「パル配合ノート（配合検索へ）」を付けた（文字を隠す 980px 未満だけでなく）。ロゴの文字の span に `brand-text` のクラスを付け、980px 未満はこれごと隠す。ログイン画面のヘッダーの余白は `padding: 0 32px`（上下の 12px は高さ固定で要らない）。トーストの z-index は 20 → `--z-toast`（50）、スキップリンクは 20 → `--z-skip`（70）、候補は 4 → `--z-panel`（3）、浮かせた候補に `--z-popover`（60）。ダイアログの中の sticky の見出しと足（z-index 2）は top layer の中なので触っていない。
+7. **テスト**: 新しいテストのうち app.test.js（並び・同期状況のボタン・失敗のチップ・ログイン画面で隠す部品）と auto-register.test.js（subscribe）は、変える前のコード（web/ だけを `git stash`）で落ち、変えた後で通ることを確かめた。同期状況の失敗のテストは、開発 API が `INTERNAL` を返す形にした（`BUSY`・`CONNECTION` は api.js が 1 回やり直すので、要求の数が 2 増える）。app.test.js の新しいテストは、後で定義される `signedIn` を使わず、ログインの値を直接書いた。
+
 ---
 
 ## stable-render: 差分更新・区切った描画・再計算の省略・ずれの解消
@@ -1381,7 +1397,7 @@ export function withTransition(fn) {
      { element, open(), close({ focus = true } = {}), isOpen(), reposition(), destroy() }
    ```
    - 本文の中で開くもの（今の pal-picker の既定）は今のまま wrapper の中（z-index は `--z-panel`）。**sticky のパネルの中で上に開く・ダイアログの中・候補が本文の外にはみ出す所**では host を渡して浮かせる（z-index は `--z-popover`）。
-   - header-frame のセーブ連携の状態と ID のメニューも、この部品に移す（今はベルのパネルと同じ作り）。
+   - header-frame のセーブ連携の状態と ID のメニューも、この部品に移す（今はベルのパネルと同じ作り）。追記（header-frame の実装、2026-10-12）: 2 つは `ui/header-popup.js` の `headerPopup` を共通で使っているので、これを `createPopover` に置き換える（中身を作る `create` と、開いている間の `update` は同じ形で渡せる）。
 2. **パル選択の検索**（新規 web/js/core/pal-search.js。DOM なし）:
 
    ```js
@@ -1504,7 +1520,7 @@ export function withTransition(fn) {
 - [ ] negatives・groups（I-49）・presets（I-51）を入れる
 - [ ] passiveChip に compact を足し、views/ideal.js:118・391・393 をチップにする
 - [ ] 所持パル・理想個体・継承ルートの呼び出し側を「作り直さず update」にする（O-14 の数え方）
-- [ ] header-frame のセーブ連携の状態と ID のメニューを ui/popover.js に移す
+- [ ] header-frame のセーブ連携の状態と ID のメニューを ui/popover.js に移す（`ui/header-popup.js` の `headerPopup` を置き換えて消す）
 - [ ] CSS（1 行・候補・選択中と矢印・バッジ・compact・高さ）を入れる
 - [ ] pal-picker・ideal-view・owned-view のテストの期待値を直す
 - [ ] pal-search・popover・passive-picker・route・owned のテストを足す
@@ -1546,4 +1562,5 @@ export function withTransition(fn) {
 | 2026-10-12 | render-contract（画面） | モック（`?mock=1&seed=80`、ヘッドレスの Chromium）で、配合検索・継承ルート（inject.js の所持パルあり）・理想個体を操作。選ぶ前の `.picker-trigger`・`#main` の子・`.route-query`・「登録する名前」の要素を覚えて比べる | 配合検索: 親 1 → 親 2 を選んでも `.picker-trigger` と `#main` の子が同じ。1 選択ごとに `history.length` が 1 増え、戻る・進むで同じ画面のまま前の選択と件数に戻る。親 1 の × を Enter で押すとフォーカスは親 1 のトリガーに残る。継承ルート: パッシブを足す → 追加欄、開始チップ（`start:SheepBall`）と「すべて」を Enter → 押したチップ、チップの × → 追加欄（どれも body にならない）。理想個体: 名前を入れてパッシブを足すと名前が残り、同じ画面の一覧の「呼び出す」で攻撃の目標の欄が登録の 90 に戻り URL から g が外れ、目標を変えると名前が消える。コンソールのエラー 0 件 | 完了の条件の画面の確認 | 確かめのスクリプトはセッションの一時フォルダに置いた（find/login.js・owned/inject.js の写しと、run-code で動かす確かめ用の js）。実機の戻る・進むの手応え（スワイプ・マウスのボタン）は確かめていない |
 | 2026-10-12 | data-boundary | `npm run test:perf` の test/perf/owned.perf.js（共有の所持パル 20,000 行 × 27 列の初回の 1 回。変える前の ownedFromShared と交互に測った） | 最終のコード: 整え直し（cleanOwnedPayload）21.7〜24.7 ms ＋ 画面用の変換（ownedFromShared）122〜132 ms ＝ 合計 146〜157 ms（単独で 3 回）。同じ時間の変える前の ownedFromShared は 100〜129 ms。`npm run test:perf` 全体（ほかの性能テストと並んで動く）では合計 149〜171 ms（4 回とも通る）。温まった後の 5 回の最小は、変える前 43〜44 ms・後 51 ms、整え直し 11〜14 ms | 合計 200ms 以内 | この時間帯は PC の負荷が高く、変える前の ownedFromShared が普段（72〜73 ms）の 1.4〜1.8 倍だった。途中の形（行ごとに列名で探す・行の配列を作り直す・Set でパッシブの重複を見る）では、`npm run test:perf` 全体で 203.5・205.5 ms と予算を超えたので、列の位置を 1 回だけ引く・直すセルのない行は元の配列を使う・整える必要のない文字列はそのまま返す、に直した。共有を読み直すとき・IndexedDB の共有のキャッシュを読むときに 1 回ずつ |
 | 2026-10-12 | data-boundary（画面） | モック（`?mock=1&seed=80`、ヘッドレスの Chromium）で、inject.js の所持パル 138 体の 1 体（アヌビス。ニックネーム「しらべ」）の個体値を HP 150・攻 'Infinity'・防 −5 にし、null・個体 ID なし・同じ ID・文字列の要素を pals に混ぜて読み込み直す。配合のキャッシュ（`pal-note.local.cache.test`）の records に null・id なし・文字列・同じ id の後の要素を混ぜ、`#/search?p1=<先頭の記録の親1>` で読み込み直す | 所持パル: 行は「HP 100 / 攻 0 / 防 0」、混ぜた要素は出ず、所持パルの数は 138 体のまま。ページのエラー 0 件。配合検索: 読み込み直した直後にキャッシュの索引で「3 件の登録済み配合」（同じ id の重複を数えない）、エラー 0 件。最終のコード（計測で直した後）で測り直しても同じ（件数は選んだ親で変わる）。変える前のコード（web/ を `git stash`）では、所持パルは「表示できる所持パルがありません。」（0 行）、配合検索はキャッシュから 1 件も出なかった | 完了の条件の画面の確認 | モックは読み込み直すとユーザーを作り直すので、キャッシュで描いた後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（モックの動き）。新規登録し直すと配合検索は今どおり動く。確かめのスクリプト（find/login.js・owned/inject.js の写しと、壊す・確かめる js）はセッションの一時フォルダに置いた |
+| 2026-10-12 | header-frame（画面） | モック（`?mock=1&seed=80`、ヘッドレスの Chromium）。一覧で scrollY=800、inject.js の所持パルあり（手元のデータ・役割なし）とデータなし。幅 1280・1200・1100・1099・980・979・920px と、拡大 125%・150% 相当（880・733px）。ライトとダーク | scrollY=800 で `.app-header` の top は 0（変える前は −773）。ベル・同期状況・セーブ連携の状態・登録・ID は `elementFromPoint` で押せる（920px 以上）。ヘッダーの高さはどの幅でも 56px、`.app-header` の scrollWidth＝clientWidth（折り返し・はみ出しなし）、920px 以上で文書の scrollWidth ≦ clientWidth。Tab の順はスキップリンク → ロゴ → 同期状況 → セーブ連携 → ベル → 登録 → ID → ナビ。ホストの最も長い文（部品の文字を差し替えて計測）の文字は 319px。1100px ではワールド名が 103 → 53px に縮み、時刻と自動登録は残る。1099px は「最新取得」を隠してワールド名が戻る。980px はワールド名 3em・自動登録が省略記号。979px 以下は「セーブ 22:41」だけ。ログイン直後の layout-shift は、変える前 0.32（`.app-header` 0→27・本文 61→83。テスト環境の帯）→ 後 0.16（ナビが出て本文が右へ 96px 動く分だけ。本文の top は 56 のまま）。同期状況を押すとトースト「最新の記録に更新しました」、開発 API の取得を失敗させると文は「最新取得 22:50 · 80 件」のまま隣に「更新できませんでした」（title にエラー文）、取り直すと消える。フォーカスはボタンに残る。拡大 125%・150% 相当（880・733px）は body の min-width 920px のため横スクロールが出て、150% では登録と ID が右にはみ出す（ヘッダーは 1 行・top 0 のまま） | 完了の条件の画面の確認（ヘッダー常に見える・1 行・横スクロールなし） | スクリーンショットと確かめのスクリプト（find/login.js・owned/inject.js の写し、幅ごとの計測・ポップオーバー・失敗の再現の js）はセッションの一時フォルダに置いた。失敗は Playwright の route で開発 API のモジュールを包んで再現した。許可の画面（File System Access）は実機でしか確かめられないので確かめていない |
 

@@ -362,8 +362,16 @@ export function createAutoRegister({
     return Object.fromEntries(entries.slice(0, MAPPING_MAX));
   }
 
+  // 設定（オン・オフ・登録者の対応）の変化を知らせる先（ヘッダーのセーブ連携の状態）
+  const listeners = new Set();
+  const changed = () => listeners.forEach((listener) => listener());
+
   return {
     evaluate,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     // 実行中の照合・登録（やり直しを含む）が終わるまで待つ
     async idle() {
       let waiting;
@@ -377,6 +385,7 @@ export function createAutoRegister({
       if (!worldId) return;
       const value = settings();
       storage.set(settingsKey, JSON.stringify({ ...value, worlds: { ...(value.worlds ?? {}), [worldId]: Boolean(on) } }));
+      changed();
       evaluate();
     },
     mapping(worldId = owned.state.local?.world.id ?? '') {
@@ -391,6 +400,7 @@ export function createAutoRegister({
       if (userId) next[playerUid] = userId;
       else delete next[playerUid];
       storage.set(mappingKey(env, worldId), JSON.stringify(next));
+      changed();
       evaluate();
     },
     /** 通知欄の元（createNotificationStore の sources に渡す） */
