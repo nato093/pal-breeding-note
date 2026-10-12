@@ -1,7 +1,7 @@
 // 配合牧場からの自動登録。ホストのセーブを読み込むたびに、牧場の親 2 体と産んだタマゴを見て、
 // 前に読んだときと親が同じ牧場に新しく現れたタマゴを、その親の配合として登録する（子は配合表で決める）。
 // 登録できないもの（登録済みと食い違う・登録者が未設定・表と合わない）は通知だけ出す。
-// 配合表は照合にだけ使う（INV-2 の例外）。画面での表示や検索には使わない。
+// 配合表を使うのは照合だけ（INV-2 の例外）。画面での表示や検索には使わず、通知にも配合表の答え（表の子）を出さない。
 import pals from '../data/pals.js';
 import { decodeBreeding, breedChild, isGenderDependent } from './core/breeding.js';
 import { findNewBreedings, mappedUser, resolveRegistrant } from './core/auto-breeding.js';
@@ -26,6 +26,30 @@ const isNewer = (a, b) => timeOf(a.savedAt) > timeOf(b.savedAt)
   || (timeOf(a.savedAt) === timeOf(b.savedAt) && (Number(a.rev) || 0) > (Number(b.rev) || 0));
 const palsById = new Map(pals.map((pal) => [pal.id, pal]));
 const palName = (id) => palsById.get(id)?.ja ?? id ?? '不明';
+
+// 配合表の答えは通知に出さない（INV-2。配合表を使うのは照合だけ。data/SOURCES.md）。
+// 出すのは、親・観測したタマゴの中身・登録済みの記録だけ
+export const AUTO_NOTICE_TITLES = Object.freeze({ anomaly: '自動登録しなかったタマゴ', conflict: '自動登録を保留した配合' });
+export const anomalyText = (pair, eggName) => `${pair} のタマゴ（${eggName}）は照合が合わず、自動登録しませんでした`;
+export const conflictText = (pair, registered) => `${pair}：登録済みの配合（子 ${registered}）と食い違うため、保留しました`;
+// 前の版の本文の形（親・配合表の子・新しいタマゴの中身か登録済みの子を並べたもの）
+const OLD_ANOMALY = /^(.+?)：表は.*?、新しいタマゴは(.+)$/;
+const OLD_CONFLICT = /^(.+?)：表は.*?、登録は(.+)$/;
+
+/**
+ * 保存済みの通知を、配合表の答えを含まない文にする（前の版が保存した通知と、旧コードのまま開いているタブが書いた通知のため）。
+ * 自動登録の見送り（anomaly）・保留（conflict）の通知だけを直し、id はそのまま（既読の記録が効く）。
+ * 形の分からない古い本文に配合表の子の言い回しがあれば、本文を出さずに題名だけにする
+ */
+export function safeAutoNotice(notice) {
+  const kind = /^auto-breed:[^:]*:(anomaly|conflict):/.exec(notice.id)?.[1];
+  if (!kind) return notice;
+  const body = String(notice.body ?? '');
+  const old = (kind === 'anomaly' ? OLD_ANOMALY : OLD_CONFLICT).exec(body);
+  const next = old ? (kind === 'anomaly' ? anomalyText(old[1], old[2]) : conflictText(old[1], old[2]))
+    : body.includes('表は') ? '' : body;
+  return { ...notice, title: AUTO_NOTICE_TITLES[kind], body: next };
+}
 
 // 親の性別で子が変わる組み合わせで、登録済みの別の子がどれも「親の性別を入れ替えたときの子」で、
 // 同じ性別の並びの登録でもなければ、別の結果として登録してよい
@@ -191,7 +215,8 @@ export function createAutoRegister({
 
   function readNotices(env, userId) {
     const list = env && userId ? readJson(noticeKey(env, userId), []) : [];
-    return Array.isArray(list) ? list.filter((n) => n && typeof n.id === 'string' && !LEGACY_NOTICE.test(n.id)) : [];
+    // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）
+    return Array.isArray(list) ? list.filter((n) => n && typeof n.id === 'string' && !LEGACY_NOTICE.test(n.id)).map(safeAutoNotice) : [];
   }
 
   // 同じ ID の通知は足さない。新しい順に NOTICE_MAX 件まで残す
@@ -208,16 +233,17 @@ export function createAutoRegister({
   }
 
   const pairText = (a, b) => `${palName(a)}×${palName(b)}`;
+  // 表と合わない新しいタマゴ（見たタマゴとして記録し、二度と判定しない）。表の子（m.expected）は出さない
   const anomalyNotice = (ctx, m) => ({
     id: `auto-breed:${ctx.env}:anomaly:${m.farmId}:${m.eggLocalId}`, date: ctx.importedAt,
-    title: '配合の結果が表と違います',
-    body: `${pairText(...m.parents)}：表は${m.expected ? palName(m.expected) : '不明'}、新しいタマゴは${palName(m.actual)}`,
+    title: AUTO_NOTICE_TITLES.anomaly, body: anomalyText(pairText(...m.parents), palName(m.actual)),
   });
+  // 登録済みと食い違う候補（対応や登録が変わったら、次の判定でやり直す）。候補の子は表の子
+  // （突然変異タマゴならタマゴの中身とも違う）なので出さず、登録済みの子だけを出す
   const conflictNotice = (ctx, candidate, existing) => ({
     id: `auto-breed:${ctx.env}:conflict:${candidate.evidence[0].farmId}:${candidate.evidence[0].eggLocalId}`, date: ctx.importedAt,
-    title: '登録済みの配合と違います',
-    body: `${pairText(candidate.record.parent1Id, candidate.record.parent2Id)}：表は${palName(candidate.record.childId)}、登録は${
-      [...new Set(existing.map((e) => palName(e.childId)))].join('・')}`,
+    title: AUTO_NOTICE_TITLES.conflict,
+    body: conflictText(pairText(candidate.record.parent1Id, candidate.record.parent2Id), [...new Set(existing.map((e) => palName(e.childId)))].join('・')),
     href: '#/list',
   });
   const unmappedId = (ctx, uid) => `auto-breed:${ctx.env}:unmapped:${ctx.worldId}:${uid}`;

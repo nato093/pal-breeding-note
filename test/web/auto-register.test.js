@@ -4,7 +4,7 @@ import data from '../../web/data/breeding.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, ApiError } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
-import { createAutoRegister } from '../../web/js/auto-register.js';
+import { createAutoRegister, safeAutoNotice, AUTO_NOTICE_TITLES } from '../../web/js/auto-register.js';
 
 const PASS = '自動登録の試験用';
 const P1 = 'p-1';
@@ -125,7 +125,10 @@ test('自動登録: 同じ組み合わせで別の子が登録済みなら、登
   await t.run();
   assert.equal(t.creates.length, 0);
   const [notice] = t.auto.notices();
-  assert.equal(notice.title, '登録済みの配合と違います');
+  assert.equal(notice.title, '自動登録を保留した配合');
+  // 親と、登録済みの子だけを出す。配合表の子（ヤクモマル）は出さない（INV-2）
+  assert.match(notice.body, /^(モコロン×オオタチウオ|オオタチウオ×モコロン)：登録済みの配合（子 ツッパニャン）と食い違うため、保留しました$/);
+  assert.doesNotMatch(`${notice.title}${notice.body}`, /ヤクモマル|表は/);
   assert.match(notice.id, /^auto-breed:test:conflict:f1:/);
   assert.ok(Number.isFinite(Date.parse(notice.date)));
   assert.equal(t.noticed, 1);
@@ -146,7 +149,11 @@ test('自動登録: 新しいふつうのタマゴが配合表と合わないと
   const t = await setup({ farms: [farm('f1', [parent('GhostDragon_Fire', 'Male'), parent('IceNarwhal_Fire', 'Female')], ['GuardianDog'])] });
   await t.run();
   assert.equal(t.creates.length, 0);
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['配合の結果が表と違います']);
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録しなかったタマゴ']);
+  // 親と、観測したタマゴの中身（ヤクモマル）だけを出す。配合表の子（テラナイト）は出さない（INV-2）
+  const [notice] = t.auto.notices();
+  assert.match(notice.body, /^(ヘルバーン×モモエール|モモエール×ヘルバーン) のタマゴ（ヤクモマル）は照合が合わず、自動登録しませんでした$/);
+  assert.doesNotMatch(`${notice.title}${notice.body}`, /テラナイト|表は/);
   assert.equal(t.noticed, 1);
   // 同じ通知は重ねない
   await t.run();
@@ -277,7 +284,10 @@ test('自動登録: 登録済みの別の子と親の性別の並びが同じな
   });
   await t.run();
   assert.equal(t.creates.length, 0);
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['登録済みの配合と違います']);
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録を保留した配合']);
+  // 配合表の子（フォレーオ）は出さず、登録済みの子（クレメーナ）だけ
+  assert.match(t.auto.notices()[0].body, /子 クレメーナ）/);
+  assert.doesNotMatch(t.auto.notices()[0].body, /フォレーオ|表は/);
 });
 
 test('自動登録: ほかの登録が送信待ちの間は判定せず、それが取り消されたら登録する', async () => {
@@ -363,6 +373,56 @@ test('自動登録: 前の版の「照合が合いません」の通知は出さ
   assert.deepEqual(t.auto.notices(), []);
 });
 
+test('自動登録: 牧場の上の突然変異タマゴが登録済みと食い違っても、通知に配合表の子もタマゴの中身も出さない', async () => {
+  // 突然変異タマゴ（中身は親と関係ないツッパニャン）は、表の子（ヤクモマル）の配合の候補になる。登録済みはタマコッコ
+  const mutation = { ...sheepFarm(), eggs: [{ localId: 'f1-0', characterId: 'PinkCat', itemId: 'PalEgg_MutationPal_Dragon_01' }] };
+  const t = await setup({ farms: [mutation], records: [{ parent1Id: 'SheepBall', parent2Id: 'SwordCutlassfish', childId: 'ChickenPal' }] });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  const [notice] = t.auto.notices();
+  assert.equal(notice.title, '自動登録を保留した配合');
+  assert.match(notice.body, /子 タマコッコ）と食い違うため、保留しました$/);
+  assert.doesNotMatch(`${notice.title}${notice.body}`, /ヤクモマル|ツッパニャン|表は/);
+});
+
+test('自動登録: 前の版が保存した通知の「表は X」は、読み出すときに外す（id はそのまま）', async () => {
+  const t = await setup({ farms: [] });
+  const key = 't.autoBreeding.notices.test.自分';
+  const date = '2026-10-06T00:00:00.000Z';
+  t.storage.set(key, JSON.stringify([
+    { id: 'auto-breed:test:anomaly:f1:e1', date, title: '配合の結果が表と違います', body: 'モコロン×ツッパニャン：表はセレムーン、新しいタマゴはフラリーナ' },
+    { id: 'auto-breed:test:conflict:f2:e2', date, title: '登録済みの配合と違います', body: 'モコロン×オオタチウオ：表はヤクモマル、登録はツッパニャン・タマコッコ', href: '#/list' },
+    { id: 'auto-breed:test:anomaly:f3:e3', date, title: '配合の結果が表と違います', body: '表はセレムーン（形の違う古い文）' },
+    { id: 'auto-breed:test:unmapped:W1:p-2', date, title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。設定で登録者を選んでください。', href: '#/settings' },
+  ]));
+  const notices = t.auto.notices();
+  assert.deepEqual(notices.map((n) => n.id), ['auto-breed:test:anomaly:f1:e1', 'auto-breed:test:conflict:f2:e2', 'auto-breed:test:anomaly:f3:e3', 'auto-breed:test:unmapped:W1:p-2']);
+  assert.deepEqual(notices.map((n) => [n.title, n.body]), [
+    ['自動登録しなかったタマゴ', 'モコロン×ツッパニャン のタマゴ（フラリーナ）は照合が合わず、自動登録しませんでした'],
+    ['自動登録を保留した配合', 'モコロン×オオタチウオ：登録済みの配合（子 ツッパニャン・タマコッコ）と食い違うため、保留しました'],
+    // 形が分からない古い文は、本文を出さず題名だけにする
+    ['自動登録しなかったタマゴ', ''],
+    ['プレイヤーの対応が未設定です', 'Frankの配合を登録できません。設定で登録者を選んでください。'],
+  ]);
+  assert.equal(notices[1].href, '#/list');
+  assert.ok(notices.every((n) => !/表は|セレムーン|ヤクモマル/.test(`${n.title}${n.body}`)));
+});
+
+test('自動登録: safeAutoNotice は自動登録の保留・見送りの通知だけを直し、ほかの通知はそのまま返す', () => {
+  assert.deepEqual(AUTO_NOTICE_TITLES, { anomaly: '自動登録しなかったタマゴ', conflict: '自動登録を保留した配合' });
+  const other = { id: 'release:2026-10-12-x', title: '表はどこ？', body: '表は X' };
+  assert.equal(safeAutoNotice(other), other);
+  const unmapped = { id: 'auto-breed:test:unmapped:W1:p', title: 'プレイヤーの対応が未設定です', body: '表は' };
+  assert.equal(safeAutoNotice(unmapped), unmapped);
+  // 新しい文はそのまま（読み出すたびに直しても変わらない）
+  const fresh = { id: 'auto-breed:test:conflict:f:e', date: 'd', title: '自動登録を保留した配合', body: 'A×B：登録済みの配合（子 C）と食い違うため、保留しました', href: '#/list' };
+  assert.deepEqual(safeAutoNotice(fresh), fresh);
+  assert.deepEqual(safeAutoNotice(safeAutoNotice({ ...fresh, title: '登録済みの配合と違います', body: 'A×B：表はX、登録はC' })), fresh);
+  // 本文がない・文字列でない古い通知でも落ちない
+  assert.deepEqual(safeAutoNotice({ id: 'auto-breed:test:anomaly:f:e', title: '配合の結果が表と違います' }), { id: 'auto-breed:test:anomaly:f:e', title: '自動登録しなかったタマゴ', body: '' });
+  assert.deepEqual(safeAutoNotice({ id: 'auto-breed:test:anomaly:f:e', body: 3 }).body, '3');
+});
+
 test('自動登録: ページを開き直しても、前に見たタマゴと登録を終えていない配合を覚えている', async () => {
   const t = await setup({ farms: [sheepFarm(P2)] });
   await t.run();
@@ -390,8 +450,9 @@ test('自動登録: サーバで食い違いと分かったときは、サーバ
   await t.run();
   assert.equal(t.creates.length, 1);
   const [notice] = t.auto.notices();
-  assert.equal(notice.title, '登録済みの配合と違います');
-  assert.match(notice.body, /登録はツッパニャン$/);
+  assert.equal(notice.title, '自動登録を保留した配合');
+  assert.match(notice.body, /子 ツッパニャン）と食い違うため、保留しました$/);
+  assert.doesNotMatch(notice.body, /ヤクモマル|表は/);
 });
 
 test('自動登録: 性別で変わる組み合わせを別の結果として送った後、性別の並びまで同じ食い違いが増えていたら通知する', async () => {
@@ -403,8 +464,10 @@ test('自動登録: 性別で変わる組み合わせを別の結果として送
   await registerElsewhere(t, { parent1Id: 'CatMage', parent1Gender: 'M', parent2Id: 'FoxMage', parent2Gender: 'F', childId: 'SheepBall' });
   await t.run();
   assert.equal(t.creates[0].allowDifferentChild, true);
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['登録済みの配合と違います']);
-  assert.match(t.auto.notices()[0].body, /モコロン/);
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録を保留した配合']);
+  // 登録済みの子は両方（並びは登録の順）
+  assert.match(t.auto.notices()[0].body, /子 (クレメーナ・モコロン|モコロン・クレメーナ)）/);
+  assert.doesNotMatch(t.auto.notices()[0].body, /フォレーオ|表は/);
 });
 
 test('自動登録: サーバで食い違いと分かった配合は、同じセーブの間は送り直さず、一覧を取り直して手元で判定する', async () => {
@@ -471,7 +534,7 @@ test('自動登録: 登録の送信中に新しいセーブを読んでも、表
   t.lay();
   release();
   await t.auto.idle();
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['配合の結果が表と違います']);
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録しなかったタマゴ']);
 });
 
 test('自動登録: ブラウザへの保存が途中から失敗しても、メモリの新しい記録で判定する', async () => {
