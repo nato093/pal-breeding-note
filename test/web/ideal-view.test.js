@@ -69,7 +69,8 @@ test('理想個体画面: URL の目標とパッシブで、配合牧場に置�
   assert.match(list[0].textContent, /完全体作成組/);
   assert.match(list[0].textContent, /1 個のタマゴで 16\.8%/);
   assert.doesNotMatch(list[0].textContent, /タマゴ ·|孵化/);
-  assert.match(list[0].textContent, /平均 約 6 個に 1 個 · パッシブ 60% × 個体値 28%/);
+  // 両親合わせて欲しいパッシブがそろう同じ種族の組なので、子を入れ替えながら作るときの平均も出す
+  assert.match(list[0].textContent, /世代を重ねて 平均 約 6 個この 2 体のままなら 約 6 個に 1 個/);
   assert.match(list[0].textContent, /同じ種族どうし/);
   assert.equal(view.element.querySelector('.result-note').textContent, '2 組のうち、別々の個体で作れる上位 1 組 · 候補 3 体 · 同じ種族どうし · 性別不明の 1 体は除外 · 20 秒ごとに確認');
   // 並べ方の切り替えはない
@@ -229,15 +230,17 @@ test('理想個体画面: 自動登録の配合は、性別を入れ替えた向
 
 test('理想個体画面: 完全体作成組・パッシブ厳選組・個体値厳選組の順に、目的の札と目的ごとの数字で別々の個体を出す', (t) => {
   install(t);
+  // 同じ種族で両親合わせて欲しいパッシブがそろう組は完全体作成組になるので、パッシブ厳選組は異なる種族の組（1 回では作れない）で確かめる
   const owned = fakeOwned([
     palworldPal('m1', 'SheepBall', 'Male', ['CraftSpeed_up2', 'Rare'], { hp: 100, shot: 100, defense: 100 }),
-    palworldPal('f1', 'SheepBall', 'Female', ['CraftSpeed_up2', 'Rare'], { hp: 90, shot: 90, defense: 90 }),
-    palworldPal('m2', 'SheepBall', 'Male', ['CraftSpeed_up2'], { hp: 50, shot: 50, defense: 50 }),
-    palworldPal('f2', 'SheepBall', 'Female', ['Rare'], { hp: 40, shot: 40, defense: 40 }),
+    palworldPal('f1', 'SheepBall', 'Female', ['CraftSpeed_up2', 'Rare'], { hp: 100, shot: 100, defense: 100 }),
+    palworldPal('m2', 'PinkCat', 'Male', ['CraftSpeed_up2'], { hp: 50, shot: 50, defense: 50 }),
+    palworldPal('f2', 'ChickenPal', 'Female', ['Rare'], { hp: 40, shot: 40, defense: 40 }),
     palworldPal('m3', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 0 }),
     palworldPal('f3', 'SheepBall', 'Female', [], { hp: 0, shot: 0, defense: 100 }),
   ]);
-  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const records = [{ id: 'r1', parent1Id: 'PinkCat', parent2Id: 'ChickenPal', childId: 'SheepBall', parent1Gender: '', parent2Gender: '' }];
+  const view = idealView(context(owned, records), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
   const list = cards(view);
   assert.deepEqual(list.map((card) => card.querySelector('.ideal-tier').textContent), ['完全体作成組', 'パッシブ厳選組', '個体値厳選組']);
   // 完全体作成組: 子を入れ替えながら完全体が産まれるまでの平均
@@ -510,7 +513,7 @@ test('理想個体画面: 配合牧場の組をおすすめの上から同じ数
   const owned = fakeOwned([
     palworldPal('m1', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 100 }),
     palworldPal('f1', 'SheepBall', 'Female', [], { hp: 100, shot: 100, defense: 100 }),
-    palworldPal('m2', 'SheepBall', 'Male', [], { hp: 90, shot: 90, defense: 90 }),
+    palworldPal('m2', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 90 }),
     palworldPal('f2', 'SheepBall', 'Female', [], { hp: 90, shot: 90, defense: 90 }),
     palworldPal('m3', 'SheepBall', 'Male', [], { hp: 0, shot: 0, defense: 0 }),
     palworldPal('f3', 'SheepBall', 'Female', [], { hp: 0, shot: 0, defense: 0 }),
@@ -528,9 +531,9 @@ test('理想個体画面: 配合牧場の組をおすすめの上から同じ数
   assert.match(box.querySelector('h3').textContent, /この目標の組を置いている 2 か所 · 交換推奨 1 か所/);
   const rows = box.querySelectorAll('.ideal-farm');
   assert.match(rows[0].textContent, /そのまま（おすすめ 1 番）/);
-  // おすすめ 2 番（m2×f2）は f2 が入っている牧場に入れ、m3 と入れ替える
+  // おすすめ 2 番（m2×f2）は f2 が入っている牧場に入れ、m3 と入れ替える（完成までの平均が減るので交換を勧める）
   assert.match(rows[1].textContent, /交換推奨 → おすすめ 2 番/);
-  assert.match(rows[1].textContent, /外す: モコロン♂（HP 0・攻 0・防 0） \/ 入れる: モコロン♂（HP 90・攻 90・防 90）（Alice · パルボックス）/);
+  assert.match(rows[1].textContent, /外す: モコロン♂（HP 0・攻 0・防 0） \/ 入れる: モコロン♂（HP 100・攻 100・防 90）（Alice · パルボックス）/);
   assert.match(cards(view)[0].textContent, /拠点の牧場に配置中/);
   assert.doesNotMatch(cards(view)[1].textContent, /配置中/);
   view.destroy();
@@ -546,6 +549,106 @@ test('理想個体画面: 配合牧場の組をおすすめの上から同じ数
   owned.state.owned = null;
   owned.emit();
   assert.equal(plain.element.querySelector('.ideal-farms').textContent, '');
+  plain.destroy();
+});
+
+test('理想個体画面: 両親合わせて欲しいパッシブがそろう組が早ければ、牧場の組からの交換を勧める（画像の 4 体）', (t) => {
+  install(t);
+  const wanted = ['Deffence_up3', 'MutationPal_Immortal', 'PAL_ALLAttack_up3', 'CoolTimeReduction_Up_1'];
+  const owned = fakeOwned([
+    palworldPal('A', 'KabukiMan', 'Male', wanted, { hp: 97, shot: 99, defense: 96 }),
+    palworldPal('B', 'KabukiMan', 'Female', wanted, { hp: 97, shot: 99, defense: 96 }),
+    palworldPal('C', 'KabukiMan', 'Male', ['MutationPal_Immortal', 'WorkSuitabilityAddRank_MonsterFarm_2', 'Deffence_up3', 'PAL_ALLAttack_up3'], { hp: 97, shot: 98, defense: 96 }),
+    palworldPal('D', 'KabukiMan', 'Female', ['CoolTimeReduction_Up_1'], { hp: 100, shot: 14, defense: 96 }),
+  ]);
+  owned.state.owned.farms = [{ id: 'F4', baseId: '', parents: ['A', 'B'] }];
+  const view = idealView(context(owned), parseHash(`#/ideal?to=KabukiMan&p=${wanted.join(',')}`));
+  // 1 番は ♂A×♀D（♀D は冷静沈着だけだが、A と合わせて 4 つそろい、HP 100 がある）
+  assert.equal(talentsOf(cards(view)[0]), 'HP 97 / 攻 99 / 防 96 × HP 100 / 攻 14 / 防 96');
+  assert.match(cards(view)[0].textContent, /完全体作成組世代を重ねて 平均 約 3,592 個/);
+  const row = view.element.querySelector('.ideal-farm');
+  assert.match(row.textContent, /交換推奨 → おすすめ 1 番/);
+  assert.match(row.textContent, /外す: ゴウカブキ♀（HP 97・攻 99・防 96） \/ 入れる: ゴウカブキ♀（HP 100・攻 14・防 96）（Alice · パルボックス）/);
+  view.destroy();
+});
+
+test('理想個体画面: 完成までの平均が同じ組しかないときは、交換推奨も「変更あり」も出さない', (t) => {
+  install(t);
+  const list = [
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 100 }),
+    palworldPal('f1', 'SheepBall', 'Female', [], { hp: 100, shot: 100, defense: 100 }),
+    palworldPal('m2', 'SheepBall', 'Male', [], { hp: 90, shot: 90, defense: 90 }),
+    palworldPal('f2', 'SheepBall', 'Female', [], { hp: 90, shot: 90, defense: 90 }),
+    palworldPal('m3', 'SheepBall', 'Male', [], { hp: 0, shot: 0, defense: 0 }),
+  ];
+  // 牧場 B の m3(0,0,0)×f2(90,90,90) と、パルボックスの m2(90,90,90)×f2 は、どちらも 100 に届く親がいないので平均 約 487 個の同点
+  const owned = fakeOwned(list);
+  const farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }, { id: 'B', baseId: '', parents: ['m3', 'f2'] }];
+  owned.state.owned.farms = farms;
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  const box = () => view.element.querySelector('.ideal-farms');
+  assert.match(box().querySelector('h3').textContent, /交換推奨 0 か所/);
+  const rows = () => box().querySelectorAll('.ideal-farm');
+  assert.match(rows()[1].textContent, /そのまま（おすすめ 2 番）/);
+  // 牧場の組が同点の中で先に並ぶ
+  assert.match(cards(view)[1].textContent, /拠点の牧場に配置中/);
+  // 個体値の期待値だけが高い同点の ♀（99,99,99。100 には届かない）を孵化させて受け取っても、入れ替えを勧めず「変更あり」も付けない
+  owned.state.owned = fakeOwned([...list, palworldPal('f9', 'SheepBall', 'Female', [], { hp: 99, shot: 99, defense: 99 })]).state.owned;
+  owned.state.owned.farms = farms;
+  owned.emit();
+  assert.match(box().querySelector('h3').textContent, /交換推奨 0 か所/);
+  assert.match(rows()[1].textContent, /そのまま（おすすめ 2 番）/);
+  assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
+  assert.doesNotMatch(box().textContent, /新しく入った組/);
+  view.destroy();
+});
+
+test('理想個体画面: 入れ替えると 1 か所は早くなるが、牧場全体では遅くなるときは、交換を見送って「そのまま」と出す', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 100 }),
+    palworldPal('m2', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 0 }),
+    palworldPal('f1', 'SheepBall', 'Female', [], { hp: 100, shot: 0, defense: 0 }),
+    palworldPal('f2', 'SheepBall', 'Female', [], { hp: 100, shot: 0, defense: 100 }),
+  ]);
+  // A（m1×f1・平均 約 10 個）と B（m2×f2・約 14 個）。おすすめは m1×f2（約 7 個）と m2×f1（約 241 個）で、入れ替えると全体では遅い
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }, { id: 'B', baseId: '', parents: ['m2', 'f2'] }];
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  const box = view.element.querySelector('.ideal-farms');
+  assert.match(box.querySelector('h3').textContent, /この目標の組を置いている 2 か所 · 交換推奨 0 か所/);
+  for (const row of box.querySelectorAll('.ideal-farm')) {
+    assert.match(row.textContent, /そのまま（入れ替えても全体の速さの目安が上がりません）/);
+    assert.doesNotMatch(row.textContent, /外す|入れる/);
+  }
+  assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
+  view.destroy();
+});
+
+test('理想個体画面: 牧場の組か交換先の組に、同じ組み合わせで別の子も登録されているときは、速さで比べずにおすすめの順で判定し、登録の間違いの可能性を出す', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('pm', 'PinkCat', 'Male', []),
+    palworldPal('cf', 'ChickenPal', 'Female', []),
+    palworldPal('mx', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 0 }),
+    palworldPal('fx', 'SheepBall', 'Female', [], { hp: 0, shot: 0, defense: 0 }),
+  ]);
+  const records = [
+    { id: 'r1', parent1Id: 'PinkCat', parent2Id: 'ChickenPal', childId: 'SheepBall', parent1Gender: '', parent2Gender: '' },
+    { id: 'r2', parent1Id: 'PinkCat', parent2Id: 'ChickenPal', childId: 'Carbunclo', parent1Gender: '', parent2Gender: '' },
+  ];
+  // 牧場のツッパニャン×タマコッコは、目標が産まれるなら平均 約 4 個で速いが、別の子も登録されているので、確実な 1 番の組への交換を勧める
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['pm', 'cf'] }];
+  const view = idealView(context(owned, records, new Map()), parseHash('#/ideal?to=SheepBall'));
+  const row = view.element.querySelector('.ideal-farm');
+  assert.match(row.textContent, /交換推奨 → おすすめ 1 番/);
+  assert.match(row.querySelector('.ideal-warning').textContent,
+    /^⚠ 牧場の組は、同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。$/);
+  assert.match(cards(view)[1].querySelector('.ideal-warning').textContent, /別の子も登録されています。どちらかの登録が間違っている可能性があります。/);
+  view.destroy();
+  // 別の子の登録がない組どうしなら、注記は出さない
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['mx', 'fx'] }];
+  const plain = idealView(context(owned, records.slice(0, 1), new Map()), parseHash('#/ideal?to=SheepBall'));
+  assert.equal(plain.element.querySelector('.ideal-farm').querySelector('.ideal-warning'), null);
   plain.destroy();
 });
 
@@ -570,6 +673,14 @@ test('理想個体画面: 牧場の中身が最後に変わってから新しく
   assert.match(talentsOf(cards(view)[0]), /HP 100 \/ 攻 100 \/ 防 100$/);
   assert.match(view.element.querySelector('.ideal-farms').textContent, /新しく入った組が 1 組/);
   assert.match(view.element.querySelector('.ideal-farm').textContent, /交換推奨 → おすすめ 1 番/);
+  // 条件を変えると別の基準（変えた条件で初めて見るので印はない）。戻すと、もとの基準で印が戻る
+  const cake = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent'));
+  cake.value = 'talent';
+  cake.dispatch('change');
+  assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
+  cake.value = 'none';
+  cake.dispatch('change');
+  assert.match(cards(view)[0].textContent, /変更あり/);
   // タブを切り替えても、牧場の中身が変わるまで残る
   view.destroy();
   const again = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
