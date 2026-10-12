@@ -19,11 +19,42 @@ export function validId(route, key, context) {
   return '';
 }
 
+/**
+ * 画面の中の条件の変更（パル・パッシブを選ぶなど）で URL を変える。同じ画面なら作り直さず、ビューの applyRoute で合わせる
+ * （context.update）。ビューのテストの context は update を持たないので、そのときは navigate に落とす。
+ */
+export function changeRoute(context, hash) {
+  if (context.update) context.update(hash);
+  else context.navigate(hash);
+}
+
+/** route は今の route（applyRoute で入れ直したもの）を渡す。同じ画面なら作り直さない（changeRoute）。 */
 export function navigateSelection(context, route, key, value) {
   const params = new URLSearchParams(route.params);
   if (value) params.set(key, value);
   else params.delete(key);
-  context.navigate(buildHash(route.view, params, route.id));
+  changeRoute(context, buildHash(route.view, params, route.id));
+}
+
+/** パル選択の値が違うときだけ合わせる（同じ値で描き直すと、選んだパルの画像が現れる動きがもう一度出る）。 */
+export function syncPicker(picker, value) {
+  if (picker && picker.getValue() !== value) picker.setValue(value);
+}
+
+/**
+ * container の中を作り直す（render）。中にフォーカスがあって作り直しで外れたら、target(前の要素) が返す要素へ移す。
+ * 画面を作り直さない遷移では、押したチップやパッシブの選択欄をビューが作り直すため、そのままでは body に落ちる。
+ * （戻し方の一般化は keep-state の ui/focus.js で行う）
+ */
+export function keepFocus(container, render, target) {
+  const doc = globalThis.document;
+  const before = doc?.activeElement;
+  const inside = Boolean(before) && before !== doc.body && container.contains(before);
+  render();
+  if (!inside) return;
+  const now = doc.activeElement;
+  if (now && now !== doc.body) return;
+  target(before)?.focus();
 }
 
 export function renderCards(target, records, context, options) {
@@ -37,6 +68,7 @@ export function dataPending(target, state) {
   return true;
 }
 
+/** store の記録が変わったら update で描き直す。返す update は、条件が変わったときにビューが直接呼ぶ。 */
 export function watchView(store, element, update, pickers = []) {
   let lastIndex = store.state.index;
   let lastEnv = store.state.env;
@@ -50,5 +82,5 @@ export function watchView(store, element, update, pickers = []) {
     update(state);
   });
   update(store.state);
-  return { element, destroy() { unsubscribe(); pickers.forEach((picker) => picker.destroy()); } };
+  return { element, update, destroy() { unsubscribe(); pickers.forEach((picker) => picker.destroy()); } };
 }

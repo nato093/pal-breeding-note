@@ -3,7 +3,7 @@ import { palTile, humanIcon } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
-import { viewHeading } from './shared.js';
+import { viewHeading, syncPicker } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordNotes, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
@@ -79,15 +79,19 @@ export function ownedView(context, route) {
     stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   };
   if (memory) memory.filter = filter;
-  // URL で指定された絞り込みは、覚えている絞り込みより優先する。
-  if (['holder', 'place', 'pal', 'p'].some((key) => route.params.has(key))) {
-    filter.holder = route.params.get('holder') ?? '';
-    filter.place = route.params.get('place') ?? '';
-    filter.palId = route.params.get('pal') ?? '';
-    filter.passives = (route.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
+  // URL で指定された絞り込みは、覚えている絞り込みより優先する（作るときと、同じ画面のまま URL が変わったとき）。
+  // 指定があって絞り込みを入れたら true を返す
+  function readRoute(next) {
+    if (!['holder', 'place', 'pal', 'p'].some((key) => next.params.has(key))) return false;
+    filter.holder = next.params.get('holder') ?? '';
+    filter.place = next.params.get('place') ?? '';
+    filter.palId = next.params.get('pal') ?? '';
+    filter.passives = (next.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
     // 画面内で変えた絞り込みは URL に出ないため、戻ってきたときに古い URL の指定で上書きしないよう外しておく。
     if (memory) context.replace(buildHash('owned'));
+    return true;
   }
+  readRoute(route);
 
   // 表示しているデータのワールドと更新時刻、連携の案内（設定の操作は設定タブで行う）
   const summary = el('section', 'owned-summary');
@@ -241,5 +245,16 @@ export function ownedView(context, route) {
   renderPassives(owned.state);
   renderResults();
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
-  return { element, destroy() { unsubscribe(); picker.destroy(); } };
+  return {
+    element, update,
+    // 同じ画面のまま絞り込みつきの URL が来たとき。作り直さずに、絞り込みと選択欄・一覧を合わせる（キーワードなどの入力は残す）
+    applyRoute(next) {
+      if (!readRoute(next)) return;
+      syncPicker(picker, filter.palId);
+      renderFilters(owned.state);
+      renderPassives(owned.state);
+      renderResults();
+    },
+    destroy() { unsubscribe(); picker.destroy(); },
+  };
 }

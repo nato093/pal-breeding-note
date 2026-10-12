@@ -6,7 +6,7 @@ import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
-import { viewHeading, validId, navigateSelection, watchView, dataPending } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus } from './shared.js';
 
 function holderSummary(carriers) {
   // 要約なので、パルボックスのページと位置までは出さない
@@ -30,9 +30,11 @@ function carrierList(carriers) {
   return list;
 }
 
-function startChip(content, pressed, onClick) {
+// key は作り直した後に同じチップを探すための目印（start:<palId>・start:all。keep-state の data-focus-key と同じ形）
+function startChip(content, pressed, onClick, key) {
   const chip = button('', onClick, 'start-chip');
   chip.setAttribute('aria-pressed', String(pressed));
+  chip.setAttribute('data-focus-key', key);
   chip.append(...content);
   return chip;
 }
@@ -40,10 +42,19 @@ function startChip(content, pressed, onClick) {
 export function inheritanceView(context, route) {
   const element = el('section', 'view');
   const heading = viewHeading('スキルをつなぐ');
-  const from = validId(route, 'from', context);
-  const to = validId(route, 'to', context);
-  const passives = (route.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
-  const selectPal = (key) => (id) => navigateSelection(context, route, key, id);
+  let current = route;
+  let from = '';
+  let to = '';
+  let passives = [];
+  // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）
+  function readRoute(next) {
+    current = next;
+    from = validId(next, 'from', context);
+    to = validId(next, 'to', context);
+    passives = (next.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
+  }
+  readRoute(route);
+  const selectPal = (key) => (id) => navigateSelection(context, current, key, id);
   const toPicker = palPicker({ label: '目標', value: to, onChange: selectPal('to') });
   let fromPicker = null;
   const owned = context.owned;
@@ -59,10 +70,10 @@ export function inheritanceView(context, route) {
   const results = el('div');
 
   const setPassives = (ids) => {
-    const params = new URLSearchParams(route.params);
+    const params = new URLSearchParams(current.params);
     if (ids.length) params.set('p', ids.join(','));
     else params.delete('p');
-    context.navigate(buildHash('route', params));
+    changeRoute(context, buildHash('route', params));
   };
 
   // 所持パルがあるときは目標とパッシブだけで探し、開始は候補から絞り込む形にする（選ばなくてよい）。
@@ -81,10 +92,10 @@ export function inheritanceView(context, route) {
     }
     fromPicker = palPicker({ label: '開始', value: from, onChange: selectPal('from') });
     const swap = button('⇄', () => {
-      const params = new URLSearchParams(route.params);
+      const params = new URLSearchParams(current.params);
       params.set('from', to);
       params.set('to', from);
-      context.navigate(buildHash('route', params));
+      changeRoute(context, buildHash('route', params));
     }, 'icon-button swap-button');
     swap.setAttribute('aria-label', '開始と目標を入れ替える');
     panel.className = 'selection-panel pair-selection';
@@ -98,24 +109,27 @@ export function inheritanceView(context, route) {
 
   // 「すべて」（開始を選ばない）と、パッシブを持つ所持パルの候補を並べる。候補にないパルは「他のパル…」から選ぶ
   function renderStartFilter(starts) {
-    const all = startChip([el('span', '', 'すべて')], !from, () => selectPal('from')(''));
+    const all = startChip([el('span', '', 'すべて')], !from, () => selectPal('from')(''), 'start:all');
     all.classList.add('start-chip-all');
     const chips = [all];
     for (const start of starts) {
       const pressed = from === start.palId;
       const chip = startChip([palTile(start.palId, { clickable: false }), el('small', 'start-chip-count', start.length ? `${start.length}回` : '所持')],
-        pressed, () => selectPal('from')(pressed ? '' : start.palId));
+        pressed, () => selectPal('from')(pressed ? '' : start.palId), `start:${start.palId}`);
       chip.title = `${start.length ? `最短 ${start.length} 回の配合` : 'すでに目標のパルを所持'} · ${start.carriers.length} 体`;
       chips.push(chip);
     }
-    fromPicker.setValue(from && !starts.some((start) => start.palId === from) ? from : '');
-    startChips.replaceChildren(...chips, fromPicker.element);
+    syncPicker(fromPicker, from && !starts.some((start) => start.palId === from) ? from : '');
+    // 押したチップは作り直すと消えるので、同じパルのチップへフォーカスを移す（「他のパル…」の欄は付け直した同じ要素へ）
+    keepFocus(startChips, () => startChips.replaceChildren(...chips, fromPicker.element), (previous) => (previous.isConnected ? previous
+      : chips.find((chip) => chip.getAttribute('data-focus-key') === previous.getAttribute('data-focus-key'))));
   }
 
   function renderOwned(state, pals, starts) {
-    passiveSlot.replaceChildren(passiveSelector({
+    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう追加欄へフォーカスを移す
+    keepFocus(passiveSlot, () => passiveSlot.replaceChildren(passiveSelector({
       label: '運びたいパッシブ（所持パルから探す）', selected: passives, counts: passiveCounts(pals ?? []), onChange: setPassives,
-    }));
+    })), () => passiveSlot.querySelector('.passive-add'));
     ownedSection.replaceChildren();
     if (!pals) {
       if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
@@ -151,7 +165,7 @@ export function inheritanceView(context, route) {
       const info = el('div', 'route-start-info');
       info.append(el('strong', '', start.length ? `最短 ${start.length} 回の配合` : 'すでに目標のパルを所持'),
         el('small', 'muted', `${start.carriers.length} 体 · ${holderSummary(start.carriers)}`));
-      const params = new URLSearchParams(route.params);
+      const params = new URLSearchParams(current.params);
       params.set('from', start.palId);
       const action = start.length ? link('この経路を見る', buildHash('route', params), 'button secondary') : el('span');
       row.append(palTile(start.palId), info, action);
@@ -200,7 +214,14 @@ export function inheritanceView(context, route) {
   }
   const pickers = { destroy() { toPicker.destroy(); fromPicker?.destroy(); } };
   const view = watchView(context.store, element, update, [pickers]);
-  if (!owned) return view;
+  // 同じ画面のまま URL が変わったとき。選択欄は作り直さずに値だけ合わせる（開始と目標の形は arrange が決める）
+  function applyRoute(next) {
+    readRoute(next);
+    syncPicker(toPicker, to);
+    if (!filterLayout) syncPicker(fromPicker, from);
+    update(context.store.state);
+  }
+  if (!owned) return { ...view, applyRoute };
   let lastData = owned.state.data;
   const unsubscribe = owned.subscribe((ownedState) => {
     if (ownedState.data === lastData) return;
@@ -208,5 +229,5 @@ export function inheritanceView(context, route) {
     update(context.store.state);
   });
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
-  return { element, destroy() { unsubscribe(); view.destroy(); } };
+  return { element, update, applyRoute, destroy() { unsubscribe(); view.destroy(); } };
 }

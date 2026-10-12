@@ -139,6 +139,33 @@ test('所持パル画面: タブを切り替えて作り直しても絞り込み
   fresh.destroy();
 });
 
+test('所持パル画面: 同じ画面のまま絞り込みつきの URL が来ると（applyRoute）、作り直さずに絞り込みと選択欄を合わせ、URL から外す', (t) => {
+  installDom(t);
+  const states = new Map();
+  const replaced = [];
+  const app = Object.assign(context(fakeOwned()), {
+    viewState(view) { if (!states.has(view)) states.set(view, {}); return states.get(view); },
+    replace: (hash) => replaced.push(hash),
+  });
+  const view = ownedView(app, parseHash('#/owned'));
+  const keyword = view.element.querySelectorAll('input').find((node) => node.type === 'search');
+  const trigger = view.element.querySelector('.picker-trigger');
+  keyword.value = 'もこ';
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
+  view.applyRoute(parseHash('#/owned?pal=PinkCat'), { reason: 'history' });
+  assert.deepEqual(replaced, ['#/owned']);
+  assert.equal(view.element.querySelector('.picker-trigger'), trigger);
+  assert.equal(trigger.getAttribute('aria-label'), 'パル: No.2 ツッパニャン');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
+  // 画面の中の入力（キーワード）は消さない
+  assert.equal(keyword.value, 'もこ');
+  // 絞り込みのない URL では何も変えない
+  view.applyRoute(parseHash('#/owned'), { reason: 'history' });
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
+  assert.deepEqual(replaced, ['#/owned']);
+  view.destroy();
+});
+
 test('所持パル画面: キーワードはスキルや属性でも探せ、一覧に出していないスキルで一致したときは行にその名前を出す', async (t) => {
   installDom(t);
   const data = {
@@ -300,6 +327,43 @@ test('継承ルート: 所持パルがあると、目標とパッシブの下に
   assert.deepEqual(chipStates(other).map(([, pressed]) => pressed), ['false', 'false']);
   assert.match(other.element.querySelector('.start-chips').querySelector('.picker-trigger').textContent, /ツッパニャン/);
   other.destroy();
+});
+
+test('継承ルート: 同じ画面のまま開始のチップやパッシブの × を押しても、作り直した欄の同じ役目の要素にフォーカスを移す', async (t) => {
+  const { body } = installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const app = context(fakeOwned(), records);
+  const updates = [];
+  let view;
+  app.update = (hash) => { updates.push(hash); view.applyRoute(parseHash(hash), { reason: 'update' }); };
+  view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  body.append(view.element);
+  const panel = view.element.querySelector('.route-query');
+  const chip = view.element.querySelectorAll('.start-chip')[1];
+  chip.focus();
+  await chip.dispatch('click');
+  assert.deepEqual(updates, ['#/route?to=CuteFox&p=CraftSpeed_up2&from=SheepBall']);
+  assert.deepEqual(app.navigations, []);
+  assert.equal(view.element.querySelector('.route-query'), panel);
+  const pressed = view.element.querySelectorAll('.start-chip')[1];
+  assert.equal(pressed.getAttribute('aria-pressed'), 'true');
+  assert.equal(document.activeElement, pressed);
+  // 「すべて」に戻しても、押した「すべて」に残る
+  const all = view.element.querySelectorAll('.start-chip')[0];
+  all.focus();
+  await all.dispatch('click');
+  assert.equal(updates.at(-1), '#/route?to=CuteFox&p=CraftSpeed_up2');
+  assert.equal(document.activeElement, view.element.querySelectorAll('.start-chip')[0]);
+  assert.equal(document.activeElement.getAttribute('aria-pressed'), 'true');
+  // パッシブのチップの × で外すと、追加欄へ
+  const remove = view.element.querySelector('.passive-remove');
+  remove.focus();
+  await remove.dispatch('click');
+  assert.equal(updates.at(-1), '#/route?to=CuteFox');
+  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  view.destroy();
 });
 
 test('継承ルート: 所持パルのデータがないときは、開始と目標を並べて選ぶ', (t) => {

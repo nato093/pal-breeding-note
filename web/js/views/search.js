@@ -2,22 +2,30 @@ import { el, button, empty } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { breedingCard } from '../ui/breeding-card.js';
 import { findByPair, findByParent } from '../core/index.js';
-import { viewHeading, validId, navigateSelection, watchView, dataPending } from './shared.js';
+import { viewHeading, validId, navigateSelection, watchView, dataPending, syncPicker } from './shared.js';
 
 export function searchView(context, route) {
   const element = el('section', 'view');
   element.append(viewHeading('配合を見つけよう'));
-  const p1 = validId(route, 'p1', context);
-  const p2 = validId(route, 'p2', context);
+  let current = route;
+  let p1 = '';
+  let p2 = '';
+  // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）
+  function readRoute(next) {
+    current = next;
+    p1 = validId(next, 'p1', context);
+    p2 = validId(next, 'p2', context);
+  }
+  readRoute(route);
   const selections = el('div', 'selection-panel search-selection');
   const pickers = [['p1', '親1', p1], ['p2', '親2', p2]].map(([key, label, value]) => palPicker({
-    label, value, onChange: (id) => navigateSelection(context, route, key, id),
+    label, value, onChange: (id) => navigateSelection(context, current, key, id),
   }));
   selections.append(...pickers.map((picker) => picker.element));
   const note = el('p', 'result-note');
   const results = el('div', 'card-stack');
   element.append(selections, note, results);
-  return watchView(context.store, element, (state) => {
+  const view = watchView(context.store, element, (state) => {
     note.textContent = '';
     if (!p1 && !p2) { results.replaceChildren(empty('親を選んで、仲間と記録した配合を探しましょう。親1だけでも探せます。')); return; }
     if (dataPending(results, state)) return;
@@ -35,4 +43,13 @@ export function searchView(context, route) {
       results.append(breedingCard(record, context, { leftParent }));
     }
   }, pickers);
+  return {
+    ...view,
+    applyRoute(next) {
+      readRoute(next);
+      syncPicker(pickers[0], p1);
+      syncPicker(pickers[1], p2);
+      view.update(context.store.state);
+    },
+  };
 }
