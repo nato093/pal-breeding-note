@@ -65,12 +65,17 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
   // 自分の操作で新しくなった版（見えていた etag → 次の etag）。続けて操作したときの etag を引き継ぐ。
   const successors = new Map();
   const removedRecords = new Map();
+  // 画面用の変更番号。確定した中身（id・etag・updatedAt）と送信待ちの操作のどちらかが変わったときだけ増やし、
+  // そのときだけ index と graph を作り直す（中身が同じ取得で、各画面が描き直さないように）
+  let revision = 0;
+  let confirmedKey = '';
+  let lastQueueKey = '';
   const state = {
     passcode: storage.get(`${namespace}.passcode`) ?? '', userId: storage.get(`${namespace}.userId`) ?? '', users: [], env: null,
     records: [], warnings: [], serverTime: '', cached: false, loading: false, syncing: false, error: '', renaming: false,
     // 送信の進み具合（失敗して取り消した操作も済んだ数に入れる）。送信待ちが空なら両方 0。
     syncDone: 0, syncTotal: 0,
-    index: buildIndex([], pals), graph: new Map(),
+    index: buildIndex([], pals), graph: new Map(), revision: 0,
     // サーバで確定した全件（送信待ちを重ねる前）。確定した変化だけを見たいときに使う。
     confirmedRecords: [],
   };
@@ -87,7 +92,13 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     while (worker || running.size) await Promise.allSettled([worker, ...running]);
   }
 
-  function render() {
+  // confirmedChanged: 確定した中身が変わったか。変わらず、送信待ちも同じなら、記録・index・番号はそのままにして知らせるだけ
+  //（id＋etag だけでは楽観更新〔update は etag を変えない〕を見逃すので、送信待ちの操作でも番号を決める）
+  function render({ confirmedChanged = true } = {}) {
+    const queueKey = queue.map((operation) => operation.opId).join(',');
+    if (!confirmedChanged && queueKey === lastQueueKey) { emit(); return; }
+    lastQueueKey = queueKey;
+    state.revision = ++revision;
     state.records = queue.reduce((records, operation) => operation.apply(records), confirmed);
     state.confirmedRecords = confirmed;
     state.syncing = queue.length > 0;
@@ -116,6 +127,9 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
     state.cached = false;
     state.index = buildIndex([], pals);
     state.graph = new Map();
+    state.revision = ++revision;
+    confirmedKey = '';
+    lastQueueKey = '';
     storage.remove(`${namespace}.authenticated`);
     for (const env of ['prod', 'test']) storage.remove(cacheKey(env, namespace));
   }
@@ -146,7 +160,11 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
       storage.set(`${namespace}.userId`, canonical);
       onUserIdChange(previous, canonical, env);
     }
-    confirmed = snapshot.records;
+    // 中身が同じなら前の配列のまま（index の中の記録と state.records の記録を同じものにそろえる）
+    const key = snapshot.records.map((record) => `${record.id}:${record.etag}:${record.updatedAt}`).join('\n');
+    const confirmedChanged = key !== confirmedKey;
+    if (confirmedChanged) confirmed = snapshot.records;
+    confirmedKey = key;
     state.warnings = snapshot.warnings;
     state.users = snapshot.users;
     state.serverTime = snapshot.serverTime;
@@ -157,7 +175,7 @@ export function createStore({ api, storage = safeStorage(null), namespace = 'pal
       storage.set(cacheKey(env, namespace), JSON.stringify(snapshot));
       storage.set(`${namespace}.authenticated`, env);
     }
-    render();
+    render({ confirmedChanged });
     return true;
   }
 

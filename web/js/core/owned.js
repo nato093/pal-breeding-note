@@ -270,16 +270,46 @@ function keywordFields(pal) {
 
 // 入力のたびに全員の文字列をそろえ直さないよう、個体ごとに覚えておく
 const keywordCache = new WeakMap();
-
-function keywordTexts(pal) {
-  let texts = keywordCache.get(pal);
-  if (!texts) {
-    texts = Object.entries(keywordFields(pal)).flatMap(([field, values]) => values
-      .map((value, index) => ({ field, index, text: value ? normalizeQuery(value) : '' }))
-      .filter((entry) => entry.text));
-    keywordCache.set(pal, texts);
+// 同じ文字列（種族名・スキルとパッシブの名前と説明・場所など）は多くの個体で同じなので、そろえた結果を使い回す
+//（20,000 行で初めてキーワードを入れたときに、入力が止まらないように。増えすぎたら捨てる）
+const normalizedTexts = new Map();
+const NORMALIZED_MAX = 50000;
+function normalizedText(value) {
+  const key = String(value);
+  let text = normalizedTexts.get(key);
+  if (text === undefined) {
+    if (normalizedTexts.size >= NORMALIZED_MAX) normalizedTexts.clear();
+    text = normalizeQuery(key);
+    normalizedTexts.set(key, text);
   }
-  return texts;
+  return text;
+}
+
+// 個体の探す文字列（all）と、そのうち一致した理由に使う項目（notes。keywordNotes が見る）
+function keywordEntries(pal) {
+  let entries = keywordCache.get(pal);
+  if (entries) return entries;
+  entries = { all: [], notes: [] };
+  const fields = keywordFields(pal);
+  for (const field of Object.keys(fields)) {
+    const values = fields[field];
+    const note = NOTE_KEYS.has(field);
+    for (let index = 0; index < values.length; index++) {
+      const text = values[index] ? normalizedText(values[index]) : '';
+      if (!text) continue;
+      const entry = { field, index, text };
+      entries.all.push(entry);
+      if (note) entries.notes.push(entry);
+    }
+  }
+  keywordCache.set(pal, entries);
+  return entries;
+}
+const keywordTexts = (pal) => keywordEntries(pal).all;
+
+/** キーワードで探すための文字列を先に作っておく（データを読み込んだ後、入力の前に区切って呼ぶ） */
+export function prepareKeywords(pal) {
+  keywordEntries(pal);
 }
 
 /**
@@ -303,6 +333,8 @@ const NOTE_FIELDS = [
   // パッシブの名前は一覧に出ているので、説明で一致したときだけ出す
   { label: 'パッシブ', names: (pal) => pal.passiveNames, descs: (pal) => pal.passiveDescs ?? [], field: '', descField: 'passiveDescs' },
 ];
+// 一致した理由に使う項目（NOTE_FIELDS の field と descField。keywordNotes はこの項目の文字列だけを見る）
+const NOTE_KEYS = new Set(NOTE_FIELDS.flatMap(({ field, descField }) => [field, descField]).filter(Boolean));
 
 /**
  * 一致した理由として行に出すもの。スキルは名前か説明で、パッシブは説明で語を含むもの。説明は、説明で一致したときだけ付ける。
@@ -310,9 +342,10 @@ const NOTE_FIELDS = [
  */
 export function keywordNotes(pal, terms) {
   const hit = new Set();
-  for (const entry of keywordTexts(pal)) {
+  for (const entry of keywordEntries(pal).notes) {
     if (terms.some((term) => entry.text.includes(term))) hit.add(`${entry.field}:${entry.index}`);
   }
+  if (!hit.size) return [];
   const notes = [];
   for (const { label, names, descs, field, descField } of NOTE_FIELDS) {
     const descList = descs(pal);

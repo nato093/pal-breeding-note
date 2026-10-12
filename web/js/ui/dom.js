@@ -54,3 +54,186 @@ export async function runButton(node, action, onError) {
   try { return await action(); } catch (error) { onError(error); }
   finally { node.disabled = false; node.removeAttribute('aria-busy'); }
 }
+
+// ---------------------------------------------------------------------------
+// キーで要素を使い回す一覧（syncList）。container → { rows: Map<key, row>, keys: Map<Element, key> }
+// ---------------------------------------------------------------------------
+const lists = new WeakMap();
+
+function listOf(container) {
+  let list = lists.get(container);
+  if (!list) lists.set(container, list = { rows: new Map(), keys: new Map() });
+  return list;
+}
+
+// フォーカスのある要素から container の直下の行と、途中の data-focus の値をたどる（テストの DOM に closest・dataset が無いので getAttribute で）
+function focusedRow(container, list) {
+  const doc = globalThis.document;
+  let node = doc?.activeElement;
+  if (!node || node === doc.body) return null;
+  let focus = null;
+  while (node && node !== container) {
+    if (focus === null && typeof node.getAttribute === 'function') focus = node.getAttribute('data-focus');
+    if (node.parentElement === container) return list.keys.has(node) ? { element: node, key: list.keys.get(node), focus } : null;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+const focusLost = () => {
+  const doc = globalThis.document;
+  const active = doc?.activeElement;
+  return !active || active === doc.body || active.isConnected === false;
+};
+
+function focusIn(row, focus) {
+  const target = (focus !== null && focus !== undefined ? row.querySelector(`[data-focus="${focus}"]`) : null) ?? row.querySelector('[data-focus]');
+  target?.focus({ preventScroll: true });
+  return Boolean(target);
+}
+
+/**
+ * container の子を items に合わせる。同じ key の行は使い回して update、無くなった行だけ destroy、位置の違う行だけ insertBefore。
+ * create(item) → { element, update(item), destroy() }。update は中身を書き換えてよいが element は差し替えない。
+ * フォーカス: 同期の前にフォーカスのある行の key と、行の中の data-focus の値を覚え、同期の後で同じ行の同じ部品へ focus({ preventScroll: true })。
+ *   行が消えたときは、次の行（なければ前の行）の最初の [data-focus] へ。どちらも無ければ fallbackFocus（任意の要素）へ。
+ * items が空のとき、empty（任意。() => Element）があればその要素を 1 つだけ出す。
+ * 決まり: syncList で管理する入れ物に replaceChildren を直接使わない（ほかの表示を出すときは、先に clearList）。
+ */
+export function syncList(container, items, { key, create, empty, fallbackFocus } = {}) {
+  const list = listOf(container);
+  const focused = focusedRow(container, list);
+  const order = Array.from(container.children);
+  const wanted = new Set(items.map(key));
+  let lost = null;
+  for (const [id, row] of list.rows) {
+    if (wanted.has(id)) continue;
+    if (focused?.key === id) lost = order.indexOf(row.element);
+    row.destroy?.();
+    row.element.remove();
+    list.rows.delete(id);
+    list.keys.delete(row.element);
+  }
+  const nodes = items.map((item) => {
+    const id = key(item);
+    let row = list.rows.get(id);
+    if (row) row.update?.(item);
+    else {
+      row = create(item);
+      list.rows.set(id, row);
+      list.keys.set(row.element, id);
+    }
+    return row.element;
+  });
+  if (!nodes.length && empty) {
+    const node = empty();
+    if (container.children.length !== 1 || container.children[0] !== node) container.replaceChildren(node);
+  } else {
+    // 付け直すとフォーカスと開いている候補が外れるため、位置の違う行（新しい行・並びの変わった行）だけを差し込む
+    nodes.forEach((node, index) => {
+      if (container.children[index] !== node) container.insertBefore(node, container.children[index] ?? null);
+    });
+    while (container.children.length > nodes.length) container.lastElementChild.remove();
+  }
+  if (!focused || !focusLost()) return;
+  const kept = list.rows.get(focused.key);
+  if (kept) { focusIn(kept.element, focused.focus); return; }
+  if (lost === null) return;
+  // キーボードの位置を見失わないよう、消えた行の次の行（なければ前の行）の最初の部品へ移す（同じボタンへ移すと、Enter の長押しで次の行まで続けて操作してしまう）
+  const alive = (node) => node.parentElement === container && list.keys.has(node);
+  const target = order.slice(lost + 1).find(alive) ?? order.slice(0, lost).reverse().find(alive);
+  if (!(target && focusIn(target, null))) fallbackFocus?.focus({ preventScroll: true });
+}
+
+/** 管理している行のキー（分割描画で、まだ無い行の数を数えるときに使う） */
+export function listKeys(container) {
+  return new Set(lists.get(container)?.rows.keys() ?? []);
+}
+
+/** すべての行を destroy して空にする（画面の destroy・表示の形を変えるときに呼ぶ） */
+export function clearList(container) {
+  const list = lists.get(container);
+  if (list) for (const row of list.rows.values()) row.destroy?.();
+  lists.delete(container);
+  container.replaceChildren();
+}
+
+/**
+ * 自動の更新の後に位置を戻すための目印。offsetTop（固定のヘッダー・パネルの下端）より下で最初に見えている行の key と上端。
+ * 行の上端は並びの順に増えるので二分探索で探す。
+ */
+export function anchorOf(container, offsetTop = 0) {
+  const list = lists.get(container);
+  if (!list) return null;
+  const rows = Array.from(container.children).filter((node) => list.keys.has(node));
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (rows[middle].getBoundingClientRect().bottom <= offsetTop) low = middle + 1;
+    else high = middle;
+  }
+  const row = rows[low];
+  return row ? { key: list.keys.get(row), top: row.getBoundingClientRect().top } : null;
+}
+
+/** anchorOf で覚えた行が同じ位置に見えるようにスクロールする。行が見つかったら true（行がまだ無い・なくなったときは何もしない） */
+export function restoreAnchor(container, anchor) {
+  const row = anchor && lists.get(container)?.rows.get(anchor.key);
+  if (!row?.element.isConnected) return false;
+  const moved = row.element.getBoundingClientRect().top - anchor.top;
+  if (moved) globalThis.window?.scrollBy?.(0, moved);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// 入力の間引き
+// ---------------------------------------------------------------------------
+
+/** 最後の呼び出しから ms 待って 1 回だけ呼ぶ。flush() ですぐ呼び、cancel() で取り消す。ms が 0 なら同期で呼ぶ */
+export function debounce(fn, ms) {
+  let timer = null;
+  let pending = null;
+  const run = () => {
+    const args = pending;
+    timer = null;
+    pending = null;
+    if (args) fn(...args);
+  };
+  const debounced = (...args) => {
+    if (!ms) { fn(...args); return; }
+    pending = args;
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(run, ms);
+  };
+  debounced.flush = () => {
+    if (timer !== null) clearTimeout(timer);
+    run();
+  };
+  debounced.cancel = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    pending = null;
+  };
+  return debounced;
+}
+
+/**
+ * テキストの入力を間引いて fn(value) を呼ぶ。日本語の変換中（compositionstart〜compositionend・event.isComposing）は呼ばず、確定したときに呼ぶ。
+ * change（Enter・欄を離れる）では、待っている呼び出しをすぐ呼ぶ。戻り値の cancel で待っている呼び出しを取り消す
+ */
+export function onTextInput(input, fn, { delay = 150, signal } = {}) {
+  let composing = false;
+  const call = debounce(() => fn(input.value), delay);
+  const options = signal ? { signal } : {};
+  input.addEventListener('compositionstart', () => { composing = true; }, options);
+  input.addEventListener('compositionend', () => { composing = false; call(); }, options);
+  input.addEventListener('input', (event) => {
+    if (composing || event?.isComposing) return;
+    call();
+  }, options);
+  // 待っている呼び出しがあれば、すぐ呼ぶ（もう呼んだ後なら何もしない）
+  input.addEventListener('change', () => { if (!composing) call.flush(); }, options);
+  signal?.addEventListener('abort', () => call.cancel(), { once: true });
+  return { cancel: call.cancel, flush: call.flush };
+}

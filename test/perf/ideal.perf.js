@@ -114,3 +114,47 @@ test('性能: 両親合わせて欲しいパッシブがそろう組（欲しい
     assert.equal(result.measures.size, keys.size);
   }
 });
+
+// stable-render（D18）: 画面は idealPlanSteps を 30ms の区切りで回す（ui/slice.js）。分けて回せる組のループも、世代の表の作成も、
+// 1 回の区切りで画面が止まる時間は 50ms 以内（表の作成も区切って回す）。区切った計算の合計は記録だけ（5 秒を超えたら Worker を考える）
+test('性能: 区切った計算は、同じ種族の ♂2000 × ♀2000 と、新しく作る大きい世代の表（キノコケーキの 2 つの表を含む）でも、1 回の区切りが 50ms 以内', async () => {
+  const { idealPlanSteps, hasGenerationTable } = await import('../../web/js/core/ideal.js');
+  const { startSliced } = await import('../../web/js/ui/slice.js');
+  let state = 0x534c4943;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const junk = ['J0', 'J1', 'J2', 'J3', 'J4', 'J5'];
+  // 和集合がそろう親と、欲しいものを欠いて余計を 3〜4 個持つ親を混ぜる（先頭の ♂ は余計 4 個、♀ は欲しいものを全部）
+  const make = (wanted, count, low) => Array.from({ length: count * 2 }, (_, i) => {
+    const own = i === 0 ? [] : i === 1 ? [...wanted] : wanted.filter(() => random() < 0.5);
+    const extras = i === 0 ? junk.slice(0, 4) : junk.filter(() => random() < 0.4).slice(0, 4 - own.length);
+    const value = () => low + Math.floor(random() * (101 - low));
+    return { id: `S${i}`, palId: 'X', gender: i % 2 ? 'F' : 'M', egg: false, place: 'palbox', passives: [...own, ...extras], talent: { hp: value(), shot: value(), defense: value() } };
+  });
+  const index = buildIndex([], [{ id: 'X', no: 1, variant: false }]);
+  const run = async (label, input, tables = []) => {
+    const fresh = tables.filter((table) => !hasGenerationTable(table)).length;
+    const slices = [];
+    const job = startSliced(idealPlanSteps({ index, target: 'X', ...input }), { budget: 30, onSlice: (ms) => slices.push(ms), schedule: (fn) => setImmediate(fn) });
+    const result = job.done ? job.value : await job.promise;
+    const max = Math.max(...slices);
+    const total = slices.reduce((sum, ms) => sum + ms, 0);
+    console.log(`区切った計算・${label}: ${slices.length} 回・最大 ${max.toFixed(2)} ms・合計 ${total.toFixed(0)} ms（新しく作った表 ${fresh} 個）`);
+    assert.ok(max <= 50, `${label}の 1 回の区切りが 50ms を超えました: ${max.toFixed(2)} ms`);
+    return result;
+  };
+  const tableOf = (wanted, mode, cake, targets, bound) => ({ wanted, mode, cake, targets, bound, parentExtras: 4 });
+  assert.equal((await run('ケーキなし ♂2000×♀2000・欲しい 2 つ', { pals: make(['P0', 'P1'], 2000, 0), passives: ['P0', 'P1'] })).total, 4000000);
+  assert.equal((await run('キノコケーキ ♂2000×♀2000・欲しい 2 つ', { pals: make(['P0', 'P1'], 2000, 0), passives: ['P0', 'P1'], cake: 'talent' })).total, 4000000);
+  // 表の作成がいちばん重い条件（欲しい 1 つ・欲しいものだけ・キノコケーキで、親の余計 4 個まで。表 1 つで 300ms を超えることがある）
+  const heavy = { hp: 90, shot: 90, defense: 90 };
+  const tables = ['estimate', 'upper'].map((bound) => tableOf(1, 'only', 'talent', heavy, bound));
+  const result = await run('欲しい 1 つ・欲しいものだけ・キノコケーキ ♂1000×♀1000（表 2 つを新しく作る）',
+    { pals: make(['P0'], 1000, 0), passives: ['P0'], mode: 'only', cake: 'talent', targets: heavy }, tables);
+  assert.ok(tables.every(hasGenerationTable));
+  assert.equal(result.pairs[0].group, 'complete');
+  await run('欲しい 1 つ・ケーキなし ♂1000×♀1000（表 1 つを新しく作る）',
+    { pals: make(['P0'], 1000, 0), passives: ['P0'], targets: { hp: 99, shot: 98, defense: 97 } }, [tableOf(1, 'include', 'none', { hp: 99, shot: 98, defense: 97 }, 'upper')]);
+});

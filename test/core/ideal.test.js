@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildIndex } from '../../web/js/core/index.js';
 import {
   passiveChance, talentChance, talentExpectation, talentTargets, breedingLayouts, idealPairs, idealPlan, PLAN_GROUPS, isParentCandidate, TALENT_PATTERNS,
-  generationTable, generationEggs,
+  generationTable, generationEggs, idealPlanSteps, hasGenerationTable,
 } from '../../web/js/core/ideal.js';
 
 const master = ['A', 'B', 'X', 'Y'].map((id, no) => ({ id, no, variant: false }));
@@ -887,4 +887,86 @@ test('理想個体（計画）: 異種の配合・同じ組み合わせで別の
       }
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// 区切った計算（stable-render）: idealPlanSteps は idealPlan と同じ結果を、途中で yield しながら返す
+// ---------------------------------------------------------------------------
+
+// ジェネレーターを最後まで回し、yield した回数と結果を返す
+function runSteps(input) {
+  const steps = idealPlanSteps(input);
+  let yields = 0;
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return { yields, value: step.value };
+    yields++;
+  }
+}
+
+test('理想個体（区切った計算）: idealPlanSteps を最後まで回した結果は idealPlan と同じ（牧場の優先・見張り・物差しも）', () => {
+  let state = 0x53544550;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+  const value = () => [0, 88, 94, 95, 99, 100][Math.floor(random() * 6)];
+  const passivePool = ['P1', 'P2', 'P3', 'J1', 'J2', 'J3', 'J4'];
+  const records = [rec('r1', 'A', 'B', 'X', 'Male', 'Female'), rec('r2', 'B', 'A', 'X', 'Male', 'Female'), rec('r3', 'B', 'A', 'Y', 'Male', 'Female')];
+  for (let round = 0; round < 4; round++) {
+    const pals = Array.from({ length: 40 }, (_, i) => pal(`s${round}-${i}`, ['X', 'X', 'A', 'B'][Math.floor(random() * 4)], random() < 0.5 ? 'M' : 'F',
+      passivePool.filter(() => random() < 0.35).slice(0, 4), talent(value(), value(), value())));
+    const males = pals.filter((item) => item.gender === 'M');
+    const females = pals.filter((item) => item.gender === 'F');
+    const somePairs = (count) => new Set(Array.from({ length: count }, () => `${males[Math.floor(random() * males.length)].id}|${females[Math.floor(random() * females.length)].id}`));
+    for (const cake of ['none', 'special', 'talent']) {
+      for (const mode of ['include', 'only']) {
+        for (const passives of [['P1'], ['P1', 'P2', 'P3'], ['P1', 'P9'], []]) {
+          const input = {
+            pals, index: index(records), target: 'X', passives, cake, mode, targets: { hp: 95 + round, shot: 99, defense: 0 }, limit: 5,
+            prefer: { placed: somePairs(2), baseline: somePairs(2) }, watch: somePairs(3),
+          };
+          // 区切った方を先に回す（新しい表を区切って作る場合も、作った表を使い回す場合も同じ結果）
+          const stepped = runSteps(input).value;
+          assert.deepEqual(stepped, idealPlan(input), `round ${round} ${cake} ${mode} ${passives}`);
+          assert.ok(stepped.measures instanceof Map);
+        }
+      }
+    }
+  }
+});
+
+test('理想個体（区切った計算）: 組が多いときは組のループの中で区切る', () => {
+  const pals = Array.from({ length: 400 }, (_, i) => pal(`y${i}`, 'X', i % 2 ? 'F' : 'M', ['P1'], talent(i % 101, (i * 7) % 101, (i * 13) % 101)));
+  const input = { pals, index: index(), target: 'X', passives: ['P1'], targets: ALL };
+  const { yields, value } = runSteps(input);
+  // ♂200 × ♀200 = 4 万組。1,024 組ごとに区切る
+  assert.ok(yields >= 39, `区切り ${yields} 回`);
+  assert.deepEqual(value, idealPlan(input));
+});
+
+test('理想個体（区切った計算）: 新しい世代の表は作る途中でも区切り、キノコケーキの 2 つの表も 1 つずつ作る。途中で止めたら作りかけの表を覚えない', () => {
+  // 欲しいものを持たず余計を 4 個持つ ♂ と、欲しいものを全部持つ ♀（両親合わせてそろうので、親の余計を 4 個まで広げた表が要る）
+  const wanted = ['P1', 'P2', 'P3', 'P4'];
+  const pals = [pal('m0', 'X', 'M', ['J1', 'J2', 'J3', 'J4'], talent(97, 98, 99)), pal('f0', 'X', 'F', wanted, talent(96, 95, 94))];
+  // ほかのテストと表を共有しない目標
+  const targets = { hp: 97, shot: 3, defense: 55 };
+  const input = { pals, index: index(), target: 'X', passives: wanted, cake: 'talent', targets };
+  const table = (bound) => ({ wanted: 4, mode: 'include', cake: 'talent', targets, bound, parentExtras: 4 });
+  assert.equal(hasGenerationTable(table('estimate')), false);
+  // 表を作り始めたところで止める（画面の条件が変わったときの取り消し）
+  const steps = idealPlanSteps(input);
+  for (let i = 0; i < 3; i++) assert.equal(steps.next().done, false);
+  steps.return();
+  assert.equal(hasGenerationTable(table('estimate')), false);
+  assert.equal(hasGenerationTable(table('upper')), false);
+  // 最後まで回すと、目安と上限の表を覚える（表の作成の中で何度も区切る）
+  const { yields, value } = runSteps(input);
+  assert.ok(yields >= 20, `区切り ${yields} 回`);
+  assert.equal(hasGenerationTable(table('estimate')), true);
+  assert.equal(hasGenerationTable(table('upper')), true);
+  assert.equal(value.pairs[0].group, 'complete');
+  assert.ok(Number.isFinite(value.pairs[0].generations));
+  // 覚えた表を使う 2 回目も同じ結果（区切って作った表の値は、同期で作った表と同じ）
+  assert.deepEqual(idealPlan(input), value);
+  const sync = generationTable(table('upper'));
+  assert.equal(sync.limit, 4);
+  assert.equal(generationEggs(sync, pals[0].talent, pals[1].talent, { maleExtras: 4, femaleExtras: 0, shared: 0 }), value.pairs[0].generationsUpper);
 });
