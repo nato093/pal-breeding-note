@@ -6,7 +6,7 @@ import { actionIcon, icons } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts } from '../core/owned.js';
-import { idealPlan, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS } from '../core/ideal.js';
+import { idealPlan, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
@@ -117,7 +117,7 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false } = 
   if (pair.group === 'complete' && pair.extras.length && pair.cleanPassiveChance > pair.passiveChance) {
     note(`余計なパッシブ: ${passiveNames(pair.extras)}（これがなければ、パッシブの確率は ${percent(pair.passiveChance)} → ${percent(pair.cleanPassiveChance)}）`);
   }
-  if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
+  if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
   card.append(head, ownedRow(pair.male), ownedRow(pair.female));
@@ -157,13 +157,13 @@ function explanation() {
     'ランダムに付くパッシブで偶然そろう分は数えていないため、実際より少し低めの値です。',
     '個体値: ステータスごとに、どちらかの親の値をそのまま写すか、0〜100 の乱数になります（親の値の中間にはなりません）。親から写る確率は HP が 2/3、攻撃と防御が 5/9 です。',
     'キノコケーキ・豪華野菜ケーキは、個体値にステータスごとに +1〜5 します。スペシャルケーキは、継ぐ数を抽選せず、両親のパッシブから 4 個まで継ぎます（足りない枠はランダムで埋まります）。',
-    '並び: 理想個体を作るのにおすすめの組を、配合牧場に上から置く順に、別々の個体で並べます（上の組から順に、まだ使っていない個体どうしの組を選びます）。牧場が 3 つなら上から 3 組を置いてください。タマゴは孵化するまで牧場に置けないので、親の候補にしません。',
-    '「完全体作成組」（いちばん上）: 欲しいパッシブと個体値の目標を全部満たす子（完全体）を作れる組です。2 体で欲しいパッシブがそろい、目標のある各ステータスに目標以上（キノコケーキでは目標の 5 下以上）の親がいる組（1 回で作れる）と、同じ種族で両親とも欲しいパッシブを全部持つ組（産まれた子を同じ性別の親と入れ替えながら作る）です。完全体が産まれるまでのタマゴの平均の少ない順です（入れ替えは最も早くなるように選び、この 2 体のまま続けるのより多くはなりません。子の性別は半々、ランダムに足されるパッシブは新しいものとして計算しています）。',
-    '「パッシブ厳選組」: 欲しいパッシブを全部、候補のだれかが持っているときに、個体値は見ずに、欲しいパッシブを 1 体に集める組です。3 体以上に分かれているときは、途中まで集める組も出します。集まる数の多い順、全部継ぐ確率の高い順です。',
+    '並び: 理想個体を作るのにおすすめの組を、配合牧場に上から置く順に、別々の個体で並べます（上の組から順に、まだ使っていない個体どうしの組を選びます）。配合牧場の判定で交換を勧めた組を置いてください（上から K 組が、いつも最終の配置とは限りません）。タマゴは孵化するまで牧場に置けないので、親の候補にしません。',
+    '「完全体作成組」（いちばん上）: 欲しいパッシブと個体値の目標を全部満たす子（完全体）を作れる組です。2 体で欲しいパッシブがそろい、目標のある各ステータスに目標以上（キノコケーキでは目標の 5 下以上）の親がいる組（1 回で作れる）と、同じ種族で、両親合わせて欲しいパッシブがそろう組（どちらの親が持っていても同じ。欲しい以外のパッシブが少ないほど早い。産まれた子を同じ性別の親と入れ替えながら作る）です。完全体が産まれるまでのタマゴの平均の少ない順です（入れ替えは最も早くなるように選び、この 2 体のまま続けるのより多くはなりません。子の性別は半々、ランダムに足されるパッシブは新しいものとして計算しています）。',
+    '「パッシブ厳選組」: 完全体作成組に当たらず、欲しいパッシブが候補全体にそろっていて、両親を合わせると片親だけより多く集まる組です（途中まで集める組や、異なる種族の組も含みます）。個体値は見ません。集まる数の多い順、全部継ぐ確率の高い順です。',
     '「個体値厳選組」: それ以外の組です。欲しいパッシブを候補のだれも持っていない（配合では作れない）ときは、全部この組になります。パッシブは後から手に入れる前提で見ずに、個体値の目標がそろう子が産まれるまでのタマゴの平均（同じ種族なら子を入れ替えながら）の少ない順です。',
     'パッシブの条件を満たす子が産まれない組（スペシャルケーキで 4 個未満の「欲しいものだけ」など）は出しません。',
-    '配合牧場: 今この目標の組を置いている牧場（K か所）を、おすすめの上から K 組と比べます。入っていれば「そのまま」、入っていなければ、まだどの牧場にもない組への交換を勧めます（親の片方が同じ組を優先し、1 体の入れ替えで済むようにします）。空いている牧場に何を置くかは、おすすめの順を見て決めてください。',
-    '「変更あり」: 牧場に置く組（この目標の組を置いている牧場が K か所なら、おすすめの上から K 組）のうち、牧場の中身が最後に変わったときには上から K 組に入っていなかった組に付きます。それより下の（牧場に置かない）組や、この目標の組を置いた牧場がないときは付きません。牧場の親を入れ替えたことがセーブから分かると消えます。',
+    '配合牧場: 今この目標の組を置いている牧場（K か所）を、おすすめの上から K 組と比べ、入れ替えると、牧場全体の完成の速さの目安（各牧場の 1÷完成までの平均 の合計。完全体作成組以外は 1 個のタマゴで完成する確率）が上がるときだけ交換を勧めます（親の片方が同じ組を優先し、1 体の入れ替えで済むようにします）。上がらなければ「そのまま」です。入れ替えに関わる牧場がどれもまだ完成できない（準備の組だけの）ときは、それらの牧場がどれも悪くならず、1 か所以上が良くなるときだけ勧めます。同じ組み合わせで別の子も登録されている組が関わる牧場は、どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順のとおりにします。空いている牧場に何を置くかは、おすすめの順を見て決めてください。',
+    '「変更あり」: 交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組に付きます。交換を勧めていない組や、この目標の組を置いた牧場がないときは付きません。牧場の親を入れ替えたことがセーブから分かると消えます。',
     'キノコケーキ・豪華野菜ケーキでは、目標より下の値が +1〜5 で段階的に上がるため、厳密には計算できません。目標の 6 下までは届くとみなした目安で並べ、目標の 1 下までしか届かないとみなした上限（実際はこれより少ない）を「多くても」として添えます。目安は、目標の少し下の親どうしでは実際に近く、ずっと下の親では多めに出ます。',
     '開いている間は 20 秒ごとにセーブを確かめ、孵化させて受け取ったパルも候補に入れて並べ直します（参加している人は、ホストが共有した内容で並べ直します。牧場の中身もホストの共有から分かります）。',
     '突然変異やアルファの子は数えていません。Palworld v1.0.5 のゲームの仕組みで計算しています。',
@@ -402,20 +402,25 @@ export function idealView(context, route) {
     return label ? `${label} の牧場` : '拠点の牧場';
   };
 
-  // 配合牧場の判定。今この目標の組を置いている牧場を、おすすめの上から同じ数の組と比べる
-  function renderFarms(advice, changed) {
+  // 配合牧場の判定。今この目標の組を置いている牧場を、おすすめの上から同じ数の組と比べ、全体の速さの目安が上がる交換だけを出す。
+  // uncertain(item) は、同じ組み合わせで別の子も登録されている組（牧場の組・交換先の組）の呼び名の一覧
+  function renderFarms(advice, changed, uncertain) {
     farmBox.replaceChildren();
     if (!advice?.length) return;
     const swaps = advice.filter((item) => item.status === 'swap').length;
     farmBox.append(el('h3', '', `配合牧場（この目標の組を置いている ${advice.length} か所 · 交換推奨 ${swaps} か所）`));
-    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、牧場に置く組（おすすめの上から ${advice.length} 組）に新しく入った組が ${changed} 組あります（「変更あり」）。`));
+    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
     const list = el('ul', 'ideal-farm-list');
     for (const item of advice) {
       const row = el('li', `ideal-farm ${item.status}`);
       const now = `${palText(item.farm.male)} × ${palText(item.farm.female)}`;
       const where = farmName(item.farm.baseId);
       row.append(el('strong', '', where), el('span', '', now));
-      if (item.status === 'keep') row.append(el('span', 'ideal-farm-status keep', `そのまま（おすすめ ${item.rank + 1} 番）`));
+      // 上から K 組に入っていない「そのまま」は、交換を見送った牧場（入れ替えても全体の速さの目安が上がらない）
+      if (item.status === 'keep') {
+        row.append(el('span', 'ideal-farm-status keep', item.rank >= 0 && item.rank < advice.length
+          ? `そのまま（おすすめ ${item.rank + 1} 番）` : 'そのまま（入れ替えても全体の速さの目安が上がりません）'));
+      }
       else if (item.status === 'swap') {
         row.append(el('span', 'ideal-farm-status swap', `交換推奨 → おすすめ ${item.to + 1} 番`));
         const detail = [
@@ -426,6 +431,10 @@ export function idealView(context, route) {
       } else {
         row.append(el('span', 'ideal-farm-status none', item.rank >= 0 ? `おすすめ ${item.rank + 1} 番（ほかに置く組がありません）` : 'おすすめにない組（ほかに置く組がありません）'));
         if (item.out.length) row.append(el('small', 'muted', `外す: ${item.out.map(palText).join('・')}（ほかの牧場に入れます）`));
+      }
+      const doubtful = uncertain(item);
+      if (doubtful.length) {
+        row.append(el('small', 'ideal-warning', `⚠ ${doubtful.join('と')}は、同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。`));
       }
       list.append(row);
     }
@@ -466,25 +475,44 @@ export function idealView(context, route) {
     if (!to) { results.replaceChildren(empty('目標のパルを選んでください。')); return; }
     if (dataPending(results, state)) return;
     const candidates = ofHolder(pals);
+    // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）。
+    // 今の牧場の組を計画で優先・見張るので、計画より先に求める
+    const farms = owned?.state?.owned?.farms;
+    const placedFarms = Array.isArray(farms) ? targetFarms(farms, candidates.filter(isParentCandidate), breedingLayouts(state.index, to)) : [];
+    const signature = farmSignature(placedFarms);
+    const memoryId = JSON.stringify([state.env ?? '', owned?.state?.meta?.worldId ?? '', to, [...passives].sort(), conditions.mode,
+      TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
+    const baseline = Array.isArray(farms) ? planMemory.get(memoryId) : null;
+    const placedKeys = new Set(placedFarms.map((farm) => planPairKey(farm.male, farm.female)));
     const result = idealPlan({
       pals: candidates, index: state.index, target: to, passives,
       mode: conditions.mode, targets: conditions.targets, cake: conditions.cake, limit: LIMIT,
+      // 物差しが同じ組どうしでは、今の牧場の組と前の基準の上位を先にする（値の小さな差で交換推奨や「変更あり」が出ないように）
+      prefer: { placed: placedKeys, baseline: new Set(baseline?.farms === signature ? baseline.pairs.slice(0, placedFarms.length) : []) },
+      watch: placedKeys,
     });
     note.textContent = summaryText(result);
     renderMissing(result);
-    // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）
-    const farms = owned?.state?.owned?.farms;
-    const placedFarms = Array.isArray(farms) ? targetFarms(farms, candidates.filter(isParentCandidate), result.layouts) : [];
-    const advice = farmAdvice(placedFarms, result.pairs);
+    // 今の牧場の組は見張った物差しから、交換先の組（おすすめの組）は一覧から引く
+    const listed = new Map(result.pairs.map((pair) => [planPairKey(pair.male, pair.female), {
+      status: 'ok', rank: PLAN_GROUPS.indexOf(pair.group), ambiguous: pair.ambiguous, eggs: pair.eggs, gathered: pair.gathered,
+      gatherChance: pair.gatherChance, talentEggs: pair.talentEggs, chance: pair.chance,
+    }]));
+    const measureOf = (key) => result.measures.get(key) ?? listed.get(key);
+    const advice = farmAdvice(placedFarms, result.pairs, { measureOf });
     let changed = new Set();
     if (Array.isArray(farms)) {
-      const id = JSON.stringify([state.env ?? '', owned?.state?.meta?.worldId ?? '', to, [...passives].sort(), conditions.mode,
-        TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
-      const next = planChanges(planMemory.get(id), farmSignature(placedFarms), result.pairs, placedFarms.length);
-      if (next.reset) planMemory.set(id, next.baseline);
-      changed = next.changed;
+      const next = planChanges(baseline, signature, result.pairs, placedFarms.length);
+      if (next.reset) planMemory.set(memoryId, next.baseline);
+      // 「変更あり」は、採った交換推奨の行き先の組だけ（交換推奨と同じ考え方）
+      const swapTargets = new Set(advice.filter((item) => item.status === 'swap')
+        .map((item) => planPairKey(result.pairs[item.to].male, result.pairs[item.to].female)));
+      changed = new Set([...next.changed].filter((key) => swapTargets.has(key)));
     }
-    renderFarms(advice, changed.size);
+    renderFarms(advice, changed.size, (item) => [
+      measureOf(planPairKey(item.farm.male, item.farm.female))?.ambiguous ? '牧場の組' : '',
+      item.status === 'swap' && result.pairs[item.to].ambiguous ? '交換先の組' : '',
+    ].filter(Boolean));
     if (!result.total) { results.replaceChildren(noPairs(result)); return; }
     const placed = new Map(placedFarms.map((farm) => [planPairKey(farm.male, farm.female), farmName(farm.baseId)]));
     results.replaceChildren(...result.pairs.map((pair, rank) => {

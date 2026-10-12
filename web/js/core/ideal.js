@@ -204,18 +204,33 @@ function compareGenerations(a, b) {
     || b.expected - a.expected || a.extraCount - b.extraCount || compareIds(a, b);
 }
 
+/**
+ * 有効数字 12 桁に丸めた値どうしの比較（負なら a が小さい）。対称な条件でも、計算の末尾の誤差で同点が崩れないようにする。
+ * 丸めは単調なので、大きく離れた値は丸めずに比べても同じ結果になる（丸めの文字列化は重いので、近い値のときだけ行う）
+ */
+function compareRounded(a, b) {
+  if (a === b) return 0;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return a < b ? -1 : 1;
+  if (Math.abs(a - b) > 1e-9 * Math.max(Math.abs(a), Math.abs(b))) return a - b;
+  return Number(a.toPrecision(12)) - Number(b.toPrecision(12));
+}
+
 // 並び（配合の計画）: 組の目的（rank。PLAN_GROUPS の順）→ 同じ組み合わせで別の子も登録されている組（ambiguous）を後ろに →
-// 目的ごとの物差し → 個体値の期待値 → 余計なパッシブの数 → 個体 ID（全順序）。
+// 目的ごとの物差し（丸めて比べる）→ 優先（今の牧場の組 2・前の基準の上位 1・それ以外 0。prefer）→
+// 1 個のタマゴの成功率（個体値厳選組は個体値がそろう確率）→ 個体値の期待値 → 余計なパッシブの数 → 個体 ID（全順序）。
 // 完全体作成組は完成までのタマゴの平均（eggs）、パッシブ厳選組は集まる欲しいパッシブの数と全部継ぐ確率、
-// 個体値厳選組は個体値がそろうまでのタマゴの平均（talentEggs）で比べる
+// 個体値厳選組は個体値がそろうまでのタマゴの平均（talentEggs）で比べる。
+// 物差しが同じ組どうしで、今の牧場の組を先にするので、値の小さな差だけで交換推奨や「変更あり」が出ない
 function comparePlan(a, b) {
   if (a.rank !== b.rank) return a.rank - b.rank;
   const head = Number(a.ambiguous) - Number(b.ambiguous);
   if (head) return head;
-  const measure = a.rank === 0 ? (a.eggs - b.eggs || 0) || b.chance - a.chance
-    : a.rank === 1 ? b.gathered - a.gathered || b.gatherChance - a.gatherChance
-      : (a.talentEggs - b.talentEggs || 0) || b.talentChance - a.talentChance;
-  return measure || b.expected - a.expected || a.extraCount - b.extraCount || compareIds(a, b);
+  const measure = a.rank === 0 ? compareRounded(a.eggs, b.eggs)
+    : a.rank === 1 ? b.gathered - a.gathered || compareRounded(b.gatherChance, a.gatherChance)
+      : compareRounded(a.talentEggs, b.talentEggs);
+  if (measure) return measure;
+  const rest = a.rank === 2 ? b.talentChance - a.talentChance : b.chance - a.chance;
+  return b.prefer - a.prefer || rest || b.expected - a.expected || a.extraCount - b.extraCount || compareIds(a, b);
 }
 
 // ---------------------------------------------------------------------------
@@ -334,10 +349,13 @@ function eggOutcomes({ talent, moves, forced, visit }) {
   return success;
 }
 
-function buildGenerationTable(wanted, mode, cake, goal, reach) {
+// 状態の親の余計なパッシブの数の上限（parentLimit は正規化した値。effectiveParentExtras）。入れ替えに使う子は欲しいパッシブを
+// 全部持つので、子の余計は 4 − 欲しい数を超えない（usableChildPassives）。親は、両親合わせて欲しいものがそろえばよいので、
+// 欲しいものを欠く分だけ余計を多く持てる。どちらの親が欲しいものを持つかは確率に効かない（和集合から選ぶため）
+function buildGenerationTable(wanted, mode, cake, goal, reach, parentLimit) {
   const bonus = cake === 'talent';
   const ignorePassives = mode !== 'only' && wanted === 0;
-  const limit = ignorePassives ? 0 : MAX_WANTED - wanted;
+  const limit = ignorePassives ? 0 : parentLimit;
   const span = limit + 1;
   const forced = TALENT_KEYS.reduce((bits, key, s) => (goal[key] <= 0 ? bits | (1 << s) : bits), 0);
   const random = TALENT_KEYS.map((key) => randomOutcome(goal[key], bonus, reach));
@@ -431,9 +449,17 @@ function buildGenerationTable(wanted, mode, cake, goal, reach) {
       push(p);
     }
   }
+  // 範囲の外の状態は、配列の別の状態を黙って引かないよう、届かない（Infinity）として返す。
+  // パッシブを見ない表は余計の数を状態に持たない（上限 0）ので、余計と共有数は 0 だけが範囲の中（generationEggs が 0 にそろえる）
+  const validBits = (bits) => Number.isInteger(bits) && bits >= 0 && bits <= 7;
+  const validExtras = (extras) => Number.isInteger(extras) && extras >= 0 && extras <= limit;
+  const inRange = (bm, em, bf, ef, c) => validBits(bm) && validBits(bf)
+    && validExtras(em) && validExtras(ef) && Number.isInteger(c) && c >= 0 && c <= Math.min(em, ef);
+  // 範囲を確かめずに引く（範囲の中の状態から、表の遷移で移った先だけに使う。何度も呼ぶので検査を省く）
+  const at = (bm, em, bf, ef, c) => (ignorePassives ? value[indexOf(bm | forced, 0, bf | forced, 0, 0)] : value[indexOf(bm | forced, em, bf | forced, ef, c)]);
   return {
-    wanted, mode, cake, goal, bonus, reach, ignorePassives, limit, forced, random, movesFor, firstTalent: new Map(),
-    value: (bm, em, bf, ef, c) => (ignorePassives ? value[indexOf(bm | forced, 0, bf | forced, 0, 0)] : value[indexOf(bm | forced, em, bf | forced, ef, c)]),
+    wanted, mode, cake, goal, bonus, reach, ignorePassives, limit, forced, random, movesFor, firstTalent: new Map(), inRange, at,
+    value: (bm, em, bf, ef, c) => (inRange(bm, em, bf, ef, c) ? at(bm, em, bf, ef, c) : Infinity),
   };
 }
 
@@ -442,17 +468,29 @@ const ESTIMATE_REACH = 6;
 const GENERATION_TABLES = new Map();
 const GENERATION_TABLE_LIMIT = 8;
 
+// 親の余計なパッシブの数の上限を、表で使う値にそろえる（4 − 欲しい数 〜 4。パッシブを見ない表は 0）。
+// 同じ値になる指定は同じ表を使う
+function effectiveParentExtras(wanted, mode, parentExtras) {
+  if (mode !== 'only' && wanted === 0) return 0;
+  const least = MAX_WANTED - wanted;
+  const value = Math.trunc(Number(parentExtras));
+  return Number.isFinite(value) ? Math.max(least, Math.min(MAX_WANTED, value)) : least;
+}
+
 /**
- * 設定（欲しい数・条件・ケーキ・目標）ごとの表。作り直さないよう、新しく使ったものから 8 件まで覚える。
+ * 設定（欲しい数・条件・ケーキ・目標・親の余計の上限）ごとの表。作り直さないよう、新しく使ったものから 8 件まで覚える。
  * bound はキノコケーキのときの見積もり（'upper': 上限、'estimate': 目安）。ほかのケーキでは厳密なので関係しない。
+ * parentExtras は親が持てる余計なパッシブの数（両親合わせて欲しいものがそろう組で、欲しいものを欠く親のため。既定は 4 − 欲しい数）。
+ * 広げても、もとの範囲の状態の値は変わらない（子は欲しいものを全部持つので、入れ替えても余計は 4 − 欲しい数を超えない）
  */
-export function generationTable({ wanted = 0, mode = 'include', cake = 'none', targets = {}, bound = 'upper' } = {}) {
+export function generationTable({ wanted = 0, mode = 'include', cake = 'none', targets = {}, bound = 'upper', parentExtras } = {}) {
   const goal = talentTargets(targets);
   const reach = cake !== 'talent' ? 0 : bound === 'estimate' ? ESTIMATE_REACH : 1;
-  const key = [wanted, mode, cake, goal.hp, goal.shot, goal.defense, reach].join('|');
+  const parentLimit = effectiveParentExtras(wanted, mode, parentExtras);
+  const key = [wanted, mode, cake, goal.hp, goal.shot, goal.defense, reach, parentLimit].join('|');
   let table = GENERATION_TABLES.get(key);
   if (table) GENERATION_TABLES.delete(key);
-  else table = buildGenerationTable(wanted, mode, cake, goal, reach);
+  else table = buildGenerationTable(wanted, mode, cake, goal, reach, parentLimit);
   GENERATION_TABLES.set(key, table);
   if (GENERATION_TABLES.size > GENERATION_TABLE_LIMIT) GENERATION_TABLES.delete(GENERATION_TABLES.keys().next().value);
   return table;
@@ -481,10 +519,13 @@ function reachBits(talent, table) {
  * ケーキなし・スペシャルケーキでは表をそのまま引く。キノコケーキでは最初の 1 個だけ実際の値で遷移を計算し、
  * 今の 2 体のまま続けるか、入れ替えて表の状態へ進むかを選ぶ（入れ替え先の平均の小さい順に足していく）。
  */
-export function generationEggs(table, male, female, { maleExtras = 0, femaleExtras = 0, shared = 0 } = {}) {
+export function generationEggs(table, male, female, counts = {}) {
+  // パッシブを見ない表（欲しいパッシブなし・全部持つ）は、親のパッシブの数を見ない
+  const { maleExtras = 0, femaleExtras = 0, shared = 0 } = table.ignorePassives ? {} : counts;
   const bm = reachBits(male, table);
   const bf = reachBits(female, table);
   if (!table.bonus) return table.value(bm, maleExtras, bf, femaleExtras, shared);
+  if (!table.inRange(bm, maleExtras, bf, femaleExtras, shared)) return Infinity;
   // 子の個体値の分布は両親の値の段階だけで決まるので、表ごとに覚えておく（多くなりすぎたら捨てる）
   const stages = (talent) => TALENT_KEYS.reduce((code, key, s) => code + stageOf(talent[key], table.goal[key], table) * STAGES ** s, 0);
   const talentKey = stages(male) * STAGES ** 3 + stages(female);
@@ -498,11 +539,12 @@ export function generationEggs(table, male, female, { maleExtras = 0, femaleExtr
   }
   const rates = [];
   const values = [];
-  const extras = table.ignorePassives ? [0, 0, 0] : [maleExtras, femaleExtras, shared];
+  const extras = [maleExtras, femaleExtras, shared];
+  // 入れ替え先は、範囲の中の今の状態から表の遷移で移った先なので、範囲を確かめずに引く
   const success = eggOutcomes({
     talent, moves: table.movesFor(...extras), forced: table.forced,
     visit: (male, bits, e, h, rate) => {
-      const value = male ? table.value(bits, e, bf, femaleExtras, h) : table.value(bm, maleExtras, bits, e, h);
+      const value = male ? table.at(bits, e, bf, femaleExtras, h) : table.at(bm, maleExtras, bits, e, h);
       if (Number.isFinite(value)) { rates.push(rate); values.push(value); }
     },
   });
@@ -678,20 +720,31 @@ const bitCount = (mask) => {
  * 配合牧場に上から置く組を、別々の個体で limit 組まで選ぶ（同じ個体は 1 つの牧場にしか置けないので、上の組に使った個体は下の組に使わない）。
  * 組は目的で 3 つに分け、PLAN_GROUPS の順に並べる（comparePlan）。
  * - complete（完全体作成組）: 欲しいパッシブと個体値の目標を全部満たす子（完全体）を作れる組。2 体で欲しいパッシブがそろい、
- *   目標のある各ステータスに目標以上（キノコケーキでは +5 で届く目標−5 以上）の親がいて 1 回で作れる組と、同じ種族で両親とも
- *   欲しいパッシブを全部持ち、子を入れ替えながら作れる組。完成までのタマゴの平均の少ない順（1 回で作れる組も、子を入れ替えた方が早ければその平均）
- * - passive（パッシブ厳選組）: 欲しいパッシブを全部、候補のだれかが持つとき、個体値は見ずに、欲しいパッシブを 1 体に集める組
- *   （2 体で、どちらか 1 体より多くの欲しいパッシブがそろう組。途中まで集める組も含む）。集まる数の多い順 → 全部継ぐ確率の高い順
+ *   目標のある各ステータスに目標以上（キノコケーキでは +5 で届く目標−5 以上）の親がいて 1 回で作れる組と、同じ種族で
+ *   両親合わせて欲しいパッシブがそろい（どちらの親が持っていても同じ）、どちらもパッシブが 4 個以下で、子を入れ替えながら作れる組。
+ *   完成までのタマゴの平均の少ない順（1 回で作れる組も、子を入れ替えた方が早ければその平均）
+ * - passive（パッシブ厳選組）: 欲しいパッシブを全部、候補のだれかが持つとき、完全体作成組に当たらない組のうち、個体値は見ずに、
+ *   欲しいパッシブを 1 体に集める組（2 体で、どちらか 1 体より多くの欲しいパッシブがそろう組。途中まで集める組や異なる種族の組も含む）。
+ *   集まる数の多い順 → 全部継ぐ確率の高い順
  * - talent（個体値厳選組）: それ以外。欲しいパッシブを候補のだれも持たない（配合では作れない）ときは全部ここになる。
  *   パッシブは後から付ける前提で見ずに、個体値の目標がそろう子が産まれるまでの平均（同じ種族なら子を入れ替えながら）の少ない順
  * パッシブの条件を満たす子が産まれない組（スペシャルケーキで 4 個未満の「欲しいものだけ」など）は、置いても完成しないので出さず、blocked に数える。
+ * 物差しが同じ組どうしでは、prefer の組を先にする（placed: 今の配合牧場の組、baseline: 前の基準の上から牧場の数の組。
+ * キーは `♂の個体 ID|♀の個体 ID`〔core/ideal-farms.js の planPairKey と同じ形〕）。
+ * watch の組は、一覧に入らなくても物差しを measures に返す（配合牧場の判定で、今の組と比べるため。pairs は変えない）。
  * @param {{ pals: object[], index: object, target: string, passives?: string[], mode?: 'include'|'only',
- *   targets?: { hp?: number, shot?: number, defense?: number }, cake?: string, limit?: number }} input
+ *   targets?: { hp?: number, shot?: number, defense?: number }, cake?: string, limit?: number,
+ *   prefer?: { placed?: Set<string>, baseline?: Set<string> }, watch?: Set<string> }} input
  * @returns {{ pairs: object[], total: number, layouts: object[], candidates: number, unknownGender: number, missing: string[],
- *   complete: { M: number, F: number }, tooMany: number, blocked: number }}
- *   total は並べた組の数（blocked を除く）。missing は候補のどの個体も持たない欲しいパッシブ（あれば配合では作れない）
+ *   complete: { M: number, F: number }, tooMany: number, blocked: number,
+ *   measures: Map<string, { status: 'ok', rank: number, ambiguous: boolean, eggs?: number, gathered?: number, gatherChance?: number,
+ *     talentEggs?: number, chance: number } | { status: 'blocked' }> }}
+ *   total は並べた組の数（blocked を除く）。missing は候補のどの個体も持たない欲しいパッシブ（あれば配合では作れない）。
+ *   measures の rank は組の目的（PLAN_GROUPS の順）、ambiguous は同じ組み合わせで別の子も登録されている組
  */
-export function idealPlan({ pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none', limit = 20 }) {
+export function idealPlan({
+  pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none', limit = 20, prefer, watch,
+}) {
   const wanted = [...new Set(passives)].slice(0, MAX_WANTED);
   const goal = talentTargets(targets);
   const bonus = cake === 'talent';
@@ -714,7 +767,8 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
     const own = [...new Set(pal.passives)];
     let mask = 0;
     wanted.forEach((id, bit) => { if (own.includes(id)) { mask |= 1 << bit; held.add(id); } });
-    // 子を入れ替えながら完全体を作れる個体（目標と同じ種族で、欲しいパッシブを全部持ち、5 個以上ではない）
+    // 目標と同じ種族で、欲しいパッシブを全部持ち、5 個以上ではない個体（画面の「5 個以上は除外」の注記の数え方。
+    // 子を入れ替えながら作る組は、両親合わせてそろえばよいので、この個体に限らない）
     const ready = pal.palId === target && mask === full && own.length <= MAX_WANTED;
     if (ready) complete[pal.gender]++;
     else if (pal.palId === target && mask === full) tooMany++;
@@ -744,9 +798,28 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
     return gatherRates.get(key);
   };
   const keep = Math.max(1, Math.trunc(Number(limit)) || 1);
-  // 表は ♂・♀ がそろうときだけ作る（作るのに時間がかかる）。キノコケーキでは目安（並べる）と上限（表示）の 2 つ
+  // 子を入れ替えながら作る組（同じ種族で、両親合わせて欲しいパッシブがそろい、どちらも 4 個以下）がある ♂・♀ の
+  // 欲しいパッシブの持ち方（mask。高々 16 通り）の組み合わせから、親の余計なパッシブの最大を求める（-1 は組がない）。
+  // 表を必要な分だけ広げるため、和集合がそろう相手がいる親だけで数える
+  const extrasByMask = (list) => {
+    const byMask = new Map();
+    for (const entry of list ?? []) {
+      if (entry.own.length <= MAX_WANTED) byMask.set(entry.mask, Math.max(byMask.get(entry.mask) ?? 0, entry.extras.length));
+    }
+    return byMask;
+  };
+  const maleMasks = extrasByMask(groups.get(`${target}|M`));
+  const femaleMasks = extrasByMask(groups.get(`${target}|F`));
+  let parentExtras = -1;
+  for (const [maleMask, maleExtras] of maleMasks) {
+    for (const [femaleMask, femaleExtras] of femaleMasks) {
+      if ((maleMask | femaleMask) === full) parentExtras = Math.max(parentExtras, maleExtras, femaleExtras);
+    }
+  }
+  // 表はその組があるときだけ作る（作るのに時間がかかる）。キノコケーキでは目安（並べる）と上限（表示）の 2 つ
   const bounds = bonus ? ['estimate', 'upper'] : ['upper'];
-  const completeTables = complete.M && complete.F ? bounds.map((bound) => generationTable({ wanted: wanted.length, mode, cake, targets: goal, bound })) : [];
+  const completeTables = parentExtras >= 0
+    ? bounds.map((bound) => generationTable({ wanted: wanted.length, mode, cake, targets: goal, bound, parentExtras })) : [];
   // 個体値厳選組の表: パッシブを見ない（欲しいパッシブなし・全部持つ）
   const talentTables = sameSpecies.M && sameSpecies.F ? bounds.map((bound) => generationTable({ wanted: 0, mode: 'include', cake, targets: goal, bound })) : [];
   const stageCode = (talent, table) => TALENT_KEYS.reduce((code, key, s) => code + stageOf(talent[key], goal[key], table) * STAGES ** s, 0);
@@ -783,6 +856,17 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
   let total = 0;
   let blocked = 0;
   const inherited = [0, 0, 0];
+  // 優先と見張りは、指定があるときだけ組のキーを作る（100 万組でも文字列を作らないように）
+  const placed = prefer?.placed?.size ? prefer.placed : null;
+  const baseline = prefer?.baseline?.size ? prefer.baseline : null;
+  const watching = watch?.size ? watch : null;
+  const keyed = Boolean(placed || baseline || watching);
+  const measures = new Map();
+  const BLOCKED = Object.freeze({ status: 'blocked' });
+  const measureOf = (candidate) => ({
+    status: 'ok', rank: candidate.rank, ambiguous: candidate.ambiguous, eggs: candidate.eggs, gathered: candidate.gathered,
+    gatherChance: candidate.gatherChance, talentEggs: candidate.talentEggs, chance: candidate.chance,
+  });
   for (const layout of layouts) {
     const males = groups.get(`${layout.male}|M`);
     const females = groups.get(`${layout.female}|F`);
@@ -790,14 +874,24 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
     const same = layout.male === target && layout.female === target;
     for (const male of males) {
       for (const female of females) {
-        if (impossible) { blocked++; continue; }
+        const key = keyed ? `${male.pal.id}|${female.pal.id}` : '';
+        const watched = Boolean(watching?.has(key));
+        if (impossible) {
+          blocked++;
+          if (watched) measures.set(key, BLOCKED);
+          continue;
+        }
         let shared = 0;
         for (const id of male.own) if (female.own.includes(id)) shared++;
         const pool = male.own.length + female.own.length - shared;
         const union = male.mask | female.mask;
         const passive = union === full ? passiveRate(pool) : 0;
         // 欲しいパッシブがそろう組で、パッシブの条件を満たす子が産まれない（親がパッシブを持つのに「パッシブなし」など）
-        if (union === full && !passive) { blocked++; continue; }
+        if (union === full && !passive) {
+          blocked++;
+          if (watched) measures.set(key, BLOCKED);
+          continue;
+        }
         for (let s = 0; s < 3; s++) inherited[s] = (male.hit[s] + female.hit[s]) / 2;
         const talent = combine(inherited, random);
         let expected = 0;
@@ -806,14 +900,16 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
         const candidate = {
           male: male.pal, female: female.pal, layout, ambiguous: layout.ambiguous, entries: [male, female],
           chance: passive * talent, passiveChance: passive, talentChance: talent, expected, extraCount: pool - wanted.length, poolSize: pool,
+          prefer: placed?.has(key) ? 2 : baseline?.has(key) ? 1 : 0,
         };
         let list = byMale.get(male.pal.id);
         if (!list) byMale.set(male.pal.id, list = []);
         const worst = list.length >= perMale ? list[list.length - 1] : null;
-        // 完全体作成組: 1 回で作れる組と、子を入れ替えながら作れる組
+        // 完全体作成組: 1 回で作れる組と、子を入れ替えながら作れる組（同じ種族で、両親合わせて欲しいパッシブがそろい、
+        // どちらも 4 個以下。入れ替えに使う子は欲しいものを全部持つので、和集合がそろう状態は続く）
         const oneShot = candidate.chance > 0
           && TALENT_KEYS.every((key) => goal[key] <= 0 || Math.max(male.pal.talent[key], female.pal.talent[key]) + reach >= goal[key]);
-        if (union === full && same && male.ready && female.ready) {
+        if (union === full && same && male.own.length <= MAX_WANTED && female.own.length <= MAX_WANTED) {
           let common = 0;
           for (const id of male.extras) if (female.extras.includes(id)) common++;
           candidate.generations = completeEggs(male, female, common, 0);
@@ -829,11 +925,12 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
           candidate.gatherChance = gatherRate(gathered, pool);
         } else {
           candidate.rank = 2;
-          // この ♂ の上位が、上の目的の組で埋まっていれば入らないので、個体値がそろうまでの平均を求めない
-          if (worst && worst.rank < 2) continue;
+          // この ♂ の上位が、上の目的の組で埋まっていれば入らないので、個体値がそろうまでの平均を求めない（見張る組は求める）
+          if (worst && worst.rank < 2 && !watched) continue;
           if (same && talentTables.length) candidate.talentGenerations = talentEggs(male, female, 0);
           candidate.talentEggs = Math.min(candidate.talentGenerations ?? Infinity, talent > 0 ? 1 / talent : Infinity);
         }
+        if (watched) measures.set(key, measureOf(candidate));
         if (worst && comparePlan(candidate, worst) >= 0) continue;
         const at = list.findIndex((item) => comparePlan(candidate, item) < 0);
         list.splice(at < 0 ? list.length : at, 0, candidate);
@@ -874,5 +971,5 @@ export function idealPlan({ pals, index, target, passives = [], mode = 'include'
         ? { talentGenerations: pair.talentGenerations, talentGenerationsUpper: upper(pair.talentGenerations, pair.talentGenerationsUpper) } : {}),
     };
   });
-  return { pairs, total, layouts, candidates, unknownGender, missing, complete, tooMany, blocked };
+  return { pairs, total, layouts, candidates, unknownGender, missing, complete, tooMany, blocked, measures };
 }

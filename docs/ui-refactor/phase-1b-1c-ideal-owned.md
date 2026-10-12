@@ -295,6 +295,8 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
 ### 依存
 ideal-panel（要約の行の場所・見出しの「?」の置き場）、popovers（`ui/popover.js`）、stable-render（結果の差分更新。カードの `data-key`）、ideal-calc（説明の文・組の定義）。
 
+追記（2026-10-12、ideal-calc の実装）: 組のカードの ambiguous の注記は「同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。」になった（D19）。説明の :165 も、補助の判定の言い回しと D19 の一文を足した（phase-1-0-ideal-calc.md の「実装の記録」の 4・5）。「?」のダイアログに移すときは、この文を使う。
+
 ### このテーマでやらないこと
 - 計算そのもの（core/ideal.js の確率・並び）の変更。子の性別比（判断事項 4）。キノコケーキで届くかの 3 段階の色。
 - 「登録者の対応」の案内（views/ideal.js:143・:374。participant-self）。
@@ -422,6 +424,8 @@ ideal-panel（要約の行の場所・見出しの「?」の置き場）、popov
 
 ### 依存
 ideal-results（カードの札・説明部品・畳み）、ideal-panel（`--panel-h`）、stable-render（カードの `data-key`）、ideal-calc（`farmAdvice` の `measureOf`・`idealPlan` の `measures`・「変更あり」の絞り込み）。
+
+追記（2026-10-12、ideal-calc の実装）: `farmAdvice` は、今の組か交換先の組が「同じ組み合わせで別の子も登録されている組」（`ambiguous`）のまとまりを比べず、おすすめの順のとおりにする（D19）。今の牧場の行には、その旨の注記（`small.ideal-warning`「⚠ 牧場の組（交換先の組）は、…どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。」）がある。行を絵と押せる行に作り直すときも、この注記は残す（phase-1-0-ideal-calc.md の「実装の記録」）。
 
 ### このテーマでやらないこと
 - 牧場のタマゴ（palId・突然変異）の保持と共有、共有の JSON の上限と「一部だけ」の印（フェーズ 3 の farm-data）。全牧場の帯（フェーズ 3 の farm-board）。

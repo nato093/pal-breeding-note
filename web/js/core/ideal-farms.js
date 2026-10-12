@@ -1,5 +1,5 @@
 // 配合牧場に今置いてある組と、配合の計画（core/ideal.js の idealPlan）を比べる。DOM には触れない。
-// 遺伝の仕組みは使わない（計画の結果と、目標が産まれる向きの一覧 layouts だけを受け取る）。
+// 遺伝の仕組みは使わない（計画の結果とその物差し、目標が産まれる向きの一覧 layouts だけを受け取る）。
 
 /** 組を見分けるキー（♂ と ♀ の個体 ID）。 */
 export const planPairKey = (male, female) => `${male.id}|${female.id}`;
@@ -28,13 +28,104 @@ export function targetFarms(farms, pals, layouts) {
 }
 
 /**
+ * 有効数字 12 桁に丸めた値どうしの比較（負なら a が小さい）。core/ideal.js の並びと同じ丸め
+ * （このファイルは core/ideal.js を読み込めないので、同じものを持つ）。丸めは単調なので、離れた値は丸めずに比べる
+ */
+function compareRounded(a, b) {
+  if (a === b) return 0;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return a < b ? -1 : 1;
+  if (Math.abs(a - b) > 1e-9 * Math.max(Math.abs(a), Math.abs(b))) return a - b;
+  return Number(a.toPrecision(12)) - Number(b.toPrecision(12));
+}
+
+// 組がない（相手がいなくなる）牧場の物差し。どの組よりも悪い
+const EMPTY = Object.freeze({ status: 'blocked' });
+
+/**
+ * 牧場 1 か所の完成の速さ（1 個のタマゴあたり）。完全体作成組は 1 ÷ 完成までの平均、それ以外の組は 1 個のタマゴで完成する確率
+ * （親を替えないときの速さ）。完成しない組・組がない牧場は 0
+ */
+function farmRate(measure) {
+  if (measure?.status !== 'ok') return 0;
+  if (measure.rank === 0) return Number.isFinite(measure.eggs) && measure.eggs > 0 ? 1 / measure.eggs : 0;
+  return measure.chance > 0 ? measure.chance : 0;
+}
+
+// 準備の組どうしの比べ方（負なら a が良い）: 組の目的 → 目的ごとの物差し（丸める）。組がない・完成しない組は一番悪い
+function compareMeasure(a, b) {
+  const rankA = a?.status === 'ok' ? a.rank : Infinity;
+  const rankB = b?.status === 'ok' ? b.rank : Infinity;
+  if (rankA !== rankB) return rankA < rankB ? -1 : 1;
+  if (rankA === Infinity) return 0;
+  if (rankA === 0) return compareRounded(a.eggs, b.eggs);
+  if (rankA === 1) return (b.gathered - a.gathered) || compareRounded(b.gatherChance, a.gatherChance);
+  return compareRounded(a.talentEggs, b.talentEggs);
+}
+
+/**
+ * 交換の案を、個体をやり取りする牧場のまとまりごとに、今と比べて採るか決める（measureOf があるとき）。
+ * 牧場全体の完成の速さの目安 R（牧場ごとの farmRate の合計）が上がるまとまりだけ交換を勧め、上がらなければ、
+ * まとまりの牧場を全部「そのまま」にする（keep。rank は今の組の順位のまま、to・in・out はなし）。
+ * 今も案も R = 0（どの牧場もまだ完成できない、準備の組だけ）のときだけ、どの牧場も悪くならず 1 か所以上が良くなる案を採る。
+ * R は各牧場が一定の確率で完成するとみなした目安で、入れ替えながら作る過程は数えない（牧場が 1 か所なら正確）。
+ * 物差しが分からない組と、同じ組み合わせで別の子も登録されている組（ambiguous。どちらかの登録が間違っている可能性があり、
+ * 速さは目標が産まれる前提の値）を含むまとまりは比べられないので、案（おすすめの順）のとおりにする
+ */
+function settleByRate(advice, pairs, measureOf) {
+  // 牧場を頂点にし、交換で入れる個体の移動元の牧場とつなぐ（無向。つながったものは推移的に 1 つのまとまり）。
+  // パルボックスやほかの目標の牧場から入れる個体は移動元の頂点がないので、この目標の速さだけで比べる
+  const farmOf = new Map();
+  advice.forEach((item, i) => {
+    farmOf.set(item.farm.male.id, i);
+    farmOf.set(item.farm.female.id, i);
+  });
+  const root = advice.map((_, i) => i);
+  const find = (i) => (root[i] === i ? i : (root[i] = find(root[i])));
+  advice.forEach((item, i) => {
+    for (const pal of item.status === 'swap' ? item.in : []) {
+      const from = farmOf.get(pal.id);
+      if (from !== undefined) root[find(from)] = find(i);
+    }
+  });
+  const groups = new Map();
+  advice.forEach((item, i) => {
+    const key = find(i);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  for (const members of groups.values()) {
+    // 交換も、ほかの牧場へ個体を出すこともないまとまり（そのまま・置く組のない牧場）は比べない
+    if (!members.some((item) => item.status === 'swap' || item.out?.length)) continue;
+    const now = members.map((item) => measureOf(planPairKey(item.farm.male, item.farm.female)));
+    const next = members.map((item, i) => (item.status === 'swap' ? measureOf(planPairKey(pairs[item.to].male, pairs[item.to].female))
+      : item.out?.length ? EMPTY : now[i]));
+    if ([...now, ...next].some((measure) => !measure || measure.ambiguous)) continue;
+    const before = now.reduce((sum, measure) => sum + farmRate(measure), 0);
+    const after = next.reduce((sum, measure) => sum + farmRate(measure), 0);
+    const order = compareRounded(after, before);
+    const better = order > 0 || (order === 0 && before === 0 && after === 0
+      && next.every((measure, i) => compareMeasure(measure, now[i]) <= 0) && next.some((measure, i) => compareMeasure(measure, now[i]) < 0));
+    if (better) continue;
+    for (const item of members) {
+      item.status = 'keep';
+      delete item.to;
+      delete item.in;
+      delete item.out;
+    }
+  }
+}
+
+/**
  * 牧場ごとの判定。対象の牧場が K か所なら、計画の上から K 組を置くべき組とする。
  * 置いてある組がその中にあれば keep（そのまま）、なければ、まだどの牧場にもない組を swap（交換推奨）として割り当てる。
  * 親の片方がすでに入っている牧場を先に選び、1 体の入れ替えで済むようにする。計画の組が足りなければ none。
+ * measureOf（組のキー → idealPlan の物差し { status, rank〔組の目的〕, ambiguous, eggs, gathered, gatherChance, talentEggs, chance }）を渡すと、
+ * 牧場全体の完成の速さの目安が上がる交換だけを勧める（settleByRate）。見送った牧場は keep で、rank が -1 か K 以上になる。
+ * 遺伝の計算は持たず、受け取った数だけを比べる。measureOf がなければ、上から K 組との比較だけで決める
  * @returns {{ farm: object, status: 'keep'|'swap'|'none', rank: number, to?: number, out?: object[], in?: object[] }[]}
  *   rank は置いてある組の計画での順位（0 から。計画になければ -1）、to は交換先の組の順位、out は外す個体、in は入れる個体
  */
-export function farmAdvice(farms, pairs) {
+export function farmAdvice(farms, pairs, { measureOf } = {}) {
   const top = pairs.slice(0, farms.length);
   const rankOf = new Map(pairs.map((pair, i) => [pairKey(pair.male, pair.female), i]));
   const advice = farms.map((farm) => {
@@ -61,6 +152,7 @@ export function farmAdvice(farms, pairs) {
     item.status = 'none';
     item.out = [item.farm.male, item.farm.female].filter((pal) => moving.has(pal.id));
   }
+  if (measureOf) settleByRate(advice, pairs, measureOf);
   return advice;
 }
 

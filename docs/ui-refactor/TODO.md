@@ -16,8 +16,8 @@
 
 | フェーズ | テーマ数 | TODO の数 | 済のテーマ |
 |---|---|---|---|
-| 0 準備 | — | 9 | — |
-| 1-0 | 1 | 17 | 0 |
+| 0 準備 | — | 9 | 済 |
+| 1-0 | 1 | 17 | 1 |
 | 1a | 7 | 96 | 0 |
 | 1b | 4 | 45 | 0 |
 | 1c | 3 | 44 | 0 |
@@ -26,7 +26,7 @@
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **0** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **1** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -34,15 +34,15 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 統合プランのフェーズ 0 の「調査結果の書き出し」「計測の手順を置く」は、このドキュメントを作るときに済ませた（付録と `Claude outputs/ui-audit-2026-10/`）。残りは確認と基準の再現。
 
-- [ ] 0-1. **着手の合意**: README の「3-1 決定事項」「3-7 実装前・実装中にユーザーに確かめる点」を短く示し、このドキュメントのとおりに実装へ進めてよいか、ユーザーの合意を得る（統合プランは承認のダイアログで明示的には承認されていない。README の「2-6」）。フェーズ 1-0 の ideal-calc は、ユーザーが「内容は承認済み」と答えている（README の「2-8」）ので、合意を取り直さない
+- [x] 0-1. **着手の合意**: README の「3-1 決定事項」「3-7 実装前・実装中にユーザーに確かめる点」を短く示し、このドキュメントのとおりに実装へ進めてよいか、ユーザーの合意を得る（統合プランは承認のダイアログで明示的には承認されていない。README の「2-6」）。フェーズ 1-0 の ideal-calc は、ユーザーが「内容は承認済み」と答えている（README の「2-8」）ので、合意を取り直さない（済: 2026-10-12、セッション `300704ce`。「ドキュメントのとおり（D1〜D18・3-3・3-7 の既定の扱い）」で合意。あわせて、各テーマは `feature/<key>` でコミットし `main` へ `--no-ff` でマージまで進めてよい（push はしない）、止まって報告する単位はテーマごと、と答えた）
 - [x] 0-2. **`.gitignore` の扱いを確かめる**（済: 2026-10-12、セッション `c342c7a9`。ユーザーの判断で `.mso/`・`.playwright-cli/`・`Claude outputs/` を `.gitignore` に足し、ブランチ `docs/ui-refactor-plan` で単独のコミットにして `main` にマージした。経緯は README の「8-2」）
 - [x] 0-3. **`docs/ui-refactor/` をコミットするかを確かめる**（済: 2026-10-12、同じセッション。公開リポジトリなので、ユーザー名を含むパス・Steam ID・ワールドの ID を伏せてからコミットし、`main` にマージした。push はしていない）。以後も、どのブランチでも `git add -A`・`git add .` を使わない
-- [ ] 0-4. **Codex の利用を確かめる**: フェーズ末のレビューで Codex（読み取り専用）を使ってよいか、目的を説明して許可を得る（プロジェクトの CLAUDE.md・グローバルの規約）。使う前に、シェルが起動するかを小さく試す（この環境では起動に失敗したことがある）
-- [ ] 0-5. **コードが調査のときのままか確かめる**: `git diff c5c0683 --stat -- web/ test/` が空か（2026-10-12 に文書と `.gitignore` をコミットしたので、`git log -1` は `c5c0683` ではない。web/・test/ は変えていない）。変わったファイルがあれば、該当するテーマの文書の file:line を開き直す前提で進める
-- [ ] 0-6. **付録とスクリーンショットを確かめる**: `docs/ui-refactor/appendix/` の 7 本（catalog・rejected・measurements・codex-reviews・other-session-plan・plan-snapshot・ideal-calc-plan）が開ける。`Claude outputs/ui-audit-2026-10/shots/{find,record,owned}/` に PNG（計 110 個）と `owned/inject.js`・`owned/inject2.js`・`owned/measure.js`・`record/measure.js`・`find/init-goto.js` がある
-- [ ] 0-7. **テストの基準**: `npm test` と `npm run test:perf` が、何も変えていない状態で通ることを確かめ、`test:perf` の値を phase-1a-foundation.md の「計測の記録」に書く（この値が、ideal-calc の「変える前の値」になる）
-- [ ] 0-8. **基準の計測を再現する**: `npm run dev` → `http://localhost:5173/?mock=1&seed=80`（新規登録で入る）→ 所持パルは `Claude outputs/ui-audit-2026-10/shots/owned/inject.js` で注入（手順は appendix/measurements.md の「モックでの再現の仕方」）。README「7-2」の表のうち 2 行以上（例: 配合検索で親を選ぶと 27px 下がる・ヘッダー scrollY=800 でベルが画面外）を同じ値で再現できることを確かめ、計測の記録に書く。終わったらブラウザと開発サーバを止める
-- [ ] 0-9. **次にやることを更新する**: 下の「次にやること」を「フェーズ 1-0 の ideal-calc」に書き換える
+- [x] 0-4. **Codex の利用を確かめる**: フェーズ末のレビューで Codex（読み取り専用）を使ってよいか、目的を説明して許可を得る（プロジェクトの CLAUDE.md・グローバルの規約）。使う前に、シェルが起動するかを小さく試す（この環境では起動に失敗したことがある）（済: 2026-10-12。ユーザーの回答は「積極的にフル活用して良い。読み込ませる情報に制限もない。」。レビューも実装の委譲も、テーマごとに許可を取り直さなくてよい。Skill ツールからの呼び出しは権限の確認で止まったので、`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` を Bash で直接呼ぶ）
+- [x] 0-5. **コードが調査のときのままか確かめる**: `git diff c5c0683 --stat -- web/ test/` が空か（2026-10-12 に文書と `.gitignore` をコミットしたので、`git log -1` は `c5c0683` ではない。web/・test/ は変えていない）。変わったファイルがあれば、該当するテーマの文書の file:line を開き直す前提で進める（済: 2026-10-12。空だった。HEAD は `63fc066`）
+- [x] 0-6. **付録とスクリーンショットを確かめる**: `docs/ui-refactor/appendix/` の 7 本（catalog・rejected・measurements・codex-reviews・other-session-plan・plan-snapshot・ideal-calc-plan）が開ける。`Claude outputs/ui-audit-2026-10/shots/{find,record,owned}/` に PNG（計 110 個）と `owned/inject.js`・`owned/inject2.js`・`owned/measure.js`・`record/measure.js`・`find/init-goto.js` がある（済: 2026-10-12。7 本と PNG 110 個（find 37・record 39・owned 34）、スクリプト 5 本がある）
+- [x] 0-7. **テストの基準**: `npm test` と `npm run test:perf` が、何も変えていない状態で通ることを確かめ、`test:perf` の値を phase-1a-foundation.md の「計測の記録」に書く（この値が、ideal-calc の「変える前の値」になる）（済: 2026-10-12。`npm test` 1,024 件・`test:perf` 3 件が通った。値は計測の記録）
+- [x] 0-8. **基準の計測を再現する**: `npm run dev` → `http://localhost:5173/?mock=1&seed=80`（新規登録で入る）→ 所持パルは `Claude outputs/ui-audit-2026-10/shots/owned/inject.js` で注入（手順は appendix/measurements.md の「モックでの再現の仕方」）。README「7-2」の表のうち 2 行以上（例: 配合検索で親を選ぶと 27px 下がる・ヘッダー scrollY=800 でベルが画面外）を同じ値で再現できることを確かめ、計測の記録に書く。終わったらブラウザと開発サーバを止める（済: 2026-10-12。2 行を同じ値で再現した（計測の記録）。注意: モックの配合は `Math.random` で作るので、seed が同じでも中身は毎回変わる。撮影のときの「ソルレイス」に配合があるとは限らないので、一覧の先頭の配合の親を選んで測った）
+- [x] 0-9. **次にやることを更新する**: 下の「次にやること」を「フェーズ 1-0 の ideal-calc」に書き換える（済: ideal-calc に入った。今の状態は末尾の「次にやること」）
 
 ---
 
@@ -54,29 +54,30 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 両親合わせてパッシブがそろう組も完全体作成組にし、交換推奨と「変更あり」を全体の速さの目安で決める
 
-- 状態: 未着手 ／ ブランチ: `feature/ideal-calc` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/ideal-calc` ／ マージのコミット: （マージの後に書く）
+- 実装で決めたこと・文書との違いは phase-1-0-ideal-calc.md の「実装の記録」。D19（別の子も登録されている組は速さで比べない）をユーザーに確かめて足した
 - 順番: UI 改善の統合プランにはないテーマ。2026-10-12 に足し、1a の前に置いた（今の行番号がそのまま使え、後のテーマが新しい計算の上で作れるため。README の「2-8」）
 
-- [ ] 変える前に `npm run test:perf` の値を測って記録する
-- [ ] `generationTable` に `parentExtras` を足す（実効の値に正規化・キャッシュのキー・`ignorePassives` は 0 のまま）
-- [ ] `value()` に範囲の検査を足す（範囲外は Infinity）
-- [ ] `idealPlan` の世代の計算の条件を「同じ種族・和集合がそろう・各親 4 個以下」にし、表を作る条件を mask の組み合わせで決める
-- [ ] `comparePlan` を丸めた比較キーと `prefer` の優先にする（`prefer` を idealPlan に足す）
-- [ ] `idealPlan` に `watch` を足し、`measures` を返す（:833 の省略を watch の組では求める・blocked）
-- [ ] `farmAdvice` にまとまりと R の比較を入れる（`measureOf` なしは今と同じ）
-- [ ] views/ideal.js の `renderResults` を新しい流れにし、「変更あり」を交換推奨の行き先に絞る
-- [ ] 「そのまま」の文と、説明の :160・:161・:162・:165・:166・:411 を直す
-- [ ] ideal.test.js・ideal-farms.test.js・ideal-view.test.js を直し・足す
-- [ ] ideal.perf.js に fixture を足し、表の作成と使い回しを分けて測る
-- [ ] data/SOURCES.md に変更記録つきで追記する
-- [ ] release-notes に 1 件足す
-- [ ] 画面で 4 体の条件を確かめる
+- [x] 変える前に `npm run test:perf` の値を測って記録する
+- [x] `generationTable` に `parentExtras` を足す（実効の値に正規化・キャッシュのキー・`ignorePassives` は 0 のまま）
+- [x] `value()` に範囲の検査を足す（範囲外は Infinity）
+- [x] `idealPlan` の世代の計算の条件を「同じ種族・和集合がそろう・各親 4 個以下」にし、表を作る条件を mask の組み合わせで決める
+- [x] `comparePlan` を丸めた比較キーと `prefer` の優先にする（`prefer` を idealPlan に足す）
+- [x] `idealPlan` に `watch` を足し、`measures` を返す（:833 の省略を watch の組では求める・blocked）
+- [x] `farmAdvice` にまとまりと R の比較を入れる（`measureOf` なしは今と同じ）
+- [x] views/ideal.js の `renderResults` を新しい流れにし、「変更あり」を交換推奨の行き先に絞る
+- [x] 「そのまま」の文と、説明の :160・:161・:162・:165・:166・:411 を直す
+- [x] ideal.test.js・ideal-farms.test.js・ideal-view.test.js を直し・足す
+- [x] ideal.perf.js に fixture を足し、表の作成と使い回しを分けて測る
+- [x] data/SOURCES.md に変更記録つきで追記する
+- [x] release-notes に 1 件足す
+- [x] 画面で 4 体の条件を確かめる
 
 ### フェーズ 1-0 の終わり
 
-- [ ] `npm test`・`npm run test:perf` が通る（perf は変える前の値と同じ条件で比べ、表の作成と使い回しの値を phase-1a-foundation.md の「計測の記録」に書いた）
-- [ ] 観点別のエージェントと Codex（読み取り専用。使う前に許可・シェルが動くか小さく試す）で差分をレビューし、直した
-- [ ] フェーズの区切りの報告（変更したファイル・実行したコマンド・画面の確かめ方）
+- [x] `npm test`・`npm run test:perf` が通る（perf は変える前の値と同じ条件で比べ、表の作成と使い回しの値を phase-1a-foundation.md の「計測の記録」に書いた）
+- [x] 観点別のエージェントと Codex（読み取り専用。使う前に許可・シェルが動くか小さく試す）で差分をレビューし、直した（Codex 1 件・レビュー担当 6 件。直した点は「実装の記録」。Codex のシェルは今回も起動しなかったが、node_repl で読み取りと計算ができた）
+- [x] フェーズの区切りの報告（変更したファイル・実行したコマンド・画面の確かめ方）
 
 ---
 
@@ -1005,5 +1006,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 0 の 0-1**（着手の合意）から。README を読み終えたら、決定事項と要確認点をユーザーに示す。フェーズ 0 が終わったら、**フェーズ 1-0 の ideal-calc**（理想個体の計算の修正。合意済み）を入れてから、フェーズ 1a の inv2-notice へ進む。
-- 最終更新: 2026-10-12（ドキュメント作成時。同日に統合プランと照らした最終確認で文書を直した（README の 3-6 の末尾）。同日、セッション `c342c7a9` で理想個体の計算の修正（ideal-calc）と D9〜D18 を足した（README の 2-8）。まだ何も実装していない）
+- **フェーズ 1a の 1 番目 inv2-notice**（[phase-1a-foundation.md の節](phase-1a-foundation.md#inv2-notice-自動登録の通知から配合表の答えを外す)）から。冒頭の「テーマの順番」「共通の決まり」「プランと違っていた点」「テスト環境の制約」を先に読む。
+- 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**1 テーマ終えるごとに報告して止まる**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
+- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。
+- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0 と ideal-calc を済ませた。ideal-calc のレビューで D19 を足した）
