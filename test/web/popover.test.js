@@ -1,0 +1,156 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { installDom } from '../helpers/dom.js';
+import { createPopover, placeFloating, scrollWithin } from '../../web/js/ui/popover.js';
+
+function setup(t, options = {}) {
+  const dom = installDom(t);
+  const wrapper = document.createElement('div');
+  const anchor = document.createElement('button');
+  wrapper.append(anchor);
+  dom.body.append(wrapper);
+  const log = [];
+  const popover = createPopover({ anchor, wrapper, onOpen: () => log.push('open'), onClose: () => log.push('close'), ...options });
+  t.after(() => popover.destroy());
+  return { ...dom, wrapper, anchor, popover, log };
+}
+
+const count = (target, name) => (target.listeners.get(name) ?? []).length;
+
+test('ポップオーバー: open で wrapper の中に付け、外側の pointerdown で閉じる（中の pointerdown では閉じない）', async (t) => {
+  const { body, events, wrapper, anchor, popover, log } = setup(t);
+  popover.open();
+  assert.equal(popover.element.parentElement, wrapper);
+  assert.equal(popover.isOpen(), true);
+  assert.equal(anchor.getAttribute('aria-expanded'), 'true');
+  assert.equal(anchor.getAttribute('aria-controls'), popover.element.id);
+  const inner = document.createElement('input');
+  popover.element.append(inner);
+  await events.dispatch('pointerdown', { target: inner });
+  await events.dispatch('pointerdown', { target: anchor });
+  assert.equal(popover.isOpen(), true);
+  body.focus();
+  await events.dispatch('pointerdown', { target: body });
+  assert.equal(popover.isOpen(), false);
+  assert.equal(popover.element.parentElement, null);
+  assert.equal(anchor.getAttribute('aria-expanded'), 'false');
+  // 外側を押したときは、押した先にフォーカスを任せる（anchor へ戻さない）
+  assert.equal(document.activeElement, body);
+  assert.deepEqual(log, ['open', 'close']);
+  // 閉じたらリスナーを外す
+  assert.equal(count(events, 'pointerdown'), 0);
+  assert.equal(count(events, 'keydown'), 0);
+});
+
+test('ポップオーバー: Escape で閉じて anchor へフォーカスを戻し、destroy では戻さずにリスナーを外す', async (t) => {
+  const { events, anchor, popover, body } = setup(t);
+  popover.open();
+  await events.dispatch('keydown', { key: 'Enter' });
+  assert.equal(popover.isOpen(), true);
+  await events.dispatch('keydown', { key: 'Escape' });
+  assert.equal(popover.isOpen(), false);
+  assert.equal(document.activeElement, anchor);
+  popover.open();
+  // 2 回開いても二重に付けない
+  popover.open();
+  assert.equal(count(events, 'pointerdown'), 1);
+  body.focus();
+  popover.destroy();
+  assert.equal(popover.isOpen(), false);
+  assert.equal(document.activeElement, body);
+  assert.equal(count(events, 'pointerdown'), 0);
+  assert.equal(count(events, 'keydown'), 0);
+});
+
+test('ポップオーバー: focusOut ならフォーカスが外へ出たときに閉じる（中へ移ったときは閉じない）', async (t) => {
+  const { anchor, popover, body } = setup(t, { focusOut: true });
+  popover.open();
+  const input = document.createElement('input');
+  popover.element.append(input);
+  input.focus();
+  await popover.element.dispatch('focusout');
+  await Promise.resolve();
+  assert.equal(popover.isOpen(), true);
+  body.focus();
+  await popover.element.dispatch('focusout');
+  await Promise.resolve();
+  assert.equal(popover.isOpen(), false);
+  assert.equal(document.activeElement, anchor);
+});
+
+test('ポップオーバー: host があれば host の中に浮かせ、外のスクロール・resize・ダイアログの cancel で閉じる', async (t) => {
+  const dom = installDom(t);
+  const dialog = document.createElement('dialog');
+  dialog.getBoundingClientRect = () => ({ left: 240, width: 800 });
+  const wrapper = document.createElement('div');
+  const anchor = document.createElement('button');
+  anchor.getBoundingClientRect = () => ({ left: 300, top: 200, bottom: 252, width: 200 });
+  wrapper.append(anchor);
+  dialog.append(wrapper);
+  dom.body.append(dialog);
+  const popover = createPopover({ anchor, wrapper, host: dialog });
+  t.after(() => popover.destroy());
+  popover.open();
+  assert.equal(popover.element.parentElement, dialog);
+  assert.match(popover.element.className, /picker-popover-floating/);
+  assert.equal(popover.element.style.getPropertyValue('--picker-left'), '300px');
+  assert.equal(popover.element.style.getPropertyValue('--picker-top'), '256px');
+  const list = document.createElement('div');
+  popover.element.append(list);
+  await dom.events.dispatch('scroll', { target: list });
+  assert.equal(popover.isOpen(), true);
+  await dom.events.dispatch('scroll', { target: dialog });
+  assert.equal(popover.isOpen(), false);
+  popover.open();
+  await dom.windowEvents.dispatch('resize');
+  assert.equal(popover.isOpen(), false);
+  popover.open();
+  assert.equal((await dialog.dispatch('cancel')).defaultPrevented, true);
+  assert.equal(popover.isOpen(), false);
+  for (const [target, name] of [[dom.events, 'scroll'], [dom.windowEvents, 'resize'], [dialog, 'cancel']]) assert.equal(count(target, name), 0, name);
+});
+
+test('ポップオーバー: placeFloating は下に 200px 足りず上の方が広ければ上に開き、高さの上限は 560px', (t) => {
+  installDom(t);
+  const popup = document.createElement('div');
+  const anchor = document.createElement('button');
+  anchor.getBoundingClientRect = () => ({ left: 100, top: 200, bottom: 240, width: 200 });
+  assert.deepEqual(placeFloating(popup, anchor, document.body), { upwards: false });
+  assert.equal(popup.style.getPropertyValue('--picker-top'), '244px');
+  assert.equal(popup.style.getPropertyValue('--picker-bottom'), 'auto');
+  assert.equal(popup.style.getPropertyValue('--picker-max-height'), '560px');
+  assert.equal(popup.style.getPropertyValue('--picker-width'), '320px');
+  anchor.getBoundingClientRect = () => ({ left: 100, top: 760, bottom: 800, width: 200 });
+  assert.deepEqual(placeFloating(popup, anchor, document.body), { upwards: true });
+  // 上に開いたら、前の下向きの値は残さない
+  assert.equal(popup.style.getPropertyValue('--picker-top'), 'auto');
+  assert.equal(popup.style.getPropertyValue('--picker-bottom'), '144px');
+  assert.equal(popup.style.getPropertyValue('--picker-max-height'), '560px');
+  assert.equal(placeFloating(popup, anchor, document.body, { maxHeight: 400 }).upwards, true);
+  assert.equal(popup.style.getPropertyValue('--picker-max-height'), '400px');
+});
+
+test('ポップオーバー: scrollWithin は一覧だけを動かし、選んでいる行を真ん中に・矢印の行ははみ出したときだけ端に合わせる', () => {
+  // 一覧と行の offsetParent はポップオーバー（一覧の上に検索欄 60px）
+  const list = { scrollTop: 0, offsetTop: 60, clientHeight: 300 };
+  const row = (top) => ({ offsetTop: 60 + top, offsetHeight: 40, offsetParent: {} });
+  scrollWithin(list, row(600), { center: true });
+  assert.equal(list.scrollTop, 470);
+  // 先頭近くの行は 0 より上へは動かさない
+  scrollWithin(list, row(20), { center: true });
+  assert.equal(list.scrollTop, 0);
+  scrollWithin(list, row(100));
+  assert.equal(list.scrollTop, 0);
+  scrollWithin(list, row(320));
+  assert.equal(list.scrollTop, 60);
+  scrollWithin(list, row(40));
+  assert.equal(list.scrollTop, 40);
+  // 一覧が offsetParent なら offsetTop をそのまま使う
+  const own = { scrollTop: 0, offsetTop: 999, clientHeight: 300 };
+  scrollWithin(own, { offsetTop: 500, offsetHeight: 40, offsetParent: own });
+  assert.equal(own.scrollTop, 240);
+  // 位置の分からない環境（テストの DOM）では何もしない
+  const fake = { scrollTop: 5 };
+  scrollWithin(fake, {});
+  assert.equal(fake.scrollTop, 5);
+});

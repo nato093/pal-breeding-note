@@ -7,7 +7,7 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
-  keywordTerms, keywordNotes,
+  keywordTerms, keywordNotes, speciesGenderCounts,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 
@@ -377,4 +377,15 @@ test('所持パル（読み戻しの検証）: 手元のセーブの値も範囲
   // 文字数の上限: ニックネーム 50・場所 200・所持者 60
   const long = normalizeOwned({ ...snapshot, players: [{ uid: P1, name: 'あ'.repeat(80) }], pals: [pal('z', 'PinkCat', { kind: 'party' }, { nickname: 'n'.repeat(80) })] }, { pals, passives }).pals[0];
   assert.deepEqual([long.nickname.length, long.holder.length], [50, 50]);
+});
+
+test('所持パル: 種族ごとの性別の数は、タマゴとマスター外（人間など）を数えず、性別の分からない個体は total だけに入れる', () => {
+  const counts = speciesGenderCounts(owned.pals);
+  // モコロンは a（♀）・b（♂）・c（♀）。ツッパニャンはタマゴの d を数えず、グローバルの f（♀）だけ。タマゴだけのタマコッコは入らない
+  assert.deepEqual(counts.get('SheepBall'), { M: 1, F: 2, total: 3 });
+  assert.deepEqual(counts.get('PinkCat'), { M: 0, F: 1, total: 1 });
+  assert.equal(counts.has('ChickenPal'), false);
+  assert.ok(![...counts.keys()].some((id) => !id));
+  const unknown = speciesGenderCounts([{ palId: 'SheepBall', gender: '', egg: false }, { palId: 'SheepBall', gender: 'M', egg: false }]);
+  assert.deepEqual(unknown.get('SheepBall'), { M: 1, F: 0, total: 2 });
 });

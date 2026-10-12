@@ -2,7 +2,7 @@ import { el, field, empty, link, button, debounce } from '../ui/dom.js';
 import { startSliced } from '../ui/slice.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile } from '../ui/pal-icon.js';
-import { passiveSelector, passivesById, passiveList } from '../ui/passive-picker.js';
+import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/passive-picker.js';
 import { actionIcon, icons } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
@@ -11,7 +11,7 @@ import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, 
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, renderWhenIdle } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets } from './shared.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { cleanSaved, oneOf, intIn } from '../core/boundary.js';
 
@@ -139,7 +139,10 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false } = 
   const note = (text, className = '') => notes.append(el('li', className, text));
   // 余計なパッシブは、完全体作成組で確率を下げているときだけ出す（欲しいパッシブを選ばない「全部持つ」などでは関係しない）
   if (pair.group === 'complete' && pair.extras.length && pair.cleanPassiveChance > pair.passiveChance) {
-    note(`余計なパッシブ: ${passiveNames(pair.extras)}（これがなければ、パッシブの確率は ${percent(pair.passiveChance)} → ${percent(pair.cleanPassiveChance)}）`);
+    const item = el('li', 'ideal-extras');
+    item.append(el('span', '', '余計なパッシブ: '), passiveList(pair.extras, { compact: true }),
+      el('span', '', `（これがなければ、パッシブの確率は ${percent(pair.passiveChance)} → ${percent(pair.cleanPassiveChance)}）`));
+    notes.append(item);
   }
   if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
@@ -230,8 +233,13 @@ export function idealView(context, route) {
   }
   readRoute(route);
 
-  const toPicker = palPicker({ label: '目標', value: to, onChange: (id) => navigateSelection(context, current, 'to', id) });
+  // 所持している種族を先に「♂3 ♀2」つきで出す
+  const toPicker = palPicker({ label: '目標', value: to, describe: () => ownedSpeciesNotes(owned?.state?.owned),
+    onChange: (id) => navigateSelection(context, current, 'to', id) });
+  // 欲しいパッシブの選択欄は 1 回だけ作り、条件・データが変わったら update で合わせる（開いた候補を閉じない）
+  const passive = passiveSelector({ label: '欲しいパッシブ', selected: passives, negatives: 'last', presets: passivePresets(ideals), onChange: (ids) => setPassives(ids) });
   const passiveSlot = el('div', 'ideal-passives');
+  passiveSlot.append(passive.element);
   const query = el('div', 'selection-panel route-query');
   query.append(toPicker.element, passiveSlot);
 
@@ -270,7 +278,7 @@ export function idealView(context, route) {
   const holderSelect = el('select');
   holderSelect.addEventListener('change', () => {
     conditions.holder = holderSelect.value;
-    renderPassives(owned?.state?.owned?.pals, { force: true });
+    renderPassives(owned?.state?.owned?.pals);
     renderResults();
   });
   // 選択肢の並びが前と同じなら作り直さない。違っても、選んでいる途中（フォーカス中）は待つ
@@ -416,19 +424,20 @@ export function idealView(context, route) {
     changeRoute(context, buildHash('ideal', params));
   };
 
-  // パッシブの選択欄は、選んだパッシブと所持数が同じなら作り直さない。データの更新では、選んでいる途中（フォーカス中）は待つ（force は条件の変更）
-  let shownPassives = '';
-  function renderPassives(pals, { force = false } = {}) {
-    // 所持数も、親の候補にしない個体（グローバルパルボックス）を除いて数える
-    const counts = passiveCounts(ofHolder((pals ?? []).filter(isParentCandidate)));
-    const signature = JSON.stringify([passives, [...counts]]);
-    if (signature === shownPassives) return;
-    if (!force) { renderWhenIdle(passiveSlot, () => renderPassives(owned?.state?.owned?.pals, { force: true })); return; }
-    shownPassives = signature;
-    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう同じ役目の部品（追加欄。押せなければ残ったチップの最後の ×）へフォーカスを移す
-    const token = captureFocus(passiveSlot);
-    passiveSlot.replaceChildren(passiveSelector({ label: '欲しいパッシブ', selected: passives, counts, onChange: setPassives }));
-    restoreFocus(passiveSlot, token);
+  // 欲しいパッシブの候補の所持数。親の候補にしない個体（タマゴ・グローバルパルボックス）を除き、所持者で絞って数える。
+  // 目標を選んでいるときは、目標と登録済みの配合の親の種族（計算が親にする個体）と、ほかの所持パルに分ける（I-49）
+  function renderPassives(pals) {
+    const candidates = ofHolder((pals ?? []).filter(isParentCandidate));
+    const state = context.store.state;
+    if (!to || !state.env) {
+      passive.update({ selected: passives, counts: passiveCounts(candidates), groups: undefined });
+      return;
+    }
+    const species = new Set(breedingLayouts(state.index, to).flatMap((layout) => [layout.male, layout.female]));
+    passive.update({ selected: passives, groups: [
+      { label: `${palName(to)}と配合の親が持っているもの`, counts: passiveCounts(candidates.filter((pal) => species.has(pal.palId))) },
+      { label: 'ほかの所持パルが持っているもの', counts: passiveCounts(candidates.filter((pal) => !species.has(pal.palId))) },
+    ] });
   }
 
   function noPairs(result) {
@@ -451,9 +460,17 @@ export function idealView(context, route) {
     missingBox.replaceChildren();
     if (!result?.missing.length) return;
     const listed = result.total ? '個体値厳選組を並べています。' : '';
-    missingBox.append(el('p', 'ideal-warning', `欲しいパッシブのうち、${passiveNames(result.missing)} を持つ個体が候補にいないため、配合では作れません。${listed}足りないパッシブは別に手に入れてください。`));
+    const warning = el('p', 'ideal-warning');
+    warning.append(el('span', '', '欲しいパッシブのうち、'), passiveList(result.missing, { compact: true }),
+      el('span', '', ` を持つ個体が候補にいないため、配合では作れません。${listed}足りないパッシブは別に手に入れてください。`));
+    missingBox.append(warning);
     const actions = el('div', 'ideal-missing');
-    for (const id of result.missing) actions.append(link(`${passiveNames([id])}を運ぶ経路`, buildHash('route', { to, p: id }), 'button secondary'));
+    // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）
+    for (const id of result.missing) {
+      const action = link('', buildHash('route', { to, p: id }), 'button secondary ideal-carry');
+      action.append(passiveChip(id, { compact: true }), el('span', '', 'を運ぶ経路'));
+      actions.append(action);
+    }
     missingBox.append(actions);
   }
 
@@ -659,6 +676,8 @@ export function idealView(context, route) {
 
   function update() {
     renderHolders();
+    // 候補を開いたまま所持パルが変わったら、所持数だけ描き直す（閉じない）
+    toPicker.update();
     renderPassives(owned?.state?.owned?.pals);
     renderResults();
     renderGoals();
@@ -675,14 +694,14 @@ export function idealView(context, route) {
     if (fromGoal || restored) showConditions();
     if (restored) renderHolders();
     syncPicker(toPicker, to);
-    renderPassives(owned?.state?.owned?.pals, { force: true });
+    renderPassives(owned?.state?.owned?.pals);
     renderResults();
   }
 
-  const pickers = { destroy() { destroyed = true; job?.cancel(); job = null; toPicker.destroy(); } };
+  const pickers = { destroy() { destroyed = true; job?.cancel(); job = null; toPicker.destroy(); passive.destroy(); } };
   const view = watchView(context.store, element, update, [pickers]);
   // 登録が変わったら（別のタブ・完成の判定を含む）、一覧と「登録済み」を描き直す
-  const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); }) ?? (() => {});
+  const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); passive.update({ presets: passivePresets(ideals) }); }) ?? (() => {});
   if (!owned) return { element, update, applyRoute, destroy() { unsubscribeGoals(); view.destroy(); } };
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;

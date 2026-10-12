@@ -39,6 +39,41 @@ export function buildCarrierGraph(index) {
   return graph;
 }
 
+// graph → (目標 → 回数の表)。graph は記録が変わったときだけ作り直されるので、同じ graph と目標では使い回す
+const distanceCache = new WeakMap();
+
+/**
+ * 各パルから目標までの最短の配合の回数（登録済みの記録で作った graph を逆向きにたどる）。目標は 0、
+ * 目標が直接産まれる親は 1。届かないパルは入らない。
+ * @returns {Map<string, number>}
+ */
+export function distancesTo(graph, target) {
+  let byTarget = distanceCache.get(graph);
+  if (!byTarget) distanceCache.set(graph, byTarget = new Map());
+  const cached = byTarget.get(target);
+  if (cached) return cached;
+  const parents = new Map();
+  for (const [from, edges] of graph) {
+    for (const [to, options] of edges) {
+      if (!options.length) continue;
+      if (!parents.has(to)) parents.set(to, []);
+      parents.get(to).push(from);
+    }
+  }
+  const distances = new Map([[target, 0]]);
+  const queue = [target];
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head];
+    for (const parent of parents.get(current) ?? []) {
+      if (distances.has(parent)) continue;
+      distances.set(parent, distances.get(current) + 1);
+      queue.push(parent);
+    }
+  }
+  byTarget.set(target, distances);
+  return distances;
+}
+
 function filterPartners(graph, excludePartners) {
   const excluded = new Set(excludePartners ?? []);
   if (!excluded.size) return graph;

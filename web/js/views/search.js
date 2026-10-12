@@ -1,7 +1,7 @@
 import { el, button, empty } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { findByPair, findByParent } from '../core/index.js';
-import { viewHeading, validId, navigateSelection, renderCards, watchView, dataPending, syncPicker } from './shared.js';
+import { viewHeading, validId, navigateSelection, renderCards, watchView, dataPending, syncPicker, recordCountNotes } from './shared.js';
 
 export function searchView(context, route) {
   const element = el('section', 'view');
@@ -17,14 +17,18 @@ export function searchView(context, route) {
   }
   readRoute(route);
   const selections = el('div', 'selection-panel search-selection');
+  // 候補の並びは変えず、親としての登録件数を添える（記録を読み込む前は何も添えない）
+  const describe = () => (context.store.state.env ? recordCountNotes(context.store.state.index, 'parent') : {});
   const pickers = [['p1', '親1', p1], ['p2', '親2', p2]].map(([key, label, value]) => palPicker({
-    label, value, onChange: (id) => navigateSelection(context, current, key, id),
+    label, value, describe, onChange: (id) => navigateSelection(context, current, key, id),
   }));
   selections.append(...pickers.map((picker) => picker.element));
   const note = el('p', 'result-note');
   const results = el('div', 'card-stack');
   element.append(selections, note, results);
   const view = watchView(context.store, element, (state) => {
+    // 候補を開いたまま記録が変わったら、件数だけ描き直す（閉じない）
+    for (const picker of pickers) picker.update();
     note.textContent = '';
     if (!p1 && !p2) { renderCards(results, [], context, { empty: () => empty('親を選んで、仲間と記録した配合を探しましょう。親1だけでも探せます。') }); return; }
     if (dataPending(results, state)) return;

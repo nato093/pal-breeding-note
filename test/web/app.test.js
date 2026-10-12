@@ -1022,9 +1022,8 @@ test('画面: 同じ画面の中で戻る（作り直さない）ときも、エ
     await hp().dispatch('change');
   };
   await setHp('50');
-  const add = view.querySelector('.passive-add');
-  add.value = 'Rare';
-  await add.dispatch('change');
+  await view.querySelector('.passive-add').dispatch('click');
+  await view.querySelector('[data-value="Rare"]').dispatch('click');
   assert.deepEqual(pushes, ['/Pal/#/ideal?to=SheepBall&p=Rare']);
   const second = history.state.palEntry;
   assert.ok(second);

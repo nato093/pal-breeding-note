@@ -3,7 +3,7 @@
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
 import { OWNED_FIELDS, cleanOwnedFarms } from './owned-shared.js';
 import { isObject, int, text, idText, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
-import { normalizeQuery } from './kana.js';
+import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
 import { ACTIVE_SKILLS, PARTNER_SKILLS, ACTIVE_SKILL_DESCS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
@@ -317,7 +317,7 @@ export function prepareKeywords(pal) {
  * ひらがなとカタカナ・全角と半角・大文字と小文字の違いはそろえる。
  */
 export function keywordTerms(query) {
-  return normalizeQuery(query).split(/\s+/).filter(Boolean);
+  return queryTerms(query);
 }
 
 /** 語がすべて、いずれかの項目に含まれるか。 */
@@ -419,6 +419,24 @@ export function ownedBySpecies(pals) {
     if (!pal.palId) continue;
     if (!map.has(pal.palId)) map.set(pal.palId, []);
     map.get(pal.palId).push(pal);
+  }
+  return map;
+}
+
+/**
+ * 種族（パル ID）ごとの所持数と性別の内訳（パル選択の「♂3 ♀2」）。タマゴとマスター外（人間など）は数えない。
+ * total は性別の分からない個体も含む数。
+ * @returns {Map<string, { M: number, F: number, total: number }>}
+ */
+export function speciesGenderCounts(pals) {
+  const map = new Map();
+  for (const pal of pals) {
+    if (!pal.palId || pal.egg) continue;
+    let entry = map.get(pal.palId);
+    if (!entry) map.set(pal.palId, entry = { M: 0, F: 0, total: 0 });
+    if (pal.gender === 'M') entry.M++;
+    else if (pal.gender === 'F') entry.F++;
+    entry.total++;
   }
   return map;
 }

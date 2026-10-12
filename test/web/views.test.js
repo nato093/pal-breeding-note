@@ -275,3 +275,56 @@ test('設定: 記録が同じで整合性の警告だけ変わったときも、
   assert.match(warnings(), /5 行目: マスターにないパルが含まれています/);
   view.destroy();
 });
+
+// パル選択を開いて、候補の行（名前・右の注記・薄い行か）を読む
+async function pickerRows(view, index = 0) {
+  const picker = view.element.querySelectorAll('.picker')[index];
+  await picker.querySelector('.picker-trigger').dispatch('click');
+  return {
+    status: picker.querySelector('.picker-status').textContent,
+    rows: picker.querySelectorAll('[role="option"]').map((node) => ({
+      name: node.querySelector('strong')?.textContent ?? node.textContent,
+      badge: node.querySelector('.picker-badge')?.textContent ?? '',
+      dim: /is-dim/.test(node.className),
+    })),
+  };
+}
+
+test('配合検索・逆引き: パル選択の並びは図鑑順のまま、親・子としての登録件数を添え、0 件の行は薄くする', async (t) => {
+  installDom(t);
+  const search = searchView(context(), parseHash('#/search'));
+  const { status, rows } = await pickerRows(search);
+  assert.equal(status, '図鑑順で表示');
+  assert.equal(rows[0].name, 'パルを選択');
+  assert.equal(rows[1].name, 'モコロン');
+  assert.deepEqual(rows.filter((row) => row.badge).map((row) => [row.name, row.badge]), [['モコロン', '親 1 件'], ['フラリーナ', '親 1 件']]);
+  assert.equal(rows.find((row) => row.name === 'ツッパニャン').dim, true);
+  assert.equal(rows[1].dim, false);
+  search.destroy();
+  const reverse = reverseView(context(), parseHash('#/reverse'));
+  const child = await pickerRows(reverse);
+  assert.deepEqual(child.rows.filter((row) => row.badge).map((row) => [row.name, row.badge]), [['セレムーン', '子 1 件']]);
+  assert.equal(child.rows.find((row) => row.name === 'モコロン').dim, true);
+  reverse.destroy();
+  // 記録を読み込む前は何も添えない
+  const pending = context();
+  pending.store.state.env = '';
+  const before = searchView(pending, parseHash('#/search'));
+  assert.ok((await pickerRows(before)).rows.every((row) => !row.badge && !row.dim));
+  before.destroy();
+});
+
+test('継承ルート: 開始の候補は、登録済みの配合で目標まで届くパルを回数の少ない順に先へ出し、届かないパルは薄く後ろに', async (t) => {
+  installDom(t);
+  const view = inheritanceView(context(), parseHash('#/route?to=MoonQueen'));
+  const { status, rows } = await pickerRows(view, 0);
+  assert.equal(status, '目標まで少ない回数の順に表示');
+  assert.deepEqual(rows.slice(0, 4).map((row) => [row.name, row.badge, row.dim]),
+    [['パルを選択', '', false], ['セレムーン', '目標', false], ['モコロン', '1 回', false], ['フラリーナ', '1 回', false]]);
+  assert.ok(rows.slice(4).every((row) => row.dim && !row.badge));
+  view.destroy();
+  // 目標を選ぶまでは図鑑順
+  const none = inheritanceView(context(), parseHash('#/route'));
+  assert.equal((await pickerRows(none, 0)).status, '図鑑順で表示');
+  none.destroy();
+});

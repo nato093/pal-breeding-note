@@ -3,6 +3,8 @@ import { breedingCard } from '../ui/breeding-card.js';
 import { buildHash } from '../router.js';
 import { palsById } from '../ui/pal-icon.js';
 import { toast } from '../ui/toast.js';
+import { speciesGenderCounts } from '../core/owned.js';
+import { distancesTo } from '../core/route.js';
 
 export function viewHeading(title) {
   const header = el('header', 'view-heading');
@@ -39,6 +41,79 @@ export function navigateSelection(context, route, key, value) {
 /** パル選択の値が違うときだけ合わせる（同じ値では描き直さない）。 */
 export function syncPicker(picker, value) {
   if (picker && picker.getValue() !== value) picker.setValue(value);
+}
+
+// ---------------------------------------------------------------------------
+// パル選択の注記（ui/pal-picker.js の describe が返すもの）。データ（所持パル・記録の index・graph）が
+// 新しくなったときだけ数え、開くたびには Map を引くだけにする
+// ---------------------------------------------------------------------------
+const ownedNotes = new WeakMap();
+const recordNotes = new WeakMap();
+const distanceNotes = new WeakMap();
+const allPalIds = () => [...palsById.keys()];
+
+/** 所持している種族を先に並べ、「♂3 ♀2」（性別の分からない個体だけなら「3 体」）を添える。タマゴは数えない。データが無ければ注記なし */
+export function ownedSpeciesNotes(data) {
+  if (!Array.isArray(data?.pals)) return {};
+  let notes = ownedNotes.get(data);
+  if (!notes) {
+    const badges = new Map();
+    const order = new Map();
+    for (const [id, { M, F, total }] of speciesGenderCounts(data.pals)) {
+      badges.set(id, M || F ? `♂${M} ♀${F}` : `${total} 体`);
+      order.set(id, 0);
+    }
+    notes = { order, badges, orderLabel: '所持している種族を先に表示' };
+    ownedNotes.set(data, notes);
+  }
+  return notes;
+}
+
+/** 記録を探す画面の選択欄。並びは変えず、親（kind 'parent'）・子（'child'）としての登録件数を添え、0 件は薄くする */
+export function recordCountNotes(index, kind) {
+  if (!index?.byParent) return {};
+  let cached = recordNotes.get(index);
+  if (!cached) recordNotes.set(index, cached = {});
+  if (!cached[kind]) {
+    const word = kind === 'child' ? '子' : '親';
+    const badges = new Map();
+    for (const [id, records] of kind === 'child' ? index.byChild : index.byParent) {
+      if (records.length) badges.set(id, `${word} ${records.length} 件`);
+    }
+    cached[kind] = { badges, dim: new Set(allPalIds().filter((id) => !badges.has(id))) };
+  }
+  return cached[kind];
+}
+
+/** 継承ルートの開始の選択欄。登録済みの記録の graph で目標まで届くパルを、回数の少ない順に先へ（「N 回」）。届かないパルは薄く後ろに */
+export function routeDistanceNotes(graph, to) {
+  if (!graph || !to) return {};
+  const distances = distancesTo(graph, to);
+  let notes = distanceNotes.get(distances);
+  if (!notes) {
+    const badges = new Map([...distances].map(([id, count]) => [id, count ? `${count} 回` : '目標']));
+    notes = { order: distances, badges, dim: new Set(allPalIds().filter((id) => !distances.has(id))), orderLabel: '目標まで少ない回数の順に表示' };
+    distanceNotes.set(distances, notes);
+  }
+  return notes;
+}
+
+/**
+ * パッシブの選択欄の「登録した組み合わせ」。登録した理想個体（新しい順）のうちパッシブのあるものから、
+ * 同じ組み合わせを除いて limit 件まで。label は目標の名前。登録の仕組みが無ければ空
+ */
+export function passivePresets(ideals, limit = 5) {
+  const presets = [];
+  const seen = new Set();
+  for (const goal of ideals?.list() ?? []) {
+    if (!goal.passives?.length) continue;
+    const key = [...goal.passives].sort().join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    presets.push({ label: goal.name, passives: [...goal.passives] });
+    if (presets.length >= limit) break;
+  }
+  return presets;
 }
 
 /**

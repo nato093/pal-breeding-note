@@ -1067,7 +1067,7 @@ title 8 字・body 46 字。
 
      - パスの書き方は今の `nav-icons.js` の PATHS（`<tag attr="…"/>` を `shape()` で解釈して `createElementNS` で作る）に合わせ、`shape()` も icons.js に移す。線の太さは CSS で決める（新しいアイコンは 2 にそろえる。ベル 1.8・カード 1.7 も 2 にしてよいが、画面で太く見えないか確かめてから）。
    - `ui/nav-icons.js` の `navIcon(view)` は `icon(view, { className: 'tab-icon' })` を返すだけに。`ui/breeding-card.js` の `icons`・`svgIcon` は icons.js の名前を使う形にする（`actionIcon(label, name, action, className)`。呼んでいる所 `views/ideal.js:335` なども合わせる）。`ui/notifications.js` の `BELL` は `icon('bell')`。
-   - 閉じる「×」を SVG に: `ui/dialog.js:11`、`ui/pal-picker.js:22`、`ui/passive-picker.js:22`、delete-undo のトーストの閉じるボタン。中身を `icon('close')` にし、`aria-label` はどれも付ける（dialog は「閉じる」、pal-picker は今の「〈ラベル〉の選択を解除」、passive-picker は今の「〈パッシブ〉 を外す」）。大きさは CSS で 20px にそろえ、押せる範囲は 24×24px 以上。
+   - 閉じる「×」を SVG に: `ui/dialog.js:11`、`ui/pal-picker.js:22`、`ui/passive-picker.js:22`、delete-undo のトーストの閉じるボタン（追記 2026-10-13: popovers の後は、pal-picker.js の `palPicker` の中の `clear` と、passive-picker.js の `passiveChip` の中の `remove`。行は変わった）。中身を `icon('close')` にし、`aria-label` はどれも付ける（dialog は「閉じる」、pal-picker は今の「〈ラベル〉の選択を解除」、passive-picker は今の「〈パッシブ〉 を外す」）。大きさは CSS で 20px にそろえ、押せる範囲は 24×24px 以上。
 8. **ファビコンとロゴ**
    - `web/favicon.svg`: 2 つの path に class（`bg`・`mark`）を付け、`<style>@media (prefers-color-scheme: dark){.bg{fill:#65d7bc}.mark{stroke:#102f2e}}</style>` を足す（SVG の中の style は CSP の影響を受けない。ブラウザによっては、テーマを変えてもすぐには替わらない）。
    - ヘッダーのロゴの span（`app.js:90` の `el('span', 'brand-mark', '◇')`。header-frame の後はその場所）の中身を空にし、`aria-hidden="true"` を付ける。見た目はマスク（`app.css:1234-1241`）のまま。
