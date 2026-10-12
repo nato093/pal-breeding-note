@@ -121,7 +121,7 @@
    ```
 
    - worldId は `ownedWorldId`（`core/owned-shared.js:39-42`。32 桁の 16 進を大文字に）で正規化してからキーにする。userId は `userIdKey`（core/user.js）。
-   - 値は uid の文字列をそのまま保存する（JSON にしない）。読むときは `/^[0-9A-Fa-f-]{1,64}$/` に合うものだけ受け付け、合わなければ ''（data-boundary の共通の検証があればそれを使う）。読み書きは try/catch で囲む（保存できない端末でもページを開いている間は効くよう、Map にも持つ）。
+   - 値は uid の文字列をそのまま保存する（JSON にしない）。読むときは `/^[0-9A-Fa-f-]{1,64}$/` に合うものだけ受け付け、合わなければ ''（data-boundary の共通の検証があればそれを使う。追記 2026-10-12: core/boundary.js に形を見ない `idText(value, max)`（1〜max 字の文字列をそのまま）がある。16 進の形はこの正規表現で確かめる）。読み書きは try/catch で囲む（保存できない端末でもページを開いている間は効くよう、Map にも持つ）。
    - `set` と `reload` のあと、購読者を呼ぶ。
 
 2. **`core/ideal-goals.js` の `ownPlayerUids` に `selfUid` を足す**（`:102-113`）
@@ -308,6 +308,7 @@ title 10 字・body 49 字（node で `length` を数えて確かめた）。
 
 - **inv2-notice**（1a）: 自動登録の通知の本文から配合表の答えを外し、保存済みの通知を読み出し時に安全な文へ変える経路（`readNotices`）ができていること。
 - **data-boundary**（1a）: 通知の読み戻しの検証（型・文字数・配列の数）。足す項目（kind・worldId・batchId）もそこで検証する。
+  - 追記（data-boundary の実装、2026-10-12）: 保存した自動登録の通知は auto-register.js の `cleanSavedNotice` が **id・date・title・body・href だけを写す**（知らない項目は捨てる）。通知欄の `cleanNotification`（notifications.js）も同じ。kind・worldId・batchId を足すときは、この 2 か所に足す（足さないと読み出しで落ちる）。href の確かめは core/boundary.js の `screenHref`。
 
 ### このテーマでやらないこと
 
