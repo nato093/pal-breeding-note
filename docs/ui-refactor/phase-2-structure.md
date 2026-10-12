@@ -1,0 +1,1119 @@
+# フェーズ 2: 構成の整理（D1・D2・D5・D6 ほか。10 テーマ）
+
+> この文書だけを読めば、フェーズ 2 の各テーマを経緯も含めて把握し、そのまま実装に入れるように書いた。
+> 書いた日: 2026-10-12。コードの行番号は HEAD `6028a48`（web/ に未コミットの変更なし）で開いて確かめたもの。**フェーズ 1 の実装で行はずれる**ので、着手のときに関数名で探し直すこと。
+> 正の材料: 統合プラン `~/.claude/plans/ui-jaunty-lampson.md`（写しは [appendix/plan-snapshot.md](appendix/plan-snapshot.md)）、別プラン（Fable 5.1）の §3・§6・§9（写しは [appendix/other-session-plan.md](appendix/other-session-plan.md)）、案の全文 [appendix/catalog.md](appendix/catalog.md)、Codex のプランレビュー [appendix/codex-reviews.md](appendix/codex-reviews.md)、却下した案 [appendix/rejected.md](appendix/rejected.md)。
+
+## このフェーズの目的
+
+- 9 本のタブ（配合検索・逆引き・継承ルート・一覧・下書き・ウィッシュリスト・所持パル・理想個体・設定）を、**配合を探す／継承ルート／所持パル／理想個体（目標を含む）／設定 の 5 本**にする。
+- 「探す」「登録する」「知らせる」がそれぞれ 3 系統あった重複（統合プランの「全体の所見」1）をまとめ、設定・通知・参加者向けの案内の行き止まりをなくす。
+- 決定事項（ユーザーの回答）: **D1** 配合検索・逆引き・一覧は 1 画面「配合を探す」に統合（条件帯 [親1][親2][子][登録者][並べ替え][キーワード]、旧 URL は読み替え）／**D2** ヘッダーの「＋ 登録」は外して文脈のボタンへ、下書きタブは廃止して配合を探すの全件表示の上の折り畳み帯へ／**D5** ウィッシュリストは理想個体の「目標」に統合（種族だけの目標）／**D6** 全件表示の並べ替えの既定は「更新日の新しい順」、キーワード検索を足す（437536b・b719187 の判断を更新）。D3（ドロワー）はフェーズ 3、D4（個体値の目標）・D7（ヘッダー）・D8（着手順）はフェーズ 1 で済んでいる前提。
+
+### タブの数の移り変わり
+
+| テーマを終えた時点 | タブ |
+|---|---|
+| フェーズ 1 の終わり | 9 本（変わらない） |
+| find-merge | 7 本（逆引き・一覧が配合を探すへ） |
+| register-entry | 6 本（下書きが配合を探すの帯へ） |
+| goals-merge | **5 本**（ウィッシュリストが理想個体の目標へ） |
+
+## テーマの順番（依存の順）
+
+| 順 | テーマ | 先に終わっているべきもの | 工数 |
+|---|---|---|---|
+| 1 | [find-merge](#find-merge-配合を探すに統合) | render-contract・popovers（フェーズ 1）。copy-dead-ends（h1＝タブ名）・stable-render（syncList）・keep-state も入っている前提 | L |
+| 2 | [owned-overlay](#owned-overlay-配合の画面に所持数を重ねる) | stable-render（フェーズ 1）・find-merge | M |
+| 3 | [register-entry](#register-entry-登録の入口と下書きの帯) | find-merge | M |
+| 4 | [register-dialog](#register-dialog-登録モーダルの見直し) | register-entry・owned-overlay | M |
+| 5 | [goals-merge](#goals-merge-ウィッシュリストを目標に統合) | find-merge・ideal-panel（フェーズ 1）・owned-overlay | L |
+| 6 | [route-cleanup](#route-cleanup-継承ルートの整理) | popovers・owned-rows（フェーズ 1）・owned-overlay | M |
+| 7 | [bell](#bell-ベルと通知の整理) | autoreg-success（フェーズ 1）・goals-merge（目標の通知の形） | M |
+| 8 | [autoreg-visibility](#autoreg-visibility-自動登録の状況を見えるように) | header-frame（フェーズ 1）・bell | M |
+| 9 | [settings](#settings-設定の整理) | header-frame・bell・goals-merge | M |
+| 10 | [roles](#roles-役割ごとの案内とワールドの登録) | participant-self（フェーズ 1）・settings | M |
+
+- **統合プランの表との違い**: 統合プランの表では owned-overlay が goals-merge の後（5 番目）にある。register-dialog の参照列の「所持 ♂n ♀m」（F018）と、goals-merge の目標の行の「所持 n 体（親になれる数）」は、owned-overlay で作る共通の集計を使うので、**owned-overlay を find-merge の直後（2 番目）に移した**（owned-overlay 自体の依存は stable-render と、重ねる先の配合を探すだけなので、前に移しても困らない）。roles は settings が組み直したセーブ連携のカード・ワールドの登録モーダルの上に積むので、settings の後にした（統合プランでも同じ並び）。
+- 実装は直列（同じファイルを触るテーマが多い）。1 テーマ＝1 ブランチ `feature/<テーマ key>` → 日本語のコミット → `main` に `--no-ff` でマージ。push と配信はユーザーの確認後。
+
+## 全テーマ共通のやり方と受け入れ条件（このフェーズで特に効くもの）
+
+1. **1 テーマの手順**: この文書の節と、付録の案の全文（catalog.md の `### <ID>`。「直し」を優先して読む。ただし統合プランの要点・この文書と食い違えばこちらが優先）・別プランの F 番号の節を読む → 現状のコードを開いて確かめる → 振る舞いが変わる所はテストを先に直す・足す（`node --test`）→ 実装 → `npm test` → モック（`npm run dev` → `http://localhost:5173/?mock=1&seed=80`）で画面を確かめる → `web/js/release-notes.js` の先頭に 1 件（title 20 字・body 60 字以内。**移動・削除した機能は「どこへ移ったか」を書く**。不具合の修正でも足す）。
+2. **INV-2**: 配合の候補は登録済みの記録だけから引く。配合表（`web/data/breeding.js`）を読めるのは `auto-register.js` だけ、遺伝の仕組み（`core/ideal.js`）を読めるのは `views/ideal.js` だけ（`test/import.test.js:27-44`）。このフェーズで新しく作るモジュールは、どちらも import しない。自動登録の候補の子（`candidate.record.childId`）は配合表で決めた値なので、**画面に出さない**（照合にだけ使う INV-2 の例外 (a)）。
+3. **セキュリティ**: `innerHTML`・`outerHTML`・`insertAdjacentHTML`・style 属性の文字列は使わない（`test/static/security.test.js:15-22`）。SVG は `createElementNS`、名前・メモ・説明は `textContent`、動的な配置は `style.setProperty`。CSP（`web/index.html:6`）は緩めない（`img-src 'self' data:` は今のまま使える）。
+4. **保存データの互換**: 新しく保存する値は、フェーズ 1 の data-boundary の検証を通す。古い localStorage・古い通知・旧コードのまま開いているタブが混ざっても壊れない。**旧コードのタブは storage イベントで読み直して自分の形で書き戻す**（`app.js:324-329` → 各ストアの `reload`）ので、旧コードが知らない項目を既存のキーの中に足さない（別のキーに持つ）。
+5. **性能の予算**（Chrome で測る）: 所持パル 2,000 行で最初の 200 行が 100ms 以内・全行が 1 秒以内、DOM は 80,000 ノード以下・JS ヒープの増加は 150MB 以下。20,000 行・偏った種族の分布でも入力が 100ms 以上止まらない。このフェーズで関係するのは owned-overlay の集計（所持パルのデータが変わったときに 1 回だけ）と、配合を探すの全件表示。
+6. **描画の契約**（フェーズ 1 の render-contract・stable-render）: ビューは `applyRoute(route)`（URL の条件を部品に同期）と `update(state)`（データの描き直し）を持つ。同じ画面の中での条件の変更は `context.update(hash)`（フェーズ 1a の決まりで、既定は今と同じ「1 選択＝1 履歴」の pushState。履歴を増やさない変更（文字の入力・開閉など）は `context.update(hash, { replace: true })`）、画面をまたぐ移動は `context.navigate(hash)`。行は `syncList(container, items, { key, create })` で差分更新し、部品は `{ element, update, destroy }` を返す。document・window のリスナーは AbortController で外す。
+7. **壊れるテスト**: 文言・DOM 構造を固定しているテストが多い。各テーマの「テスト」に、今の行番号で挙げた（フェーズ 1 で書き換わっていることがあるので、着手のときに `grep` で探し直す）。文言の更新と振る舞いの回帰確認は分けてコミットするとレビューしやすい。
+8. **フェーズの終わり**: 観点別のエージェントと Codex（読み取り専用）で差分をレビューし、直してから次のフェーズへ。Codex は、先にシェルが起動するかを確かめる（この環境では起動に失敗し、ファイルの読み取りは node_repl で行えていた。codex-reviews.md の「7 回目」）。Codex を使う前にユーザーに目的を説明して許可を得る（プロジェクトの CLAUDE.md・グローバルの規約）。
+9. **タブの定義の場所**: フェーズ 1d の copy-dead-ends で、`app.js:103` の `tabs` は `web/js/views/tabs.js` の `TABS`（と `tabLabel`）に移っている（phase-1d の copy-dead-ends の手順）。この文書の「`app.js:103` の `tabs` から外す」「ラベルを『配合を探す』に」は `TABS` で行う（各画面の h1 も `tabLabel` から引くので、ラベルを変えれば見出しも変わる）。（2026-10-12 の最終確認で足した）
+
+## フェーズ 2 の完了の条件（全テーマを終えたとき）
+
+- [ ] レールのタブが 5 本（配合を探す／継承ルート／所持パル／理想個体／設定）。ヘッダーに「＋ 登録」がない。
+- [ ] 旧 URL（`#/reverse?c=X`・`#/list`・`#/drafts`・`#/wishlist`）を開くと、履歴を増やさずに統合後の画面に着く（ブックマーク・保存済みの通知の href も同じ）。
+- [ ] 旧ウィッシュリストのデータ（`pal-note.wishlist.<env>.<user>`）がある状態で起動すると目標に移り、既読と通知が引き継がれる。繰り返し起動しても同じ結果。100 件を超える分は「未移行」として残り、移行元は消えない。
+- [ ] 旧コードのタブ（フェーズ 1 の版）を開いたまま新しい版を開いても、下書きの性別・目標の観測の状態・移行の記録が消えない。
+- [ ] 設定から「データの状態」「通知」カードが消え、「書き出し」「この端末のデータ」がある。プロジェクトの CLAUDE.md:16 と `ui/notifications.js` の「設定タブの通知一覧」の記述が直っていて、変更記録がある。
+- [ ] `npm test` が通る。`npm run test:perf` が予算内。モックで 10 テーマの画面を確かめた（下の各テーマの「完了の条件」）。
+- [ ] `docs/OPERATIONS.md`・`README.md` のタブ名・手順の記述を新しい構成に合わせた。
+
+---
+
+## find-merge: 配合を探すに統合
+
+### 目的
+配合検索・逆引き・一覧の 3 画面を、条件帯 1 本の「配合を探す」（`#/search`）にまとめる。親・子・登録者・並べ替え・キーワードを同じ画面で組み合わせ、何も選ばなければ全件を出す。
+
+### 経緯
+- **D1**（別セッションでのユーザーの回答。本セッションの「配合検索と逆引きを統合」を含む）。別プランの F007〜F013、本セッションの S-01（3 枠の 1 画面）・G-34（タブの再編）・S-36（件数）・S-38（子ごとの要約チップ）・S-44（空の案内）・S-45（同じ組の複数の結果）・V-37（カードの列）・S-24（条件帯の固定）・S-25（キーワード）・S-26（登録者の選択）・S-27（見出しでまとめる）・S-31（既定の並べ替え）・S-33（件数の言い方）・G-29（NEW）・V-25（増えた行を光らせる）。
+- 調査の時点では、一覧まで含めて 1 画面にする S-02 は「2026-10-04 に一覧のパル絞り込みを外したばかり（b719187）」として却下、S-31 は「既定は parent-dex のまま」、S-25 は「パル名は対象にしない」と判断していた。**D1・D6 でこれらは覆った**（rejected.md の S-02・S-29 の「統合プランとの関係: 覆った」）。案の「直し」に残る「一覧は今の役割で残す」「既定は parent-dex」「パル名は探さない」は採らない。
+- **D6**: 並べ替えの既定は「更新日の新しい順」。キーワードは親・子の名前・メモ・登録者を空白区切りで探す。親・子の並びでは「見出し（モコロン 3 件）＋短い式」でまとめ、1 件 2 行の展開（`core/record-sort.js:9-14` の parentRows。b719187）をやめる（F012）。
+- Codex のプランレビュー 1 回目 11（逆引き URL の正規化とリンクの移行）・6 回目 5（旧 URL の切り替えの時期）: **旧 URL は、移行先ができたテーマで読み替える**。このテーマでは `#/reverse?c=` と `#/list` だけ。`#/drafts` は register-entry、`#/wishlist` は goals-merge で読み替える。
+- 別プラン §9「抜けの補足」: 検索結果 0 件のときの「この組み合わせを登録」（`views/search.js:25-28`）は統合画面でも残す。登録者の選択は件数が多ければ検索つきにし、同じ名前は見分ける。
+
+### 依存
+- render-contract（`context.update`・`applyRoute`・`update` の分離）、popovers（パル選択の部品。記録を探す画面で登録件数を出す S-19 はフェーズ 1 の popovers で入る）。
+- stable-render（`ui/dom.js` の `syncList`・画面用の変更番号）、keep-state（履歴エントリごとの条件・位置の保存、最後のタブの許可リスト）、copy-dead-ends（h1＝タブ名）、header-frame（`--header-h` などの CSS 変数）も入っている前提。
+
+### このテーマでやらないこと
+- 下書きの帯・登録の入口（register-entry）、所持数の重ね表示と「手持ちで組める」（owned-overlay）、「目標に登録」（goals-merge）、相手親の配合ツリー「▸ この親の配合 n 件」（フェーズ 3 の route-progress）、パル詳細のドロワー化（フェーズ 3 の pal-detail）。
+- パル詳細（`#/pal/<id>`）の 2 つの欄はこのテーマでは残す（フェーズ 3 でドロワーのハブに作り直す）。
+- 仲間の新しい登録をベルの通知元に足すこと（G-29 の判断で見送り）。
+
+### 現状（HEAD 6028a48 で確認）
+- タブは `web/js/app.js:103` の `tabs`（9 本）。ビューの対応は `app.js:208`。`router.js:1` の `views` が受け付ける画面名で、知らない名前は `search` になる（`router.js:10`）。旧 URL の読み替えの仕組みはない。
+- 配合検索 `views/search.js`（38 行）: 親1・親2 の 2 枠。両方なら `findByPair`、片方なら `findByParent(p1 || p2)`（`:24`）。未選択の案内は「親を選んで、仲間と記録した配合を探しましょう。親1だけでも探せます。」（`:22`。実際は親2だけでも探せる。S-44）。0 件の「この組み合わせを登録」（`:26-28`）は `childId` を渡さない。件数の行は 2 件以上の同じ組で「同じ組み合わせで結果が複数登録されています」になり件数が消える（`:31`）。
+- 逆引き `views/reverse.js`（28 行）: 子 1 枠で `findByChild`（`:19`）。0 件で「この子の配合を登録」（`:21-23`）。件数の行がない（S-36）。
+- 一覧 `views/list.js`（52 行）: 見出し「みんなの配合ノート」（`:9`）、登録者名の自由入力の部分一致（`:10-12`・`:39-40`。ひらがな・カタカナはそろえない）、並べ替え 5 種（`:13-18`。既定は先頭の `parent-dex`）、絞り込みは `viewState('list')` のメモリだけ（`:21-23`）。親の並びでは `parentRows` で 1 件を 2 行に展開し「80 件の配合 · 160 件を表示」（`:41-43`）。sticky はない。
+- カード `ui/breeding-card.js:45-63`: 式（`breedingEquation` `:28-43`。`focusParent` で「相手 → 子」、`leftParent` で左の親を決める）・登録者と更新日・メモ（`:53`。`.card-memo` で 2 段目に全文）・編集と削除。
+- キーワードの正規化は `core/kana.js` の `normalizeQuery`（ひらがな→カタカナ・NFKC・小文字）。所持パルの語分けは `core/owned.js:259` の `keywordTerms`（空白区切り）。
+- 旧画面へのリンクを作っている所: `views/route.js:196`（「目標の逆引きを見る」→ `#/reverse?c=`）、`wishlist.js:184`・`views/wishlist.js:52`（`#/reverse?c=`）、`auto-register.js:221`（食い違いの通知の href が `'#/list'`）。保存済みの通知には古い href が残る（自動登録の通知は localStorage に最大 50 件）。
+- CSS: `.list-filters`（`app.css:685-688`）、`.card-stack`（`:521`。1 列）、`.result-note`（`:568`。件数の行に高さの確保なし → フェーズ 1 の stable-render で min-height が入る）。
+
+### 実装の手順
+1. **ルーターの読み替え**（`web/js/router.js`）
+   - `views` から `reverse`・`list` を外す（`drafts`・`wishlist` は後のテーマまで残す）。
+   - 旧画面の表 `const LEGACY = { reverse: 'search', list: 'search' };` を作り、`export function canonicalHash(hash)` を足す: 旧画面名なら新しいハッシュ（`#/reverse?c=X` → `#/search?c=X`、`#/list` → `#/search`、`#/list?sort=updated` → `#/search?sort=updated`）を、そうでなければ `null` を返す。表の値は、後のテーマで「画面名とパラメータを返す関数」に広げてよい（register-entry は `drafts=1` を足す）。
+   - `parseHash` も旧画面名を読み替えた結果を返す（`remember()` やテストが旧ハッシュを渡しても新しい画面になるように）。
+   - `startRouter` の `change()` で、`k` の除去と同じ場所で `canonicalHash` を当て、違えば `browser.history.replaceState(browser.history.state, '', …)` で書き換えてから `onChange` を呼ぶ（**履歴を増やさない**）。register-entry・goals-merge はこの表に 1 行ずつ足す。
+2. **検索の中身を core に切り出す**（新規 `web/js/core/record-search.js`。DOM を持たない）
+   ```js
+   // 登録済みの記録だけを引く（INV-2）。配合表・core/ideal.js は使わない。
+   export const RECORD_SORTS = Object.freeze([
+     ['updated', '更新日の新しい順'], ['parent-dex', '親の図鑑番号順'], ['parent-name', '親の五十音順'],
+     ['child-dex', '子の図鑑番号順'], ['child-name', '子の五十音順'],
+   ]);
+   export function searchRecords(index, records, { p1 = '', p2 = '', c = '', by = '', noRegistrant = false, terms = [] }, palsById) {} // → 記録の配列
+   export function groupRecords(records, sort, palOrder, palsById) {} // → [{ key, palId, records }]（updated のときは見出しなしの 1 群）
+   export function registrantCounts(records, users, me) {} // → [{ value, label, count }]
+   ```
+   - 引き方: 親1＋親2 → `findByPair`、親が片方 → `findByParent`、子だけ → `findByChild`、何もなし → `records`（`state.records`）。複数の条件は積集合（親＋子なら `findByParent` の結果を `childId === c` で絞る。3 つとも → 一致する登録があるかの確認）。
+   - 登録者: `by` があれば `userIdKey(record.registrant) === userIdKey(by)`、`noRegistrant` なら `record.registrant === ''`。`registrantCounts` は「すべて（N）」「自分（ID）（n）」を先頭に、残りを件数の多い順（同数は五十音）、記録にしか出てこない古い名前（名前の変更の前など）も、登録者が空の記録があれば「登録者未指定（k）」も返す。
+   - キーワード: 語はすべて含む（AND）。1 件ごとの探す文字列（親1・親2・子の和名・英名・図鑑番号、登録者、メモを `normalizeQuery` して空白でつないだもの）は `WeakMap<record, string>` に覚える（記録は変更のたびに新しいオブジェクトになるので古い値は自然に捨てられる）。語分けは `core/kana.js` に `export function queryTerms(query)` を足し（中身は今の `keywordTerms` と同じ）、`core/owned.js:259` の `keywordTerms` はそれを呼ぶだけにする（振る舞いは変えない）。
+   - 並べ替え: `updated` は `recordComparator('updated', …)`（`core/record-sort.js:16-31`）をそのまま。親・子の並びは**1 件 1 回**にし、`groupRecords` で見出しの単位に分ける。親の並びでは、並び順で先に来る方の親の群に入れる（同じ親どうしは 1 群）。子の並びでは子の群。群の中は相手の親（子の並びでは親の組）の順、最後は記録 ID。もう一方の親から探したいときは親1 の欄で選べば出る（全件表示で 2 回出す必要がなくなった）。`parentRows` は呼び出し元がなくなったら `core/record-sort.js` から消し、`test/core/record-sort.test.js` の該当分も直す。
+3. **URL の形**（`#/search` のパラメータ）: `p1`・`p2`・`c`（パル ID）、`by`（登録者の ID）、`noreg=1`（登録者未指定）、`sort`（既定の `updated` は書かない）、`q`（キーワード）。旧 `list` の画面は URL を読まなかった（`views/list.js:7` は route を受け取らない）ので、旧 URL の互換は `#/list` → `#/search` だけでよい。
+4. **画面 `views/search.js` を作り直す**（`reverse.js`・`list.js` は消す）
+   - 見出し: h1「配合を探す」（copy-dead-ends の見出し＝タブ名に合わせる）。
+   - 条件帯 `div.find-bar`（sticky。`top: var(--header-h)`、z-index はヘッダーの変数の「固定のパネル」の値、背景あり）: [親1][親2][子]（`palPicker`。ラベルは「親1」「親2」「子」。aria-label が重ならないこと。フォーカスの引き継ぎがラベルで探すため）、[登録者]（select。選択肢は `registrantCounts`。12 件を超えたら、owned-toolbar で作る「検索つきの選択」部品があればそれを使う。同じ名前は出ないので uid の短縮は要らない）、[並べ替え]（`RECORD_SORTS`）、[キーワード]（`input type=search`、placeholder「パル名・メモ・登録者（空白で複数）」）。1100px で 1 行に収まらなければ 2 段まで（高さの予算 約 120px）。
+   - 条件の変更は `context.update(buildHash('search', params), opts)`。**キーワードの入力は `{ replace: true }`**（1 文字ごとに履歴を積まない）。**パル・登録者・並べ替えの選択は、フェーズ 1a の決まり（`context.update` の既定＝「1 選択＝1 履歴」。今の `navigateSelection` と同じく、戻るで前の選択に戻れる）**に合わせる（フェーズ 1 の実物が違う決まりになっていればそれに合わせ、迷ったら今の振る舞いを保つ）。キーワードは `input` で、`event.isComposing` の間は何もしない。`compositionend` と、変換していない `input` のときだけ `context.update`。入力中の欄の値は `applyRoute` で上書きしない（`document.activeElement === input` なら値を触らない）。
+   - `applyRoute(route)`: パルの欄・select・入力の値を route に同期し、`update(state)` を呼ぶ。無効なパル ID は今の `validId`（`views/shared.js:13-20`）と同じく外して `context.replace`。
+   - 件数の行（条件帯の右端、または帯の直下の固定の高さの行）: 常に「N 件」。同じ組で 2 件以上なら「2 件 · 同じ組み合わせで結果が複数あります」、すべての記録に親の性別が入っていて組ごとに違うときだけ末尾を「親の性別で子が変わります」（S-45 の判断。「誤りかもしれません」は使わない）。以前の「· M 件を表示」は出さない。
+   - 一覧: `updated` のときはカードを 2 列（`.card-grid`。`repeat(auto-fill, minmax(440px, 1fr))` を目安に、幅 1100px で 2 列になり式が折り返さないことを画面で確かめて最小幅を決める）。親・子の並びのときは群ごとに見出しの行（`role="heading"`・`aria-level=2`。「[アイコン] No.1 モコロン · 3 件」）を差し込み、群の中のカードは短い式（親の並び＝`focusParent` で「相手 → 子」、子の並び＝「親 ＋ 親」。`breedingEquation` に `omitChild` を足す）。見出しは sticky にしない・畳まない（S-27 の判断）。
+   - カードは 2 行（1 行目: 式、2 行目: 登録者 · 更新 · メモ）。メモは 1 行で省略（`white-space: nowrap; text-overflow: ellipsis`）し、`title` に全文。削除・統合・重複の確認のプレビュー（`app.js:184,193`、`ui/record-editor.js:131,141`、`views/drafts.js:38`）は全文のまま（`breedingCard` に `compactMemo` を足して、配合を探すからだけ指定する）。式の列は上限つきで左に寄せる（`grid-template-columns: minmax(0,240px) 18px minmax(0,240px) 18px minmax(0,240px)`。V-37 の判断）。
+   - 行は `syncList` で差分更新する。キーは表示の向きを含める（例: `${groupPalId}:${record.id}`。stable-render の決まり）。見出しの行も同じ syncList に `heading:<palId>` のキーで混ぜる（並びが群ごとに決まるため）。
+   - 子ごとの要約チップ（S-38 の判断）: 親が片方だけで結果が 6 件以上のとき、件数の行の下に 1 行で「[アイコン] 子の名前 n」を並べる（はみ出したら横スクロール）。押すと `c` を入れる（＝子で絞る。もう一度押すと外す）。
+   - 空の状態: 何も選んでいなくて記録が 0 件 → 「まだ配合が登録されていません」＋「配合を登録」。条件で 0 件 → 親 2 体なら「この組み合わせはまだ登録されていません」＋「この組み合わせを登録」（`context.register({ parent1Id, parent2Id, childId })`。子も渡す）、親が片方なら「この親を使う配合はまだ登録されていません」＋「この親で配合を登録」、子だけなら「この子の配合はまだ登録されていません」＋「この子の配合を登録」、登録者・キーワードで 0 件なら「条件に合う登録はありません」＋「条件をすべて解除」。
+   - NEW（G-29 の判断）: 画面を開いたときに `${namespace}.search.seenAt.${userIdKey}` を読み、他人の登録で `createdAt` がそれより新しいカードに「新」のチップ（色だけに頼らない）。時刻は画面を離れるとき（`destroy`）に更新する。件数の行に「新着 n 件」を出し、押すと並べ替えを `updated` にする。localStorage の読み書きは try/catch（読めなければ新着なしとして扱う）。初めて開いたとき（値がない）は全部を新着にせず、今の時刻を書くだけ。
+   - 増えた行を光らせる（V-25 の判断）: 表示中に syncList で**新しく増えたキー**の行に `is-new` を付け、`prefers-reduced-motion: no-preference` のときだけ 1.2 秒で消える淡い背景。最初の描画と条件の変更では付けない。
+5. **タブとリンクを移す**
+   - `app.js:103` の `tabs` から `reverse`・`list` を外し、`search` のラベルを「配合を探す」に。`app.js:26,28,208` の import と対応を消し、`views/reverse.js`・`views/list.js` を削除。`ui/nav-icons.js:4,6` の `reverse`・`list` のアイコンを消す。レールのグループの区切りの CSS（`data-view` の margin。G-34 の根拠 `app.css:1230-1232` 付近）を新しい並びに合わせる。
+   - keep-state の「最後のタブは許可した画面名だけ localStorage に」の許可リストから `reverse`・`list` を外す（古い値が残っていても `search` に落ちる）。sessionStorage・history.state に残った旧画面の条件は、版が合わないものとして捨てる。
+   - リンクを新しい形に: `views/route.js:196` → `buildHash('search', { c: to })`、文言「目標の配合を見る」。`wishlist.js:184`・`views/wishlist.js:52` → `buildHash('search', { c })`（通知の id は変わらないので既読は保たれる。goals-merge でこのファイルごとなくなる）。`auto-register.js:221`（食い違いの通知）→ `buildHash('search', { p1: candidate.record.parent1Id, p2: candidate.record.parent2Id })`（D-03 の前倒し。フェーズ 1 の inv2-notice・autoreg-success で関数が書き換わっているので、`conflictNotice` を探して直す）。保存済みの古い通知の `'#/list'` は手順 1 の読み替えで開ける。
+6. **後片づけ**: `.list-filters` などの使わなくなった CSS を消す。`docs/OPERATIONS.md:99` の「一覧（所持パル・みんなの配合ノート）…最初から全部出す」は「所持パル・配合を探すの全件表示」に言い換える（全部出す方針は変えない）。`README.md:19` の「検索（配合検索・逆引き・継承ルート）」を「配合を探す・継承ルート」に。
+
+### 触るファイル
+- 変更: `web/js/router.js`、`web/js/app.js`、`web/js/views/search.js`（作り直し）、`web/js/views/shared.js`（必要なら）、`web/js/ui/breeding-card.js`（`omitChild`・`compactMemo`）、`web/js/core/kana.js`（`queryTerms`）、`web/js/core/owned.js`（`keywordTerms` を `queryTerms` に委ねる）、`web/js/core/record-sort.js`（`parentRows` を消す）、`web/js/ui/nav-icons.js`、`web/js/views/route.js`、`web/js/wishlist.js`、`web/js/views/wishlist.js`、`web/js/auto-register.js`（conflictNotice の href）、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`、`README.md`
+- 新規: `web/js/core/record-search.js`、`test/core/record-search.test.js`
+- 削除: `web/js/views/reverse.js`、`web/js/views/list.js`
+
+### テスト
+- 新規 `test/core/record-search.test.js`: 引き方の組み合わせ（親1＋親2・片親（親1 でも親2 でも）・子・親＋子・3 つ・なし→全件）、登録者（ID の大小・全半角をそろえる・未指定）、キーワード（ひらがな／カタカナ・英名・図鑑番号・メモ・登録者、空白区切りの AND）、並べ替え 5 種と群の分け方（親の並びで 1 件 1 回・先に来る親の群）、`registrantCounts`（自分が先頭・古い名前・未指定）。
+- `test/web/router.test.js`: `#/reverse?c=X` → `#/search?c=X`、`#/list` → `#/search`、`replaceState` で履歴が増えないこと（`:28-66` と同じ偽のブラウザで、`history.state` が保たれること）。`buildHash('reverse')` は `#/search` になる。
+- `test/web/views.test.js`: `:8-10` の import、`:22-31`（初期の欄は 3 つ）、`:33-51`（件数の文は「1 件」に）、`:70-77`（`:75` の文言）、`:79-89`、`:101-133` の一覧のテスト（既定が `updated`・1 件 1 回・群の見出し・「· 4 件を表示」がない・登録者が select・キーワード）を配合を探すのテストに書き換える。**`views.test.js:54-67`（継承ルートの旧 URL `exclude=`）は回帰テストとして残す**（cleanup-dead-code の決まり。入れ替えボタンの確認は route-cleanup で外す）。
+- `test/web/app.test.js`: `:159,204,221,244,274` は `hash: '#/list'` で起動している（同期・送信のテストで、一覧の中身には依存していないはず）。読み替えで `#/search` に着くことを確かめ、必要なら `#/search` に直す。`:303-323` の逆引きの × のケース（`['#/reverse?c=SheepBall', '#/reverse', '生まれる子']`）は `['#/search?c=SheepBall', '#/search', '子']` に。`:325-356`（タブの記憶）は「一覧」「逆引き」のタブがなくなるので、配合を探すの登録者・キーワードの記憶に書き換える（`:332`・`:345-346`・`:354`）。
+- `test/web/wishlist.test.js:136,153,394`・`test/web/app.test.js:497,504` の href `#/reverse?c=` → `#/search?c=`（goals-merge でさらに書き換わる）。`test/web/notifications.test.js:134-162` の `#/reverse?c=MoonQueen` は href の形の例なのでそのままでよい。
+- `test/web/auto-register.test.js`: 食い違いの通知の href を確かめている所があれば `#/search?p1=&p2=` に（別プラン §9 の C の `auto-register.test.js:235,241,356,406,474` 付近）。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: 引くのは登録済みの記録（`state.records`・`state.index`）だけ。`core/record-search.js` は `core/index.js`・`core/kana.js`・`core/user.js`・`core/record-sort.js` 以外を import しない。
+- 互換: 旧 URL の読み替えは「履歴を増やさない」こと（戻るで旧 URL に戻ってまた読み替える、を繰り返さない）。keep-state が保存した旧画面の条件・最後のタブ（`reverse`・`list`）は捨てる。
+- セキュリティ: メモ・登録者名は `textContent`。title にも文字列をそのまま入れる。
+- 性能: 記録が数千件でも、キーワードの文字列は WeakMap で 1 回だけ作る。群分けは並べ替え 1 回。描画は syncList で差分だけ。カードの `content-visibility` の推定の高さは新しいカードの高さに合わせる（sticky の要素には付けない）。
+
+### release-notes の案
+- id: `<実装日>-find-merge`／title: 「配合を探すに統合」（8 字）／body: 「配合検索・逆引き・一覧を「配合を探す」にまとめました。親・子・登録者・キーワードで絞れます。」（46 字）
+
+### 完了の条件
+- [ ] `npm test` が通る（新しい `record-search.test.js` を含む）。
+- [ ] モックで: 親1／親2／子のどれから選んでも登録済みの配合が出る。親＋子で「A と何を組めば C か」が引ける。何も選ばないと全件が更新日の新しい順で出る。キーワード「もこ」でモコロンを含む記録と、メモに「モコ」を含む記録が出る。
+- [ ] `#/reverse?c=SheepBall`・`#/list` を開くと配合を探すに着き、戻るで旧 URL に戻らない。
+- [ ] 実測: 親を選んでも結果の先頭が動かない（今は +27px）。scrollY=2500 で並べ替えを変えても条件帯が画面に残る（今は先頭へ戻り、帯も流れる）。
+- [ ] レールのタブが 7 本。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 引くのは登録済みの記録だけで、`core/record-search.js` は index・kana・user・record-sort 以外を import しない（`test/import.test.js`）。互換 — 旧 URL の読み替えで履歴が増えない。keep-state が残した旧画面の条件と最後のタブ（reverse・list）は捨てられる。`seenAt` が読めなくても壊れない。セキュリティ — メモ・登録者名は textContent（`test/static/security.test.js`）。性能 — 記録が数千件でも、キーワードの入力で 100ms 以上止まらない（探す文字列は WeakMap で 1 回だけ作る）。
+
+### TODO
+- [ ] `router.js` に `canonicalHash` と旧画面の表を足し、`startRouter` で replaceState する（テストを先に）
+- [ ] `core/kana.js` に `queryTerms`、`core/owned.js` の `keywordTerms` を委ねる
+- [ ] `core/record-search.js`（`searchRecords`・`groupRecords`・`registrantCounts`・`RECORD_SORTS`）とテスト
+- [ ] `breeding-card.js` に `omitChild`・`compactMemo`
+- [ ] `views/search.js` を条件帯＋件数の行＋一覧で作り直す（`applyRoute`／`update`、syncList）
+- [ ] 件数の行の文言（S-45）と子ごとの要約チップ（S-38）
+- [ ] 空の状態の 5 通りと、登録の初期値に子も渡す
+- [ ] NEW のチップと「新着 n 件」、増えた行を光らせる
+- [ ] `app.js` のタブ・import・ビューの対応、`nav-icons.js`、レールの区切りの CSS
+- [ ] `views/reverse.js`・`views/list.js`・`parentRows` を消し、使わない CSS を片づける
+- [ ] 旧画面へのリンク（route.js:196・wishlist.js:184・views/wishlist.js:52・自動登録の食い違いの通知）を新しい形に
+- [ ] keep-state の許可リストから旧画面名を外す
+- [ ] 既存テストの書き換え（views・app・router・wishlist・auto-register）
+- [ ] OPERATIONS.md・README.md の記述と release-notes
+
+---
+
+## owned-overlay: 配合の画面に所持数を重ねる
+
+### 目的
+配合を探す・継承ルート（と後のテーマの登録モーダル・目標の一覧）に、「その親を何体持っているか」「今の所持で組めるか」を出す。集計は core/owned.js の共通処理 1 つにまとめ、画面ごとに数え方がばらばらな状態（R-15）をなくす。
+
+### 経緯
+- 統合プランの owned-overlay（R-15・S-15・S-16・D-44・R-16・R-17・R-21、別プランの F014）。F014 は Codex の独立レビュー #1（「記録あり／所持／利用可能」の区別）から来た。
+- Codex のプランレビュー 1 回目 10: 「所持数」と「親になれる数」を分ける。**`core/ideal.js` の `isParentCandidate` を流用すると、INV-2 の import 制限（`test/import.test.js:38-44`: core/ideal.js を読めるのは views/ideal.js だけ）に触れる** → 同じ規則の判定を core/owned.js に持つ。案 R-15 の「直し」にある「isParentCandidate（core/ideal.js から import する）」は**採らない**。
+- 2 回目 C: 「手持ちで組める」は ♂×♀ が必須。**組める＝別々の個体 ID の ♂ と ♀**。記録に親の性別があればその向き、空欄なら両方の向き。性別の分からない個体は数えない。
+- 「相手親は所持しているパルだけ」で絞るチェック（R-17 の `own=1`・`excludePartners`）は、437536b で消した「相手親の除外」の復活になるので**戻さない**（統合プランの判断事項 2）。並べ替えで所持しているものを先に出すだけにする。
+- **統合プランの表では goals-merge の後にあったが、この文書では 2 番目に移した**（register-dialog の参照列と goals-merge の目標の行が、ここで作る集計を使うため）。
+
+### 依存
+- stable-render（フェーズ 1）。find-merge（配合を探すの画面に重ねるため）。
+
+### このテーマでやらないこと
+- 2 回の配合で作れる・あと 1 種で作れる（D-44 の判断で見送り）。新しい画面は作らない。
+- 持ち主の内訳のポップオーバー（S-15・R-16 の判断で見送り。個体を見るのはフェーズ 3 のドロワー＝route-progress の F032）。
+- 運び手の性別による相手親の絞り込み（R-17 の判断で見送り）。
+- 継承ルートの開始候補のチップの作り直し（route-cleanup）。
+
+### 現状（HEAD 6028a48 で確認）
+- 所持の集計は `core/owned.js:353-361` の `ownedBySpecies`（種族ごとの個体の配列）と、`:446-450` の `partnerOwnership`（相手親の所持数。**タマゴは除くがグローバルパルボックスは数える**）。性別ごとの数はどこにもない。
+- 継承ルートの開始候補 `core/owned.js:428-444` の `ownedRouteStarts` は**タマゴもグローバルも候補に入れる**（`views/route.js:14` の `holderSummary` に「（タマゴ）」の分岐）。理想個体は `core/ideal.js:189` の `isParentCandidate`（`!pal.egg && pal.place !== 'global'`）で両方を外す。3 つの数え方がばらばら（R-15）。`docs/OPERATIONS.md:97` は今の継承ルートの扱い（開始候補にタマゴとグローバルも含める・相手親はグローバルを含めタマゴは数えない）を書いている。
+- 相手親の注記は `views/route.js:164-175` の `annotateFor`: 「相手親の X: 所持 N 体（うちパッシブ一致 M 体）」／「未所持」（`.route-owned-note`・`.unowned`）。`ui/route-view.js:5-25` の `stepView` が配合ごとに付ける。「N 通り・どれか 1 つ」の中は相手親の図鑑順（`core/route.js:33-34`）。
+- 配合検索・逆引き・一覧・パル詳細のカード（`breedingCard`）には所持の情報が出ない（S-15）。
+
+### 実装の手順
+1. **共通の集計を core/owned.js に足す**（DOM なし。`ownedBySpecies` の近くに置く）
+   ```js
+   /** 親にできる個体（タマゴ・グローバルパルボックスの個体は親にしない）。
+    *  core/ideal.js の isParentCandidate と同じ規則。INV-2 の import 制限で core/ideal.js は読めないので、ここにも持つ。 */
+   export const canBeParent = (pal) => Boolean(pal.palId) && !pal.egg && pal.place !== 'global';
+   /** 種族ごとの所持数。total・eggs・globals は全個体、male・female・unknown は親にできる個体の性別ごとの数。 */
+   export function ownedCounts(pals) {} // → Map<palId, { total, eggs, globals, male, female, unknown }>
+   /** 記録の両親を今の所持で組めるか（別々の個体の ♂ と ♀。記録に性別があればその向き、空欄なら両方の向き）。 */
+   export function canPairRecord(counts, record) {} // → boolean
+   ```
+   - `canPairRecord`: 同じ種族どうしは `male >= 1 && female >= 1`。違う種族は、`parent1Gender === 'M' || parent2Gender === 'F'` なら「親1 が ♂・親2 が ♀」の向きだけ、`'F'`／`'M'` なら逆の向きだけ、両方空なら 2 つの向きのどちらかで組めればよい。両親の性別が同じ記録（不正）は組めない扱い。
+   - `core/ideal.js:189` の `isParentCandidate` はそのまま（理想個体は変えない）。`canBeParent` と規則がずれないよう、`test/core/owned.test.js` で両方を import して同じ結果になることを確かめるテストを足す（import の制限は web/js の中だけなので、テストからは両方を読める）。
+2. **表示の部品**（新規 `web/js/ui/owned-badge.js`）
+   ```js
+   export function ownedBadge(counts, palId, { role = 'parent' } = {}) {} // → HTMLElement
+   ```
+   - 親（`role: 'parent'`）: 0 体なら薄い字の「未所持」。1 体以上なら「♂2 ♀1」（親にできる数。性別の記号はフェーズ 1 の visual-parts の `genderMark()` と色のトークン）。親にできる個体が 0 でタマゴなどだけなら「タマゴ等のみ」。`title` に「所持 4 体（うちタマゴ 1・グローバルパルボックス 0・性別不明 0 は親にできません）」。
+   - 子（`role: 'child'`）: 1 体以上のときだけ「所持 N」。
+   - どちらも `a` 要素で `buildHash('owned', { pal: palId })`（所持パルの `pal` パラメータは `views/owned.js:83-89` が受け付ける）へ。
+3. **カードに重ねる**: `breedingEquation`／`breedingCard`（`ui/breeding-card.js:28-63`）に `annotate(palId, role)` を足す。指定があれば、各タイルを `div.equation-slot` で包み、タイルの下に返された要素を置く（ないときは今の DOM のまま。route-view・確認のプレビューは変わらない）。
+4. **配合を探すで使う**（`views/search.js`）
+   - 所持パルのデータ（`context.owned?.state?.owned?.pals`）があるときだけ、`ownedCounts` を**データが変わったときに 1 回だけ**作り（`owned.state.owned` の同一性で覚える）、カードの親に「♂n ♀m／未所持」、子に「所持 N」を出す。`context.owned.subscribe` で `owned.state.owned` が変わったら `update` を呼ぶ（`views/route.js:204-209` と同じ形）。開いたときに `owned.load().catch(() => {})`。
+   - 件数の行に 2 つの切り替え（所持パルのデータがあるときだけ出す。押しボタン `aria-pressed`）: 「両親を所持している組を上へ」（URL `ownedfirst=1`。`canPairRecord` が真の記録を、群の中で安定に先へ。F014・S-16）、「今の所持で作れる」（URL `make=1`。`canPairRecord` が真で、子を所持していない記録だけに絞る。D-44）。どちらも既定はオフ。
+5. **継承ルートで使う**（`views/route.js`）
+   - `annotateFor` を `ownedCounts` で作り直す: 「相手親の X: ♂2 ♀1（うちパッシブ一致 M 体）」、0 なら「相手親の X: 未所持」（`.unowned` は今のまま薄く）。末尾に「所持パルで見る」（`buildHash('owned', { pal: X })`）。パッシブ一致の数も `canBeParent` の個体で数える。
+   - `partnerOwnership`（`core/owned.js:446-450`）は `canBeParent` で数えるように変える（グローバルパルボックスの個体も相手親に数えなくなる。R-15）。呼び出し元がなくなれば消してよい。
+   - 「N 通り・どれか 1 つ」の中を、所持パルのデータがあるとき「相手親を組める（♂か♀を 1 体以上）→ 未所持」の順に**安定に**並べ替える（同じ群の中は今の図鑑順。R-17 の判断）。並べ替えは `routeView` に渡す前に `views/route.js` で `steps[].options` を並べ直す（`ui/route-view.js` は変えない）。
+   - 経路の見出しの右に「相手親 2/3 段で所持」のバッジ（その段のどれかの配合の相手親を所持していれば所持とする）。所持パルがあるときだけ、`findRoutes` の結果を**同じ回数の中だけで**、相手親を所持していない段の少ない順に安定に並べ直す（R-21 の判断）。`routeView` に `badge(route)` の任意の引数を足して見出しに置く。
+   - 開始候補（`ownedRouteStarts`）の運び手を `canBeParent` で絞り、`holderSummary` の「（タマゴ）」の分岐を消す（R-15 の判断）。これで候補が 0 になったときだけ、候補がないときの文に「タマゴ・グローバルパルボックスの個体は含めていません」を添える。**`docs/OPERATIONS.md:97` の継承ルートの記述をこの規則に直す**。
+6. （register-dialog・goals-merge は、この `ownedCounts`・`ownedBadge`・`canPairRecord` を使う。ここでは作るだけ）
+
+### 触るファイル
+- 変更: `web/js/core/owned.js`、`web/js/ui/breeding-card.js`、`web/js/views/search.js`、`web/js/views/route.js`、`web/js/ui/route-view.js`（`badge` の引数だけ）、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`
+- 新規: `web/js/ui/owned-badge.js`
+
+### テスト
+- `test/core/owned.test.js`: `canBeParent`（タマゴ・グローバル・人間を外す）、`ownedCounts`（性別ごと・タマゴ・グローバル・性別不明）、`canPairRecord`（同じ種族、違う種族で記録の性別あり／なし、両親が同じ性別の不正な記録、♂だけ・♀だけ）、`core/ideal.js` の `isParentCandidate` と同じ結果になること。`ownedRouteStarts` が運び手からタマゴ・グローバルを外すこと（`test/core/owned.test.js` の該当テスト。別プラン §9 の C の `owned.test.js:95-102` 付近）。
+- `test/web/owned-view.test.js:247-273`（継承ルート）: `:269` の「相手親のツッパニャン: 所持 2 体（うちパッシブ一致 0 体）」→ 新しい文（例「相手親のツッパニャン: ♂1 ♀1（うちパッシブ一致 0 体）」。フィクスチャの性別に合わせる）。`:255-264` の `.route-start`（候補の一覧）は route-cleanup で消えるので、ここでは文言だけ合わせる。
+- `test/web/views.test.js`: 配合を探すで、所持パルのデータがないときは注記も切り替えも出ないこと、あるときに「♂n ♀m」「未所持」が出ること、「両親を所持している組を上へ」「今の所持で作れる」の並びと絞り込み。
+- `test/web/route-view.test.js`: `badge` を渡したときに見出しに出ること（渡さなければ今の DOM のまま＝既存のテストはそのまま通る）。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: 組めるかは「登録済みの記録の両親」と「所持パル」だけで決める。配合表・`core/ideal.js` は使わない（`core/owned.js` は今どおり `core/ideal.js` を import しない）。
+- 互換: 継承ルートの相手親の数え方と開始候補が変わる（グローバルパルボックスの個体を数えない・タマゴを開始候補にしない）。release-notes と OPERATIONS.md に書く。
+- 性能: `ownedCounts` は所持パルのデータが変わったときに 1 回（2,000〜20,000 体でも O(n)）。`canPairRecord` は Map を引くだけ。配合を探すの再描画のたびに数え直さない。
+
+### release-notes の案
+- id: `<実装日>-owned-overlay`／title: 「配合に所持数を表示」（9 字）／body: 「配合のカードに親の所持数（♂♀）を出し、両親を所持している組を上へ並べられます。」（40 字）
+
+### 完了の条件
+- [ ] `npm test` が通る。
+- [ ] モックに所持パルを注入して（フェーズ 0 の注入スクリプト）、配合を探すのカードに「♂n ♀m／未所持」が出る。切り替えで並びと件数が変わる。所持パルがないときは何も出ない。
+- [ ] 継承ルートの相手親の注記が「♂n ♀m」になり、「N 通り」の中で所持している相手親が先に来る。見出しに「相手親 n/m 段で所持」。
+- [ ] 所持パル 2,000 体で、配合を探すの条件を変えても入力が 100ms 以上止まらない（集計が毎回走っていない）。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 組めるかは登録済みの記録の両親と所持パルだけで決め、`core/owned.js` は `core/ideal.js` を import しない（`test/import.test.js`）。`canBeParent` と `isParentCandidate` が同じ結果（テスト）。互換 — 継承ルートの数え方の変化を release-notes と `docs/OPERATIONS.md:97` に書いた。確認回数と相手親の除外は戻していない（判断事項 2）。セキュリティ — `test/static/security.test.js` が通る。性能 — 上の 2,000 体の確認。
+
+### TODO
+- [ ] `core/owned.js` に `canBeParent`・`ownedCounts`・`canPairRecord` とテスト
+- [ ] `ui/owned-badge.js`（親・子の表示、所持パルへのリンク）
+- [ ] `breedingEquation`／`breedingCard` に `annotate` を足す
+- [ ] 配合を探すで所持パルを購読し、カードに重ねる
+- [ ] 「両親を所持している組を上へ」「今の所持で作れる」の切り替えと URL
+- [ ] 継承ルートの相手親の注記を ♂♀ の数とリンクに
+- [ ] 「N 通り」の中の所持順の並べ替え（安定ソート）
+- [ ] 経路の見出しのバッジと、同じ回数の中の並べ直し
+- [ ] 開始候補の運び手を `canBeParent` で絞り、0 件のときの添え書き
+- [ ] 既存テストの文言の更新（owned-view・owned）
+- [ ] OPERATIONS.md:97 の継承ルートの規則と release-notes
+
+---
+
+## register-entry: 登録の入口と下書きの帯
+
+### 目的
+ヘッダーの常設「＋ 登録」をやめ、登録の入口を「いま見ている配合」の文脈のボタンに置く。下書きのタブを廃止し、配合を探すの全件表示の上の折り畳み帯にする。
+
+### 経緯
+- **D2**（両セッションで同じ方向の回答）。別プランの F001（常設ボタンの撤去と文脈のボタン）・F020（下書きの帯）、本セッションの G-02・G-04・X-10・D-24・D-25・G-06（ショートカットの N）。
+- 案の「直し」との違い: G-04 の判断は「配合検索に結果があるときの『この組で別の結果を登録』は入れない」、G-06 の判断は「N は入れない」だったが、**統合プランの要点（F001 と「ショートカット N」）が優先**する。G-01（ヘッダーのボタンを格下げして残す）と G-05（状況で出し分け）は取り消し・却下（判定の取り違えで入口が消えるため）。
+- 自動登録が動くのは「ホストの PC・Chromium・自動登録オン・ページを開いている間」だけ（`auto-register.js:95-106` の `current()`、`views/owned-settings.js:223-224`）。手入力が主の人（参加者・未連携・別ワールド）がいるので、入口は「なくす」のではなく「文脈に移す」（X-10）。
+- Codex のプランレビュー 1 回目 12（下書き 0 件のときの入口と N の時期）: **下書きが 0 件でも「下書きに追加」はできる**ようにし、N は入力欄・日本語変換中・モーダル中・長押しでは動かさない。6 回目 5: `#/drafts` の読み替えはこのテーマで入れる。
+- 下書きの行は「読み取り専用の式＋登録・編集・削除」（F020）。今の行の中で直接パルを選ぶ形（`views/drafts.js:101-108`）はやめる。D-26（行の中で登録者・メモも編集）は却下済み。
+
+### 依存
+- find-merge（配合を探すの画面と、ルーターの旧画面の表）。
+
+### このテーマでやらないこと
+- 登録モーダルの中身（閉じたときの下書きへの退避・性別・参照列。register-dialog）。
+- 通知から入力済みで登録画面を開くこと（G-02 の判断で見送り）。
+- 下書きの送信中の行を残す（D-33。却下）、行を選んで一括操作（D-32。却下）。
+
+### 現状（HEAD 6028a48 で確認）
+- 常設の「＋ 登録」: `app.js:133-137`（`register-button`、aria-label「配合を登録」）。`app.js:139-140` で `.header-actions` にベルと並べ、`:153` で `#app` の直下に置く。`:264` でログイン画面のときだけ隠す。フェーズ 1 の header-frame でヘッダーの中に移っているはず。
+- 登録の入口はほかに、配合検索・逆引き・一覧の 0 件の空の状態（`views/search.js:26-28`・`views/reverse.js:21-23`・`views/list.js:45-46`）、パル詳細の「この子の配合を登録」（`views/pal.js:21`。常に primary）、カードの編集、下書きの画面。find-merge の後は配合を探すの空の状態に集まっている。
+- 下書きの画面 `views/drafts.js:140-263`: 見出しに「一括登録」「一括削除」（`:147-158`）、ツールバーに「＋ 下書きに登録」（モーダル。`:159`）と件数、一覧の下に「＋ 空の下書きを追加」（`:167-170`）。行 `draftRow`（`:94-138`）は 3 つの `palPicker` を式の形に並べ、その場で選ぶ。空の状態の文は 2 つのボタン名を並べた 40 字ほど（`:231`）。行が消えたら次の行の最初のパル選択へフォーカス（`:245-250` の `moveFocus`）。
+- 送信の処理 `registerDrafts`（`views/drafts.js:61-92`）と確かめ（`prepare` `:22-45`）、ストア `web/js/drafts.js`（`createDraftStore`）はこのまま使える。
+- レールの `drafts` タブ（`app.js:103`）、`router.js:1` の `drafts`、`nav-icons.js:7`。
+
+### 実装の手順
+1. **ヘッダーの「＋ 登録」を外す**: `app.js` の `register` ボタン・`actions.append(…, register)`・`register.hidden` の行（header-frame で移った先）を消す。`.register-button` の CSS（`app.css` の `register-button` を含むセレクタ。`:827-828` の動きの指定にも名前がある）を片づける。
+2. **文脈のボタン**（どの時点でも、配合を探すに出る登録のボタンは 1 つだけにする）
+   - 配合を探すで、パルの条件（親1・親2・子）がない（全件表示）とき: 見出しの右に「＋ 配合を登録」（`button secondary small`。`context.register()`）。
+   - パルの条件があって結果が 1 件以上のとき: 件数の行の右に、親 2 体なら「この組み合わせで別の結果を登録」（親 2 体を初期値）、親が片方なら「この親で配合を登録」（親1 を初期値）、子だけなら「この子の配合を登録」（子を初期値）。
+   - 結果が 0 件のときは、find-merge で作った空の状態のボタン（primary）だけ。
+   - パル詳細（`views/pal.js:18-21`）: 「この子の配合を登録」は、このパルが生まれる配合が 1 件でもあれば `button secondary`（控えめ）、0 件なら今どおり primary（F075）。
+3. **下書きの帯**（新規 `web/js/ui/drafts-band.js`）
+   ```js
+   export function draftsBand(context, { open = false, onToggle } = {}) {} // → { element, update({ open }), destroy() }
+   export async function registerDrafts(context, ids) {} // views/drafts.js から移す（中身は変えない）
+   ```
+   - 帯の頭の行: 開閉のボタン（`aria-expanded`・`aria-controls`。文言「下書き n 件（この端末だけ）」。summary の中にボタンを入れない＝C-44 の考え方）、右に「すべて登録」（primary small。0 件と送信中は押せない）と「＋ 下書きに追加」（secondary small。`context.register({}, { draft: true })`）。**0 件でも帯は出し、「＋ 下書きに追加」は押せる**。
+   - 帯の中身（開いたときだけ）: 保存の失敗の警告（`drafts.saveFailed`。今の `:163-165` の文）、行の一覧、末尾に小さく「すべて削除」（今の一括削除と同じ確認つき）。
+   - 行（`draftRow` を作り直す）: 読み取り専用の式（親1 ＋ 親2 → 子。空の枠は破線の「未選択」）、登録者・メモ、エラーの文、操作「登録」（未選択があれば押せない）・「編集」（`context.register(current, { draft: true })`）・「削除」（確認なしで消し、トーストで「元に戻す」。delete-undo の「端末だけのものは確認なし＋元に戻す」）。`{ element, update(draft, status), destroy }` を返す。
+   - 行の差分更新は stable-render の `syncList`（今の `:216-239` の考え方と同じ。送信中の下書きは隠す）。行が消えたら、次の行（なければ前の行）の「編集」ボタンへフォーカスを移す（同じ「登録」「削除」へ移すと Enter の長押しで続けて押してしまうため。今の `:243-244` の注意を引き継ぐ）。行がなくなったら「＋ 下書きに追加」へ。
+   - ダブルクリックの 2 回目を次の行に当てない仕組み（`:110-111` の `singleClick`）は残す。
+4. **配合を探すに帯を置く**: パルの条件がない（全件表示の）とき、条件帯の下・一覧の上に `draftsBand`。開閉は URL の `drafts=1`（`context.update(hash, { replace: true })` で切り替え。履歴は増やさない）で持つ。パルの条件があるときは帯を出さない。
+5. **`#/drafts` の読み替え**: find-merge で作った旧画面の表に `drafts` を足す（`#/drafts` → `#/search?drafts=1`）。`router.js:1` の `views` から `drafts` を外し、`app.js:103` の `tabs`・`:31,208` の import と対応、`nav-icons.js:7` を消す。`views/drafts.js` を削除（`registerDrafts` は手順 3 で移した）。keep-state の最後のタブの許可リストから `drafts` を外す。
+6. **ショートカット「N」**（`app.js` に 1 か所）: `document` の `keydown` で `event.key` が `n`／`N` のとき、次のどれかなら何もしない: `event.isComposing`、`event.repeat`（長押し）、Ctrl・Alt・Meta つき、ログイン画面、開いているダイアログがある（`document.querySelector('dialog[open]')`）、フォーカスが `input`・`select`・`textarea`・`[contenteditable]` の中、パル選択などの候補が開いている（`[aria-expanded="true"]` のトリガーにフォーカス）。それ以外は `preventDefault` して `context.register()`（配合を探すでパルの条件があればそれを初期値に）。リスナーは起動時に 1 回だけ足す。
+
+### 触るファイル
+- 変更: `web/js/app.js`、`web/js/router.js`、`web/js/views/search.js`、`web/js/views/pal.js`、`web/js/ui/nav-icons.js`、`web/css/app.css`、`web/js/release-notes.js`
+- 新規: `web/js/ui/drafts-band.js`
+- 削除: `web/js/views/drafts.js`
+
+### テスト
+- `test/web/app.test.js:69-74`（`assertLoginOnly`）と `:116` の `register-button` を外す。`:391-418`（下書きタブで下書きを作る）を、`#/drafts` で開くと配合を探すの帯が開いた状態で出る → 「＋ 下書きに追加」→ 下書きの帯に行が出る → 「登録」で記録に加わる、に書き換える（`:396-398` のタブの aria-current は配合を探すのタブに）。N のテスト（入力欄・ダイアログ・変換中・repeat では開かない）を足す。
+- `test/web/drafts.test.js`: import を `ui/drafts-band.js` に。`:80-83`（下書きのタブを開ける）→ `#/drafts` が `#/search?drafts=1` になること。行の中でパルを選ぶ前提のテスト（`:122-146` 空の行で直接選ぶ、`:307-354` 開いている候補を保つ）は、読み取り専用の行に合わせて「編集で開いたモーダルで直す」「別の行の送信が終わってもフォーカスと行を保つ」に書き換える。`:113,127` の「＋ 空の下書きを追加」は「＋ 下書きに追加」（モーダル）に。`:397-425` のフォーカスの移し先は「編集」ボタンに。`:442-474` の「＋ 下書きに登録」は「＋ 下書きに追加」に。送信・重複・一括登録・ログアウト・別タブのテスト（`:148-300`・`:356-396`・`:489-` ）は帯の要素で同じことを確かめる。
+- `test/web/views.test.js`: 配合を探すの登録のボタンが状態ごとに 1 つだけ出ること、パル詳細のボタンの強さ。
+
+### INV-2・互換・セキュリティ・性能の注意
+- 互換: 下書きの保存の形（`pal-note.drafts.<env>.<user>`）は変えない。`#/drafts` のブックマークは帯が開いた配合を探すに着く。
+- 手入力の人の手数: 今は「＋ 登録」1 手。全件表示なら見出しのボタンで 1 手、ほかの画面からは N か、配合を探すへ移って 1 手。release-notes に「どこへ移ったか」を書く。
+
+### release-notes の案
+- id: `<実装日>-register-entry`／title: 「登録の入口を移しました」（11 字）／body: 「右上の「＋ 登録」は配合を探す・パル詳細のボタンへ。下書きは配合を探すの上の帯に移りました。」（46 字）
+
+### 完了の条件
+- [ ] `npm test` が通る。
+- [ ] ヘッダーに「＋ 登録」がない。配合を探すの全件表示・結果あり・0 件・パル詳細のそれぞれで、登録のボタンが 1 つ出る。
+- [ ] 下書き 0 件でも帯が出て「＋ 下書きに追加」で作れる。`#/drafts` で帯が開いた状態になる。
+- [ ] 実測: 下書きの一括登録で layout-shift が今（0.13・340px 伸びる）より小さい。
+- [ ] 入力欄・日本語変換中・モーダル中・長押しで N が反応しない（ブラウザで確かめる）。
+- [ ] レールのタブが 6 本。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 下書きの保存の形を変えていない（旧コードのタブと混ざっても壊れない）。`#/drafts` のブックマークが、履歴を増やさずに帯の開いた配合を探すに着く。セキュリティ — `test/static/security.test.js` が通る。INV-2 — 対象外。性能 — 帯の行は syncList の差分更新。
+
+### TODO
+- [ ] ヘッダーの「＋ 登録」と CSS を消す（テストを先に直す）
+- [ ] 配合を探すの文脈のボタン（全件・結果あり・0 件）
+- [ ] パル詳細の「この子の配合を登録」の強さを登録件数で変える
+- [ ] `ui/drafts-band.js` の帯（頭の行・中身・すべて登録・すべて削除）
+- [ ] 読み取り専用の下書きの行と syncList・フォーカスの移し先
+- [ ] `registerDrafts` を移し、`views/drafts.js` を消す
+- [ ] 配合を探すに帯を置き、`drafts=1` で開閉
+- [ ] `#/drafts` の読み替えとタブ・アイコン・keep-state の許可リスト
+- [ ] ショートカット N
+- [ ] drafts・app・views のテストの書き換えと release-notes
+
+---
+
+## register-dialog: 登録モーダルの見直し
+
+### 目的
+登録モーダルで、閉じても入力が消えない（下書きに退避）・親の性別を記録できる（下書きを通っても消えない）・登録済みの配合と所持数を見ながら選べる・入力で欄がずれない、を実現する。
+
+### 経緯
+- 統合プランの register-dialog（本セッションの D-14〜D-20、別プランの F017・F018・F019）。
+- **F019**: 新規の入力があるまま閉じたら下書きに自動で退避し、トースト「下書きに残しました」＋「破棄」。編集と「続けて登録」の直後（親1 だけ残った状態）は退避しない。D-16 の判断（閉じる前に確認を出す）より、統合プランの「自動で退避」が優先。Codex のプランレビュー 1 回目 15: ×・Esc・キャンセルを**同じ経路**にする「閉じる前」の共通の口を ui/dialog.js に。
+- **F017・D-15**: 親1・親2 の ♂／♀ トグル（任意）。性別で子が変わる組（フォレーナ×クレメーオ。`core/ideal.js:134`）の向きを手でも記録できるようにする。10-04 の 437536b で性別の欄を消した経緯があるが、統合プランで「任意のトグル」として戻すと決めた（D-15 の判断の「入力は増やさない」は採らない）。
+- Codex のプランレビュー 6 回目 3（高）: **下書きを通ると性別が消える**（`web/js/drafts.js:14-22` の `cleanDraft` は性別を保存しない、`views/drafts.js:30` の一括登録は性別を空にする）。→ 正規化・内容の比較（`sameDraftContent`）・編集の再開・一括登録まで性別を通し、保存は**旧コードのタブが書き直しても消えないよう、下書き id ごとの別のキー**に持つ。
+- **F018・D-14**: 左にフォーム・右に参照列（その親の登録済みの配合・所持 ♂n ♀m）。重複の警告は右列の固定の高さの枠に（今は警告が出るたびにメモ欄が 71px・35px 下がる）。
+- F017 の注意: 性別を足すと、手で登録した記録にも継承ルートの「性別条件は未検証」が付くようになる（`ui/route-view.js:31`）。言い換えは route-cleanup で行う（このテーマでは条件を変えない）。
+
+### 依存
+- register-entry（下書きの帯）。owned-overlay（参照列の所持数に `ownedCounts`・`ownedBadge` を使う）。
+
+### このテーマでやらないこと
+- 配合牧場から親を入れるチップ（D-21。却下）、右側のサイドパネルの編集画面（D-22。却下）。
+- 残り字数の表示・フォーカスで広がるメモ（D-20 の判断で見送り）。
+- 継承ルート・理想個体の「性別条件は未検証」の条件の変更（route-cleanup・ideal 側）。
+- ワールドの登録モーダル（roles）。
+
+### 現状（HEAD 6028a48 で確認）
+- `ui/dialog.js:3-26` の `openDialog`: × は `dialog.close()`（`:10-11`）、背景のクリックは `closeOnBackdrop` のとき閉じる（`:23`）、Esc は既定の動き（cancel → close）。閉じる前に割り込む口はない。登録モーダルは `closeOnBackdrop: false`（`ui/record-editor.js:48-51`）だが、Esc・×・キャンセル（`:114` の `modal.close`）で確認なしに閉じ、入力が消える（計測: 開いているモーダル 1→0）。
+- `ui/record-editor.js`: 親の性別は、編集で親 2 体が同じなら元の性別を残し、どちらかを変えたら両方空（`:78-85` の `sameParents`）。新規は常に空。警告 `.editor-warning`（`:55`・`:87-101`）は文字だけ（「この組み合わせは登録済み: → スプラドン」）で、`:not(:empty)` のときだけ余白が付く（`app.css:613`）。下書き版の保存 `saveDraft`（`:176-191`）は性別を渡さない（`:180-181`）。選択欄は記号なしの 3 列（`app.css:611`）、高さは 800×600 に固定（`app.css:606-607`。437536b で入れたもの）。登録者は全ユーザーをサーバの順に並べる（`:61-71`）。検証のエラーはフォームの下にまとめて出すだけ（`:118-122`）。性別のエラー文は「性別データが正しくありません。管理者に確認してください。」（`:17`）。
+- 下書き `web/js/drafts.js`: `CONTENT`（`:9`）に性別がない。`cleanDraft`（`:14-22`）は決まった項目だけ残す（旧コードのタブが storage イベントで読み直して保存し直すと、足した項目は消える）。`sameDraftContent`（`:39-41`）。キーは `${namespace}.drafts.${env}.${userIdKey}`（`:54`）。
+- 名前の変更 `user-rename.js:31-74` の `moveUserStorage`: 配列のキーだけを移す（`:50` で配列でなければ飛ばす）。**オブジェクトの形のキーを足すと、名前の変更で移らない**。
+
+### 実装の手順
+1. **閉じる前の共通の口**（`ui/dialog.js`）
+   ```js
+   export function openDialog(title, { className = '', onClose, closeOnBackdrop = true, beforeClose, initialFocus } = {}) {
+     // beforeClose(reason) が false を返したら閉じない。reason: 'dismiss'（×）| 'cancel'（キャンセル）| 'escape' | 'backdrop' | 'forced'
+     // 戻り値: { dialog, body, footer, close, requestClose }（close は確かめずに閉じる＝保存の成功のあとに使う）
+   }
+   ```
+   - ×・背景・キャンセルのボタン（呼び出し側は `modal.requestClose('cancel')`）・Esc（`cancel` イベントを `preventDefault` してから `requestClose('escape')`）を同じ `requestClose` に通す。
+   - ブラウザが `preventDefault` を無視して閉じた場合（Chrome は利用者の操作なしで続けて止めると閉じることがある）に備え、`close` イベントで「`requestClose` を通らずに閉じた」なら `beforeClose('forced')` を呼ぶ（戻り値は使えない）。
+   - `initialFocus`（要素）を受け取り、`showModal()` の後にそこへフォーカス（D-17）。`confirmDialog` の本文の `p` に id を付けて `aria-describedby` で結ぶ（D-17）。
+2. **登録モーダルの下書きへの退避**（`ui/record-editor.js`）
+   - 基準の入力（開いたとき、と「続けて登録」の `prepareNext` の直後）を覚える。**新規（`!original && !draft`）で、今の入力が基準と違い、パルかメモが 1 つでも入っている**ときだけ退避の対象（＝編集・下書き版・続けて登録の直後に親1 だけ残った状態・初期値のまま閉じた、は退避しない）。
+   - `beforeClose`: 対象でなければ `true`。対象なら `validateRecordInput(value(), new Set(['', ...palsById.keys()]))` で確かめ、`context.drafts.add(fields, context.drafts.scope())` に**性別を含めて**保存。`null`（ログインしていない・名前の変更中）か、保存後に `context.drafts.saveFailed` なら、足した下書きを取り消して（`remove`）`errors` に「下書きに残せませんでした。登録するか、内容を控えてから閉じてください。」を出し `false`（フォームを残す）。成功したら `toast('下書きに残しました', { actionLabel: '破棄', action: () => context.drafts.remove(id, key) })` を出して `true`。
+   - `forced`（止められずに閉じた）で保存に失敗したときは、トースト「入力を下書きに残せませんでした」＋「開き直す」（`context.register(input)`）。
+   - 送信・下書きの保存が成功して閉じるときは `close()`（確かめない）。キャンセルのボタンは `requestClose('cancel')`。
+3. **親の性別のトグル**（新規 `web/js/ui/gender-toggle.js`）
+   ```js
+   export function genderToggle({ label, value = '', onChange } = {}) {} // → { element, getValue, setValue, destroy }
+   ```
+   - `role="radiogroup"`（aria-label「親1の性別」など）に 3 つ: ♂（`M`）・♀（`F`）・指定なし（`''`）。記号と色は visual-parts の `genderMark()` とトークン。キーボードは矢印で移る。
+   - 親1・親2 のパル選択の下に置く。編集では元の性別を入れる。**その枠のパルを変えたら、その枠の性別だけ空に戻す**（D-15 の判断の「枠ごとに比べる」）。`value()` は `sameParents` をやめてトグルの値を返す。
+   - `validationMessages.INVALID_GENDER`（`:17`）を「性別のデータが正しくありません。開き直してください。」に。
+4. **下書きの性別を別のキーに持つ**（`web/js/drafts.js`）
+   - 新しいキー `${namespace}.draftGenders.${env}.${userIdKey}` に `{ [draftId]: { parent1Gender, parent2Gender } }`（`M`／`F` だけ。両方空の下書きは持たない）。
+   - メモリ上の下書きは性別を含む形（`{ …今の項目, parent1Gender, parent2Gender }`）。`load` で下書きのキーと性別のキーを読んで合わせ、`save` で**下書きのキーには今の項目だけ**（旧コードの `cleanDraft` と同じ形）、性別のキーには id ごとの性別を書く（下書きにない id の性別は書かない＝消した下書きの性別も一緒に消える）。
+   - `CONTENT`（`:9`）に `parent1Gender`・`parent2Gender` を足す（`sameDraftContent` が性別も比べる。送信の成功で消すのは送った内容と同じ下書きだけ、の決まり（`drafts.js:154` の `finish`）が性別でも効く）。`cleanDraft` は性別を `M`／`F`／`''` に整える。
+   - `reload(key)`: 性別のキーが変わったときも下書きのキャッシュを捨てる（別タブの変更を読む）。`app.js:324-329` の storage イベントはそのままで届く。
+   - `ui/record-editor.js` の `saveDraft`（`:176-191`）と、`ui/drafts-band.js` に移した `prepare`（今の `views/drafts.js:30` の「性別を空にする」）で性別を通す。
+5. **名前の変更でキーを移す**（`user-rename.js`）
+   - `moveUserStorage` に「オブジェクトのキー」の扱いを足す（`{ prefix, kind: 'object', merge }`）。`draftGenders` は移す元を優先して合わせる（同じ id があれば元の値）。goals-merge の観測のキーも同じ仕組みを使う。
+   - `createRenamer` の `moveLocal`（`:94-102`）で、性別のキーの元と先も `drafts.reload` に渡す。
+6. **レイアウト**（`ui/record-editor.js`・`app.css:606-615`）
+   - 左にフォーム（約 460px）・右に参照列（約 300px）。左: 選択欄を式の並び「親1 ＋ 親2 → 子」（`.editor-pickers` を 5 列のグリッド、`equation-symbol` を入れる。D-19）、その下に性別のトグル、登録者（狭い select）とメモ（2 行の textarea）を横に並べる（D-20）、エラー。
+   - 右（参照列）: 先頭に**高さを固定した確認の枠**（`min-height` を常に持つ。未選択のときは空）。親 2 体を選ぶと「登録済み: [子の画像] スプラドン」（`palTile`。3 件を超えたら「ほか N 件」。子の画像を押すと子のパル選択に入る）／未登録なら「まだ登録されていない組み合わせです」／子を選んで別の子が登録済みなら警告の色＋子の選択欄の枠を warning の色（D-14）。その下に「その親の登録済みの配合」（`findByParent` の上位数件）と、所持パルのデータがあれば親ごとの「所持 ♂n ♀m」（owned-overlay の `ownedBadge`）。
+   - 高さの固定をやめる: `height: auto; max-height: 90dvh`（D-14 で警告の高さを決めたうえで。D-19 の判断）。パル選択の候補はすでにモーダルの外に浮かせているので触らない（`pal-picker.js:83-106`）。
+7. **選び方・エラー**（D-17・D-18・D-20）
+   - 開いたとき、最初の未選択のパル選択のトリガーにフォーカス（`initialFocus`）。
+   - 検証に失敗したら、最初の未選択の `palPicker` のトリガーに `aria-invalid="true"` と error の枠を付けてフォーカスし、エラー文の要素と `aria-describedby` で結ぶ。選び直したら外す（`palPicker` に `setInvalid(message)` を足すか、呼び出し側でトリガーに付ける）。
+   - 登録者の選択肢を「自分を先頭、残りは五十音順」（`setRegistrant` の `users` を並べ替える）。
+   - ログイン画面: ID が入っていればパスワード、なければ ID にフォーカス、ID の欄に `maxLength = 20`（`app.js:216-223`。D-17）。
+
+### 触るファイル
+- 変更: `web/js/ui/dialog.js`、`web/js/ui/record-editor.js`、`web/js/drafts.js`、`web/js/ui/drafts-band.js`（`prepare` の性別）、`web/js/ui/pal-picker.js`（`setInvalid` を足すなら）、`web/js/user-rename.js`、`web/js/app.js`（ログイン画面のフォーカス）、`web/css/app.css`、`web/js/release-notes.js`
+- 新規: `web/js/ui/gender-toggle.js`
+
+### テスト
+- `test/web/dialog.test.js`: `beforeClose` が ×・キャンセル・Esc・背景で同じ理由つきで呼ばれ、`false` で閉じないこと、`requestClose` を通らずに閉じたときに `'forced'` で呼ばれること、`initialFocus`。
+- `test/web/record-editor.test.js`: 新規の入力で閉じると下書きに 1 件でき（性別つき）、トーストの「破棄」で消えること。編集・下書き版・続けて登録の直後・初期値のままでは下書きができないこと。下書きの保存に失敗したらモーダルが残ること。性別のトグル（枠のパルを変えるとその枠だけ空）。`:307`（「この組み合わせは登録済み: → セレムーン」）を新しい確認の枠の内容に。エラーで最初の未選択の欄にフォーカスし `aria-invalid` が付くこと。
+- `test/web/drafts.test.js`: 性別が下書き→編集の再開→一括登録まで通ること、旧コードの形（性別のキーがない・下書きのキーに性別がない）を読めること、**旧コードの `cleanDraft` で下書きのキーが書き直されても性別のキーが残ること**、下書きを消すと性別も消えること、別タブで性別のキーが変わったら読み直すこと。
+- `test/web/user-rename.test.js`: 性別のキーが新しい名前へ移ること（移し先にあれば元を優先して合わせる）。
+- `test/web/app.test.js`: ログイン画面の初期フォーカス。
+
+### INV-2・互換・セキュリティ・性能の注意
+- 互換: 旧コードのタブは性別のキーを知らないので触らない。旧コードが下書きを編集してパルを変えた場合、その下書きの性別は残ったまま（id が同じため）。気になるなら「パルが変わったら性別を捨てる」ために、性別のキーに親の ID も控えておき、合わなければ捨てる（推奨）。
+- 互換: 性別つきの手入力の記録が増えると、継承ルートに「性別条件は未検証」が付く段が増える（route-cleanup で言い換えるまで）。
+- 保存データ: 性別の値は `M`／`F`／`''` 以外を捨てる（data-boundary の検証に通す）。
+
+### release-notes の案
+- id: `<実装日>-register-dialog`／title: 「登録画面を見直し」（8 字）／body: 「閉じても入力は下書きに残ります。親の ♂♀ も記録でき、右に登録済みの配合と所持数を出します。」（47 字）
+
+### 完了の条件
+- [ ] `npm test` が通る。
+- [ ] モックで: 入力して Esc・×・キャンセルのどれで閉じても下書きの帯に 1 件増え、「破棄」で消える。編集・続けて登録の直後は増えない。
+- [ ] 性別を付けた下書きを帯から「登録」すると、記録に性別が入る（カードに ♂♀ が出る）。
+- [ ] 実測: 親・子を選んでもメモ欄が動かない（今は +71px・+35px）。
+- [ ] 旧コードの版を別タブで開いたまま、新しい版で性別つきの下書きを作り、旧タブで別の下書きを足しても、性別が消えない（ブラウザで確かめる）。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 下書きのキーに性別を足していない（性別は `draftGenders` の別のキー）。旧コードの `cleanDraft` で下書きのキーが書き直されても性別が残り、下書きを消すと性別も消え、名前の変更で性別のキーが移る（`drafts.test.js`・`user-rename.test.js`）。性別の値は `M`／`F`／`''` 以外を捨てる（data-boundary）。INV-2 — 確認の枠の「登録済み」は登録済みの記録だけで、配合表を使わない。セキュリティ — `test/static/security.test.js` が通る。性能 — 対象外。
+
+### TODO
+- [ ] `ui/dialog.js` に `beforeClose`・`requestClose`・`initialFocus` と `confirmDialog` の `aria-describedby`（テストを先に）
+- [ ] 登録モーダルの基準の入力と「退避の対象」の判定
+- [ ] 下書きへの退避・失敗時にフォームを残す・トーストの「破棄」
+- [ ] `ui/gender-toggle.js` と、枠ごとの性別のリセット
+- [ ] `drafts.js` の性別のキー（読み・書き・比較・reload）
+- [ ] `saveDraft`・`prepare` で性別を通す
+- [ ] `user-rename.js` にオブジェクトのキーの移動を足す
+- [ ] 左右 2 列のレイアウトと固定の高さの確認の枠・参照列
+- [ ] 式の並び・高さの固定をやめる・登録者とメモを 1 行に
+- [ ] 最初の未選択の欄へのフォーカスとエラーの `aria-invalid`
+- [ ] ログイン画面の初期フォーカスと ID の maxLength
+- [ ] テスト（dialog・record-editor・drafts・user-rename・app）と release-notes
+
+---
+
+## goals-merge: ウィッシュリストを目標に統合
+
+### 目的
+ウィッシュリストを理想個体の「目標」にまとめ、タブを廃止する。「種族だけの目標」（パッシブなし・個体値の条件なし。画面のタグは「パルだけ」）として同じ一覧に並べ、配合の登録の観測（作れる・配合が増えた）と、所持個体での完成を、それぞれ知らせる。旧データは安全に移す。
+
+### 経緯
+- **D5**（別セッションでのユーザーの回答）。別プランの F071（統合）・F027（通知の文に親）・F004（レールのバッジ）、本セッションの D-34（目標に登録のトグル）・D-35（行に登録済みの組）・D-36（所持の状況）・D-37（言い換え）・D-38（行からのリンク）・D-40（常時の説明文を消す）。
+- 調査の時点では、2 つを 1 つの「目標」にまとめる D-43 は「工数 L・移行・通知 ID の互換・名前の変更の作り直しが費用に見合わない」として却下していた。**D5 で覆った**（rejected.md の D-43）。却下の理由に挙がった移行・通知 ID・名前の変更は、下の手順で全部扱う。
+- 別プラン §9「P1 ウィッシュ統合」と Codex のプランレビュー 6 回目 1・2・4（どれも本セッションでの指摘）:
+  - **6 回目 1（高）**: 観測の状態を目標の中に足すと、旧コードのタブが保存し直したときに消える（`core/ideal-goals.js:56` の `cleanGoal` は決まった項目しか残さない）→ **観測の状態と移行の記録は、旧コードが書き換えない別のキー**（`${namespace}.goalsObs.<env>.<userIdKey>`）に持つ。名前の変更と別タブの更新（storage）でも移す。
+  - **6 回目 2（高）**: 同じ条件の目標との重複（`parseGoals` `:79` は重複の後ろを捨てる、名前の変更 `user-rename.js:56` は単純に連結する）と 100 件の上限（`parseGoals` `:84`）→ 移行専用の併合を書き、上限を超える分は「未移行」として残し、**全件を移せるまで移行元を消さない**。
+  - **6 回目 4（中）**: 保存の成否の確かめ方（`ideals.add` は保存に失敗しても `'added'` を返す `ideals.js:135-136`、`markRead` も失敗を返さない `notifications.js:89`）→ **移行専用の書き込みで成否を確かめ、読み戻してから移行元を消す**。
+  - **6 回目 5（中）**: `#/wishlist` の読み替えはこのテーマで入れる。移行に失敗している間は、旧ウィッシュリストを読み取り専用で開ける入口を残す。
+- **保存の形は変えない**（統合プランの「本プランの方を残したもの」）: 目標そのものは今の配列・今の項目のまま。種族だけの目標は「パッシブなし・個体値の条件なし（0）」で表せるので新しい項目は要らない。`{ version, goals }` で包むと、名前の変更の移行（`user-rename.js:50` の `Array.isArray`）と読み込み（`core/ideal-goals.js:74`）が空として扱って壊れる。別プランの「保存形式 v2」は採らない。
+- 通知の文: F027 の「A＋B で作れます（ほか N 組）」は**登録済みの記録の親**なので INV-2 に触れない（配合表の答えを出す「予想は X」とは別）。D-37 の判断に合わせ、「作成可能」は「配合が登録されました」に言い換える。
+
+### 依存
+- find-merge（通知・行のリンク先 `#/search?c=`、配合を探すの空の状態）、ideal-panel（フェーズ 1。「目標（N）」のボタンとダイアログの表）、owned-overlay（「所持 n 体（親になれる m）」の集計）。
+- talent-target（フェーズ 1。個体値の 0 を「条件なし」と表示する）、participant-self（「自分」の判定）も入っている前提。
+
+### このテーマでやらないこと
+- 目標の一覧の並び・集計チップ・種族ごとのまとまり・未完成の行の「パッシブ 3/4 · 攻撃あと 8」（フェーズ 3 の goals-detail）。
+- 目標の共有（F047。フェーズ 4 の任意）。
+- 継承ルートの目標のパルにトグルを置くこと（D-34 の判断で、置くのはパル詳細と配合を探すだけ）。
+- 理想個体の登録の保存の形の変更（上のとおり変えない）。
+
+### 現状（HEAD 6028a48 で確認）
+- ウィッシュリストのストア `web/js/wishlist.js`: キー `${namespace}.wishlist.${env}.${userIdKey}`（`:62-65`）、1 件の形 `{ palId, addedAt, craftable, readyAt, observedAt, pairs, found }`（`cleanWish` `:20-33`）。観測は確定データ（`store.state.confirmedRecords`）で、各ウィッシュの `observedAt` より新しいサーバ時刻のときだけ（`observe` `:107-134`）。作れるようになったら `readyAt`、作れる間に新しい親の組が見つかったら `found` に足す。追加した時点で作れるものは知らせない（`add` `:145-156`）。
+- 通知 `wishlistNotificationSource`（`wishlist.js:181-204`）: id は `wishlist:${env}:${palId}:${readyAt}` と `wishlist:${env}:${palId}:${pair}:${at}`、title「◯◯が作成可能になりました」「◯◯の配合が増えました」、href `#/reverse?c=`（find-merge で `#/search?c=`）。
+- 画面 `views/wishlist.js`: 常時の説明文（`:20-22`、47 字）、作れる行は全体が逆引きへのリンク（`:50-57`）、作れるかは画面のデータ（送信待ちを含む）で `findByChild`（`:68`）。追加はこの画面の選択欄からだけ（`:27-41`。D-34）。
+- 理想個体の登録 `web/js/ideals.js`: キー `${namespace}.ideals.${env}.${userIdKey}`（`:25-28`）、`save` は保存の失敗を `saveFailed` にするだけ（`:40-48`）、`add` は `'added'`／`'duplicate'`／`'full'`／`null`（`:124-137`）。完成の判定は `worlds[worldId]`（`judged` `:75-82`）。通知の id は `ideal:${env}:${goal.id}:${worldId}:${completedAt}`（`:169`）。
+- `core/ideal-goals.js`: `cleanGoal`（`:41-68`）・`parseGoals`（`:71-85`。同じ id・同じ `goalKey` は先を残し、100 件で切る）・`goalKey`（`:91-93`）・`goalMatches`（`:146-154`。個体値は `<= 0` で条件なし）。`GOAL_LIMIT = 100`（`:15`）。
+- 名前の変更 `user-rename.js:37-44` は `wishlist`・`ideals` のキーを配列として移す（移し先があれば元を先にして連結）。オブジェクトの形のキーは扱わない（`:50`。register-dialog でオブジェクトの移動を足している）。
+- `app.js`: `createWishlistStore`（`:57`）、通知の元（`:81`）、名前の変更（`:83`）、`wishlist.subscribe`（`:320`）、storage イベント（`:326`）、`context.wishlist`（`:162`）、タブ（`:103`）、ビュー（`:32,208`）。
+
+### 実装の手順
+1. **種族だけの目標**（`core/ideal-goals.js` に足す）
+   ```js
+   /** 種族だけの目標（パッシブなし・個体値の条件なし。画面のタグは「パルだけ」）。保存の形は今の目標のまま。 */
+   export function speciesGoal(palId, { name, addedAt = '' } = {}) {} // → cleanGoal に通せる値（mode 'include'・targets 0・cake 'none'）
+   export const isSpeciesGoal = (goal) => goal.passives.length === 0 && goal.mode === 'include' && GOAL_STATS.every((key) => goal.targets[key] === 0);
+   ```
+   - `mode: 'only'` でパッシブなしは「パッシブを持たない個体」という本当の条件なので、種族だけの目標に含めない。
+2. **観測のキー**（新規 `web/js/core/goal-observations.js`。DOM なし）
+   ```js
+   // 保存の形（${namespace}.goalsObs.<env>.<userIdKey>）。旧コードのタブはこのキーを知らないので書き換えない。
+   // { version: 1,
+   //   species: { [palId]: { craftable, readyAt, observedAt, pairs: string[] | null, found: [{ pair, at }] } },
+   //   migration: { wishlist: { migrated: { [palId]: goalId }, pending: string[], doneAt: string } } }
+   export function cleanObservations(value) {} // 形の合わないものは捨てる（data-boundary の検証を通す）
+   export function observeSpecies(entry, currentPairs, serverTime, time) {} // wishlist.js:120-133 の 1 件分の判定をそのまま移す
+   export function mergeObservation(a, b) {} // pairs・found の和、craftable は新しい observedAt の方、readyAt は早い方
+   ```
+3. **ideals ストアに観測を持たせる**（`web/js/ideals.js`）
+   - 観測のキーの読み書きを、目標と同じ「最新に対して書き換える・保存の失敗を `saveFailed` に」の型で足す（`obsScope()`・`loadObs`・`saveObs`）。
+   - `store.subscribe` で、`wishlist.js:107-134` と同じ条件（ログイン中・キャッシュでない・名前の変更中でない・サーバ時刻が読める）で、**目標のある種族ごと**に観測を進める（各種族の `observedAt` より新しいサーバ時刻のときだけ）。確定データ（`confirmedRecords`）から子ごとの親の組を作る（`wishlist.js:94-105` の `confirmedPairs` を移す）。
+   - `add`: その種族の観測がなければ、今の組で作り、通知はしない（`wishlist.js:145-156` と同じ。登録した時点で作れるものは知らせない）。`remove`: その種族の目標がほかになければ観測も消す（ウィッシュを外すと通知が消えたのと同じ）。`restore`: 観測を作り直して判定し直す。
+   - `observation(palId)` を公開する（行の表示に使う）。
+   - `reload(key)`: 観測のキーと旧ウィッシュリストのキーにも反応する（後者は手順 4 の移行をやり直す）。
+4. **移行**（新規 `web/js/goals-migration.js`。ideals ストアから、ログイン中のスコープごとに 1 回と、旧キーの storage イベントのたびに呼ぶ）
+   ```js
+   export function migrateWishlist({ storage, namespace, env, userKey, now = Date.now, palName }) {}
+   // → { status: 'none' | 'done' | 'partial' | 'failed', migrated: number, pending: number }
+   ```
+   - 旧キー `${namespace}.wishlist.${env}.${userKey}` を読み、`parseWishes`（`wishlist.js:35-48` と `cleanWish` をこのファイルに移す）で整える。なければ `none`。
+   - 目標（`parseGoals`）と観測（`cleanObservations`）を読む。ウィッシュを 1 件ずつ:
+     - `migration.wishlist.migrated[palId]` があれば飛ばす（**目標が消えていても作り直さない**＝ユーザーが外した。旧コードのタブがウィッシュリストを書き戻しても、外した目標は戻らない）。
+     - 同じ条件の目標（`goalKey(speciesGoal(palId))` が同じ）があれば、その id に併合する（目標は増やさない）。
+     - なければ、目標が 100 件（`GOAL_LIMIT`）に達していれば `pending` に入れて次へ。達していなければ**決まった id `wish-${palId}`**（`cleanGoal` の id の形 `/^[A-Za-z0-9_-]{1,64}$/` に合う。パル ID は英数字と `_` だけ）の目標を作る（名前はパルの和名、`addedAt` はウィッシュの `addedAt`）。同じ id がすでに別の条件で使われていれば `wish-${palId}-2` などにずらす。新しい目標は今の目標の後ろに、ウィッシュリストの並び順で足す。
+     - 観測 `species[palId]` に、ウィッシュの `{ craftable, readyAt, observedAt, pairs, found }` を `mergeObservation` で併せる。`migrated[palId] = goalId`。
+   - **書く順番**（`storage.setItem` を try/catch で包み、成否を自分で確かめる。`ideals.add`・`ideals.save` は使わない）: ① 目標のキーを書く → ② 観測のキー（移行の記録を含む）を書く → ③ 両方を読み戻し、移した目標の id と観測があることを確かめる → ④ 既読の写し（下の注）→ ⑤ `pending` が空なら旧キーを消して `doneAt` を書く。どこかで失敗したら `failed` を返し、旧キーは消さない（次の起動で続きから。目標の id が決まっていて `goalKey` で併合するので、やり直しても同じ結果）。
+   - **既読の写し（④）について**: 新しい通知も**旧と同じ id の形**（`wishlist:${env}:${palId}:${readyAt}`・`wishlist:${env}:${palId}:${pair}:${at}`）で出す（手順 6）ので、既読はそのまま引き継がれ、写す作業は要らない。統合プランの手順「旧通知の既読を新しい id へ写す」は、この形なら空になる。**もし id の形を変えるなら**、`${namespace}.notifications.read.${userKey}`（環境を含まない）を読み、対応する新しい id を足して書き、読み戻して確かめてから ⑤ に進む。
+   - 名前の変更の途中（`store.state.renaming`）は動かさない。
+5. **名前の変更と別タブ**（`user-rename.js`）: register-dialog で足した「オブジェクトのキーの移動」に `${namespace}.goalsObs.${env}.` を足す（併せ方: `species` は元を優先して `mergeObservation`、`migrated` と `pending` は和）。`createRenamer` の `moveLocal` で観測のキーも `ideals.reload` に渡す。旧ウィッシュリストのキーは、移し終わるまで今どおり移す（配列）。
+6. **通知の元を差し替える**（`web/js/ideals.js` に `goalObservationSource({ store, ideals })` を足し、`app.js:81` の `wishlistNotificationSource` と入れ替える）
+   - id は旧と同じ形（上の注）。title は「◯◯の配合が登録されました」（作れるようになった）・「◯◯の配合が増えました」（作れる間に新しい組）。body は「A＋B で作れます（ほか N 組）」・「A＋B でも作れます」（**登録済みの記録の親**。配合表は使わない）。href は `buildHash('search', { c: palId })`。
+   - **知らせる種族**: 観測はすべての目標の種族について持つ（行に「配合: 登録済み n 件」を出すため）が、**通知は「種族だけの目標」がある種族だけ**に出す（ウィッシュリストと同じ意味にとどめ、パッシブつきの目標に新しい通知を増やさない）。すべての目標で知らせたいとユーザーが言えば、この条件を外すだけでよい。
+   - 種類のチップでは、bell の `notificationCategory` で goal（目標）に分類される（id の頭 `wishlist:`・`ideal:`。通知に kind は付けない）。
+7. **目標の一覧**（`views/ideal.js`。ideal-panel で作った「目標（N）」のボタンとダイアログの表）
+   - 見出し・ボタンを「目標」に。種族だけの目標も同じ表に並べ、名前の横に「パルだけ」のタグ。
+   - 行に: 完成の状態（今の `goalStatus` `views/ideal.js:141-149`。種族だけの目標は「自分の個体にその種族のタマゴ以外が 1 体でもいれば完成」になる）、「配合: 登録済み n 件 →」（画面のデータの `findByChild(state.index, palId).length`、リンク `buildHash('search', { c: palId })`。0 件なら「配合: 未登録」）、所持パルのデータがあれば「所持 n 体（親になれる m）」（owned-overlay の `ownedCounts`）、操作「呼び出す」（パルだけの目標は `#/ideal?to=<palId>`）・「外す」（確認なしで外してトーストで「元に戻す」）。
+   - 空の状態の文（D-40）: 「目標はまだありません。条件を選んで「目標として保存」を押すか、パル詳細の「目標に登録」から足すと、完成や配合の登録をベルで知らせます。」
+   - 移行が `partial`・`failed` のとき、表の上に 1 行: 「ウィッシュリストの n 件をまだ目標に移せていません（目標が 100 件の上限です）」／「ウィッシュリストを目標に移せませんでした」＋「旧ウィッシュリストを見る」（読み取り専用のダイアログ。旧キーを `parseWishes` で読み、パルのタイルと「配合あり／未登録」だけを並べる。追加・削除はできない）。
+   - `#/ideal?goals=1` で開いたら目標のダイアログを開き、`goals` を URL から外す（`context.replace`）。
+8. **「目標に登録」のトグル**（新規 `web/js/ui/goal-toggle.js`）
+   ```js
+   export function goalToggle(context, palId) {} // → { element, update, destroy }（ideals.subscribe で表示を同期）
+   ```
+   - 押しボタン（`aria-pressed`）。未登録なら「☆ 目標に登録」、登録済み（`ideals.has(speciesGoal(palId))`）なら「★ 目標に登録済み」。押すと `ideals.add(speciesGoal(palId, { name }))` か外す（トーストに「元に戻す」。`'full'` なら「目標は 100 件までです」、`null` なら「ログインしてから登録してください」）。星の形は `nav-icons.js:10` の path を、visual-parts で作った `ui/icons.js` に移して使う。
+   - 置き場所: パル詳細のヒーローの操作（`views/pal.js:18-21`）、配合を探すで子だけを選んで 0 件のときの空の状態（「☆ 目標に登録（作れるようになったら知らせます）」を主な操作、「この子の配合を登録」を 2 番目）。
+9. **レールのバッジ**（F004）: 理想個体のタブに「完成した目標 n」（表示中のワールドで `worlds[worldId].complete` の目標の数。0 なら隠す）。`app.js` で `ideals` と `owned` を購読し、バッジの文字・`hidden`・タブの aria-label（「理想個体（完成した目標 2 件）」）だけを書き換える（`render` は呼ばない）。
+10. **タブとファイルを片づける**: `#/wishlist` を旧画面の表に足す（`#/wishlist` → `#/ideal?goals=1`）。`router.js:1` の `views`・`app.js:103` の `tabs`・`:32,208` の import と対応・`nav-icons.js:10` から `wishlist` を外す。`views/wishlist.js` と `web/js/wishlist.js` を削除（`parseWishes`・`cleanWish` は `goals-migration.js` へ移した）。`app.js:57,81,83,162,320,326` の `wishlist` を消す。`createRenamer` の引数から `wishlist` を外し、`localSaveFailed`（`user-rename.js:91`）は drafts と ideals だけを見る。keep-state の最後のタブの許可リストから `wishlist` を外す。
+
+### 触るファイル
+- 変更: `web/js/core/ideal-goals.js`、`web/js/ideals.js`、`web/js/views/ideal.js`、`web/js/views/pal.js`、`web/js/views/search.js`、`web/js/user-rename.js`、`web/js/app.js`、`web/js/router.js`、`web/js/ui/nav-icons.js`、`web/js/ui/icons.js`（visual-parts で作ったもの）、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`（ウィッシュリスト・理想個体の記述）
+- 新規: `web/js/core/goal-observations.js`、`web/js/goals-migration.js`、`web/js/ui/goal-toggle.js`、`test/web/goals-migration.test.js`、`test/core/goal-observations.test.js`
+- 削除: `web/js/wishlist.js`、`web/js/views/wishlist.js`、`test/web/wishlist.test.js`（中身は下のテストへ移す）
+
+### テスト
+- 新規 `test/web/goals-migration.test.js`（偽の storage。`setItem` を失敗させられるもの）:
+  - ウィッシュ 3 件 → 目標 3 件（id `wish-<palId>`）と観測ができ、旧キーが消える。**2 回目を走らせても変わらない**。
+  - 同じ条件の目標がすでにある種族は、目標を増やさず観測だけ併せる。
+  - 目標が 98 件のときウィッシュ 5 件 → 2 件だけ移り、`pending` 3 件・旧キーは残る（`partial`）。目標を外して空きができた後にもう一度走らせると残りが移る。
+  - 目標のキーの書き込みが失敗 → 何も消えない（`failed`）。観測のキーの書き込みが失敗 → 旧キーは残り、次の実行で続きから。読み戻しで目標が見つからない → 旧キーを消さない。
+  - ユーザーが移した目標を外した後、旧キーにウィッシュが書き戻されても（旧コードのタブ）、その目標は作り直さない。
+  - **旧コードの `cleanGoal`・`parseGoals` で目標のキーを書き直しても、移した目標と観測が残る**（観測は別のキー）。
+- `test/core/goal-observations.test.js`: `observeSpecies`（作れるようになる・作れる間に組が増える・作れなくなると `found` が消える・初めての観測は知らせない）を `test/web/wishlist.test.js` の観測のテストから移す。`cleanObservations`・`mergeObservation`。
+- `test/web/ideals.test.js`: 目標の追加で観測ができる（その時点で作れても知らせない）、最後の目標を外すと観測も消える、通知の id が旧ウィッシュリストと同じ形、**通知は種族だけの目標がある種族だけ**、観測のキーの storage イベントで読み直す。別プラン §9 の C の `ideals.test.js:50,167` 付近は、identity・形を変えていなければそのまま通るはず（変えたら直す）。
+- `test/web/user-rename.test.js`: 観測のキーが新しい名前へ移る（移し先にあれば併せる）。
+- `test/web/app.test.js:456-505`（ウィッシュリストのフロー）を、パル詳細の「☆ 目標に登録」→ 仲間の登録 → ベルに「◯◯の配合が登録されました」（href `#/search?c=`）→ 目標の行に「配合: 登録済み 1 件」、に書き換える。`#/wishlist` を開くと理想個体の目標のダイアログが開くことを足す。
+- `test/web/ideal-view.test.js`: 目標の表に種族だけの目標（「パルだけ」のタグ）が並ぶ・「配合: 登録済み n 件」・空の状態の文・`goals=1`。ideal-panel で書き換わった後の行で探す。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: 観測と通知は確定した登録済みの記録（`confirmedRecords`）だけで決める。通知の文に出す親も登録済みの記録のもの。配合表・`core/ideal.js` は使わない（`goals-migration.js`・`core/goal-observations.js` は `core/ideal-goals.js`・`core/pair.js`・`core/user.js` だけを読む）。
+- 互換: 旧コードのタブは、目標のキーを今の形で読み書きする（移した目標も普通の目標として扱える）。観測のキーと移行の記録は知らないので触らない。旧コードのタブはウィッシュリストのキーを書き戻すことがあるが、移行は `migrated` の記録で同じ結果になる。
+- 互換: 移行の途中で閉じても、次の起動で続きから（決まった id・`goalKey` の併合・旧キーは最後に消す）。
+- セキュリティ: 旧キーの中身は信用しない（`parseWishes` と data-boundary の検証を通し、パル ID はマスターにあるものだけ）。名前は `textContent`。
+- 性能: 観測はサーバ時刻が新しくなったときだけ・目標のある種族（100 件まで）だけ。
+
+### release-notes の案
+- id: `<実装日>-goals-merge`／title: 「ウィッシュリストを目標に」（12 字）／body: 「ウィッシュリストは理想個体の「目標」に移りました。パルだけの目標も登録でき、配合の登録を知らせます。」（50 字）
+
+### 完了の条件
+- [ ] `npm test` が通る（移行のテストを含む）。
+- [ ] モックで、旧ウィッシュリストのデータ（`pal-note.local.wishlist.test.<ID>` に手で入れる）から起動すると、目標の一覧に「パルだけ」の目標として並び、旧キーが消える。もう一度読み込んでも増えない。
+- [ ] 旧ウィッシュリストで既読だった「作成可能になりました」の通知が、移行後も既読のまま。
+- [ ] 目標を 98 件にしてから 5 件のウィッシュで起動すると、「まだ目標に移せていません」と「旧ウィッシュリストを見る」が出る。旧キーは残り、目標を外して空きを作ってから読み込み直すと残りが移って旧キーが消える。
+- [ ] 同じ条件の目標（`goalKey` が同じ）がすでにある種族は、目標が増えず観測だけが併せられる（`goals-migration.test.js`）。
+- [ ] 書き込みの失敗（目標のキー・観測のキー）と読み戻しの不一致では旧キーが消えず、次の起動で続きから同じ結果になる（`goals-migration.test.js`。書く順番は「目標 → 観測と移行の記録 → 読み戻し → 既読の写し（id が同じ形なので空）→ 旧キーを消す」）。
+- [ ] 旧コードのタブ（フェーズ 1 の版）を開いたまま移行しても、旧タブが目標のキーを書き直した後に観測の状態と移行の記録（`goalsObs` の別のキー）が残り、旧タブがウィッシュリストを書き戻しても外した目標が戻らない（ブラウザとテスト）。
+- [ ] 名前の変更で `goalsObs` のキーが新しい名前へ移り、別のタブでの変更（storage）で観測を読み直す（`user-rename.test.js`・`ideals.test.js`）。
+- [ ] パル詳細と、配合を探すで子だけを選んで 0 件のときに「☆ 目標に登録」が出る。レールの理想個体に「完成した目標 n」のバッジ（0 なら出ない）。
+- [ ] `#/wishlist` が履歴を増やさずに目標のダイアログ（`#/ideal?goals=1`）を開く。レールのタブが 5 本。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 観測と通知の文の親は登録済みの記録（`confirmedRecords`）だけで、`goals-migration.js`・`core/goal-observations.js` は配合表・`core/ideal.js` を import しない（`test/import.test.js`）。互換 — 目標のキーの形を変えていない（`{ version, goals }` で包んでいない）。セキュリティ — 旧キーの中身は `parseWishes` と data-boundary を通し、名前は textContent（`test/static/security.test.js`）。性能 — 観測はサーバ時刻が新しくなったときだけ、目標のある種族だけ。
+
+### TODO
+- [ ] `speciesGoal`・`isSpeciesGoal`（`core/ideal-goals.js`）
+- [ ] `core/goal-observations.js`（形・1 件の判定・併合）とテスト
+- [ ] ideals ストアに観測のキー・観測・`observation(palId)`・add／remove／restore の連動
+- [ ] `goals-migration.js`（併合・上限・書く順番・読み戻し）とテスト（テストを先に）
+- [ ] 名前の変更で観測のキーを移す
+- [ ] 通知の元を `goalObservationSource` に（id は旧と同じ形・種族だけの目標がある種族だけ）
+- [ ] 目標の一覧の行（パルだけのタグ・配合・所持・呼び出す・外す）と空の状態
+- [ ] 移行が終わっていないときの 1 行と、旧ウィッシュリストの読み取り専用のダイアログ
+- [ ] `ui/goal-toggle.js` とパル詳細・配合を探すの空の状態
+- [ ] レールの「完成した目標 n」
+- [ ] `#/wishlist` の読み替え・タブ・ファイルの削除・`context.wishlist` の片づけ
+- [ ] 既存テストの書き換え（app・ideals・ideal-view・user-rename）と release-notes・OPERATIONS.md
+
+---
+
+## route-cleanup: 継承ルートの整理
+
+### 目的
+継承ルートの「開始候補」を 2 重に出す作りと、所持パルの有無で形が組み変わる 2 形態をやめ、経路を上・所持個体を下に置いて、操作しても経路の先頭が動かないようにする。常時の説明文を減らし、「性別条件は未検証」の意味を分かる形にする。
+
+### 経緯
+- 統合プランの route-cleanup（本セッションの R-01・R-05・R-07・R-08・R-13・R-23・R-25・R-27・R-28・V-21、別プランの F030・F038）。
+- Codex のプランレビュー 1 回目 16: **「性別条件は未検証」の警告は残す**。統合プランは「消さずに短く言い換え、『記録された親の性別』と『所持個体から組めるか』を分けて示す（経路は種族単位で探すため。`core/route.js:11`）」とした。案 R-25 の判断（警告を multiChild のときだけにする）と、R-24（2 つの文に分ける。却下）より、**統合プランの書き方が優先**。
+- 別プランの F031（不足パッシブの一括渡し）は事実確認で却下（継承ルートの `p` は「選んだパッシブを全部持つ 1 個体」の条件）。F033（横の経路図）は「候補を最初から全部出す」（98b7962・`docs/OPERATIONS.md:99`）と衝突するので任意の後回し。
+- 判断が分かれていた点（このテーマの既定）:
+  - R-01 の「『すべて』のときに先頭の候補の経路を『おすすめ』で出す」は、判断で「『すべて』の意味が変わるのでユーザーに確認」とされた → **既定では入れない**（入れるならユーザーに確かめる）。
+  - R-08 の「チップは先頭 8 件だけ・残りは『ほか N 種 ▸』」は、`docs/OPERATIONS.md:99` の「継承ルートの候補は、件数が多くても最初から全部出す」と衝突しうる → **既定では入れない**（チップは全部出す）。入れるならユーザーに確かめる。
+  - 「相手親は所持しているパルだけ」のチェック（own=1）は戻さない（判断事項 2）。
+
+### 依存
+- popovers（パッシブの 1 行部品・パル選択）、owned-rows（フェーズ 1。`ownedRow` が `{ element, update, destroy }`）、owned-overlay（相手親の ♂♀ の数・所持順の並べ替え・見出しのバッジ）。
+- cleanup-dead-code（フェーズ 1。`excludePartners`・`filterPartners`・`representative` を片づけ済み）、copy-dead-ends（`setupHint`）も入っている前提。
+
+### このテーマでやらないこと
+- 不足パッシブごとの「X を運ぶ: 最短 N 回」・段ごとの牧場とタマゴ・相手親の個体のドロワー・継承ルート⇄理想個体の相互リンク（フェーズ 3 の route-progress）。
+- 理想個体の「性別条件は未検証」（`core/ideal.js:178-180`・`views/ideal.js:122`）の条件の変更（ideal 側の範囲。このテーマでは継承ルートだけ）。
+- 「↓」を戻す・相手親を脇に置く配置（R-23 の事実確認で要ユーザー判断）。
+
+### 現状（HEAD 6028a48 で確認。フェーズ 1 の部分更新・パッシブ部品で書き換わっている）
+- `views/route.js:70-97` の `arrange`: 所持パルがあれば「目標＋運びたいパッシブ」と開始のチップの形、なければ「開始 ⇄ 目標」の 2 列（`:83-91` の入れ替えボタン `swap-button`）。所持パルは後から読み込まれるので、開いた直後に形が組み変わる（R-05）。
+- 開始の候補を 2 回出す（R-01）: チップの行（`renderStartFilter` `:100-113`。画像＋「N回」、件数と持ち主は `title` だけ `:108`）と、その下の「パッシブを持つ所持パルから始める」の一覧（`renderOwned` の `:138-161`。「最短 N 回の配合」「N 体 · 持っている人」「この経路を見る」）。どちらも `from` を入れるだけ。8591b09 でチップを足したときに一覧を残した。
+- 並びは「選択欄 → 開始のチップ → 説明 → 所持パルの欄 → 経路」（`:79`）。開始を選ぶと所持パルの欄が所持個体の一覧（`carrierList` `:20-31`。「Lv 55 · Bob · パルボックス 4 ページ・3 行 1 列」とパッシブだけで、性別・★・個体値がない）に置き換わり、高さが変わって経路が上下する（R-07・R-13）。
+- 常時の説明「この経路はスキルを運ぶ個体の流れです。相手親は別途用意します」（`:57`。30 字）、パッシブ未選択のとき 41 字の案内（`:134`）、所持パルのデータがないとき 73 字の「設定タブの『セーブ連携』で…」（`:121`。リンクなし。R-28）。
+- 警告 `ui/route-view.js:31-33`: `step.multiChild` か、段の配合の記録に親の性別があれば「性別条件は未検証」。自動登録は親の性別を必ず記録する（`core/auto-breeding.js` の `validPair`）ので、自動登録の配合を含む段にほぼ必ず付く。
+- 段番号の丸は 22px で、段と段を結ぶ線はない。入れ替えボタンはホバーで半回転（`app.css:829-830`。V-21）。
+
+### 実装の手順
+1. **形を 1 つにする**（R-05）: `arrange` と 2 列の形（`pair-selection`・`swap-button` とその CSS `app.css:389`・`:829-830`）を消し、常に「[目標][運びたいパッシブ]」の行＋「開始: [すべて][候補のチップ…][開始の選択欄]」の行にする。候補（`starts`）が 1 件もないときは「すべて」のチップを出さず、開始の選択欄は通常の見た目（placeholder「パルを選択」・ラベル「開始」）。開始も目標もないときの空の文は「開始と目標のパルを選んでください。」。
+2. **所持パルがないとき**（R-28）: 所持パルのデータ（`owned.state.owned`）が `null` のときだけ、パッシブの欄を出さず、選択欄の下に 1 行「所持パルを読み込むと、パッシブを持つ個体から探せます」＋「設定を開く」（copy-dead-ends の `setupHint`。行き先 `#/settings?open=auto`）。未連携でも共有があればパッシブの欄を出す（X-05 の条件）。
+3. **開始候補をチップに一本化**（R-01・F030）: 一覧（`:138-161`）と「この経路を見る」を消す。チップを 2 段に: 1 段目「アイコン＋名前」、2 段目「最短 N 回 · n 体 · 持ち主」（`holderSummary` を流用。目標を所持しているときは「所持 · n 体」）。並びは今の `ownedRouteStarts` の順（手数 → パッシブの多い個体 → 個体数）の最後を `palId` の文字列ではなく図鑑順にする（F030）。所持パルの読み込み前は、チップの行を空で置いて高さを保つ。候補がないときの文（「該当する所持パルは N 体いますが、登録済みの配合では目標にたどり着けません。」など。今の `:140-145`）はチップの行の下に 1 行で残す。
+4. **並びを変える**（R-07）: 「選択欄 → 開始のチップ → 経路（results）→ 開始の所持個体（ownedSection）」。開始を切り替えても経路の先頭の位置が変わらない。
+5. **所持個体を `ownedRow` に**（R-13）: `carrierList` を消し、owned-rows の `ownedRow` を並べる（列幅は理想個体の組と同じセレクタを共有。compact 版は作らない）。見出し「開始の X でパッシブを持つ所持個体」の右に「所持パルで開く」（`buildHash('owned', { pal: from, p: passives.join(',') })`）。6 体以上なら上から 5 体と「ほか N 体」の details。行は `{ element, update, destroy }` を syncList で。
+6. **説明文を減らす**（R-27・F038）: 常時の説明（`:57`）をやめ、**最初の経路のカードの見出しに small で 1 回だけ**「左のパルがパッシブを運びます。相手親は別に用意してください。」。41 字の案内はパッシブの欄の placeholder「運びたいパッシブを選ぶ」に吸収して消す。
+7. **段の線と運ぶパッシブ**（R-23 の判断）: CSS だけで、`.route-chain` の段番号の丸どうしを 2px の縦線（outline-variant）でつなぐ。運ぶパッシブは、経路のカードの見出しの横に compact の `passiveChip` で 1 回だけ（`routeView` に `passives` を渡す）。「↓」・出てくる動き・旗の SVG は入れない。
+8. **警告を言い換える**（R-25・統合プラン）: `ui/route-view.js:31-33` を 2 つに分ける。
+   - `step.multiChild` のとき: 警告のチップ「同じ組で別の子も登録あり」。押すとその組の配合を探す（`buildHash('search', { p1: step.from, p2: option.partner })`。複数の配合があるときは最初の組）。
+   - 段の配合の記録に親の性別があるとき（ほぼ自動登録）: 短い注記のチップ「性別の向きは未確認」。`title`（または G-56 の「?」の説明部品）に「経路は種族だけで探しています。記録の ♂♀ の向きと、手持ちの個体の性別が合うかは確かめていません。」。
+   - 「所持個体から組めるか」は、owned-overlay の相手親の注記（「♂2 ♀1」）で別に示す。記録に相手親の性別が入っていれば、注記の末尾に「（記録では ♀）」のように添える。
+   - 文言は `.route-warning`（警告の色）と `.route-note`（注記の色）で分け、どちらも段に 1 回だけ。
+9. **入れ替えのホバー**（V-21）: 入れ替えボタンごと消えるので、`app.css:829-830` の指定も消す。
+
+### 触るファイル
+- 変更: `web/js/views/route.js`、`web/js/ui/route-view.js`、`web/js/core/owned.js`（`ownedRouteStarts` の最後の比較を図鑑順に）、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`（継承ルートの記述）
+
+### テスト
+- `test/web/owned-view.test.js:247-273`: 候補の一覧（`.route-start`）がなくなり、チップの 2 段目に「最短 1 回 · 1 体 · Alice・パルボックス」が出ること、`route-owned-box` の中が `ownedRow` になり「所持パルで開く」があること。`:275-303`: 並び（`selection-panel route-query` → `start-filter` → 経路 → 所持個体）、チップの文字（今は `'No.1モコロン1回'` → 2 段の文字）。`:305-313`（所持パルがないときの 2 列の形）は、パッシブの欄が出ず「所持パルを読み込むと…」と「設定を開く」が出ることに書き換え（`:308-309` の `pair-selection`・`swap-button` はなくなる）。
+- `test/web/views.test.js:54-67`: `exclude=` を無視して経路を出す確認は回帰テストとして残し、`:61-66` の説明文・入れ替えボタンの確認だけ消す（説明は最初の経路の見出しに移った、を確かめる）。
+- `test/web/route-view.test.js:30,61,75`: 「性別条件は未検証」→ 性別つきの段は「性別の向きは未確認」、multiChild の段は「同じ組で別の子も登録あり」（`:69-77` のケース）。`:41` の「↓ がない」は残す。
+- 所持個体が 6 体以上のときの「ほか N 体」、候補が 0 件のときの文。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: 経路は登録済みの記録のグラフ（`buildCarrierGraph`）だけ。性別の向きを配合表で確かめることはしない（だから「未確認」と書く）。
+- 互換: `#/route?…&exclude=` の旧 URL は今どおり無視して経路を出す（回帰テスト）。
+- 性能: チップを全部出す方針なので、持っている種類の多いパッシブでチップが何行にもなる。チップの行は折り返してよいが、経路は下に移した（R-07）ので、チップの増減で経路の先頭が動くのは「チップの行の高さが変わったとき」だけ。気になれば R-08 の上限をユーザーに相談する。
+
+### release-notes の案
+- id: `<実装日>-route-cleanup`／title: 「継承ルートを整理」（8 字）／body: 「開始の候補はチップにまとめ、経路を上に出します。所持個体は所持パルと同じ行で見られます。」（44 字）
+
+### 完了の条件
+- [ ] `npm test` が通る。
+- [ ] モックで: 所持パルの読み込み前後で形が組み変わらない。開始のチップを押しても経路の先頭の位置が変わらない。入れ替えボタンがない。
+- [ ] 所持パルがないとき、パッシブの欄が出ず「設定を開く」で設定の該当の欄が開く。
+- [ ] 自動登録の配合を含む段に「性別の向きは未確認」、同じ組で別の子がある段に「同じ組で別の子も登録あり」（押すと配合を探す）。
+- [ ] 実測: 継承ルートでパッシブを足しても、その下が 44px 下がらない（パッシブの 1 行部品と合わせて）。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 経路は登録済みの記録のグラフだけで、性別の向きを配合表で確かめない。互換 — `exclude=` の旧 URL でも経路が出る（`views.test.js:54-67` の回帰テスト）。確認回数と相手親の除外は戻していない（判断事項 2）。継承ルートの候補は最初から全部出す（`docs/OPERATIONS.md:99`）。セキュリティ — `test/static/security.test.js` が通る。性能 — 上の 44px の確認。
+
+### TODO
+- [ ] `arrange`・2 列の形・入れ替えボタンと CSS を消し、形を 1 つに（テストを先に）
+- [ ] 所持パルがないときの 1 行と「設定を開く」
+- [ ] 候補の一覧を消し、チップを 2 段に（並びの最後を図鑑順に）
+- [ ] 並びを「選択欄 → チップ → 経路 → 所持個体」に
+- [ ] `carrierList` を `ownedRow` に、「所持パルで開く」と「ほか N 体」
+- [ ] 常時の説明を最初の経路の見出しへ、41 字の案内を placeholder へ
+- [ ] 段の縦線と運ぶパッシブのチップ
+- [ ] 警告を「同じ組で別の子も登録あり」と「性別の向きは未確認」に分ける
+- [ ] 既存テストの書き換え（owned-view・views・route-view）と release-notes・OPERATIONS.md
+
+---
+
+## bell: ベルと通知の整理
+
+### 目的
+ベルを「既読も含めた履歴の唯一の入口」にし、設定の「通知」カードを消す。種類と未読で絞れ、1 件ずつ既読にでき、赤い数字は自分宛ての未読だけを数える。行き先・パルの画像で、押したら該当の箇所に着くようにする。
+
+### 経緯
+- 統合プランの bell（本セッションの G-20・G-22・G-24・G-25・G-26・G-28、別プランの F022・F024・F025・F026・F028）。
+- **順番の決まり**（別プランの F025 と統合プランの「別プランから取り入れたもの」）: 先にベルの下端に「すべての通知を見る →」を作り、**既読を含む履歴の入口ができてから**設定の「通知」カードを消す。プロジェクトの CLAUDE.md:16（「右上のベルの通知欄と、設定タブの「通知一覧」に出る」）と `ui/notifications.js:54`（コメント）・`:89`（空の文）を直し、**規約ファイルの変更記録を残す**。
+- Codex のプランレビュー 1 回目 14: 通知の正規化（`notifications.js:24-32` の `cleanNotification`）に**許可した種類・パル ID・worldId・batchId を通す**（今は id・date・title・body・href 以外を捨てる）。
+- 案の判断との違い: G-20・G-26 の判断は「未読｜すべての切り替え・すべて既読・種類で畳む操作は入れない」、G-21（開いただけで既読にしない）は却下だったが、**統合プランの要点（F024: 種類のチップと未読だけ・個別の既読と「すべて既読」）が優先**（rejected.md の G-21「覆った」）。開いただけで全部を既読にするのをやめる代わりに、G-22（既読記録のない端末はお知らせを既読から開始）を必ず入れる（そうしないと新しい人に 37 件の未読が残り続ける）。
+- G-24 の判断: 取り消した機能のお知らせ `ideal-alpha` は配列から消し（同じ id は二度と使わない）、`ideal-generations` は id を変えずに本文を今の仕様に直す。`retired` の印は作らない。
+
+### 依存
+- autoreg-success（フェーズ 1。自動登録の成功の通知・同じ読み込みの分を 1 行にまとめる表示・`cleanNotification` に kind・worldId・batchId を通す部分。入っていれば、このテーマは palId と種類のチップを足す）。
+- goals-merge（目標の通知が `wishlist:`・`ideal:` の id で出ている）。
+
+### このテーマでやらないこと
+- 通知一覧の検索と日付（G-27。後回し）。
+- 裏のタブの題名・ファビコン（autoreg-visibility）。
+- 通知の元に「仲間の新しい配合」を足すこと（G-29 の判断で見送り。配合を探すの NEW で代わり）。
+
+### 現状（HEAD 6028a48 で確認）
+- `ui/notifications.js`: ベルは開いた時点の未読だけを出し（`:78`・`:84-90`）、**開いた瞬間に全部を既読にする**（`:108`）。空のときは「新しい通知はありません。これまでの通知は設定タブの「通知一覧」で見られます。」（`:89`）。数字は全部の未読の合計（`:69-75`）。行は日付・未読チップ・タイトル・本文の文字だけ（`notificationList` `:10-29`）。既読も含めた一覧 `openNotificationList`（`:35-52`）は開いたときに未読を既読にする。
+- 既読も含めた一覧を開けるのは設定の「通知」カードだけ（`views/settings.js:103-105`、並べるのは `:108`）。
+- `web/js/notifications.js`: `cleanNotification`（`:24-32`）、`releaseNoteSource`（`:34`。id に `release:` を付ける）、既読は `${namespace}.notifications.read.${userIdKey}`（`:43-46`。環境を含まない）、`readIds`（`:54-57`）は保存がなければ空から始める（新しい人・新しい端末では 37 件すべてが未読。G-22）、`markRead`（`:82-92`）。
+- お知らせ `web/js/release-notes.js`: `2026-10-08-ideal-alpha`（`:28-31`）は同じ日の `2026-10-08-ideal-groups`（`:17-19`）で「アルファの条件はなくしました」と取り消されている。`2026-10-08-ideal-generations`（`:36-39`）の「並べ方の選択・タマゴも候補」は今の仕様と違う。`2026-10-04-notifications`（`:136-139`）の本文は「読んだ通知は設定タブの「通知一覧」で見られます」。href を書いた項目はない（仕組みはある。G-25）。
+- 通知の id の頭: `release:`・`wishlist:`（goals-merge の後も同じ形）・`ideal:`・`auto-breed:`。
+
+### 実装の手順
+1. **正規化を広げる**（`web/js/notifications.js` の `cleanNotification`）: autoreg-success（1d）で入れた `kind`（`NOTIFICATION_KINDS` ＝ `'auto-registered'`。まとめ表示の `groupNotifications` が使う）・`worldId`・`batchId` は**そのまま**にして、次を足す（2026-10-12 の最終確認で、1d の kind と食い違わない形に直した）。
+   - **種類のチップの分類は保存しない**: `export function notificationCategory(item)` → `'release' | 'goal' | 'auto' | 'other'` を足し、表示のときに決める（`kind === 'auto-registered'` か id の頭が `auto-breed:` → auto、`release:` → release、`wishlist:`・`ideal:` → goal、それ以外 → other）。`kind` に分類の値を入れない（入れると 1d のまとめ表示の判定が壊れる。`cleanNotification` は kind を既定で付けないので `test/web/notifications.test.js:41` もそのまま通る）。
+   - `palId`: マスターにあるパル ID だけ（1 体）。（`worldId` は `ownedWorldId` で整う値だけ、`batchId` は 64 字以内、は autoreg-success で入っている。）
+   - 通知の元で palId を入れる: 目標の観測＝その種族、理想個体の完成＝目標の種族、自動登録の成功＝登録した記録の子（登録済みなので出してよい）、異常（表と違う）＝新しいタマゴの種族（セーブで見たもの）、**食い違い＝親1**（候補の子は配合表で決めた値なので使わない。INV-2）、未設定のプレイヤー＝なし。
+2. **既読の始め方**（G-22。`createNotificationStore` の `readIds`）: その ID の既読の保存先が**まだない**（`storage.getItem(key) === null`）ときだけ、その時点のお知らせ（`release:` の id）を全部既読として保存してから始める。storage が使えない端末（読み出しが例外）は今どおり空から（毎回入れ直さない）。目標・自動登録の通知は未読のまま。
+3. **ベルのパネル**（`ui/notifications.js` の `notificationMenu`）
+   - 頭: 「通知」と「すべて既読」（いま表示している通知を既読に）。
+   - チップの行: 「すべて／更新内容／目標／自動登録」（`aria-pressed`。1 つだけ選ぶ）と「未読だけ」（押しボタン）。選んだ状態はベルの中に覚える（開き直しても残る。ページを読み込み直すと既定の「すべて」）。
+   - 一覧: `notifications.list()` を種類・未読で絞って新しい順。行は詰めて（日付は右端・本文は 1 行で省略）、左に 32px のアイコン（palId があれば `palIcon`、なければ種類の小さな SVG。お知らせ＝1 種類の記号）。未読の行に「未読」のチップと「既読にする」の小さなボタン（`aria-label`）。行き先のある行を押したら、その id だけ既読にしてパネルを閉じる（画面の移動はリンクに任せる＝今の `:22-25` と同じ）。autoreg-success の「同じ読み込みの分を 1 行」の行は、まとめた id を全部既読にする。
+   - **開いただけでは既読にしない**（`:108` の `markRead` をやめる）。
+   - 下端に「すべての通知を見る →」: パネルを閉じて `openNotificationList(notifications)`。一覧のダイアログも同じ行の部品・同じチップを使い、開いただけでは既読にしない（「すべて既読」で既読に）。
+   - 空の文は「新しい通知はありません。」だけ（`:89`。「未読だけ」で 0 件なら「未読の通知はありません。」）。`:54` のコメントも直す。
+4. **数字**（G-26 の判断）: 赤い数字は `notificationCategory(item) !== 'release'` の未読の数（まとめた行は 1 つと数える。autoreg-success の `groupNotifications` の後で数える）。お知らせだけが未読なら数字のない小さな点。aria-label は「通知（要確認 2 件・お知らせ 3 件）」のように両方を書く（0 の方は省く）。ベルの揺れ（`app.css` の `.notification-badge::after` 付近）は、要確認の未読が**増えたとき**に 1 回だけ。`prefers-reduced-motion` では揺らさない。数え方は `export function unreadCounts(notifications)` → `{ actionable, release }` として外にも出す（autoreg-visibility の題名で使う）。
+5. **設定の「通知」カードを消す**（`views/settings.js:103-105`・`:108`）。手順 3 の入口ができてから消す。
+6. **文言と規約を直す**
+   - `release-notes.js:136-139`（`2026-10-04-notifications`）の body を「右上のベルで更新内容などを知らせます。読んだ通知はベルの「すべての通知を見る」で見られます。」（46 字）に。id は変えない。
+   - `2026-10-08-ideal-alpha`（`:28-31`）を配列から消す。`2026-10-08-ideal-generations`（`:36-39`）の body を「完全体作成組では、子を親と入れ替えながら作る手順も数えます。20 秒ごとに更新します。」（43 字）に。先頭のコメント（`:1-2`）に「機能をなくしたら元の告知を消すか書き直す。id は再利用しない」「開く先があれば href（#/… だけ）を書く」を足す。
+   - 開く先のあるお知らせに `href` を足す（G-25。例: `2026-10-10-owned-keyword` → `#/owned`、`2026-10-08-ideal-groups` → `#/ideal`、このフェーズの各テーマのお知らせ → その画面）。
+   - **プロジェクトの `CLAUDE.md:16`**: 「（右上のベルの通知欄と、設定タブの「通知一覧」に出る）」→「（右上のベルの通知欄と、ベルの「すべての通知を見る」に出る）」。同じ節の末尾に変更記録を 1 行（例「> 変更記録（<日付>）: 設定の「通知」カードを廃止し、履歴はベルの「すべての通知を見る」から開く形にしたため、通知の出る場所の記述を直した。影響: 規約の意味は変わらない」）。**CLAUDE.md は設定で Edit が拒否されている可能性がある**（グローバルの規約「評価基準の保護」）。拒否されたら、文案をユーザーに示して手で直してもらう。
+7. **行き先を該当の箇所まで**（F026）: 自動登録の「プレイヤーの対応が未設定です」の href を `#/settings?world=<worldId>&open=auto`（participant-self・copy-dead-ends で作った行き先。まだなら直す。今は `'#/settings'` `auto-register.js:228`）。食い違い・異常の href は find-merge・autoreg-visibility で `#/search?p1=&p2=`。
+
+### 触るファイル
+- 変更: `web/js/notifications.js`、`web/js/ui/notifications.js`、`web/js/ideals.js`（通知に palId）、`web/js/auto-register.js`（palId・href）、`web/js/views/settings.js`、`web/js/release-notes.js`、`web/css/app.css`、`CLAUDE.md`（プロジェクト。変更記録つき）
+
+### テスト
+- `test/web/notifications.test.js:30-42`（お知らせの形）: `cleanNotification` は kind を既定で付けない（href を足したお知らせは期待値に href が入る）。`notificationCategory`（id の頭と `auto-registered`）・palId を通す／不正な値を捨てるテスト、`unreadCounts`、既読の保存先がない端末ではお知らせを既読から始める（保存先が使えない端末では始めない）テストを足す。`:179-` の通知一覧のテストは「開いただけでは既読にしない」に。
+- `test/web/app.test.js:420-455`（ベル）: 初めての端末ではお知らせが既読から始まり数字が出ない → 目標か自動登録の通知を 1 件起こすと赤い数字 1 → 開いても既読にならない → 行を押すとその 1 件だけ既読 → 「すべての通知を見る →」で一覧が開く、に書き換える（`:447` の設定の「通知一覧」ボタンはなくなる）。
+- `test/web/views.test.js:139-144`（設定のカードの順）から「通知」を外す（settings でさらに変わる）。
+- `test/web/auto-register.test.js`: 未設定の通知の href・palId（別プラン §9 の C の `:235,241` 付近）。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: 通知に出すパルの画像は、登録済みの記録・セーブで見たもの・目標の種族だけ。自動登録の候補の子（配合表の答え）は出さない。
+- 互換: 既読の保存の形は変えない（id の配列）。古い通知（保存済みの自動登録の通知）に kind・palId がなくても、id の頭から種類が決まり、画像は種類の記号になる。
+- 互換: 「開いたら全部既読」をやめるので、今まで既読だったものはそのまま既読、新しく来たものは押すか「すべて既読」まで未読。release-notes で知らせる。
+- セキュリティ: href は今どおり `#/` で始まるものだけ（`notifications.js:30`）。本文・タイトルは `textContent`。
+
+### release-notes の案
+- id: `<実装日>-bell`／title: 「通知を種類で絞れます」（10 字）／body: 「ベルで種類と未読で絞り、1 件ずつ既読にできます。これまでの通知は「すべての通知を見る」から。」（47 字）
+
+### 完了の条件
+- [ ] `npm test` が通る（お知らせの title・body の長さを含む）。
+- [ ] モックで: 新しい ID でログインしても数字が 37 にならない。種類のチップと「未読だけ」で絞れる。開いても既読にならず、行を押すとその 1 件だけ既読。「すべての通知を見る →」で履歴が開く。
+- [ ] 設定に「通知」カードがない。プロジェクトの CLAUDE.md:16 が直っていて変更記録がある（または、ユーザーに文案を渡した）。
+- [ ] 取り消した機能のお知らせ（アルファの条件）が出ない。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 通知の画像と文に、自動登録の候補の子（配合表の答え）を出さない。互換 — 既読の保存の形（id の配列）を変えていない。kind・palId のない古い通知も id の頭で種類が決まる。セキュリティ — href は `#/` で始まるものだけ、本文は textContent（`test/static/security.test.js`）。性能 — 対象外。
+
+### TODO
+- [ ] `cleanNotification` に palId、`notificationCategory`（kind・worldId・batchId は autoreg-success のまま。テストを先に）
+- [ ] 各通知の元で palId を入れる（食い違いは親1）
+- [ ] 既読の保存先がない端末はお知らせを既読から始める
+- [ ] パネルの頭・チップ・「未読だけ」・行の部品・個別の既読・すべて既読
+- [ ] 「開いたら全部既読」をやめ、「すべての通知を見る →」と一覧のダイアログを同じ部品に
+- [ ] 赤い数字と点・aria-label・揺れ・`unreadCounts`
+- [ ] 設定の「通知」カードを消す
+- [ ] release-notes の本文の直し・ideal-alpha の削除・先頭のコメント・href
+- [ ] プロジェクトの CLAUDE.md:16 と変更記録（拒否されたらユーザーへ）
+- [ ] 未設定の通知の行き先
+- [ ] テストの書き換え（notifications・app・views・auto-register）と release-notes
+
+---
+
+## autoreg-visibility: 自動登録の状況を見えるように
+
+### 目的
+自動登録が止まったとき・裏のタブで何か起きたときに、気づけて、その場で直せるようにする。許可切れの案内を 1 つにまとめ、裏のタブでは題名とファビコンに数を出し、登録されずに残っている候補を見られるようにする。
+
+### 経緯
+- 統合プランの autoreg-visibility（本セッションの X-19・C-31・X-18・G-31・G-36・D-02・D-03・D-08）。本セッションだけの案（別プランに対応する F 番号はない）。
+- Chrome は「今回のみ」で許可したファイルの読む許可を、タブがしばらく裏にあると外す（X-19 の調査。公式ブログ）。外れると 1 分ごとの読み直しで「許可が必要」になり、共有も自動登録も止まる（`owned.js:435-436`・`auto-register.js:99`）。`requestPermission` はクリックの中でしか呼べないので、裏のタブでは直せない。
+- X-18 の判断（第 1 段だけ作る）: (1) 自動登録の件数を通知に残す（＝フェーズ 1 の autoreg-success で済み）、(2) 裏の間だけ題名とファビコンに数（更新内容のお知らせは数えない）、(3) 戻ったときに許可が切れていれば許可のボタンを出す（＝フェーズ 1 の header-frame のヘッダーの状態「● 許可が必要」とポップオーバーで代わる）。OS の通知・まとめカードは、使ってみて足りなければ後で。新しく作るのは `web/js/attention.js` だけ。
+- X-19・C-31 の判断: 許可切れの長い文（80 字）を短くし、「拒否した場合は…」は許可されなかったとき（`grantAndRefresh` の `granted < total`）だけ出す。止まった時刻 `stoppedAt` を持たせて「14:32 から読めていません」。外れた回数の記録と警告色はやらない。何分で外れるかは実機で確かめるまで書かない。
+- G-36 の判断: レールの所持パルに、読み込みが止まっているとき「!」。下書き・ウィッシュリストのバッジは、タブ自体がなくなったので不要（目標の完成のバッジは goals-merge で入れた）。
+- D-08 の判断: 登録されずに残っている候補（`farms.pending`）を、件数と**親だけ**で一覧にする（子は配合表で決めた値なので出さない。INV-2）。
+
+### 依存
+- header-frame（フェーズ 1。ヘッダーのセーブ連携の状態とポップオーバー）、bell（`unreadCounts`・通知の種類）。autoreg-success（成功の通知と href）。
+
+### このテーマでやらないこと
+- OS の通知（Notification API）・戻ったときの「離れている間に」のまとめカード（X-18 の第 2 段。必要と分かってから）。
+- 手動登録のトーストの「表示」（D-02 の判断で見送り）。
+- 未設定の候補に「手動で登録」のボタン（D-08 の判断で見送り。すぐ上のプレイヤーの対応で片づく）。
+
+### 現状（HEAD 6028a48 で確認）
+- 許可切れ: `owned.js:436` が 80 字の文（「…「読み込みを許可」を押してください（拒否した場合は、Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください）」）を `state.auto.error` に入れる（`stop` `:405-411`）。所持パル（`ui/owned-status.js:48-49`。ボタンつき）と設定（`views/owned-settings.js:378-385`。「許可が必要」・同じ文・ボタンの 3 つが同時に出る）とヘッダー（header-frame）に出る。止まった時刻は持っていない（`state.auto` `:165` に時刻がない）。`grantAndRefresh`（`:630-636`）は `{ granted, total }` を返すが、呼ぶ側（`owned-settings.js:194`）は使っていない。`docs/OPERATIONS.md:83` は許可を求められるのを「初めて読むとき（またはブラウザを開き直したとき）」としていて、裏で外れる場合を書いていない。
+- 題名とファビコン: `web/index.html:8-9` で固定（「パル配合ノート」・`favicon.svg`）。web/js で `document.title` を変えている所はない。CSP は `img-src 'self' data:`（`index.html:6`）なので data: の SVG をファビコンにできる。
+- レールのタブはアイコンとラベルだけ（`app.js:105-114`）。
+- 自動登録のトーストは件数だけ（`auto-register.js:294`）。`toast` は `action`・`actionLabel` に対応している（`ui/toast.js:19-36`）。
+- 異常の通知（表と違う）には href がない（`auto-register.js:211-215`）。食い違いの通知の href は find-merge で `#/search?p1=&p2=` にした。
+- 保留の候補: `farms.pending`（最大 200 件。`auto-register.js:17`・`:152-153`・`:178`）。画面では見えない。登録者が決まらない候補は `resolveRegistrant`、食い違いは `findConflict` で判定（`:247-263`）。
+
+### 実装の手順
+1. **許可切れの案内を 1 つの関数に**（`ui/owned-status.js` に足す）
+   ```js
+   export function permissionNotice(state, { now = Date.now } = {}) {} // → null | { text, hint, since }
+   ```
+   - `text`: 「セーブを読む許可が必要です」。`hint`: 「Chrome の確認で『毎回のアクセスを許可』を選ぶと、ゲーム中（タブが裏）も止まりません」。`since`: `state.auto.stoppedAt` があれば「14:32 から読めていません。この間に拾ったタマゴは自動登録されていない場合があります」。
+   - ヘッダーのポップオーバー（header-frame）・所持パルの案内（`ownedNotices` の `:48-49`）・設定の状態の行（`owned-settings.js:378-385`）の 3 か所で、この 1 つを使う。設定では状態の行を「⚠ 許可が必要［読み込みを許可］」にまとめ、`autoError` は permission のときは出さない（C-31 の判断）。
+2. **止まった時刻**（`web/js/owned.js`）: `state.auto.stoppedAt` を足す。`status` が `permission` に**なったとき**だけ今の時刻を入れ（続けて permission の間は上書きしない）、`ready` になったら空にする。`owned.js:436` の文は手順 1 の `text` と同じ短い文に。
+3. **拒否したとき**: 「読み込みを許可」の 3 か所のボタンで `grantAndRefresh()` の結果が `granted < total` なら、トースト「許可されませんでした。Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください」。
+4. **裏のタブの題名とファビコン**（新規 `web/js/attention.js`）
+   ```js
+   export function createAttention({ document, notifications, owned, baseTitle = 'パル配合ノート' }) {}
+   // → { setScreen(label), update(), destroy() }
+   ```
+   - 表のとき: 題名は「画面名 · パル配合ノート」（G-31。パル詳細はパル名。画面名は `app.js:103` の `tabs` のラベル。`render()` のたびに `setScreen`）。ファビコンは `favicon.svg` のまま。
+   - 裏のとき（`document.visibilityState === 'hidden'`）: 要確認の未読（bell の `unreadCounts().actionable`。更新内容のお知らせは数えない）が 1 以上なら題名の頭に「(3) 」、読み込みが止まっている（`owned.state.auto.status === 'permission'`）なら「(!) 読み込み停止 · 」。ファビコンを、今の 2 つの path（`web/favicon.svg` の値を定数で持つ）に右上の丸（数字 1〜9 と「9+」、止まったときは「!」）を重ねた SVG を `data:image/svg+xml,${encodeURIComponent(svg)}` にして `link[rel=icon]` の `href` を差し替える。表に戻ったら元に戻す。
+   - SVG の文字列は定数と整数だけで組み立てる（利用者の文字列を入れない）。**style 属性は使わない**（`fill`・`font-size` などの属性で書く。`test/static/security.test.js:20` の検査に当たらないように）。
+   - `notifications.subscribe`・`owned.subscribe`・`visibilitychange` で `update`。`app.js` で 1 回作る。
+5. **レールの「!」**（G-36 の判断）: 所持パルのタブに、`owned.state.auto.status` が `permission`・`error`・`empty` のとき警告色の「!」。aria-label を「所持パル（読み込みが止まっています）」に。`app.js` で `owned` を購読し、バッジの文字と `hidden` だけを書き換える（goals-merge の理想個体のバッジと同じ作り）。
+6. **自動登録のトーストに「見る」**（D-02 の判断）: `createAutoRegister` に `navigate`（`context.navigate`）を渡し、成功のトースト（`auto-register.js:294`）に `{ actionLabel: '見る', action: () => navigate(href) }`。href は autoreg-success の成功の通知と同じ（1 件なら `#/search?p1=&p2=`、2 件以上なら `#/search?sort=updated`）。
+7. **異常の通知の行き先**（D-03）: `anomalyNotice`（`auto-register.js:211-215`。inv2-notice で本文が変わっている）に `href: buildHash('search', { p1: m.parents[0], p2: m.parents[1] })`。通知の id は変えない（既読を保つ）。保存済みの古い通知には付かない（新しく出る通知から。古いものは最大 50 件で自然に消える）。
+8. **保留の候補の一覧**（D-08 の判断）
+   - `auto-register.js` に `pendingSummary(worldId = linkedWorld())` を足す: 保存した `farms.pending` を読み、今の判定（`resolveRegistrant`・`findConflict`）で `{ unmapped: [{ uid, name, parents: [a, b] }], conflict: [{ key, parents: [a, b] }] }` を返す。**候補の子（`candidate.record.childId`）は返さない**。
+   - `discardPending(worldId, key)` を足す（`finish` と同じく `readFarms`・`writeFarms` を通す）。
+   - 設定のワールドの行（ホスト）の、プレイヤーの対応の欄のすぐ上に「登録待ち 3 件（登録者未設定 2・登録済みと違う 1）」。0 件なら出さない。「登録済みと違う」の行は親 2 体のアイコン・「登録を開く」（`#/search?p1=&p2=`）・「破棄」の 3 つだけ。未設定の行はボタンを足さない（すぐ下の対応の select で片づく）。roles でプレイヤーの対応が独立した欄に移るので、そのときこの行も一緒に移す。
+9. **文書**: `docs/OPERATIONS.md:83` に「タブがしばらく裏にあると Chrome が許可を外すことがあるので、『毎回のアクセスを許可』を勧める」を足す（何分で外れるかは実機で確かめるまで書かない）。
+
+### 触るファイル
+- 変更: `web/js/owned.js`、`web/js/ui/owned-status.js`、`web/js/views/owned-settings.js`、`web/js/auto-register.js`、`web/js/app.js`、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`、`test/helpers/dom.js`（`document.title`・`link[rel=icon]` を足す）
+- 新規: `web/js/attention.js`、`test/web/attention.test.js`
+
+### テスト
+- 新規 `test/web/attention.test.js`（偽の document と偽の通知・所持パルのストア）: 表のときは「画面名 · パル配合ノート」、裏で要確認の未読 3 件なら「(3) 」とファビコンの href が data: に、お知らせだけの未読は数えない、止まったら「(!) 読み込み停止 · 」、表に戻るとファビコンが `favicon.svg` に戻る。SVG に `style=` が入らないこと。
+- `test/web/owned-store.test.js`: `stoppedAt` が permission になったときだけ入り、続けても変わらず、ready で消える。
+- `test/web/owned-view.test.js`: 許可切れの案内が 3 か所で同じ文、設定の状態の行のまとまり。`:408` の参加者の文は roles で変わる。
+- `test/web/auto-register.test.js`: `pendingSummary` の件数と、**結果に子が含まれないこと**、`discardPending`、トーストの「見る」、異常の通知の href。
+- `test/web/app.test.js`: レールの所持パルの「!」。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: 保留の候補の一覧と通知には、親と理由だけを出す。候補の子は配合表の答えなので出さない（`pendingSummary` が返さないことをテストで固定する）。
+- セキュリティ: ファビコンの SVG は定数と整数だけ。data: URL は今の CSP で許されている（`img-src 'self' data:`）。CSP は変えない。
+- 性能: 題名とファビコンの更新は、数か状態が変わったときだけ（同じ値なら書き換えない）。
+
+### release-notes の案
+- id: `<実装日>-autoreg-visibility`／title: 「自動登録の状況を表示」（10 字）／body: 「裏のタブでは題名とアイコンに件数を出し、許可が切れたら止まった時刻と直し方を出します。」（43 字）
+
+### 完了の条件
+- [ ] `npm test` が通る。
+- [ ] モックで（許可切れは偽の状態で）: 所持パル・設定・ヘッダーに同じ短い文と「毎回のアクセスを許可」の勧め、止まった時刻が出る。
+- [ ] ブラウザで: タブを裏にして要確認の通知を起こすと題名とファビコンに数が出て、戻ると消える。お知らせだけでは出ない。
+- [ ] 設定のワールドの行に「登録待ち n 件」が出て、子のパルが画面のどこにも出ない。
+- [ ] OPERATIONS.md:83 を直した。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 保留の候補の一覧と通知に子が出ない（`pendingSummary` のテストで固定）。互換 — 保存の形を変えていない。セキュリティ — ファビコンの SVG は定数と整数だけで、CSP を変えていない（`test/static/security.test.js`）。性能 — 題名とファビコンは数か状態が変わったときだけ書き換える。
+
+### TODO
+- [ ] `permissionNotice` を作り、3 か所で使う（テストを先に）
+- [ ] `state.auto.stoppedAt` と短い文
+- [ ] 許可されなかったときのトースト
+- [ ] `attention.js`（題名・ファビコン）とテスト、テストの偽の DOM の拡張
+- [ ] レールの所持パルの「!」
+- [ ] 自動登録のトーストに「見る」
+- [ ] 異常の通知の href
+- [ ] `pendingSummary`・`discardPending` と設定の「登録待ち」の行（子を出さない）
+- [ ] OPERATIONS.md:83 と release-notes
+
+---
+
+## settings: 設定の整理
+
+### 目的
+設定を「セーブ連携・アカウント・データ・このアプリについて」の順に組み直し、ヘッダー・ベルと重なるカードを消す。書き出しを 1 枚にまとめ、端末にだけあるデータ（下書き・目標・既読・自動登録の記録）を書き出し・読み込みできるようにする。重複した表示とボタンの入れ子を直す。
+
+### 経緯
+- 統合プランの settings（本セッションの C-10・C-11・C-12・C-17・C-18・C-20・C-36・C-40・C-43・C-44、別プランの F079・F081・F082）。
+- 「データの状態」カードは**ヘッダーで代わる**（header-frame の同期状況は押すと最新に更新・日付と件数。G-17）。C-10（カードを 1 行に縮めて残す）は C-09 の代案で、統合プランはカードを消す方を採ったので**入れない**。
+- **判断事項 11**: CSV は設定の「書き出し」カードにまとめる（各タブへの移動 C-13 は取り消し）。調査では C-14（書き出しを 1 枚に）は C-13 の代案として却下していたが、**判断事項 11 で覆った**（rejected.md の C-14）。
+- **F081**（別プランのみ・本セッションで照合済み: 端末のデータを書き出す機能は今はない）: 「この端末のデータ」カード。下書き・目標・既読・自動登録の記録の件数と JSON の書き出し・読み込み。ログアウトの確認文に端末に残る旨。
+- 「通知」カードは bell で消した（順番の決まりのとおり、ベルの入口を先に作った）。
+
+### 依存
+- header-frame（ヘッダーの同期状況・ID のポップオーバー）、bell（通知カードの廃止）、goals-merge（目標・観測のキーの形が決まっている）。register-dialog（下書きの性別のキー）。
+
+### このテーマでやらないこと
+- 設定の左の目次（C-19。却下）、表示と自動読み込みのワールドを分ける（C-35。却下）。
+- プレイヤーの対応の欄の切り出し・ワールドの登録モーダルの手順（roles）。ただし登録モーダルの結果欄の高さと実際のパス（F082）はこのテーマ。
+- 設定を 2 列にする（C-17 の判断では任意。このテーマでは左寄せの 1 列にとどめる）。
+
+### 現状（HEAD 6028a48 で確認）
+- `views/settings.js`: 見出し「ノートの設定」（`:70`。copy-dead-ends で「設定」）、並びは データの状態（`:71-77`）→ セーブ連携（`ownedSettingsCard`）→ 記録を書き出す（`:97-99`）→ 整合性の警告（`:100-102`。0 件でも「警告はありません。」で出る `:127`）→ 通知（`:103-105`。bell で消える）→ アカウント（`:78-96`）（`:108`）。名前の変更の説明はカード（`:114`）とモーダル（`:46`）の両方に出る（C-40）。ログアウトの確認（`:90`）は「この端末のパスワードと配合キャッシュを消去します。…」で、下書きなどが残ることは書いていない。
+- 配合の CSV `exportCsv`（`:16-30`）と所持パルの CSV `downloadCsv`（`views/owned-settings.js:30-42`。BOM つき）が別々にダウンロードの処理を持つ。所持パルの CSV はワールドの行の中（`:261-284`）と、ワールドがないときの「所持パルを CSV で保存」（`:287-291`）。
+- セーブ連携のカード `views/owned-settings.js:185-409`: 状態の `dl`（この PC・表示中・更新。`:389-395`。表示中・更新は所持パルの画面・ヘッダーと同じ内容。participant-self で「このワールドでの自分」の select が入っているはず）、ワールドの行の表記「「テスト」（ホスト Alice） · ホスト · 5 ファイル · …に遊んだ」（`registeredLabel` `:23-28`。「ホスト」が 2 回・ファイル数。C-43）、行の `summary` の中に「編集」「削除」のボタン（`:321-341`。ボタンの入れ子。C-44）。
+- ワールドの登録モーダル（`openWorldDialog` `:65-183`）: 結果欄 `.owned-dialog-result`（`:89`）は中身で高さが変わる。チェックリスト（`renderDraft` `:108-121`）はパスの例だけで、貼ったパスの実際の値を使わない（F082）。
+- `app.css:742` `.settings-view { max-width: 800px; margin: 0 auto; }`（設定だけ中央寄せ。C-17）。
+- 権利表記は `README.md:40-41` だけ。版（`version.js` の `runningVersion`）は画面に出ていない（C-20）。
+
+### 実装の手順
+1. **ダウンロードの共通化**: `ui/dom.js` に `export function downloadBlob(blob, filename)` を足し（今の `exportCsv` `:21-29` と `downloadCsv` `:33-41` の a 要素・`revokeObjectURL` の処理を移す）、両方と手順 5 の書き出しで使う。
+2. **カードを組み直す**（`views/settings.js`）: 並びを「セーブ連携 → アカウント → データ → このアプリについて（小さな文字）」に。
+   - 「データの状態」カード（`:71-77`）を消す。
+   - 「データ」の見出しの下に 3 つ: 整合性の警告（**0 件ならカードごと隠す**。1 件以上なら「整合性の警告（n 件）」。C-11）、書き出し、この端末のデータ。
+   - 警告が 1 件以上のとき、レールの「設定」に件数のバッジ（既存の `notification-badge` の見た目。C-12 の判断）。押すと `#/settings?open=warnings` で警告のカードへスクロールして見出しにフォーカス。`app.js` で `store` を購読し、バッジの文字と `hidden` だけ書き換える。
+3. **書き出し**カード（F079・判断事項 11）: 「配合の CSV」（今の `exportCsv`）と「所持パルの CSV（表示中のワールド）」（`owned.state.owned` と `meta.saveUpdatedAt` で `downloadCsv`。データがなければ押せない理由つきで無効）。ワールドの行の中の「CSV で保存」（`owned-settings.js:264-271`）とカードの「所持パルを CSV で保存」（`:287-291`）は消す（「共有した所持パルを削除」はワールドの行に残す）。
+4. **アカウント**カード: 「ログイン中: X ［名前を変更］［ログアウト］」だけにし、名前の変更の説明はモーダルの側だけに残す（C-40。止まっているときの「…終わっていません」は残す）。ログアウトの確認文に「下書き・目標・既読などはこの端末に残ります（同じ ID でログインすると戻ります）。」を足す。
+5. **この端末のデータ**カード（F081）
+   - 件数: 下書き n（`drafts.list().length`）・目標 n（`ideals.list().length`）・既読 n（既読の id の数）・自動登録の記録 n（自動登録の通知の数）。
+   - 「書き出す」: 次の JSON をダウンロード（`pal-note-device-<env>-<日付>.json`）。
+     ```json
+     { "format": "pal-breeding-note/device-data", "version": 1, "exportedAt": "…", "env": "prod", "userId": "…",
+       "drafts": [], "draftGenders": {}, "goals": [], "goalsObs": {}, "notificationsRead": [],
+       "autoBreedingNotices": [], "playerMappings": { "<worldId>": { "<playerUid>": "<userId>" } } }
+     ```
+     含めないもの: パスワード・記録のキャッシュ・所持パル（IndexedDB。セーブから読み直せる）・自動登録の牧場の記録（`autoBreeding.farms`。端末をまたぐと照合を取り違える）・理想個体の計画の記憶・画面の状態。
+   - 「読み込む」: `input type=file`（`accept="application/json,.json"`）。1MB を超えるファイルは読まない。`JSON.parse` を try/catch、`format`・`version` が合わなければ断る。**環境（テスト／本番）が違えば断る**。ID が違えば確認（「別の ID（X）のデータです。取り込みますか？」）。各項目を今の検証で整える（下書きは `cleanDraft`、目標は `cleanGoal`／`parseGoals`、観測は `cleanObservations`、既読は文字列 200 字以内・5,000 件まで、対応はワールド ID・uid・ID の形）。取り込む前に「下書き 3・目標 5・既読 120 件を取り込みます」の確認。
+   - 取り込みは**今のデータに足す**（上書きしない）: 下書きは id で和（今のものを優先）、目標は `goalKey` で重複を除き 100 件まで（入らなかった数を出す）、観測は `mergeObservation`、既読は和、対応は今の値を優先。書き込みは各ストアの関数を通す（キャッシュと別タブの決まりを守るため。直接 localStorage に書かない）。そのために `drafts.importMany(list)`・`ideals.importGoals(goals, observations)` を足す（どちらも保存の成否を返す）。終わったら「取り込みました（目標 2 件は重複・上限で取り込みませんでした）」。
+   - 「この端末だけ」の小さなチップを、下書きの帯（register-entry の「（この端末だけ）」）と目標のダイアログの見出しにそろえる（言葉は「この端末だけ」に統一する）。
+6. **セーブ連携のカードの重複を直す**（`views/owned-settings.js`）
+   - 状態の `dl`（`:389-395`）の「表示中」「更新」の行を消す（ヘッダーと所持パルで見られる）。「この PC」は `roleLabel` の括弧書きをやめ、状態の行に「ホスト」「参加」の短いチップで出す（C-36）。participant-self の「このワールドでの自分」は残す。
+   - ワールドの行の表記を「「テスト」（ホスト Alice）· 10/10 09:00 に遊んだ」に（kind の「ホスト」とファイル数を消す。参加のワールドだけ「参加」のチップ。状態「許可が必要」などは今どおり後ろ。C-43）。
+   - `summary` の中は ▸・ワールド名・自動登録のチップだけにし、「編集」「削除」は `details` の外（行の右端）に置く（C-44）。
+7. **ワールドの登録モーダル**（F082）: 結果欄 `.owned-dialog-result` を固定の高さ 2 行（`min-height`。長い文は 2 行で切って `title`）。チェックリストの各行に、① に貼ったパスから作った実際のパス（`…\SaveGames\7656…\4A43…\Level.sav` のように省略）を薄い字で添える（パスがまだなければ今の書き方）。
+8. **見た目**: `app.css:742` の中央寄せをやめ、ほかのタブと同じ左寄せにする（`max-width` を外す。C-17）。一番下に小さな文字の 2 行（C-20 の判断）: 「Palworld のゲームデータ・名称・画像の権利は © Pocketpair, Inc. に帰属します。非公式・非営利のファンツールです。」（`README.md:40-41` と同じ意味）と、配信版のときだけ版の短いハッシュ（`runningVersion()`）。ログイン画面の注記の下にも同じ権利表記を 1 行（copy-dead-ends で削った文と重ならないように）。
+
+### 触るファイル
+- 変更: `web/js/views/settings.js`、`web/js/views/owned-settings.js`、`web/js/ui/dom.js`、`web/js/drafts.js`（`importMany`）、`web/js/ideals.js`（`importGoals`）、`web/js/app.js`（設定のバッジ・ログイン画面の権利表記）、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`（CSV の置き場所・端末のデータ）
+- 新規: `web/js/device-data.js`（書き出しの組み立てと読み込みの検証・併合。DOM なし）、`test/web/device-data.test.js`
+
+### テスト
+- 新規 `test/web/device-data.test.js`: 書き出しに含める・含めない項目、読み込みの断り（形・版・環境・大きさ・壊れた JSON）、併合（今のものを優先・目標の重複と上限・既読の和）、ID が違うときの確認の呼び出し。
+- `test/web/views.test.js:139-145`（カードの順）: 所持パルのないテストの文脈では「アカウント」「書き出し」「この端末のデータ」（警告 0 件は隠れる）。`:144` のログイン中の ID は新しい文に。
+- `test/web/owned-view.test.js:234`（状態の dl）・`:236`（ワールドの行の表記と、`summary` の外の編集・削除）・`:553,562`（ワールドの行の CSV ボタンがなくなる）。
+- `test/web/app.test.js:486-490`: 設定の「最新に更新」がなくなるので、ヘッダーの同期状況のボタン（header-frame で作ったもの）を押す形に。`:510` の「これまでの配合の登録者名もすべて新しい名前になります」は、モーダルの中で確かめる形に。
+- `test/web/drafts.test.js`・`test/web/ideals.test.js`: `importMany`・`importGoals` の成否。
+
+### INV-2・互換・セキュリティ・性能の注意
+- セキュリティ: 読み込むファイルは信用しない。大きさの上限・形の検証・各ストアの検証を通し、文字はすべて `textContent`。読み込んだ内容で HTML を作らない。パスワードは書き出さない。
+- 互換: 書き出しの形に `version` を持たせ、将来の形の違いを断れるようにする。読み込みは足すだけで、今のデータを消さない。
+- 互換: 「データの状態」をなくすので、手で最新に更新する入口はヘッダーの同期状況だけになる（header-frame で押せることを確かめてから消す）。
+
+### release-notes の案
+- id: `<実装日>-settings`／title: 「設定を整理」（5 字）／body: 「書き出しを 1 枚にまとめ、端末のデータの書き出し・読み込みを足しました。データの状態はヘッダーへ。」（50 字）
+
+### 完了の条件
+- [ ] `npm test` が通る。
+- [ ] モックで: 設定の並びが「セーブ連携・アカウント・データ・このアプリについて」。警告 0 件でカードが出ず、1 件以上でレールにバッジ。配合と所持パルの CSV が書き出しカードから保存できる。
+- [ ] この端末のデータを書き出し、別のブラウザ（または storage を消した後）で読み込むと、下書き・目標・既読が戻る。別の環境のファイルは断られる。
+- [ ] ワールドの行の summary の中にボタンがない（読み上げで確かめる）。ワールドの登録モーダルの結果欄で、ほかの部品が上下しない。
+- [ ] 設定が中央寄せでない。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: セキュリティ — 読み込むファイルは大きさの上限・形の検証・各ストアの検証を通し、文字は textContent、パスワードを書き出さない（`device-data.test.js`・`test/static/security.test.js`）。互換 — 書き出しの形に `version` があり、読み込みは足すだけで今のデータを消さない。取り込んだ目標の個体値は「0＝条件なし」の形のまま（判断事項 10）。CSV は書き出しカードにまとめた（判断事項 11）。INV-2・性能 — 対象外。
+
+### TODO
+- [ ] `downloadBlob` を `ui/dom.js` に移し、2 つの CSV で使う
+- [ ] カードの並び替え・「データの状態」の削除・見出し「データ」
+- [ ] 整合性の警告を 0 件で隠し、レールの設定にバッジ
+- [ ] 書き出しカード（配合・所持パルの CSV）とワールドの行の CSV の削除
+- [ ] アカウントカードの短縮とログアウトの確認文
+- [ ] `device-data.js`（書き出し・検証・併合）とテスト（テストを先に）
+- [ ] 「この端末のデータ」カードと `importMany`・`importGoals`
+- [ ] 状態の dl の削減・役割のチップ・ワールドの行の表記・summary の外のボタン
+- [ ] 登録モーダルの結果欄の固定の高さと実際のパス
+- [ ] 左寄せと最下部の権利表記・版、ログイン画面の権利表記
+- [ ] テストの書き換え（views・owned-view・app）と release-notes・OPERATIONS.md
+
+---
+
+## roles: 役割ごとの案内とワールドの登録
+
+### 目的
+ホスト・参加者・未連携（共有を見ているだけ）の人それぞれに、正しい案内を出す。参加者に「自動登録は動きません」と誤解させない。プレイヤーの対応を独立した欄にして呼び名をそろえる。ワールドの登録モーダルを、迷わず登録できる手順にする。モックで役割を切り替えて確かめられるようにする。
+
+### 経緯
+- 統合プランの roles（本セッションの X-05・X-06・X-07・X-12・C-03・C-04・C-06・C-23・C-24・C-26・C-27・C-28・C-29。付録の範囲 C-23〜C-29 のうち **C-25（「ファイルを選ぶ」ボタン）は却下なので入れない**）。
+- 統合プランの「全体の所見」6: 参加者には「自動登録は動きません」と誤解を招く案内が出る（`views/owned-settings.js:224`）。実際はホストのセーブにワールド全部の牧場が入っていて、参加者が牧場で産ませたタマゴもホストの画面が登録する（X-06）。
+- 参加者の「このワールドでの自分」（F054）はフェーズ 1 の participant-self で入れた（保存は `${namespace}.ideals.self.<env>.<userIdKey>.<worldId>`）。このテーマはその上に、案内・呼び名・対応の欄を整える。
+- X-06 の事実確認: 参加者向けの文は条件つきにする（ホストが自動登録をオンにしていて、あなたが登録者として対応づいているときだけ登録される）。X-07 の判断: 名前が一致したときの文は出さない。X-12 の判断: モックはまず `as=viewer`（共有ワールドを 1 つ入れる）だけ。ホスト・参加者のハンドルのスタブは必要になってから。
+- C-04 の判断: 呼び名は「**プレイヤーの対応**」に決める（小見出し「プレイヤーの対応（セーブのプレイヤー → ノートの名前）」）。「登録者」は配合を登録した人の意味（カード・配合を探す）だけに残す。
+- 撮影で確かめられなかった画面（参加者の画面・ワールド登録済みの設定）は、このテーマのモックの役割の切り替えと実機で確かめる（統合プランの「リスクと前提」）。
+
+### 依存
+- participant-self（フェーズ 1）、settings（セーブ連携のカード・ワールドの登録モーダルの結果欄とパス）、autoreg-visibility（「登録待ち」の行を対応の欄と一緒に移す）。
+
+### このテーマでやらないこと
+- 「ファイルを選ぶ」ボタン（C-25。却下）、ワールド登録後のトーストに「所持パルを見る」（C-30。却下）、共有だけの人の「所持パルを使わない」（X-11。却下）。
+- 参加者にも接続中の仲間・Day・Lv を出す（フェーズ 4 の save-extras）。
+- 自動登録の登録者の決め方そのもの（`resolveRegistrant`）の変更。
+
+### 現状（HEAD 6028a48 で確認）
+- 参加者のワールドの行を開くと「参加しているワールドなので、自動登録は動きません。」（`views/owned-settings.js:223-226`）。所持パルの参加者の案内は「参加しているワールドのため、ホストが共有した所持パルを表示しています。」（`ui/owned-status.js:53-56`）だけで、自動登録のことも、ホストの画面が今動いているかも分からない。共有の時刻は `timeLines`（`:32-39`）に小さく出るだけ。ホストのチェックのラベルは「新しく産まれたタマゴから、配合を自動で登録する」（`owned-settings.js:235`）だけで、ページを閉じると止まることは書いていない。
+- プレイヤーと ID の対応は、ホストのワールドで、使うワールドとして読み込んでいる行を開いたときだけ出る（`breedingPanel` `:237-256`、players はホストのときだけ `:302`）。小見出しは「登録者（親を拠点に預けた人 → このノートの ID）」（`:243`）、読み込む前の文は「登録者は、このワールドを「使うワールド」にして読み込むと選べます。」（`:239`）。理想個体の案内（`views/ideal.js:143`・`:374`。participant-self で「設定で選ぶ」のボタンになっている）と自動登録の通知（`auto-register.js:227`「…設定で登録者を選んでください。」）で呼び名がそろっていない。
+- 理想個体の登録の各行に、同じ長い「未確認（セーブのどのプレイヤーが自分か分かりません。…）」が並ぶ（`views/ideal.js:143`。C-06）。
+- ワールドの登録モーダル（`openWorldDialog` `:65-183`）: ① はプレースホルダーだけ（`:75-78`）で、エクスプローラーで開く場所は OPERATIONS.md にしかない（C-23）。正しい形のパスを貼っても文が出ない（② の枠の薄さが変わるだけ。C-24）。パスの欄とファイルの一覧は等幅で `\` が `¥` に見える（`app.css:878`・`:869`）。ドロップを受けるのは高さ 64px の枠だけで、ページは dragover・drop を止めていない（枠の外に落とすとブラウザが .sav を開く）。モーダルは背景のクリックで閉じる（`:67` に `closeOnBackdrop` の指定がない＝既定の true。C-26）。チェックリストは常にホスト用（`:116-119`。C-28）。確定ボタンは「保存」だが、登録すると共有と自動登録も始まる（C-29）。
+- `test/import.test.js:32-34`: `auto-breeding.js` を読めるのは `auto-register.js` と `views/owned-settings.js` だけで、設定は `import { mappedUser } from '../core/auto-breeding.js'` の形でなければならない。
+- モック: `app.js:47` は `createDevelopmentApi({ seed })` だけを渡す。`dev/mock-api.js:26` の `ownedWorlds` は空で始まる。
+
+### 実装の手順
+1. **役割ごとの 1 行**（`ui/owned-status.js` に足す）
+   ```js
+   export function roleSummary(state, { userId, now = Date.now } = {}) {} // → { text, kind: 'info' | 'warning' } | null
+   ```
+   - ホスト: 「このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。」
+   - 参加者（`role === 'guest'`）: 「この PC では読み込みません。配合牧場の自動登録は {ホスト} の画面が行います（{ホスト} が自動登録をオンにしていて、あなたが登録者として対応づいているとき）· 最後の共有 3 分前」。{ホスト} は `meta.uploadedBy`（なければ `meta.hostName`、どちらもなければ「ホスト」）。最後の共有が 10 分より前なら `warning` にして「最後の共有は 2 時間前です。{ホスト} の画面が閉じていると、配合牧場の自動登録も止まります。」。
+   - 未連携で共有を見ている人: 「{ホスト} が共有した所持パルを表示しています · 最後の共有 3 分前」。共有がなければ `null`（「セーブ未登録」の案内は copy-dead-ends の setupHint に任せる）。
+   - 経過時間の言い方は header-frame の同期状況と同じ部品を使う。
+   - 使う所: 設定の参加者のワールドの行（`owned-settings.js:224` を差し替え）、ホストのワールドの行（チェックの下）、所持パルの案内（`ownedNotices` の `:53-56` を差し替え）、ヘッダーの状態のポップオーバー（header-frame。役割の説明の欄）。
+2. **名前が合わないとき**（X-07 の判断）: 参加者・未連携の人で、共有の players（`owned.state.owned.players`）に、ログイン中の ID と同じ名前（`userIdKey` で比べる）のプレイヤーがいないときだけ、手順 1 の参加者の文の下に 1 行: 「このワールドに「Bob」という名前のプレイヤーがいません（Alice・Carol・ぼぶ）。あなたが親 2 体を預けた配合は、ホストに設定の「プレイヤーの対応」で Bob を選んでもらうまで登録されません。」。「このワールドでの自分」（participant-self）を選んでも、ホストの対応は変わらないことを（ ）で添える。一致したときは何も出さない。
+3. **プレイヤーの対応を独立した欄に**（C-03・C-04）
+   - セーブ連携のカードの「使うワールド」の下に、小見出し「プレイヤーの対応（セーブのプレイヤー → ノートの名前）」の欄を置く。中身は今の `breedingPanel` のプレイヤーの部分（`:242-256`）を切り出したもの。説明は 1 行「配合の自動登録の登録者と、理想個体の『自分の個体』に使います」。autoreg-visibility の「登録待ち n 件」もこの欄の上に移す。
+   - 出すのは**この PC がホストで、表示中のワールドのプレイヤーが分かるとき**だけ（自動登録はホストの PC でしか動かないので、参加者がここで選んでも登録には効かない）。参加者には代わりに「プレイヤーの対応はホストの PC で設定します」と、participant-self の「このワールドでの自分」を案内する。読み込む前は「このワールドを読み込むと、プレイヤーの対応を選べます」（`:239` の言い換え）。
+   - ワールドの行の中（`breedingPanel`）には、自動登録のオン・オフだけを残す。
+   - **この欄は `views/owned-settings.js` の中に置く**（`mappedUser` の import をほかのファイルに移すと `test/import.test.js:32-34` を直す必要がある。どうしても分けるなら、テストの許可リストを変更記録つきで直す）。
+   - 呼び名をそろえる: `auto-register.js:227` の未設定の通知の本文を「{名前}の配合を登録できません。設定の「プレイヤーの対応」で選んでください。」（60 字を超える名前は `clip` で省かれる）、`views/ideal.js` の案内（participant-self で直した文）・`docs/OPERATIONS.md:62,130,132` の「登録者の対応」を「プレイヤーの対応」に。
+4. **理想個体の「未確認」を 1 回だけ**（C-06）: 目標の行（`goalStatus` `views/ideal.js:141-149`）は「未確認」だけにし、理由は目標のダイアログの表の上に 1 回だけ「自分のプレイヤーが分からないため、完成を確かめられません［設定で選ぶ］」（participant-self の行き先 `#/settings?world=<id>&open=auto`）。所持パルのデータがない「未確認」も同じく 1 回だけ。
+5. **ワールドの登録モーダル**（`openWorldDialog`）
+   - C-23: ① の下に「エクスプローラーのアドレス欄に `%LOCALAPPDATA%\Pal\Saved\SaveGames` を貼ると開けます」＋［コピー］（`navigator.clipboard.writeText(SAVE_ROOT)`。失敗したらトースト「コピーできませんでした」）。
+   - C-24: パスを読み取れたら入力欄の下に「✓ Steam 7656…1234 ／ ワールド 4A43…」、読み取れなければ赤字で「…\SaveGames\<数字>\<32 桁の英数字> まで含めて貼ってください」（空欄のときは何も出さない）、登録済みのワールドの ID なら「登録済みのワールドです（ファイルを足します）」。この行も固定の高さ。パスの欄とファイルの一覧の等幅をやめる（`app.css:878`・`:869`）。
+   - C-26: `openDialog(…, { closeOnBackdrop: false })`。ダイアログ全体をドロップ先にし（枠は目印として残す）、開いている間は `window` の `dragover`・`drop` を `preventDefault`（AbortController で、閉じたら外す）。
+   - C-27・C-28 の判断: チェックリストを 2 つの組に分けた入れ子のリストにする（SVG は使わない）。「全員: LocalData.sav」と「ホストの PC だけ: Level.sav・LevelMeta.sav・Players\（中のファイル全部）・GlobalPalStorage.sav（任意）」。settings で入れた実際のパスの表示を、`<Steam ID>`・`<ワールド ID>` の置き換えに使う。LocalData.sav だけをドロップして参加と判定したら（`previewed.kind !== 'host'`）、ホストの組を薄くして「参加として登録できます」。✓／— と `.done` の色は今のもの。
+   - C-29: 新規の登録のとき、保存のボタンの左に「登録すると、読み込み・所持パルの共有・配合の自動登録（ホストのとき）を始めます」、ボタンの名前を「登録して連携」（編集のときは「保存」のまま）。
+6. **モックの役割の切り替え**（X-12 の判断）
+   - `app.js:47` で `createDevelopmentApi({ seed, as: new URLSearchParams(location.search).get('as') })` を渡す（`app.js` に「mock」の文字を書かない。`test/static/security.test.js:34-44`）。
+   - `dev/mock-api.js`: `as === 'viewer'` のとき、`ownedWorlds` に固定の共有ワールドを 1 つ入れる（3 人・拠点 2・牧場 3・パル 30 体程度。行の形は `OWNED_FIELDS`、world の形は `:156-160` の `ownedUpload` と同じ）。`host`・`guest` は、ファイルのハンドルのスタブが要るので、必要になってから足す（このテーマでは作らない）。
+   - `test/web` に、`ownedNotices`・`roleSummary` へ役割（host／guest／共有だけ）と `linkLabel`・データの有無の組み合わせを渡すテストを足す: データがあるのに「セーブのファイルが登録されていません」が出ない、参加者に「自動登録は動きません」「設定タブの『登録者の対応』」が出ない。開発用なので release-notes は不要（このテーマの release-notes は手順 1〜5 の分）。
+
+### 触るファイル
+- 変更: `web/js/ui/owned-status.js`、`web/js/views/owned-settings.js`、`web/js/views/ideal.js`、`web/js/auto-register.js`（未設定の通知の本文）、`web/js/app.js`（`as` を渡す）、`dev/mock-api.js`、`web/css/app.css`、`web/js/release-notes.js`、`docs/OPERATIONS.md`
+
+### テスト
+- `test/web/owned-view.test.js:408`（「参加しているワールドなので、自動登録は動きません」）→ 参加者の新しい文。プレイヤーの対応の欄がワールドの行の外に出たこと（ホストで表示中のワールドのときだけ）・参加者には出ないこと。ワールドの登録モーダル（`:315-` の登録のテスト）: パスの判定の文・登録済みの文・2 組のチェックリスト・参加のときの薄い組・「登録して連携」・背景のクリックで閉じないこと。
+- 新規（`test/web/owned-view.test.js` か新しいファイル）: `roleSummary` の 3 役割と 10 分の境目、名前が合わないときの 1 行（一致・同じ名前が 2 人・共有なし）。
+- `test/web/auto-register.test.js`: 未設定の通知の本文（別プラン §9 の C の `:235,241` 付近）。
+- `test/web/ideal-view.test.js`: 目標の行は「未確認」だけ、理由は表の上に 1 回。
+- `test/web/mock-api.test.js`: `as=viewer` で共有ワールドが 1 つ返ること。`test/import.test.js:32-34` が通ること（対応の欄を owned-settings.js に置いたまま）。
+
+### INV-2・互換・セキュリティ・性能の注意
+- INV-2: `mappedUser` の import の場所を変えない（`test/import.test.js:32-34`）。設定は配合表を使わない。
+- 互換: プレイヤーの対応の保存（`${namespace}.autoBreeding.players.<env>.<worldId>`）は変えない。欄の場所と呼び名だけが変わる。
+- セキュリティ: クリップボードには定数の文字列だけを書く。パスの判定の文に、貼った文字列を出すときは `textContent`。モックのコードは `web/` に入れない（`dev/` のまま）。
+
+### release-notes の案
+- id: `<実装日>-roles`／title: 「参加者向けの案内を改善」（11 字）／body: 「自動登録はホストの画面が行うことと最後の共有を出し、ワールドの登録の手順を役割ごとに示します。」（47 字）
+
+### 完了の条件
+- [ ] `npm test` が通る（`import.test.js`・`security.test.js` を含む）。
+- [ ] `?mock=1&seed=80&as=viewer` で、未連携で共有を見ている人の所持パル・理想個体・設定を撮れる。「自動登録は動きません」「設定タブの『登録者の対応』」がどこにも出ない。
+- [ ] ホストの設定でプレイヤーの対応がワールドの行の外に出ていて、呼び名が理想個体・通知・設定でそろっている。
+- [ ] ワールドの登録モーダルで、正しいパス・違う形のパス・登録済みのパスを貼るとそれぞれの文が出て、モーダルのどこにドロップしても受け取り、背景のクリックで閉じない。
+- [ ] 実機（参加者の PC）で、参加者の文と最後の共有の時刻が出る（撮影で確かめられなかった画面）。
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — プレイヤーの対応の保存キー（`autoBreeding.players.<env>.<worldId>`）を変えていない。INV-2 — `mappedUser` の import の場所を変えていない（`test/import.test.js:32-34`）。セキュリティ — クリップボードには定数だけを書き、貼った文字列は textContent。モックのコードは `web/` に入れていない（`test/static/security.test.js`）。性能 — 対象外。
+
+### TODO
+- [ ] `roleSummary` とテスト（3 役割・10 分の境目）
+- [ ] 設定のホスト・参加者のワールドの行、所持パルの案内、ヘッダーのポップオーバーで使う
+- [ ] 名前が合わないときの 1 行
+- [ ] プレイヤーの対応を独立した欄に（owned-settings.js の中、ホストだけ）と「登録待ち」の移動
+- [ ] 呼び名「プレイヤーの対応」に統一（設定・理想個体・通知・OPERATIONS.md）
+- [ ] 理想個体の「未確認」の理由を 1 回だけ
+- [ ] 登録モーダル: 開き方の 1 行と［コピー］、パスの判定の文、等幅をやめる
+- [ ] 登録モーダル: 背景で閉じない・全体をドロップ先・window の drop を止める
+- [ ] 登録モーダル: 2 組のチェックリストと参加のときの表示、「登録して連携」
+- [ ] モックの `as=viewer` とテスト
+- [ ] テストの書き換え（owned-view・auto-register・ideal-view・mock-api）と release-notes・OPERATIONS.md
+
+---
+
+## 判断が要る点・統合プランとの違い（まとめ）
+
+実装の前にコードと案を照らして分かったこと。既定は「推奨」のとおりに進め、ユーザーが違う指示をしたらそれに従う。
+
+| # | 点 | この文書の扱い（推奨） | 根拠 |
+|---|---|---|---|
+| 1 | owned-overlay の順番 | find-merge の直後（2 番目）に移した | register-dialog の参照列（F018）と goals-merge の目標の行が `ownedCounts` を使う |
+| 2 | 継承ルートの開始チップの上限 8 件（R-08） | 入れない（全部出す） | `docs/OPERATIONS.md:99`「継承ルートの候補は、件数が多くても最初から全部出す」（98b7962）と衝突しうる |
+| 3 | 継承ルートの「すべて」で先頭の候補の経路を「おすすめ」で出す（R-01 の 3) ） | 入れない | R-01 の判断が「『すべて』の意味が変わるのでユーザーに確認」としている |
+| 4 | 「性別条件は未検証」 | 継承ルートで「同じ組で別の子も登録あり」と「性別の向きは未確認」に分けて残す。理想個体（`core/ideal.js:178-180`）は変えない | Codex のプランレビュー 1 回目 16「警告は残す」と統合プランの要点。R-25 の判断（multiChild だけにする）は採らない |
+| 5 | 目標の観測の通知の範囲 | 観測はすべての目標の種族で持ち、通知は「種族だけの目標」がある種族だけ | 統合プランに指定がない。ウィッシュリストと同じ意味にとどめ、パッシブつきの目標に通知を増やさない |
+| 6 | 移行の「旧通知の既読を新しい id へ写す」 | 新しい通知も旧と同じ id の形で出すので、写す作業は要らない（id を変えるなら写す手順を入れる） | 既読は id で判定する（`notifications.js:54-57`）。CLAUDE.md の「id は一度出したら変えない」とも合う |
+| 7 | オブジェクトの形の保存キー（下書きの性別・目標の観測）の名前の変更 | `moveUserStorage` にオブジェクトの移動を足す | 今は配列でないキーを飛ばす（`user-rename.js:50`） |
+| 8 | R-15 の「isParentCandidate を core/ideal.js から import」 | 採らない。同じ規則の `canBeParent` を core/owned.js に持つ | `test/import.test.js:38-44`（core/ideal.js を読めるのは views/ideal.js だけ）。統合プランの owned-overlay も「core/ideal.js は流用しない」 |
+| 9 | 継承ルートの開始候補からタマゴ・グローバルを外す（R-15） | 入れる（`docs/OPERATIONS.md:97` を直す） | R-15 はテーマの案に入っていて、判断も採用。今の文書の規則が変わるので release-notes に書く |
+| 10 | 下書きの行の中でパルを選ぶ形 | やめて読み取り専用にする（F020）。行の中で選ぶ前提のテスト（`drafts.test.js:122-146`・`:307-354`）は書き換え | 統合プランの「行は式＋登録・編集・削除」 |
+| 11 | プロジェクトの CLAUDE.md の書き換え | bell で直す。Edit が拒否されたらユーザーに文案を渡す | グローバルの規約「評価基準の保護」で CLAUDE.md の Edit が拒否されている可能性 |
+| 12 | 「この端末だけ」と「この端末のみ」 | 「この端末だけ」に統一 | 統合プラン内で両方の言い方がある（F020・F081） |
+| 13 | 案の判断と統合プランの食い違い（G-04・G-06・S-25・S-31・G-20・G-21・G-26・C-14・D-16・D-43・S-02） | 統合プランの要点が優先（各テーマの「経緯」に書いた） | 案は検証の後に、別プランとの突き合わせ・ユーザーの決定・Codex のレビューを経て統合プランに入った |

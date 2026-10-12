@@ -13,6 +13,13 @@ node_modules/
 # ツールの作業ディレクトリ
 .eval-loop/
 .beads.gate.lock
+# eval-loop プラグインのフックが作る作業中の状態（どの階層でも）
+.mso/
+# ブラウザ操作（playwright-cli）の出力
+/.playwright-cli/
+
+# 調査の退避先（スクリーンショット・スクリプト。docs/ui-refactor から参照するが、リポジトリに含めない）
+/Claude outputs/
 
 # 画像は配信時に取得する（リポジトリに含めない）
 web/img/pals/
