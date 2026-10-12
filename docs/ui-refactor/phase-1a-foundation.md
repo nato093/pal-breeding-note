@@ -58,6 +58,7 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
   - `window` に `sessionStorage`・`scrollTo`・`scrollY`・`matchMedia`・`requestAnimationFrame`・`ResizeObserver` が無い。`history` は `state` と `replaceState` だけで **`pushState` が無い**（:44-51）。`document.addEventListener` は何もしない（:33）。`setInterval` は記録するだけ（:63-64）。→ 新しいコードは、これらが無くても動く（`typeof … === 'function'` で確かめる、try/catch）。
     - 追記（render-contract の実装、2026-10-12）: boot に `pushState` の引数を足した（`boot(t, { pushState: true })` で `history.pushState` を足す。既定は今までどおり無い）。fake の `replaceState` は渡された state を `history.state` に入れ、boot は `replaceStates`（渡された state）・`pushes`（push した URL）も返す。
     - 追記（keep-state の実装、2026-10-13）: boot に `session`（初めの値の object を渡すと `window.sessionStorage` を足す。返す `sessionValues` で中身を見る）と `scroll`（true で `scrollY`・`innerHeight`・`scrollTo` を足し、返す `scrolls` に位置を記録）を足した。`go(hash)` は state のない新しいエントリへ移る（ブラウザのリンク・タブと同じ）、`back(hash, state)` は戻る・進む。fake の `changeHash` は history.state を変えないので、新しいエントリを作るときは `go` を使う。位置を戻すのは setTimeout の後なので、`scrolls` を見る前に 1 回待つ。
+    - 追記（フェーズ 1a のレビューの直し、2026-10-13）: `back(hash, state)` は、ブラウザと同じく state を入れてから `popstate` を出し、ハッシュが変わったときだけ続けて `hashchange` を出す（app.js は window の `popstate` を受ける。名前ごとに 1 つの制約には当たらない）。
 - **ビューのテストの context**（test/web/views.test.js:14-20、ideal-view.test.js:40-46、owned-view.test.js:47-51）は `navigate`（と一部 `replace`・`viewState`）だけを持つ。`update` は無い → **ビューは `context.update` が無ければ `context.navigate` に落とす**（render-contract の `changeRoute`）。
 - **web/ の中のファイルに「mock」という語を書かない**（コメントも。test/static/security.test.js:34-39）。
 - `web/js/core/owned-shared.js` を変えたら `npm run build:gas` で `gas/Shared.js` を作り直す必要がある（test/core/shared.test.js:7-14 が一致を確かめる）。このフェーズでは owned-shared.js を**変えない**設計にした（新しい検証は core/boundary.js に置く）。
@@ -70,7 +71,7 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 | 同じ画面なら作り直さない遷移 | app.js の context | render-contract | `context.update(hash, { replace? })` |
 | 画面内の遷移の共通口 | views/shared.js | render-contract | `changeRoute(context, hash)` |
 | 選択欄の値合わせ・作り直す欄のフォーカス | views/shared.js | render-contract（実装で足した） | `syncPicker(picker, value)`（値が違うときだけ setValue）・`keepFocus(container, render, target)`（keep-state で消し、ui/focus.js の captureFocus／restoreFocus に置き換えた） |
-| ビューの契約 | 各 views | render-contract | `{ element, destroy, applyRoute?(route, { reason, restored }), update?(state) }`（`restored` は keep-state で足した。戻る・進むでエントリの条件を viewState に入れ直したとき true で、ビューは入力欄も合わせる） |
+| ビューの契約 | 各 views | render-contract | `{ element, destroy, applyRoute?(route, { reason, restored }), update?(state), flushInputs?() }`（`restored` は keep-state で足した。戻る・進むでエントリの条件を viewState に入れ直したとき true で、ビューは入力欄も合わせる。`flushInputs` はフェーズ 1a のレビューで足した。間引いて待っている入力をすぐ当て、app.js が履歴のエントリに条件を書く前に呼ぶ） |
 | 読み戻しの検証 | core/boundary.js（新規） | data-boundary | `int`・`intOrNull`・`text`・`oneOf`・`isoTime`・`list`・`worldId`・`cleanRecords`・`cleanOwnedWorlds`・`cleanOwnedPayload`・`cleanSaved`。実装で `isObject`・`idText`・`screenHref`・`cleanUsers`・`cleanSnapshot`・`cleanSharedPlayers`・`cleanSharedBases`・`PLAYERS_MAX`・`BASES_MAX` を足した（data-boundary の「実装の記録」）。keep-state で `intIn`（範囲の外は丸めずに既定へ）・`bool` を足した |
 | 高さと重なり順 | app.css の :root | header-frame | `--header-h`・`--z-sticky`・`--z-panel`・`--z-rail`・`--z-header`・`--z-drawer`・`--z-snackbar`・`--z-toast`・`--z-popover`・`--z-skip` |
 | セーブ連携の状態 | ui/save-status.js（新規） | header-frame | `saveStatusModel(ownedState, opts)`（戻り値に `world`・`time`・`auto`・`busy` も）・`saveStatus(deps) → { element, update, close, destroy }`。実装で `saveStatusLine`・`STALE_LOCAL_MS`・`STALE_SHARED_MS` も export（header-frame の「実装の記録」） |
@@ -443,6 +444,8 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 5. **所持パル**: URL に絞り込み（holder・place・pal・p）が無い applyRoute は何もしない。あるときは絞り込みを入れ、パルの選択欄を syncPicker で合わせ、所持者・場所・パッシブ・一覧を描き直す（キーワードなどの入力欄は触らない）。
 6. **context.update と navigate**: 今と同じ URL への update（押されている「すべて」をもう一度押すなど）は何もしない（pushState で同じ履歴が増えるのを防ぐ。今までの location.hash の代入と同じ動き）。navigate は、今と違うハッシュのときだけ intent を付ける（同じハッシュでは hashchange が来ず、印が次の戻る・進むに付いてしまうため）。
 7. **テスト**: app.test.js の boot の追記は「テスト環境の制約」のとおり。ビューのテストで context.update の経路を確かめるときは、`ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' })` のように小さく組む（ideal-view.test.js・owned-view.test.js のフォーカスのテスト）。
+
+- フェーズ 1a のレビューで直した（2026-10-13、`fix/phase-1a-review-nav`）: URL の p は、所持パル・継承ルートでも理想個体と同じく重複を除く（`?p=Rare,Rare` でチップは 1 個なのに「あと 2 個まで」になっていた）。理想個体・継承ルートはマスター（passivesById）にない ID も除く（知らない ID のチップを出さない。URL は書き換えない。所持パルの URL は重複だけ）。
 
 ---
 
@@ -1176,6 +1179,10 @@ export function withTransition(fn) {
 12. **ほか**: 一覧の並べ替えは `input` のまま（テストが input を送る）。所持パルの並べ替えは `change`。View Transition は 2,000 行を超えるときは使わない（所持パル・一覧とも）。再読み込みの保留の文は「開いている入力画面を閉じてから、もう一度押してください。」（ダイアログはモーダルなので画面からは押せないが、版の確認の待ち時間に開いた場合に効く）。app.test.js の偽の document に `querySelector` を足した。テストの偽 DOM（test/helpers/dom.js）は変えていない。
 13. **Worker にする条件に当たる場面（D18。ユーザーに報告する）**: 所持パル 20,000 行で同じ種族が 6 割（候補 12,218 体・3,700 万組）の理想個体は、区切った計算の合計が約 12 秒（1 回の区切りは 32ms 以内・Long Task なし。画面は止まらないが、結果が出るまで「計算中」が続く）。D18 の「合計が 5 秒を超えるとき Worker を検討」に当たるが、文書のとおり Worker にはしていない。
 
+- フェーズ 1a のレビューで直した（2026-10-13、`fix/phase-1a-review-nav`）: 間引いた入力（所持パルのキーワード・個体値、理想個体の個体値、一覧の登録者名）を destroy で取り消し（onTextInput に signal、debounce は cancel）、所持パル・理想個体の renderResults と一覧の update の先頭で destroyed を確かめる（閉じた後に遅れて描かない。withTransition の後の呼び出しも同じ。打って 150ms 以内に閉じると、閉じた所持パルの行やリスナーが作り直され、理想個体は閉じた後に計算を始めていた）。ビューに `flushInputs()` を足し、app.js が履歴のエントリに条件を書く前に呼ぶ（打ってすぐタブ・リンクを押しても最新の条件が入る）。
+- フェーズ 1a のレビューで直した: 選択肢の作り直しをフォーカス中で待っていて、blur の後に選んでいた所持者・場所が選択肢から消えて「すべて」に戻したときは、所持パルは一覧とパッシブの数を、理想個体はパッシブの数と結果を計算し直す（前は古い条件の結果のままだった。renderFilters・renderHolders の中から戻したときは、呼んだ側がこの後で描くので 2 回描かない）。
+- フェーズ 1a のレビューで直した: 所持パルのデータが無いまま `#/owned` を開く・読み込み直すと「読み込み中…」のままだった（1a より前から。update が `state.owned` の変化だけを見ていた）→ データが無いときは `state.ready` の変化でも描き直す。
+
 ---
 
 ## keep-state: 位置と条件の保持・フォーカスの一般化
@@ -1374,6 +1381,15 @@ export function withTransition(fn) {
 8. **所持パル（129 行）のタブで戻る**: scrollY は 4000 に戻るが、作り直した行は content-visibility の見積もりの高さ（まだ描いていない行は 73px）なので、見ていた行は上端 152px → 260px（108px 下）に見える（画面の中には見える）。行の高さの固定は 1c の owned-rows（stable-render の記録と同じ）。
 9. **テスト**: app.test.js の boot に `session`（sessionStorage を足す）・`scroll`（scrollY・innerHeight・scrollTo の記録）と、`go(hash)`（state のない新しいエントリへ）・`back(hash, state)`（戻る・進む）を足した。テストの偽 DOM（test/helpers/dom.js）は変えていない。新しいテストは、変える前のコード（web/ だけを `git stash`）で落ち、変えた後で通ることを確かめた（「違えば使わない」の否定のテストは前のコードでも通る）。
 10. **モックでの読み込み直し**: ふつうのモックは読み込み直すとユーザーを作り直すので、キャッシュで描いた後の全件取得で USER_NOT_FOUND → ログイン画面（＝ログアウト）になり、決まりどおり条件は消える（新規登録し直した後は既定）。読み込み直しても残ることは、Playwright の route で開発 API のモジュールを包み、作るたびに Alice を登録しておく形で確かめた（計測の記録）。
+
+- フェーズ 1a のレビューで直した（2026-10-13、`fix/phase-1a-review-nav`）: 戻る・進むで離れるエントリに条件を書いていなかった（記録 6 は scroll のときだけ書くので、スクロールせずに変えた条件・スクロールした後に変えた条件が「進む」で消えた）→ 表示中のエントリの ID（`shownEntry`）と URL（`shownHash`）を render の最後（ensureEntry の後。ログイン画面では ''）に覚え、render の最初で今のエントリの ID と違えば、`flushInputs()` の後に離れるエントリへ条件と位置を書く。
+- フェーズ 1a のレビューで直した: 同じ URL のエントリどうし（理想個体の「呼び出す」で g を外すと、URL が同じでエントリの違う履歴が並ぶ）の戻る・進むは hashchange が来ず、条件が戻らなかった → window の `popstate` で、URL が表示中のまま（`location.hash === shownHash`）エントリだけが替わったときに 'history' として描く。URL が替わったときは続く hashchange（ルーター）に任せる（2 回描かない。リンク・`location.hash` の代入でも popstate を出すブラウザで、context.navigate の途中に画面を作り直さないため）。
+- フェーズ 1a のレビューで直した: 位置の無いエントリ（ID はあるが 50 件の上限・名前の変更で中身が消えた）へ戻る・進むで違う画面に移ると、前の画面の位置のままだった → 違う画面なら先頭から（記録 5 の「ID のあるエントリで中身が無いときは動かさない」を直す。「動かさない」は同じ画面のときだけ）。
+- フェーズ 1a のレビューで直した: パッシブのチップの × の key を `passive-chip:<ラベル>:<id>` にした（`passive-chip:<id>` だと、作り直しの restoreFocus で別の画面の同じパッシブの ×＝継承ルートの「運びたいパッシブ」→ 所持パルの絞り込み へ移り、Enter で絞り込みを外せた。手順 8 の key の一覧もこちらを正とする）。
+- フェーズ 1a のレビューで直した: ui/focus.js は `[data-focus-key="…"]` の CSS の文字列を作らず、`querySelectorAll('[data-focus-key]')`（group も同じ）を getAttribute の値で比べる（URL の値から作った key に改行などが入ると SyntaxError で render が止まった。手順 8 の「key に `"` を入れない」は不要になった）。
+- フェーズ 1a のレビューで直した: 所持パルの条件の形（`OWNED_MEMORY`）の passives は、マスター（passivesById）にある ID だけを読み戻す（知らない ID のチップが出て一覧が 0 行になっていた）。ui/view-memory.js の loadViews のコメントを記録 4 の動き（起動の時点ではワールドが分からないので比べず、所持パルを読んだ後に forgetHolders が所持者だけを外す）に合わせた。
+- フェーズ 1a のレビューで直した: 一覧で利用者が並べ替えを変えたら、結果の始まり（件数の行）が固定のヘッダーの下に隠れているときだけ、そこへ移す（`scrollIntoView({ block: 'start' })`。html の scroll-padding-top でヘッダーの下に出る）。データの更新・タブで戻る・戻る/進むでは動かさない（設計の表の位置はそのまま。並べ替えは URL を変えない画面の中の操作）。「フェーズ 1a の終わりにすること」の表の目標「先頭へ」で、計測の記録の keep-state（画面: 一覧の位置）の行で入れていなかった分。固定の条件帯はフェーズ 2 の find-merge。
+- フェーズ 1a のレビューで直した: app.test.js に「戻る→進む」のテスト（作り直さない画面・作り直す画面・同じ URL のエントリ・中身の無いエントリ）を足し、読み込み直しのテストのどこからも読まない `appVersion: '前の版'` を消した。
 
 ---
 
@@ -1580,6 +1596,8 @@ export function withTransition(fn) {
 10. **テスト**: テストの DOM（test/helpers/dom.js）は変えていない。ビューのテストでは、追加のボタンを押して `[data-value="<ID>"]` の候補を押す（ideal-view・owned-view の `pickPassive`）。ポップオーバーの部品は test/web/popover.test.js、パッシブ選択は test/web/passive-picker.test.js、検索は test/core/pal-search.test.js。
 11. **ユーザーに確かめる点**: 理想個体・継承ルートは目標の選択欄とパッシブの欄が横に半分ずつ（1 行の幅 463px＝幅 1100px・553px＝幅 1280px）なので、3 個目のチップで 1 行に収まらず 2 行になり、下の欄が 1 回だけ 38px 下がる（1・2 個目と 4 個目は動かない。所持パルは 4 個とも 1 行に収まる）。今のままにするか、2 行分の高さを最初から取る・パッシブの欄を広げる・チップを小さくするかを確かめる（計測の記録）。
 
+- フェーズ 1a のレビューで直した（2026-10-13、`fix/phase-1a-review-nav`）: パル選択の `setValue` は、候補を開いていれば、選んでいる行の印（`is-selected`・✓・`aria-selected`）だけを新しい値に合わせる（戻る・進むや同じ画面の URL の変更で値が変わっても、✓ が前の値に残っていた。検索語・矢印の行・一覧の scrollTop は触らない）。
+
 ---
 
 ## フェーズ 1a の終わりにすること
@@ -1639,3 +1657,4 @@ export function withTransition(fn) {
 | 2026-10-13 | popovers（画面: パル選択） | 同じ。配合検索の親 1 をキーボードで開いて「030」「ラ」「闇」「Lamball」「もこもこ」。下の方の登録のある親（かがやくコウモリ・メラドーン）を選んで開き直す → ↓。継承ルート `#/route?to=Anubis` の「他のパル…」と目標、所持パル・理想個体の目標 | 「030」はヤミイカ（30）・ユメイカ（30B）、「ラ」はラヴィ・ライコーン…（「ラ」で始まる名前が先、59 体）、「闇」は闇属性 73 体、「Lamball」はモコロン、「もこもこ」はモコロンに「パートナースキル: モコモコの盾」。配合検索の候補は図鑑順のまま「親 1 件」「親 2 件」、0 件は薄い。開き直すと選んだ行が一覧の中に見え（メラドーンは 520px の一覧の 240px に、最後のかがやくコウモリは下端に）、ページは動かない（scrollY 0）。選んでいる行は背景なし・✓、↓ の行は secondary-container の背景と左 3px の帯で、↓ は選んだ行の次から（最後の行の次は先頭）。継承ルートの開始は「目標まで少ない回数の順に表示」で「アヌビス 目標」が先（この回のモックはアヌビスの記録がなく、ほかは薄い）。目標・所持パル・理想個体は「所持している種族を先に表示」で「モコロン ♂4 ♀2」「ツッパニャン ♂1 ♀3」… 一覧の高さは 520px（`min(60vh, 520px)`） | 完了の条件 | 直す前のコード（getBoundingClientRect で測る形）では、開くときの縮める動きの途中で測るため、開き直した選んでいる行が一覧の外に出た（popovers の「実装の記録」2） |
 | 2026-10-13 | popovers（画面: 自動の更新） | 同じ。理想個体でパッシブの候補を開いて「攻撃」と打ったまま 45 秒（20 秒ごとの確認を 2 回）。候補を開いたまま「この条件を登録」を click だけで押す、所持者を change だけで Bob にする。所持パルで候補を開いたまま 65 秒（1 分ごとの読み直し）、キーワード「アヌビス」を input だけで入れる | どれも閉じず、検索語「攻撃」とフォーカス（検索欄）が残る。登録すると「登録した組み合わせ」に「アヌビス（伝説、希少）」が増え、所持者を Bob にすると所持数が「神速 4 → 3 体」などに変わる。所持パルはキーワードで「サディスト 17 体…」から「伝説 5 体・鬼神 5 体…」に変わる（今の絞り込みの中の数） | 完了の条件「開いている間に 20 秒の自動の確認・1 分の読み直しが来ても閉じない（所持数だけ変わる）」 | モックはセーブのハンドルを登録しないので、20 秒・1 分の読み直しでデータは変わらない。データが変わったときの描き直しは、登録・所持者・キーワードを画面の外側を押さずに変えて確かめた（候補の外を押すと閉じる決まりなので）。記録が変わったときのパル選択の描き直しは単体テスト（pal-picker.test.js の update） |
 | 2026-10-13 | popovers（画面: 幅・重なり・ダーク） | 同じ。幅 1100・920px、ライトとダーク（`page.emulateMedia({ colorScheme: 'dark' })`）で、理想個体のパッシブの候補（矢印の行あり）・所持パルのパル選択とパッシブの候補・継承ルートの「他のパル…」（body に浮かせる）。所持パルで候補を開いたまま scrollY=260、候補を開いたまま登録のトースト、ID のメニューとセーブ連携のパネル、登録のダイアログの中のパル選択 | 920px の所持パルのパル選択は候補が画面の右にはみ出し、開くとページが横に 45px スクロールした（scrollWidth − clientWidth が 45）→ 候補を右端にそろえて 0（576〜896px）。ほかは横のスクロールなし。候補を開いたままスクロールすると、ヘッダー（`--z-header`）が候補（`--z-panel`）の上。トースト（781〜1241・813〜876px）は本文の中の候補の上。浮かせた候補（`--z-popover`）はヘッダーの上。ID のメニューは Esc で閉じてボタンへフォーカスが戻り、セーブ連携のパネルは外側のクリックで閉じる。ダイアログの中のパル選択はダイアログの中に浮かせ、1 回目の Esc は候補だけを閉じる（ダイアログは開いたまま）。ダークでも小さなチップ・効果・件数・薄い行・矢印の行が読める。コンソールのエラー 0 件 | 完了の条件・README 7-3 | スクリーンショット（light/dark-1100・920-ideal-passive、owned-picker、owned-passive、route-start-floating、header-over-popover、toast-and-popover、account-menu、save-status-panel、dialog-picker、picker-reopen-*）はセッションの一時フォルダ。日本語変換中の検索欄の入力は確かめていない |
+| 2026-10-13 | フェーズ 1a のレビューの直し（`fix/phase-1a-review-nav`。画面） | モック（`PORT=5193`・`?mock=1&seed=80`、一覧と位置は seed=700・1280×900・ヘッドレスの Chromium）。理想個体 `#/ideal?to=SheepBall` で HP 50 → 希少を足す → HP 70 → 戻る → 進む。HP 40 で登録 → HP 60 →「呼び出す」→ 戻る → 進む。所持パルでキーワード「もこ」→ タブ → 戻る →「ぺん」→ 戻る → 進む、「あ」と打ってすぐタブ → 戻る。配合検索の親 1 の候補を開いて ↓2 回・一覧を 40px 下げたまま戻る。一覧を scrollY=2500 で並べ替え・先頭で並べ替え・取り直し・タブで戻る。一覧（0）→ パル詳細（246）→ entries を消して戻る。所持パルのデータを消して `#/owned` を読み込み直す | 戻る HP 50 → 進む HP 70・希少。呼び出す HP 40（URL は同じ）→ 戻る 60 → 進む 40。進む「ぺん」、打ってすぐの「あ」も残る。候補を開いたまま ✓・is-selected・aria-selected がモコロンに移り、検索語・矢印の行（クルリス）・一覧の scrollTop 40 はそのまま。並べ替え: 2500 → 136（件数の行の top 64、ヘッダーの下端 56）、先頭では 0 のまま、取り直し・タブで戻るは 2500 のまま。中身の無いエントリの一覧へ戻ると 0。所持パルは 0.5 秒で「表示できる所持パルがありません。」。pageerror・console error は 0 件 | 戻る・進むはそのときの条件・位置、「先頭へ」（フェーズ 1a の終わりの表） | スクリプトはセッションの一時フォルダ（fix-nav/）。読み込み直しは開発 API のモジュールを包んでログインを保った |
