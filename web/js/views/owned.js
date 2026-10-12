@@ -1,14 +1,16 @@
 import { el, field, empty, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput } from '../ui/dom.js';
-import { palTile, humanIcon } from '../ui/pal-icon.js';
+import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
+import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { viewHeading, syncPicker, syncOptions, renderWhenIdle } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
+import { cleanSaved, list, idText, text, oneOf, intIn, bool } from '../core/boundary.js';
 
 function option(value, label) {
   const node = el('option', '', label);
@@ -22,6 +24,25 @@ function talentText(talent) {
 
 const STAR_FILTERS = [['', 'すべて'], ['1', '★1 以上'], ['2', '★2 以上'], ['3', '★3 以上'], ['4', '★4']];
 const TALENT_FILTERS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御']];
+
+const talentAtLeast = (value) => intIn(value, { min: 0, max: 100, fallback: 0 });
+/**
+ * 保存して読み戻す絞り込みの形（ui/view-memory.js が sessionStorage・履歴のエントリから読むときに、項目ごとに確かめる）。
+ * 合わない項目は既定の値に戻す。1c の owned-toolbar で絞り込みの形（場所のチップ・所持者）を変えたら、ここも直す
+ */
+export const OWNED_MEMORY = {
+  // 所持者: すべて・プレイヤー（player:<uid>）・拠点（base:<id>）・グローバルパルボックス
+  holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'global' || /^(player|base):\S/.test(value)) ? value : ''),
+  place: (value) => oneOf(value, ['', ...PLACE_ORDER], ''),
+  palId: (value) => (typeof value === 'string' && palsById.has(value) ? value : ''),
+  passives: (value) => list(value, { max: 4, map: (id) => idText(id, 64) || null, key: (id) => id }),
+  query: (value) => text(value, 100),
+  sort: (value) => oneOf(value, OWNED_SORTS.map(([key]) => key), 'dex'),
+  eggs: (value) => bool(value, true),
+  globals: (value) => bool(value, false),
+  stars: (value) => intIn(value, { min: 0, max: 4, fallback: 0 }),
+  talent: (value) => cleanSaved(value, { hp: talentAtLeast, shot: talentAtLeast, defense: talentAtLeast }),
+};
 // 一覧の描き方（性能の予算: 2,000 行で最初の 200 行が 100ms 以内・全行が 1 秒以内。2,000 行を超えたら見えている範囲だけ描く）
 const FIRST_ROWS = 200;
 const VIRTUAL_OVER = 2000;
@@ -109,7 +130,7 @@ export function ownedView(context, route) {
   const inputDelay = context.inputDelay ?? 150;
   const element = el('section', 'view owned-view');
   element.append(viewHeading('所持パル'));
-  // タブを切り替えて戻ってきても、前の絞り込みのまま出す（ページを読み込み直すと既定に戻る）。
+  // タブを切り替えて戻ってきても、前の絞り込みのまま出す。読み込み直しても、同じタブ（sessionStorage）の間は残る（app.js が戻す）。
   const memory = context.viewState?.('owned');
   const filter = memory?.filter ?? {
     holder: '', place: '', palId: '', passives: [], query: '', sort: 'dex', eggs: true, globals: false,
@@ -148,8 +169,10 @@ export function ownedView(context, route) {
   query.value = filter.query;
   const sort = el('select');
   for (const [key, label] of OWNED_SORTS) sort.append(option(key, label));
+  const toggleInputs = new Map();
   const checkbox = (label, checked, key) => {
     const input = el('input');
+    toggleInputs.set(key, input);
     input.type = 'checkbox';
     input.checked = checked;
     const wrapper = el('label', 'owned-toggle');
@@ -170,8 +193,10 @@ export function ownedView(context, route) {
   stars.value = filter.stars ? String(filter.stars) : '';
   stars.addEventListener('change', () => { filter.stars = Number(stars.value) || 0; renderResults(); });
   const talents = el('div', 'owned-talent-filter');
+  const talentInputs = new Map();
   for (const [key, label] of TALENT_FILTERS) {
     const input = el('input');
+    talentInputs.set(key, input);
     input.type = 'number';
     input.min = '0';
     input.max = '100';
@@ -198,6 +223,14 @@ export function ownedView(context, route) {
   const count = el('p', 'result-note');
   const results = el('div', 'owned-list');
   element.append(summary, filters, count, results);
+
+  // 戻る・進むで条件を入れ直したとき（app.js が履歴のエントリから filter に戻す）、入力欄にも出す
+  function showFilter() {
+    query.value = filter.query;
+    stars.value = filter.stars ? String(filter.stars) : '';
+    for (const [key, input] of talentInputs) input.value = filter.talent[key] ? String(filter.talent[key]) : '';
+    for (const [key, input] of toggleInputs) input.checked = filter[key];
+  }
 
   for (const [node, key] of [[holder, 'holder'], [place, 'place']]) {
     node.addEventListener('change', () => { filter[key] = node.value; renderResults(); });
@@ -250,16 +283,17 @@ export function ownedView(context, route) {
     if (signature === shownPassives) return;
     const draw = () => {
       shownPassives = signature;
+      // 選ぶ・外すと選択欄を作り直すので、続けて選べるよう同じ役目の部品（追加欄。押せなければ残ったチップの最後の ×）へフォーカスを移す
+      const token = captureFocus(passiveSlot);
       passiveSlot.replaceChildren(passiveSelector({
         label: 'パッシブ（すべて持つ個体）', selected: filter.passives, counts,
         onChange: (ids) => {
           filter.passives = ids;
           renderPassives(owned.state, { force: true });
           renderResults();
-          // 作り直した選択欄にフォーカスを戻す（続けて選べるように）
-          passiveSlot.querySelector('.passive-add')?.focus();
         },
       }));
+      restoreFocus(passiveSlot, token);
     };
     if (force) draw();
     else renderWhenIdle(passiveSlot, () => renderPassives(owned.state, { force: true }));
@@ -433,9 +467,12 @@ export function ownedView(context, route) {
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
   return {
     element, update,
-    // 同じ画面のまま絞り込みつきの URL が来たとき。作り直さずに、絞り込みと選択欄・一覧を合わせる（キーワードなどの入力は残す）
-    applyRoute(next) {
-      if (!readRoute(next)) return;
+    // 同じ画面のまま絞り込みつきの URL が来たとき。作り直さずに、絞り込みと選択欄・一覧を合わせる（キーワードなどの入力は残す）。
+    // 戻る・進むで app.js が履歴のエントリの条件を filter に入れ直したとき（restored）は、キーワードなどの入力欄にも出す
+    applyRoute(next, { restored = false } = {}) {
+      const fromUrl = readRoute(next);
+      if (!fromUrl && !restored) return;
+      if (restored) showFilter();
       syncPicker(picker, filter.palId);
       renderFilters(owned.state);
       renderPassives(owned.state, { force: true });

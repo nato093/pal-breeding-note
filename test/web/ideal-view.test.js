@@ -521,6 +521,28 @@ test('理想個体画面: 同じ画面のままパッシブを足す・外すと
   view.destroy();
 });
 
+test('理想個体画面: 4 個目を足して追加欄が押せなくなったら、残ったチップの最後の × にフォーカスを移し、× で外すと追加欄へ戻す', async (t) => {
+  const { body } = install(t);
+  const ctx = context(fakeOwned());
+  let view;
+  ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' });
+  view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare,Legend,WorldTree_ATK'));
+  body.append(view.element);
+  const add = view.element.querySelector('.passive-add');
+  add.focus();
+  add.value = 'WorldTree_DEF';
+  await add.dispatch('change');
+  assert.equal(view.element.querySelector('.passive-add').disabled, true);
+  const removes = view.element.querySelectorAll('.passive-remove');
+  assert.equal(removes.length, 4);
+  assert.equal(document.activeElement, removes.at(-1));
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_DEF');
+  await removes.at(-1).dispatch('click');
+  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  assert.equal(document.activeElement.disabled, false);
+  view.destroy();
+});
+
 test('理想個体画面: 登録を外すと一覧から消え、所持パルのデータがないときは「未確認」と出す', (t) => {
   install(t);
   const owned = fakeOwned(null);

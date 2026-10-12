@@ -21,6 +21,9 @@ export function buildHash(view, params = {}, id = '') {
   return query.size ? `${path}?${query}` : path;
 }
 
+/** route を表すハッシュ（履歴のエントリに残した条件と位置が、同じ URL のものかを確かめる）。 */
+export const routeKey = (route) => buildHash(route.view, route.params, route.id);
+
 /** 同じ画面か（条件のクエリだけが違う）。パル詳細は id まで比べる。 */
 export function sameScreen(a, b) {
   return Boolean(a && b) && a.view === b.view && a.id === b.id;

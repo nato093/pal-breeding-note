@@ -36,25 +36,9 @@ export function navigateSelection(context, route, key, value) {
   changeRoute(context, buildHash(route.view, params, route.id));
 }
 
-/** パル選択の値が違うときだけ合わせる（同じ値で描き直すと、選んだパルの画像が現れる動きがもう一度出る）。 */
+/** パル選択の値が違うときだけ合わせる（同じ値では描き直さない）。 */
 export function syncPicker(picker, value) {
   if (picker && picker.getValue() !== value) picker.setValue(value);
-}
-
-/**
- * container の中を作り直す（render）。中にフォーカスがあって作り直しで外れたら、target(前の要素) が返す要素へ移す。
- * 画面を作り直さない遷移では、押したチップやパッシブの選択欄をビューが作り直すため、そのままでは body に落ちる。
- * （戻し方の一般化は keep-state の ui/focus.js で行う）
- */
-export function keepFocus(container, render, target) {
-  const doc = globalThis.document;
-  const before = doc?.activeElement;
-  const inside = Boolean(before) && before !== doc.body && container.contains(before);
-  render();
-  if (!inside) return;
-  const now = doc.activeElement;
-  if (now && now !== doc.body) return;
-  target(before)?.focus();
 }
 
 /**

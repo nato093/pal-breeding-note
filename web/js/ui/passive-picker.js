@@ -6,8 +6,11 @@ export const passivesById = new Map(passives.map((passive) => [passive.id, passi
 // ゲームと同じ見た目にする: 暗い帯に名前、右にランクの矢印（矢印の画像はゲームから取り出したもの。色は CSS で付ける）
 const rankClass = (rank) => (rank > 0 ? `passive-rank-${Math.min(rank, 5)}` : rank < 0 ? `passive-rank-m${Math.min(-rank, 3)}` : 'passive-rank-0');
 
-/** パッシブの表示（ランクで矢印と色が変わる）。マスターにないものは内部名で出す。 */
-export function passiveChip(id, { onRemove } = {}) {
+/**
+ * パッシブの表示（ランクで矢印と色が変わる）。マスターにないものは内部名で出す。
+ * focusGroup: × のフォーカスの目印（ui/focus.js）。× が消えたら同じ名前の追加欄へ、追加欄が押せなければ残った × の最後へ
+ */
+export function passiveChip(id, { onRemove, focusGroup = '' } = {}) {
   const passive = passivesById.get(id);
   const rank = passive?.rank ?? 0;
   const chip = el('span', `passive-chip ${rankClass(rank)}`);
@@ -21,6 +24,11 @@ export function passiveChip(id, { onRemove } = {}) {
   if (onRemove) {
     const remove = button('×', onRemove, 'passive-remove');
     remove.setAttribute('aria-label', `${passive?.ja ?? id} を外す`);
+    if (focusGroup) {
+      remove.setAttribute('data-focus-key', `passive-chip:${id}`);
+      remove.setAttribute('data-focus-fallback', focusGroup);
+      remove.setAttribute('data-focus-group', focusGroup);
+    }
     chip.append(remove);
   }
   return chip;
@@ -40,9 +48,11 @@ export function passiveSelector({ label, selected, counts = new Map(), onChange,
   const wrapper = el('div', 'field passive-selector');
   wrapper.append(el('span', 'field-label', label));
   const chips = el('div', 'passive-list');
-  for (const id of selected) chips.append(passiveChip(id, { onRemove: () => onChange(selected.filter((item) => item !== id)) }));
+  const focusGroup = `passive:${label}`;
+  for (const id of selected) chips.append(passiveChip(id, { onRemove: () => onChange(selected.filter((item) => item !== id)), focusGroup }));
   const select = el('select', 'passive-add');
   select.setAttribute('aria-label', `${label}を追加`);
+  select.setAttribute('data-focus-key', focusGroup);
   const placeholder = el('option', '', selected.length >= max ? `最大 ${max} 個まで` : 'パッシブを追加…');
   placeholder.value = '';
   select.append(placeholder);

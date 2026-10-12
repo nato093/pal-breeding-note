@@ -37,10 +37,10 @@
 
 | 1a のテーマ | このフェーズで使うもの |
 |---|---|
-| render-contract | `context.update(hash)`（同じ画面なら作り直さない遷移）。ビューは `applyRoute(route)`（URL の条件・部品を最新の route に同期）と `update(state)`（データの描き直し）を持つ。理想個体の `to`・`passives`（今は views/ideal.js:178-179 の定数）は `applyRoute` で読み直す変数になっている。`navigateSelection`・`setPassives` は同じ画面なら `context.update` を使う。（追記 2026-10-12、実装の後: URL は生成時と applyRoute で同じ `readRoute(next)` が読む。g を読んだときは `showConditions()` が個体値・パッシブの条件・ケーキの入力欄を合わせる。作り直すパッシブの欄のフォーカスは views/shared.js の `keepFocus`。phase-1a の render-contract の「実装の記録」） |
+| render-contract | `context.update(hash)`（同じ画面なら作り直さない遷移）。ビューは `applyRoute(route)`（URL の条件・部品を最新の route に同期）と `update(state)`（データの描き直し）を持つ。理想個体の `to`・`passives`（今は views/ideal.js:178-179 の定数）は `applyRoute` で読み直す変数になっている。`navigateSelection`・`setPassives` は同じ画面なら `context.update` を使う。（追記 2026-10-12、実装の後: URL は生成時と applyRoute で同じ `readRoute(next)` が読む。g を読んだときは `showConditions()` が個体値・パッシブの条件・ケーキの入力欄を合わせる。作り直すパッシブの欄のフォーカスは views/shared.js の `keepFocus`。phase-1a の render-contract の「実装の記録」）（追記 2026-10-13: keep-state で `keepFocus` は消し、ui/focus.js の `captureFocus`／`restoreFocus` にした。applyRoute の 2 つ目の引数は `{ reason, restored }`） |
 | header-frame | CSS 変数 `--header-h`（ヘッダーの高さ）と重なり順の変数（ヘッダー・固定のパネル・候補・レール・トースト・ダイアログ・ドロワー）。このドキュメントでは `--z-header`・`--z-panel`（条件のパネル）・`--z-sticky`（2 段目の固定＝牧場の帯・列見出し）・`--z-popover` と書く（値は phase-1a の header-frame の表）。ヘッダーにセーブ連携の状態（ワールド・セーブ時刻・自動登録）が出る |
 | stable-render | `ui/dom.js` の `syncList(container, items, { key, create })`（create は `{ element, update, destroy }`）。画面用の変更番号。理想個体の「データ・index・実効の条件・本人」の署名で再計算を省く仕組みと、idealPlan の区切った計算。所持パルの最初の 200 行を先に出して残りを区切って足す仕組み（古い仕事の無効化つき）。件数の行（`.result-note`）の min-height。View Transition のヘルパー。（追記 2026-10-13、実装の後: 理想個体は `idealPlanSteps` を `startSliced` で回し、結果を描くのは views/ideal.js の `showPlan(result, plan)`。計算中は前の結果を残して `.ideal-results` に `aria-busy`・`is-computing`。選択欄は views/shared.js の `syncOptions`・`renderWhenIdle` で、同じなら作り直さない。所持パルの行は views/owned.js の中の `ownedRowItem`（行に出す値と一致の理由の署名を分け、理由だけ変わったら理由の行だけ入れ直す。1 回の描き直しで書き換えるのは先頭の 200 行までで、残りは区切る）。ビューのテストの context は `inputDelay: 0`・`sliceBudget: Infinity`。phase-1a の stable-render の「実装の記録」） |
-| keep-state | 画面ごとの条件とスクロール位置の保持（viewState・history.state）。条件の適用 → 描画 → 位置の復元の順番 |
+| keep-state | 画面ごとの条件とスクロール位置の保持（viewState・history.state）。条件の適用 → 描画 → 位置の復元の順番（追記 2026-10-13、実装の後: 部品は ui/view-memory.js の `createViewMemory`・`restoreScroll`。保存する条件の形は views/owned.js の `OWNED_MEMORY`・views/ideal.js の `IDEAL_MEMORY` で、**条件の項目を足す・変えるテーマはこの形も直す**（形にない項目は保存されず、読み込み直すと消える）。戻る・進むで条件を入れ直したときは applyRoute に `restored: true` が来るので、入力欄も合わせる。phase-1a の keep-state の「実装の記録」） |
 | popovers | `ui/popover.js`（固定配置の計算。`{ element, update, destroy }`、document/window のリスナーは AbortController で外す）。パッシブ選択の 1 行部品（`passiveSelector` が `{ element, update({ selected, counts }), destroy }` を返す。開いている間に update が来ても閉じない） |
 | data-boundary | 読み戻しの検証（個体値 0〜100 の整数など）。このフェーズで足す値も同じ検証を通す |
 
@@ -697,6 +697,7 @@ talent-target（個体値の部品）・popovers（パッシブの 1 行部品�
      query: '', sort: 'dex', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
    }
    ```
+   - （追記 2026-10-13、keep-state の後）絞り込みは sessionStorage と履歴のエントリにも残り、読み戻すときに views/owned.js の `OWNED_MEMORY` で項目ごとに確かめる。新しい形（places・bases など）を `OWNED_MEMORY` に足し、古い項目（place・eggs・globals・holder の base:/global）は形に残して `migrateFilter` に渡す（形から消すと、古い保存の値が読み戻しで捨てられて読み替えられない）。形を大きく変えるなら ui/view-memory.js の `MEMORY_VERSION` を上げて前の保存を捨ててもよい。
    - **古い値の読み替え**（viewState と URL。関数 `migrateFilter(old)` を views/owned.js に置き、テストする）: `place: 'egg'`（1 つ）→ `places: ['egg']`、`place: ''` → 既定、`eggs: false` → `places` から 'egg' を外す、`globals: true` → `places` に 'global' を足す、`holder: 'base:<id>'` → `holder: ''`・`bases: [id]`・`places` を `['base', 'egg']`（拠点のタマゴも拠点の持ち物なので）、`holder: 'global'` → `holder: ''`・`places: ['global']`。
 2. **`filterOwned` の引数を変える**（core/owned.js:304-324。呼ぶのは views/owned.js だけ）:
 

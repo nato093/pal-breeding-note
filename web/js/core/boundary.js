@@ -44,6 +44,14 @@ export function idText(value, max = 64) {
 
 export const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 
+/** 範囲の中の整数ならそのまま、違えば fallback（範囲に丸めない。保存した画面の条件のように、合わない値を既定に戻すとき） */
+export function intIn(value, { min = -Infinity, max = Infinity, fallback = 0 } = {}) {
+  return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}
+
+/** 真偽値ならそのまま、違えば fallback */
+export const bool = (value, fallback) => (typeof value === 'boolean' ? value : fallback);
+
 /** 画面内のハッシュ（#/ で始まり max 字まで）ならそのまま、違えば ''。外部の URL や script を開かないよう、通知の href などに使う */
 export function screenHref(value, max = 300) {
   return typeof value === 'string' && value.startsWith('#/') && value.length <= max ? value : '';

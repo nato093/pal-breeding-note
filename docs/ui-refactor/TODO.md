@@ -168,7 +168,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 差分更新・区切った描画・再計算の省略・ずれの解消
 
-- 状態: 済 ／ ブランチ: `feature/stable-render` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/stable-render` ／ マージのコミット: `c4f26c4`
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D18。D18 で画面が止まる時間の上限を決めた）
 - 文書と違う形にしたこと: 表 1 つで 300ms を超える条件（最大 491ms）があったので表の作成も区切り、組のループの区切りを 1,024 組ごと・最後の選び方をヒープ・見る組のキーを ID の表から引く形にし（20,000 行の偏った分布で 55 → 12 秒、区切りの最大 160 → 32ms）、所持パルは先頭の 200 行だけすぐ書き換えて残りを区切り・キーワードの文字列を使い回す形にした（`startSliced` の `firstBudget`・`syncOptions`・`renderWhenIdle`・`hasGenerationTable`・`prepareKeywords` を足した。20,000 行・同じ種族 6 割の理想個体は合計約 12 秒で D18 の「Worker を検討」に当たるが、Worker にはしていない。phase-1a の stable-render の「実装の記録」）
 
@@ -192,22 +192,23 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 位置と条件の保持・フォーカスの一般化
 
-- 状態: 未着手 ／ ブランチ: `feature/keep-state` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/keep-state` ／ マージのコミット: （マージの後に書く）
+- 文書と違う形にしたこと: 入力欄の合わせ直しは applyRoute の `restored`（エントリの条件を入れ直したとき）だけにし、起動では G-48 の保存を全画面に入れてから今のエントリで上書き、ワールドはどちらかが分からなければ比べず分かった所で所持者だけ外し、リンクの印は root（ヘッダーのリンクも先頭へ）に付けて ID のない新しいエントリは違う画面なら先頭、フォーカスは group が無ければ key と同じ名前の group へ移す形にした（`restoreScroll`・`routeKey`・`intIn`・`bool`・`passiveChip` の `focusGroup` を足し、`keepFocus` を消した。phase-1a の keep-state の「実装の記録」）
 
-- [ ] ui/view-memory.js（エントリ・G-48 の保存・最後のタブ・clear）と単体テストを作る
-- [ ] 所持パル・理想個体・一覧の条件の schema を各ビューから export する
-- [ ] app.js でエントリの ID を付け（ensureEntry・update の pushState）、scrollRestoration を manual にする
-- [ ] 移る前・スクロール・pagehide・hidden で今のエントリを保存する（タブ・本文のリンクの click で intent を付ける）
-- [ ] render に「条件を当てる → 描く → 位置を戻す」を入れ、restoreScroll（やり直し・取りやめ）を作る
-- [ ] owned・ideal の applyRoute で viewState から入力欄を合わせ直す
-- [ ] 起動時の最後のタブ（ハッシュが空のときだけ）とタブの行き先の読み戻しを入れる
-- [ ] ログアウト・名前の変更・ワールドの切り替えで消す
-- [ ] ui/focus.js を作り、各部品に data-focus-key を付け、app.js の決め打ちを置き換える
-- [ ] app.css:785-788 のポップインを消す
-- [ ] コメント（app.js:115・owned.js:75・ideal.js:180）を直す
-- [ ] app.test.js の fake に sessionStorage・scrollTo・pushState を足し、位置・条件・最後のタブ・消去のテストを書く
-- [ ] release-notes に 1 件足す
-- [ ] モックで位置・戻る/進む・読み込み直し・フォーカスを確かめる
+- [x] ui/view-memory.js（エントリ・G-48 の保存・最後のタブ・clear）と単体テストを作る（restoreScroll も同じファイル）
+- [x] 所持パル・理想個体・一覧の条件の schema を各ビューから export する（`OWNED_MEMORY`・`IDEAL_MEMORY`・`LIST_MEMORY`）
+- [x] app.js でエントリの ID を付け（ensureEntry・update の pushState）、scrollRestoration を manual にする
+- [x] 移る前・スクロール・pagehide・hidden で今のエントリを保存する（タブ・リンクの click で intent を付ける。click は root に付けた）
+- [x] render に「条件を当てる → 描く → 位置を戻す」を入れ、restoreScroll（やり直し・取りやめ）を作る
+- [x] owned・ideal の applyRoute で viewState から入力欄を合わせ直す（エントリの条件を入れ直したとき＝`restored` だけ）
+- [x] 起動時の最後のタブ（ハッシュが空のときだけ）とタブの行き先の読み戻しを入れる
+- [x] ログアウト・名前の変更・ワールドの切り替えで消す
+- [x] ui/focus.js を作り、各部品に data-focus-key を付け、app.js の決め打ちを置き換える（keepFocus も置き換えて消した）
+- [x] app.css:785-788 のポップインを消す
+- [x] コメント（app.js:115・owned.js:75・ideal.js:180）を直す（一覧の list.js も）
+- [x] app.test.js の fake に sessionStorage・scrollTo・pushState を足し、位置・条件・最後のタブ・消去のテストを書く（pushState は render-contract で入っていた）
+- [x] release-notes に 1 件足す
+- [x] モックで位置・戻る/進む・読み込み直し・フォーカスを確かめる（phase-1a の「計測の記録」。読み込み直しは開発 API を包んでユーザーを残して確かめた。ダークは見ていない）
 
 ### 7. [popovers](phase-1a-foundation.md#popovers-ポップオーバーの共通化パル選択パッシブ選択)（M）
 
@@ -1011,8 +1012,8 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 6 番目 keep-state**（[phase-1a-foundation.md の節](phase-1a-foundation.md#keep-state-位置と条件の保持フォーカスの一般化)）から。始めに、TODO の stable-render の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。stable-render の「実装の記録」（`syncList` の `data-focus` とフォーカスの戻し方・`renderWhenIdle`・`.card-stack` と所持パルの一覧の `overflow-anchor: none`・所持パルの先頭 200 行の書き換え）を読んでから入る。
-- ユーザーに確かめ中（フェーズ 1a の終わりの報告でまとめて聞く）: (1) 拡大 150%（1100px の窓で中身 733px）では body の min-width 920px のため横スクロールが出て、登録と ID が右外に出る。今の制約のままでよいか。(2) ログイン画面のヘッダーの同期状況は、押せないボタンとしてログインのエラーの文も出る（エラーはフォームにも出ている）。ログイン画面では隠すか、今のままか。
+- **フェーズ 1a の 7 番目 popovers から**（[phase-1a-foundation.md の節](phase-1a-foundation.md#popovers-ポップオーバーの共通化パル選択パッシブ選択)）。始めに、TODO の keep-state の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。keep-state の「実装の記録」（`data-focus-key` の付け方と ui/focus.js の group の決まり・applyRoute の `restored`・`OWNED_MEMORY`／`IDEAL_MEMORY` の形）を読んでから入る。
+- ユーザーに確かめ中（フェーズ 1a の終わりの報告でまとめて聞く）: (1) 拡大 150%（1100px の窓で中身 733px）では body の min-width 920px のため横スクロールが出て、登録と ID が右外に出る。今の制約のままでよいか。(2) ログイン画面のヘッダーの同期状況は、押せないボタンとしてログインのエラーの文も出る（エラーはフォームにも出ている）。ログイン画面では隠すか、今のままか。 (3) 所持パル 20,000 行で同じ種族が 6 割（3,700 万組）だと、理想個体の計算の合計が約 12 秒かかる（画面は止まらず「計算中」が続く）。D18 の『合計が 5 秒を超えたら Worker を検討』に当たる。Worker にするか（import の制限と data/SOURCES.md の変更が要る）、このままか。(4) `npm run test:perf` は PC の負荷で、区切りの最大（上限 50ms）が 48ms、20,000 行の検証（上限 200ms）が 191ms まで来ることがあり、落ちるおそれがある。
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
 - 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。(7) 性能の予算の注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-rows-2000.js`・`inject-rows-20000.js`（inject.js の写し。画面に出る行がちょうどその数）。ログイン画面ではヘッダーの同期状況のボタンにもエラーの文が出るので、playwright で「新規登録」を押すときは `exact: true` にする。JS ヒープは CDP の `HeapProfiler.collectGarbage` の後に `Runtime.getHeapUsage` で測った。
-- 最終更新: 2026-10-13（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame・stable-render を済ませた。ideal-calc のレビューで D19 を足した）
+- 最終更新: 2026-10-13（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame・stable-render・keep-state を済ませた。ideal-calc のレビューで D19 を足した）
