@@ -1,8 +1,11 @@
-import { el, field, button, empty } from '../ui/dom.js';
-import { breedingCard } from '../ui/breeding-card.js';
+import { el, field, button, empty, onTextInput } from '../ui/dom.js';
 import { palsById } from '../ui/pal-icon.js';
+import { withTransition } from '../ui/motion.js';
 import { parentRows, recordComparator } from '../core/record-sort.js';
-import { viewHeading, watchView, dataPending } from './shared.js';
+import { viewHeading, renderCards, watchView, dataPending } from './shared.js';
+
+// 並べ替えの動き（View Transition）を使う行の数の上限（多いとスナップショットが重い）
+const TRANSITION_MAX = 2000;
 
 export function listView(context) {
   const element = el('section', 'view');
@@ -27,26 +30,31 @@ export function listView(context) {
   const results = el('div', 'card-stack');
   // 件数が多くても、最初からすべて出す
   element.append(filters, count, results);
-  for (const input of [registrant, sort]) {
-    input.addEventListener('input', () => {
-      memory.registrant = registrant.value;
-      memory.sort = sort.value;
-      update(context.store.state);
-    });
-  }
+  const remember = () => {
+    memory.registrant = registrant.value;
+    memory.sort = sort.value;
+  };
+  let shownRows = 0;
+  // 登録者名は入力を間引く（日本語の変換中は絞らない）。並べ替えはすぐ（行の順番が変わるので、動きを付ける）
+  onTextInput(registrant, () => { remember(); update(context.store.state); }, { delay: context.inputDelay ?? 150 });
+  sort.addEventListener('input', () => {
+    remember();
+    const draw = () => update(context.store.state);
+    if (shownRows > TRANSITION_MAX) draw();
+    else withTransition(draw);
+  });
   function update(state) {
-    if (dataPending(results, state)) return;
+    if (dataPending(results, state)) { shownRows = 0; return; }
     const query = registrant.value.trim().toLocaleLowerCase('ja');
     const records = state.records.filter((record) => record.registrant.toLocaleLowerCase('ja').includes(query));
     const byParent = sort.value.startsWith('parent');
     const rows = (byParent ? parentRows(records) : records).sort(recordComparator(sort.value, state.index.palOrder, palsById));
     count.textContent = `${records.length} 件の配合 · ${rows.length} 件を表示`;
-    results.replaceChildren();
-    if (!records.length) results.append(empty('条件に合う登録はありません。見つけた配合を登録しましょう。',
-      button('配合を登録', () => context.register(), 'button primary')));
-    for (const row of rows) {
-      results.append(byParent ? breedingCard(row.record, context, { leftParent: row.parent1Id }) : breedingCard(row, context));
-    }
+    shownRows = rows.length;
+    // 親の順は 1 件 2 行（左に出す親が違う）。行の key に表示の向きを入れて、同じ配合の 2 行を別の行にする
+    renderCards(results, rows.map((row) => (byParent ? { record: row.record, leftParent: row.parent1Id } : { record: row })), context, {
+      empty: () => empty('条件に合う登録はありません。見つけた配合を登録しましょう。', button('配合を登録', () => context.register(), 'button primary')),
+    });
   }
   return watchView(context.store, element, update);
 }

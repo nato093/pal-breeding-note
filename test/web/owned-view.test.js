@@ -48,7 +48,8 @@ function context(owned, records = []) {
   const index = buildIndex(records, pals);
   const state = { records, index, graph: buildCarrierGraph(index), env: 'test', warnings: [], userId: '仲間' };
   const navigations = [];
-  return { store: { state, subscribe: () => () => {} }, owned, navigations, navigate: (hash) => navigations.push(hash) };
+  // 入力の間引き（キーワード・個体値）を 0 にして、入力した直後の結果を同期で確かめる
+  return { store: { state, subscribe: () => () => {} }, owned, navigations, navigate: (hash) => navigations.push(hash), inputDelay: 0 };
 }
 
 test('所持パル画面: 読み込んだパルを、パッシブ・所持者・場所と更新時刻つきで一覧にする（連携の設定は出さない）', (t) => {
@@ -223,10 +224,14 @@ test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体
 
 test('所持パル画面: 人間のキャラクターはゲームの名前とアイコンで出し、件数が多くても全部出す', (t) => {
   installDom(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const many = Array.from({ length: 250 }, (_, i) => ({ instanceId: `s${i}`, characterId: 'SheepBall', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }));
   const humans = [{ instanceId: 'h', characterId: 'BOSS_Believer_CrossBow', gender: 'Male', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }];
   const data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: [...humans, ...many] } };
   const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  // 先頭の 200 行をすぐ出し、残りは区切って足す（途中で止めず、もっと見るもない）
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 200);
+  t.mock.timers.runAll();
   const rows = view.element.querySelectorAll('.owned-row');
   assert.equal(rows.length, 251);
   assert.equal(view.element.querySelectorAll('.load-more').length, 0);
@@ -625,4 +630,205 @@ test('設定画面: 所持パルの CSV 保存と共有の削除は、ワール�
   // 読み込んでも共有されてもいないワールドは、CSV を押せず、共有の削除もない
   assert.deepEqual(buttonsOf(other).map((node) => [node.textContent, node.disabled]), [['CSV で保存', true]]);
   card.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// stable-render: 行の使い回し・区切った描画・仮想の一覧・選択肢を作り直さない
+// ---------------------------------------------------------------------------
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const manyData = (count, extra = []) => ({
+  version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' },
+  snapshot: { ...snapshot, pals: [...extra, ...Array.from({ length: count }, (_, i) => ({ instanceId: `s${i}`, characterId: 'SheepBall', gender: i % 2 ? 'Male' : 'Female', level: 1 + (i % 50), passives: [], talent: { hp: i % 101 }, location: { kind: 'palbox', playerUid: P1 } }))] },
+});
+
+test('所持パル画面: 中身が同じセーブの読み直しでは行の要素も選択肢も同じまま。中身が変わった行だけ書き換え、キーワードで一致の理由も変わる', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const rows = view.element.querySelectorAll('.owned-row');
+  const holder = view.element.querySelectorAll('select')[0];
+  const options = [...holder.children];
+  const firstContent = rows[0].children[0];
+  // 読み直した（新しいデータだが中身は同じ）
+  owned.state.owned = normalizeOwned(snapshot, { pals, passives });
+  owned.emit();
+  assert.deepEqual(view.element.querySelectorAll('.owned-row'), rows);
+  assert.equal(rows[0].children[0], firstContent);
+  assert.deepEqual([...holder.children], options);
+  // 1 体だけレベルが上がった: 行の要素は同じで、その行の中身だけ入れ直す
+  const leveled = { ...snapshot, pals: snapshot.pals.map((pal) => (pal.instanceId === 'a' ? { ...pal, level: 13 } : pal)) };
+  owned.state.owned = normalizeOwned(leveled, { pals, passives });
+  owned.emit();
+  const after = view.element.querySelectorAll('.owned-row');
+  assert.deepEqual(after, rows);
+  assert.match(after[0].textContent, /Lv 13/);
+  assert.notEqual(after[0].children[0], firstContent);
+  assert.equal(after[1].children[0], rows[1].children[0]);
+  // キーワードを変えると、同じ行の一致の理由が変わる
+  const query = view.element.querySelectorAll('input').find((node) => node.type === 'search');
+  query.value = '作業速度';
+  await query.dispatch('input');
+  assert.equal(view.element.querySelectorAll('.owned-row')[0], rows[0]);
+  assert.ok(rows[0].querySelectorAll('.owned-hit').length > 0);
+  query.value = '';
+  await query.dispatch('input');
+  assert.equal(rows[0].querySelectorAll('.owned-hit').length, 0);
+  view.destroy();
+});
+
+test('所持パル画面: 所持者の選択肢は、選んでいる途中に中身が変わっても作り直さず、離れてから作り直す', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  document.body.append(view.element);
+  const holder = view.element.querySelectorAll('select')[0];
+  const options = [...holder.children];
+  holder.focus();
+  const P2 = 'abcd1234-0000-0000-0000-000000000000';
+  owned.state.owned = normalizeOwned({ ...snapshot, players: [...snapshot.players, { uid: P2, name: 'Bob', level: 3 }] }, { pals, passives });
+  owned.emit();
+  assert.deepEqual([...holder.children], options);
+  document.activeElement = document.body;
+  await holder.dispatch('blur');
+  await settle();
+  assert.deepEqual([...holder.children].map((node) => node.textContent), ['すべて', 'Alice', 'Bob']);
+  view.destroy();
+});
+
+test('所持パル画面: 区切って行を足している途中で画面を閉じたら、それ以上足さない', (t) => {
+  installDom(t);
+  // 区切りは次の描画（requestAnimationFrame）でつなぐ。1 回ずつ進めるため、手で回す
+  const frames = [];
+  globalThis.requestAnimationFrame = (fn) => frames.push(fn);
+  t.after(() => { delete globalThis.requestAnimationFrame; });
+  const view = ownedView(context(fakeOwned(manyData(1500))), parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  assert.equal(list.children.length, 200);
+  // 1 回の区切りぶん進める
+  frames.shift()();
+  const partway = list.children.length;
+  assert.ok(partway > 200 && partway < 1500, `途中の行 ${partway}`);
+  view.destroy();
+  while (frames.length) frames.shift()();
+  assert.equal(list.children.length, 0);
+});
+
+test('所持パル画面: 条件を変えたら、前の条件で区切って足していた仕事は捨てる', (t) => {
+  installDom(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const view = ownedView(context(fakeOwned(manyData(1500))), parseHash('#/owned'));
+  const hp = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
+  // HP 90 以上に絞る（行は減る）。前の仕事が後から行を足して戻さない
+  hp.value = '90';
+  hp.dispatch('input');
+  const shown = view.element.querySelectorAll('.owned-row');
+  assert.ok(shown.every((row) => /HP (9\d|100)/.test(row.textContent)));
+  t.mock.timers.runAll();
+  assert.equal(view.element.querySelectorAll('.owned-row').length, shown.length);
+  assert.equal(view.element.querySelector('.result-note').textContent, `${shown.length} 体`);
+  view.destroy();
+});
+
+test('所持パル画面: 2,000 行を超えたら見えている範囲だけを描き、2,000 行以下に戻ったら全部描く', (t) => {
+  const { windowEvents } = installDom(t);
+  windowEvents.innerHeight = 900;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const owned = fakeOwned(manyData(2001));
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  assert.ok(list.className.includes('is-virtual'));
+  const rows = list.querySelectorAll('.owned-row');
+  assert.ok(rows.length > 0 && rows.length < 100, `描いた行 ${rows.length}`);
+  assert.equal(view.element.querySelector('.result-note').textContent, '2001 体');
+  // 並べ替えても仮想のまま（動きは付けない）
+  const sort = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'level'));
+  sort.value = 'level';
+  sort.dispatch('change');
+  assert.ok(list.className.includes('is-virtual'));
+  // 個体値で 2,000 行以下に絞ると、仮想をやめて全部描く（先頭の 200 行の後は区切って足す）
+  const hp = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
+  hp.value = '50';
+  hp.dispatch('input');
+  t.mock.timers.runAll();
+  assert.ok(!list.className.includes('is-virtual'));
+  const count = Number(view.element.querySelector('.result-note').textContent.replace(/ 体$/, ''));
+  assert.equal(list.querySelectorAll('.owned-row').length, count);
+  view.destroy();
+});
+
+test('設定画面: 読み込み中（busy）になっても登録したワールドの行と「使うワールド」の選択肢を作り直さず、ボタンの押せる・押せないだけを変える', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  const item = card.element.querySelector('.owned-registered-item');
+  const select = card.element.querySelector('.owned-world-row').querySelector('select');
+  const options = [...select.children];
+  const buttons = () => item.querySelectorAll('button').filter((node) => ['編集', '削除', 'CSV で保存'].includes(node.textContent));
+  assert.ok(buttons().every((node) => !node.disabled));
+  owned.state.busy = true;
+  owned.emit();
+  assert.equal(card.element.querySelector('.owned-registered-item'), item);
+  assert.deepEqual([...select.children], options);
+  assert.ok(buttons().every((node) => node.disabled));
+  assert.equal(select.disabled, true);
+  owned.state.busy = false;
+  owned.emit();
+  assert.equal(card.element.querySelector('.owned-registered-item'), item);
+  assert.ok(buttons().every((node) => !node.disabled));
+  assert.equal(select.disabled, false);
+  card.destroy();
+});
+
+test('継承ルート: 所持パルの読み直しで所持数が同じなら、パッシブの選択欄を作り直さず、選んでいる途中は離れるまで待つ', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const view = inheritanceView(context(owned), parseHash('#/route?to=SheepBall&p=Rare'));
+  document.body.append(view.element);
+  const add = view.element.querySelector('.passive-add');
+  owned.state.data = { ...owned.state.data };
+  owned.state.owned = normalizeOwned(snapshot, { pals, passives });
+  owned.emit();
+  assert.equal(view.element.querySelector('.passive-add'), add);
+  add.focus();
+  const more = { ...snapshot, pals: [...snapshot.pals, { instanceId: 'z', characterId: 'PinkCat', gender: 'Male', passives: ['Rare'], talent: {}, location: { kind: 'palbox', playerUid: P1 } }] };
+  owned.state.data = { ...owned.state.data };
+  owned.state.owned = normalizeOwned(more, { pals, passives });
+  owned.emit();
+  assert.equal(view.element.querySelector('.passive-add'), add);
+  document.activeElement = document.body;
+  await add.dispatch('blur');
+  await settle();
+  assert.notEqual(view.element.querySelector('.passive-add'), add);
+  view.destroy();
+});
+
+test('所持パル画面: キーワードで多くの行の一致の理由が変わるときは、先頭の 200 行をすぐ書き換え、残りは区切って書き換える（行の要素は同じ）', (t) => {
+  installDom(t);
+  const frames = [];
+  globalThis.requestAnimationFrame = (fn) => frames.push(fn);
+  t.after(() => { delete globalThis.requestAnimationFrame; });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const data = manyData(0, Array.from({ length: 300 }, (_, i) => ({ instanceId: `k${i}`, characterId: 'SheepBall', gender: 'Female', level: 10,
+    passives: ['CraftSpeed_up2'], talent: {}, location: { kind: 'palbox', playerUid: P1 } })));
+  const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  while (frames.length) frames.shift()();
+  const rows = view.element.querySelectorAll('.owned-row');
+  assert.equal(rows.length, 300);
+  const query = view.element.querySelectorAll('input').find((node) => node.type === 'search');
+  query.value = '作業速度';
+  query.dispatch('input');
+  const hits = () => view.element.querySelectorAll('.owned-row').map((row) => row.querySelectorAll('.owned-hit').length);
+  assert.deepEqual(view.element.querySelectorAll('.owned-row'), rows);
+  assert.equal(hits().filter(Boolean).length, 200);
+  assert.ok(hits().slice(0, 200).every(Boolean));
+  while (frames.length) frames.shift()();
+  assert.ok(hits().every(Boolean));
+  // 理由だけが変わった行は、行の中の理由の行だけを入れ直す（パル・レベルの欄は同じ要素）
+  const cell = rows[0].children[0];
+  query.value = '';
+  query.dispatch('input');
+  while (frames.length) frames.shift()();
+  assert.ok(hits().every((count) => count === 0));
+  assert.equal(rows[0].children[0], cell);
+  view.destroy();
 });

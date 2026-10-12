@@ -44,6 +44,8 @@ function context(owned, records = [], states = new Map()) {
   return {
     store: { state, subscribe: () => () => {} }, owned, navigations, navigate: (hash) => navigations.push(hash), replace() {},
     viewState(view) { if (!states.has(view)) states.set(view, {}); return states.get(view); },
+    // 入力の間引きと計算の区切りをなくし、条件を変えた直後の結果を同期で確かめる（区切った計算は専用のテストで確かめる）
+    inputDelay: 0, sliceBudget: Infinity,
   };
 }
 
@@ -802,4 +804,123 @@ test('理想個体画面: 牧場に置かない組（上から牧場の数より
   empty.emit();
   assert.equal(plain.element.querySelectorAll('.ideal-changed').length, 0);
   plain.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// stable-render: 同じなら計算も DOM も触らない・区切った計算・選択肢を作り直さない
+// ---------------------------------------------------------------------------
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test('理想個体画面: 同じデータ・同じ条件で描き直しても（20 秒ごとの確認など）、計算もカードも作り直さない。条件やデータが変われば作り直す', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const [card] = cards(view);
+  const note = view.element.querySelector('.result-note').textContent;
+  view.update();
+  owned.emit();
+  assert.equal(cards(view)[0], card);
+  assert.equal(view.element.querySelector('.result-note').textContent, note);
+  // 所持パルの中身が読み直された（新しいデータ）ときは計算し直す
+  owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
+  owned.emit();
+  assert.notEqual(cards(view)[0], card);
+  const again = cards(view)[0];
+  // 条件を変えたら作り直す
+  const hp = input(view, 'HPの目標');
+  hp.value = '90';
+  hp.dispatch('input');
+  assert.notEqual(cards(view)[0], again);
+  view.destroy();
+});
+
+test('理想個体画面: 計算が 1 回の区切りで終わらないときは「計算中」にし（前の結果は残す）、終わったら描く。条件を変えると古い計算を捨てる', async (t) => {
+  installDom(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const owned = fakeOwned();
+  // 区切りを 0ms にして、必ず区切る（新しい世代の表を作るように、ほかのテストと違う目標にする）
+  const ctx = { ...context(owned), sliceBudget: 0 };
+  const states = new Map([['ideal', { conditions: { holder: '', mode: 'include', targets: { hp: 97, shot: 96, defense: 95 }, cake: 'none' } }]]);
+  ctx.viewState = (name) => { if (!states.has(name)) states.set(name, {}); return states.get(name); };
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const results = view.element.querySelector('.ideal-results');
+  // まだ何も出していないので「計算中…」だけを出す
+  assert.equal(results.getAttribute('aria-busy'), 'true');
+  assert.ok(results.className.includes('is-computing'));
+  assert.match(results.textContent, /計算中…/);
+  assert.equal(cards(view).length, 0);
+  t.mock.timers.runAll();
+  await settle();
+  assert.equal(results.getAttribute('aria-busy'), null);
+  assert.ok(!results.className.includes('is-computing'));
+  assert.equal(cards(view).length, 1);
+  const [card] = cards(view);
+  const note = view.element.querySelector('.result-note').textContent;
+  // 条件を 2 回続けて変える。計算している間は前の結果（カード・要約）を残し、最後の条件の結果だけを描く
+  const hp = input(view, 'HPの目標');
+  hp.value = '94';
+  hp.dispatch('input');
+  assert.equal(results.getAttribute('aria-busy'), 'true');
+  assert.equal(cards(view)[0], card);
+  assert.equal(view.element.querySelector('.result-note').textContent, note);
+  hp.value = '93';
+  hp.dispatch('input');
+  t.mock.timers.runAll();
+  await settle();
+  assert.equal(results.getAttribute('aria-busy'), null);
+  // 同じ条件を同期で計算した画面と同じ結果
+  const expected = idealView({ ...context(fakeOwned()), sliceBudget: Infinity, viewState: ctx.viewState }, parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  assert.equal(cards(view)[0].textContent, cards(expected)[0].textContent);
+  assert.notEqual(cards(view)[0], card);
+  expected.destroy();
+  // 計算の途中で画面を閉じたら、それ以上描かない
+  hp.value = '92';
+  hp.dispatch('input');
+  const shown = cards(view)[0];
+  view.destroy();
+  t.mock.timers.runAll();
+  await settle();
+  assert.equal(cards(view)[0], shown);
+  assert.equal(results.getAttribute('aria-busy'), 'true');
+});
+
+test('理想個体画面: 所持者とパッシブの選択欄は、中身が同じなら作り直さず、変わってもフォーカス中は離れるまで待つ', async (t) => {
+  install(t);
+  const P2 = 'abcd1234-0000-0000-0000-000000000000';
+  const owned = fakeOwned();
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2'));
+  document.body.append(view.element);
+  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  const options = [...holder.children];
+  const passiveAdd = view.element.querySelector('.passive-add');
+  // 中身が同じデータの読み直し
+  owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
+  owned.emit();
+  assert.deepEqual([...holder.children], options);
+  assert.equal(view.element.querySelector('.passive-add'), passiveAdd);
+  // プレイヤーと所持数が変わった。所持者の欄を選んでいる途中は作り直さない
+  const snapshot = { ...owned.state.data.snapshot, players: [...owned.state.data.snapshot.players, { uid: P2, name: 'Bob', level: 3 }],
+    pals: [...owned.state.data.snapshot.pals, palworldPal('n1', 'SheepBall', 'Female', ['Noukin'], full, { kind: 'palbox', playerUid: P2 })] };
+  holder.focus();
+  owned.state.owned = normalizeOwned(snapshot, { pals, passives });
+  owned.emit();
+  assert.deepEqual([...holder.children], options);
+  // パッシブの欄はフォーカスがないので、所持数が変わればすぐ作り直す
+  assert.notEqual(view.element.querySelector('.passive-add'), passiveAdd);
+  // 離れたら作り直す
+  document.activeElement = document.body;
+  await holder.dispatch('blur');
+  await settle();
+  assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', 'Alice', 'Bob']);
+  // パッシブの欄を選んでいる途中も待つ
+  const add = view.element.querySelector('.passive-add');
+  add.focus();
+  owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
+  owned.emit();
+  assert.equal(view.element.querySelector('.passive-add'), add);
+  document.activeElement = document.body;
+  await add.dispatch('blur');
+  await settle();
+  assert.notEqual(view.element.querySelector('.passive-add'), add);
+  view.destroy();
 });

@@ -17,7 +17,8 @@ function context(records = [{ id: '配合', parent1Id: 'FlowerDoll', parent2Id: 
   const index = buildIndex(records, pals);
   const state = { records, index, graph: buildCarrierGraph(index), env: 'test', warnings: [], userId: '仲間' };
   const navigations = [];
-  return { store: { state, subscribe: () => () => {} }, navigations, navigate: (hash) => navigations.push(hash) };
+  // 入力の間引き（ui/dom.js の onTextInput）を 0 にして、入力した直後の結果を同期で確かめる
+  return { store: { state, subscribe: () => () => {} }, navigations, navigate: (hash) => navigations.push(hash), inputDelay: 0 };
 }
 
 test('配合検索: 親は初期未選択で、入れ替え・共有・見出しの装飾を出さない', (t) => {
@@ -207,5 +208,70 @@ test('設定: アカウントを末尾に移し、他の順序とログイン ID
     'データの状態', '記録を書き出す', '整合性の警告', '通知', 'アカウント',
   ]);
   assert.match(sections[4].textContent, /ログイン中の ID: 仲間.*ログアウト/);
+  view.destroy();
+});
+
+// 知らせる（emit）ことのできる store。revision は store.js と同じく、中身が変わったときだけ増やす
+function liveContext(records) {
+  const app = context(records);
+  const listeners = new Set();
+  app.store.state.revision = 1;
+  app.store.subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+  app.store.emit = (changes = {}) => {
+    Object.assign(app.store.state, changes);
+    if (changes.records) {
+      app.store.state.index = buildIndex(changes.records, pals);
+      app.store.state.revision++;
+    }
+    listeners.forEach((listener) => listener(app.store.state));
+  };
+  return app;
+}
+
+test('一覧: 親の順の 1 件 2 行は別の行（key に表示の向き）で、取得し直しても同じ要素のまま。中身が変わった配合だけ作り直す', async (t) => {
+  installDom(t);
+  const source = context().store.state.records[0];
+  const app = liveContext([{ ...source, etag: 'e1' }]);
+  const view = listView(app);
+  const cards = () => view.element.querySelectorAll('.breeding-card');
+  // 同じ配合の 2 行（左の親が違う）が両方出る
+  assert.equal(cards().length, 2);
+  assert.deepEqual(cards().map((card) => card.querySelector('.breeding-equation').querySelector('strong').textContent), ['モコロン', 'フラリーナ']);
+  const before = cards();
+  // 中身が同じ取得（番号が増えない）では描き直さない
+  app.store.emit({ serverTime: '2026-10-05T00:00:00Z' });
+  assert.deepEqual(cards(), before);
+  // 番号は増えたが中身が同じ配合は、同じ要素を使い回す
+  app.store.emit({ records: [{ ...source, etag: 'e1' }] });
+  assert.deepEqual(cards(), before);
+  // 楽観更新（etag は同じで updatedAt が変わる）は作り直す（古い表示を残さない）
+  app.store.emit({ records: [{ ...source, etag: 'e1', updatedAt: '2026-10-06T00:00:00Z', memo: '書き換え' }] });
+  assert.ok(cards().every((card) => !before.includes(card)));
+  assert.match(cards()[0].textContent, /書き換え/);
+  view.destroy();
+});
+
+test('配合検索: 親を選んだ後に記録が取り直されても、同じ配合のカードは同じ要素のまま（件数の行も残す）', (t) => {
+  installDom(t);
+  const app = liveContext();
+  const view = searchView(app, parseHash('#/search?p1=SheepBall'));
+  const card = view.element.querySelector('.breeding-card');
+  assert.ok(card);
+  assert.equal(view.element.querySelector('.result-note').textContent, '1 件の登録済み配合');
+  app.store.emit({ records: [...app.store.state.records] });
+  assert.equal(view.element.querySelector('.breeding-card'), card);
+  // カードの操作ボタンには、差分更新でフォーカスを戻すための目印がある
+  assert.deepEqual(card.querySelectorAll('[data-focus]').map((node) => node.getAttribute('data-focus')), ['edit', 'remove']);
+  view.destroy();
+});
+
+test('設定: 記録が同じで整合性の警告だけ変わったときも、警告を描き直す', (t) => {
+  installDom(t);
+  const app = liveContext();
+  const view = settingsView(app);
+  const warnings = () => view.element.querySelector('.warning-list').textContent;
+  assert.match(warnings(), /警告はありません/);
+  app.store.emit({ warnings: [{ code: 'UNKNOWN_PAL', rowNumber: 5 }] });
+  assert.match(warnings(), /5 行目: マスターにないパルが含まれています/);
   view.destroy();
 });

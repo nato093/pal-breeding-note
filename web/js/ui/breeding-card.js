@@ -57,6 +57,9 @@ export function breedingCard(record, context = {}, { preview = false, focusParen
   const remove = actionIcon('削除', icons.remove, async () => {
     await runButton(remove, () => context.remove(record), (error) => toast(error.message));
   }, 'danger-text');
+  // 一覧の差分更新（syncList）で、同じカードの同じボタンへフォーカスを戻すための目印
+  edit.setAttribute('data-focus', 'edit');
+  remove.setAttribute('data-focus', 'remove');
   actions.append(edit, remove);
   card.append(actions);
   return card;

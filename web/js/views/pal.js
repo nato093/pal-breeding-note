@@ -24,12 +24,12 @@ export function palView(context, route) {
   element.append(hero, actions, el('h2', 'section-title', 'このパルが生まれる配合'), children,
     el('h2', 'section-title', 'このパルを親に使う配合（相手 → 子）'), parents);
   return watchView(context.store, element, (state) => {
-    if (dataPending(children, state)) { parents.replaceChildren(); return; }
-    const childRecords = findByChild(state.index, pal.id);
-    const parentRecords = findByParent(state.index, pal.id);
-    renderCards(children, childRecords, context);
-    renderCards(parents, parentRecords, context, { focusParent: pal.id });
-    if (!childRecords.length) children.append(empty('この子の配合はまだ登録されていません。'));
-    if (!parentRecords.length) parents.append(empty('このパルを親に使う配合はまだ登録されていません。'));
+    if (dataPending(children, state)) { renderCards(parents, [], context); return; }
+    renderCards(children, findByChild(state.index, pal.id).map((record) => ({ record })), context, {
+      empty: () => empty('この子の配合はまだ登録されていません。'),
+    });
+    renderCards(parents, findByParent(state.index, pal.id).map((record) => ({ record, focusParent: pal.id })), context, {
+      empty: () => empty('このパルを親に使う配合はまだ登録されていません。'),
+    });
   });
 }
