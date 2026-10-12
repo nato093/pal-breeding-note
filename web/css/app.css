@@ -623,7 +623,7 @@ img, svg { max-width: 100%; }
 }
 .picker-popover-floating .picker-search, .picker-popover-floating .picker-status { flex-shrink: 0; }
 .picker-popover-floating .picker-options { min-height: 0; }
-.picker-options { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; padding: 3px; }
+.picker-options { display: flex; flex-direction: column; max-height: min(60vh, 520px); overflow-y: auto; padding: 3px; }
 .picker-option {
   display: flex;
   align-items: center;
@@ -638,10 +638,22 @@ img, svg { max-width: 100%; }
 }
 .picker-option .pal-label { font-size: 13px; line-height: 1.3; }
 .picker-option:hover { background: var(--state-hover); }
-.picker-option.highlighted, .picker-option[aria-selected="true"] {
+.picker-option.highlighted {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
+  box-shadow: inset 3px 0 0 var(--md-sys-color-primary);
 }
+/* 選んでいる行は背景を付けず、名前を primary の色にして右に ✓（矢印で動かしている行と見分ける） */
+.picker-option.is-selected { font-weight: 700; }
+.picker-option.is-selected .pal-tile { color: var(--md-sys-color-primary); }
+.picker-check { flex: none; width: 16px; height: 16px; margin-left: auto; fill: none; stroke: var(--md-sys-color-primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* 行の右の注記（所持数・登録件数・回数）と、名前以外で一致したときの添え書き */
+.picker-badge { flex: none; margin-left: auto; font-size: 12px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.picker-badge + .picker-check { margin-left: 8px; }
+.picker-note { min-width: 0; font-size: 11px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 記録のないパル・届かないパル（opacity は使わず、文字の色で薄くする） */
+.picker-option.is-dim .pal-tile { color: var(--md-sys-color-on-surface-variant); }
+.picker-option.is-dim .pal-label strong { font-weight: 400; }
 .picker-status { font-size: 12px; margin: 6px 0; }
 .pal-icon { display: inline-grid; place-items: center; width: 64px; height: 64px; flex-shrink: 0; }
 .pal-icon img { width: 100%; height: 100%; object-fit: contain; }
@@ -1062,6 +1074,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-folder-worlds p { margin: 0; width: 100%; font-size: 13px; }
 .owned-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; align-items: start; }
 .owned-filters .picker { margin-bottom: 12px; }
+/* パルの選択欄は 3 列目（右端）なので、候補は右端にそろえる（幅 920px で画面の右にはみ出して、横にスクロールしないように） */
+.owned-filters > .picker .picker-popover { left: auto; right: 0; }
 .owned-filters .owned-toggle { align-self: center; }
 .owned-filter-group { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-bottom: 12px; min-width: 0; }
 .owned-filter-group .field-label { margin-bottom: 0; }
@@ -1116,9 +1130,62 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 /* キーワードに一致したスキル・説明（一覧に出していない項目）を、パッシブの下に出す */
 .owned-hit { margin: 4px 0 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
 .owned-hit-desc { display: block; font-size: 11px; color: var(--muted); }
-.passive-selector .passive-list { margin-bottom: 8px; }
-.passive-selector .passive-list:empty { display: none; }
-.passive-add { max-width: 420px; }
+/* パッシブの選択欄: [パッシブを追加… ▾] と選んだチップを 1 行に並べる（1 個目を選んでも下の欄が下がらない） */
+.passive-selector { position: relative; }
+.passive-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; }
+.passive-chips { display: contents; }
+.passive-add {
+  position: relative;
+  flex: none;
+  min-height: 40px;
+  padding: 2px 32px 2px 12px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  text-align: left;
+}
+.passive-add:hover:not(:disabled) { border-color: var(--md-sys-color-on-surface); }
+.passive-add[aria-expanded="true"] { border-color: var(--md-sys-color-primary); box-shadow: inset 0 0 0 1px var(--md-sys-color-primary); }
+.passive-add::after {
+  content: '';
+  position: absolute;
+  right: 13px;
+  top: calc(50% - 5px);
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.passive-add[aria-expanded="true"]::after { transform: rotate(225deg); }
+.passive-add:disabled::after { display: none; }
+.passive-popover { width: min(560px, max(320px, 100%)); }
+.passive-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; min-height: 36px; }
+.passive-option-desc { font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.passive-option.highlighted .passive-option-desc { color: inherit; }
+.passive-option-count { font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.passive-group-label { margin: 8px 8px 2px; font-size: 12px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
+.passive-options > .passive-group-label:first-child { margin-top: 2px; }
+.passive-empty { margin: 8px; font-size: 13px; }
+.passive-presets { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.passive-presets[hidden] { display: none; }
+.passive-presets > .passive-group-label { margin: 2px 4px; }
+.passive-preset {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+.passive-preset:hover { background: var(--state-hover); }
+/* 小さいチップ（文の中・候補の行・登録した組み合わせ） */
+.passive-list.compact { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.ideal-extras .passive-list.compact, .ideal-warning .passive-list.compact { margin: 1px 2px; }
+.ideal-carry { display: inline-flex; align-items: center; gap: 6px; }
 .route-passives { margin-bottom: 4px; }
 /* 所持パルがあるとき: 目標とパッシブで探し、開始は候補のチップで絞り込む（「すべて」が既定） */
 .route-query { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; margin-bottom: 0; }
@@ -1320,6 +1387,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   opacity: var(--tier-pattern);
 }
 .passive-name { white-space: nowrap; }
+.passive-chip.compact { min-height: 22px; min-width: auto; gap: 6px; padding: 1px 7px 1px 10px; font-size: 12px; }
+.passive-chip.compact::before { border-width: 1px; border-left-width: 4px; }
+.passive-chip.compact .passive-rank { width: 14px; height: 14px; }
 .passive-rank {
   flex: none;
   width: 20px;

@@ -6,7 +6,7 @@ import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, renderWhenIdle } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, ownedSpeciesNotes, routeDistanceNotes, passivePresets } from './shared.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 
 function holderSummary(carriers) {
@@ -56,9 +56,11 @@ export function inheritanceView(context, route) {
   }
   readRoute(route);
   const selectPal = (key) => (id) => navigateSelection(context, current, key, id);
-  const toPicker = palPicker({ label: '目標', value: to, onChange: selectPal('to') });
-  let fromPicker = null;
   const owned = context.owned;
+  // 目標の候補は、所持している種族を先に「♂3 ♀2」つきで。開始の候補は、登録済みの配合で目標まで届くパルを回数の少ない順に先へ
+  const toPicker = palPicker({ label: '目標', value: to, describe: () => ownedSpeciesNotes(owned?.state?.owned), onChange: selectPal('to') });
+  const describeStart = () => (context.store.state.env ? routeDistanceNotes(context.store.state.graph, to) : {});
+  let fromPicker = null;
   const panel = el('div');
   const passiveSlot = el('div', 'route-passives');
   const startChips = el('div', 'start-chips');
@@ -76,6 +78,12 @@ export function inheritanceView(context, route) {
     else params.delete('p');
     changeRoute(context, buildHash('route', params));
   };
+  // パッシブの選択欄は 1 回だけ作り、条件・データが変わったら update で合わせる（開いた候補を閉じない）
+  const passive = passiveSelector({
+    label: '運びたいパッシブ（所持パルから探す）', selected: passives, countLabel: '所持パルが持っているもの（タマゴを含む）',
+    negatives: 'last', presets: passivePresets(context.ideals), onChange: setPassives,
+  });
+  passiveSlot.append(passive.element);
 
   // 所持パルがあるときは目標とパッシブだけで探し、開始は候補から絞り込む形にする（選ばなくてよい）。
   // ないときは開始と目標を並べて選ぶ。所持パルは後から読み込まれるため、update のたびに形を確かめる。
@@ -91,13 +99,13 @@ export function inheritanceView(context, route) {
     fromPicker?.destroy();
     if (filter) {
       // 候補の行の右端に置くため、選択欄が画面の外へはみ出さないよう本文の外に出す
-      fromPicker = palPicker({ label: '開始', value: from, placeholder: '他のパル…', onChange: selectPal('from'), popupHost: document.body });
+      fromPicker = palPicker({ label: '開始', value: from, placeholder: '他のパル…', describe: describeStart, onChange: selectPal('from'), popupHost: document.body });
       panel.className = 'selection-panel route-query';
       panel.replaceChildren(toPicker.element, passiveSlot);
       element.replaceChildren(heading, panel, startFilter, explanation, ownedSection, results);
       return;
     }
-    fromPicker = palPicker({ label: '開始', value: from, onChange: selectPal('from') });
+    fromPicker = palPicker({ label: '開始', value: from, describe: describeStart, onChange: selectPal('from') });
     const swap = button('⇄', () => {
       const params = new URLSearchParams(current.params);
       params.set('from', to);
@@ -134,22 +142,13 @@ export function inheritanceView(context, route) {
     restoreFocus(startChips, token);
   }
 
-  // パッシブの選択欄は、選んだパッシブと所持数が同じなら作り直さない。データの更新では、選んでいる途中（フォーカス中）は待つ（force は条件の変更）
-  let shownPassives = '';
-  function renderPassives(pals, { force = false } = {}) {
-    const counts = passiveCounts(pals ?? []);
-    const signature = JSON.stringify([passives, [...counts]]);
-    if (signature === shownPassives) return;
-    if (!force) { renderWhenIdle(passiveSlot, () => renderPassives(owned?.state?.owned?.pals ?? null, { force: true })); return; }
-    shownPassives = signature;
-    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう同じ役目の部品（追加欄。押せなければ残ったチップの最後の ×）へフォーカスを移す
-    const token = captureFocus(passiveSlot);
-    passiveSlot.replaceChildren(passiveSelector({ label: '運びたいパッシブ（所持パルから探す）', selected: passives, counts, onChange: setPassives }));
-    restoreFocus(passiveSlot, token);
+  // 所持数はタマゴも含めた所持パル全体で数える（運ぶ個体はタマゴから孵してもよいので）
+  function renderPassives(pals) {
+    passive.update({ selected: passives, counts: passiveCounts(pals ?? []) });
   }
 
-  function renderOwned(state, pals, starts, force) {
-    renderPassives(pals, { force });
+  function renderOwned(state, pals, starts) {
+    renderPassives(pals);
     ownedSection.replaceChildren();
     if (!pals) {
       if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
@@ -208,15 +207,17 @@ export function inheritanceView(context, route) {
     };
   }
 
-  // force: 条件の変更（applyRoute）。データの更新では、選んでいる途中のパッシブの選択欄を作り直さない
-  function update(state, { force = false } = {}) {
+  function update(state) {
     const pals = owned?.state?.owned?.pals ?? null;
     const filter = Boolean(pals);
     if (filter !== filterLayout) arrange(filter);
+    // 候補を開いたまま記録・所持パルが変わったら、注記だけ描き直す（閉じない）
+    toPicker.update();
+    fromPicker?.update();
     const starts = pals && to && passives.length && state.env
       ? ownedRouteStarts({ graph: state.graph, pals, to, passives, shortestRoute }) : [];
     if (filter) renderStartFilter(starts);
-    if (owned) renderOwned(state, pals, starts, force);
+    if (owned) renderOwned(state, pals, starts);
     if (!to || (!from && !(owned && passives.length))) {
       // 開始を選ばない形で目標を選んだ後は、所持パルの欄が次の手順を案内する
       if (filter && to) results.replaceChildren();
@@ -233,14 +234,16 @@ export function inheritanceView(context, route) {
     }
     results.replaceChildren(routeView(routes, { annotate: annotateFor(pals) }));
   }
-  const pickers = { destroy() { toPicker.destroy(); fromPicker?.destroy(); } };
+  // 登録した理想個体が変わったら（別のタブを含む）、登録した組み合わせを入れ直す
+  const unsubscribeIdeals = context.ideals?.subscribe(() => passive.update({ presets: passivePresets(context.ideals) })) ?? (() => {});
+  const pickers = { destroy() { toPicker.destroy(); fromPicker?.destroy(); passive.destroy(); unsubscribeIdeals(); } };
   const view = watchView(context.store, element, update, [pickers]);
   // 同じ画面のまま URL が変わったとき。選択欄は作り直さずに値だけ合わせる（開始と目標の形は arrange が決める）
   function applyRoute(next) {
     readRoute(next);
     syncPicker(toPicker, to);
     if (!filterLayout) syncPicker(fromPicker, from);
-    update(context.store.state, { force: true });
+    update(context.store.state);
   }
   if (!owned) return { ...view, applyRoute };
   let lastData = owned.state.data;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeQuery, palMatches } from '../../web/js/core/kana.js';
+import { normalizeQuery, palMatches, queryTerms } from '../../web/js/core/kana.js';
 
 test('normalizeQuery: ひらがな、カタカナ、半角カナと濁点を統一する', () => {
   for (const query of ['あおば', 'アオバ', 'ｱｵﾊﾞ', ' あおは\u3099 ']) assert.equal(normalizeQuery(query), 'アオバ');
@@ -20,4 +20,10 @@ test('palMatches: 日本語、英語、ID、ラベル、番号の部分一致', 
   }
   assert.equal(palMatches(pal, '見つからない'), false);
   assert.equal(palMatches({ id: 'A' }, 'undefined'), false);
+});
+
+test('queryTerms: 空白（全角を含む）で区切り、語ごとにそろえる', () => {
+  assert.deepEqual(queryTerms('  ほのお　Ｄｒａｇｏｎ  '), ['ホノオ', 'dragon']);
+  assert.deepEqual(queryTerms(''), []);
+  assert.deepEqual(queryTerms(null), []);
 });

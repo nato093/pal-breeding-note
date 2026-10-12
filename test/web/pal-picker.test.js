@@ -79,7 +79,7 @@ for (const { name, dialogRect, triggerRect, expectedLeft, expectedWidth, aligned
     }
     if (alignedRight) assert.equal(left + width, triggerRect.left + triggerRect.width);
     assert.equal(popup.style.getPropertyValue('--picker-top'), '256px');
-    assert.equal(popup.style.getPropertyValue('--picker-max-height'), '400px');
+    assert.equal(popup.style.getPropertyValue('--picker-max-height'), '560px');
   });
 }
 
@@ -228,4 +228,105 @@ test('パル選択: Escape・外側クリック・フォーカス移動・破棄
   assert.equal((events.listeners.get('pointerdown') ?? []).length, 0);
   assert.equal(picker.getValue(), 'SheepBall');
   assert.deepEqual(changes, []);
+});
+
+test('パル選択: 「030」で 30 番、先頭一致が上、英名でも探せ、プレースホルダーで伝える', async (t) => {
+  assert.equal(filterPals('030')[0].no, 30);
+  // 「8」は番号の前方一致（8・8x 番）だけで、18 番などの部分一致は出さない
+  const eights = filterPals('8');
+  assert.equal(eights[0].no, 8);
+  assert.ok(eights.every((pal) => String(pal.label).startsWith('8')), eights.map((pal) => pal.label).join(','));
+  assert.equal(filterPals('Lamball')[0].id, 'SheepBall');
+  const { picker, trigger } = mountPicker(t);
+  await trigger.dispatch('click');
+  assert.equal(picker.element.querySelector('input').placeholder, '名前・英名・番号で探す');
+});
+
+test('パル選択: 選んでいる行は is-selected と ✓、矢印の行は highlighted で見分け、↓ は選んでいる行の次から動く', async (t) => {
+  const { picker, trigger, changes } = mountPicker(t, { value: 'SheepBall' });
+  await trigger.dispatch('click');
+  const options = () => picker.element.querySelectorAll('[role="option"]');
+  const chosen = options().find((node) => node.getAttribute('aria-selected') === 'true');
+  assert.match(chosen.textContent, /モコロン/);
+  assert.match(chosen.className, /is-selected/);
+  assert.equal(chosen.querySelector('svg').namespaceURI, 'http://www.w3.org/2000/svg');
+  assert.doesNotMatch(chosen.className, /highlighted/);
+  assert.equal(options().filter((node) => /is-selected/.test(node.className)).length, 1);
+  const input = picker.element.querySelector('input');
+  // 開いた直後は矢印の位置がないので、Enter は何もしない
+  await input.dispatch('keydown', { key: 'Enter' });
+  assert.deepEqual(changes, []);
+  const index = options().indexOf(chosen);
+  await input.dispatch('keydown', { key: 'ArrowDown' });
+  assert.equal(input.getAttribute('aria-activedescendant'), options()[index + 1].id);
+  assert.match(options()[index + 1].className, /highlighted/);
+  assert.doesNotMatch(chosen.className, /highlighted/);
+  await input.dispatch('keydown', { key: 'Escape' });
+  await trigger.dispatch('click');
+  await picker.element.querySelector('input').dispatch('keydown', { key: 'ArrowUp' });
+  assert.equal(picker.element.querySelector('input').getAttribute('aria-activedescendant'), options()[index - 1].id);
+});
+
+test('パル選択: describe の order で先に並べ、badges を行の右に、dim の行を薄くする（order がなければ並びは変えない）', async (t) => {
+  const { picker, trigger } = mountPicker(t, {
+    describe: () => ({ order: new Map([['FlowerDoll', 0], ['PinkCat', 0]]), badges: new Map([['PinkCat', '♂1 ♀2']]), dim: new Set(['SheepBall']), orderLabel: '所持している種族を先に表示' }),
+  });
+  await trigger.dispatch('click');
+  const options = picker.element.querySelectorAll('[role="option"]');
+  assert.equal(options[0].textContent, 'パルを選択');
+  // 同じ順位の中は図鑑順（ツッパニャン 2 番 → フラリーナ）
+  assert.match(options[1].textContent, /ツッパニャン/);
+  assert.match(options[2].textContent, /フラリーナ/);
+  assert.equal(options[1].querySelector('.picker-badge').textContent, '♂1 ♀2');
+  assert.equal(options[2].querySelector('.picker-badge'), null);
+  const lamb = options.find((node) => /モコロン/.test(node.textContent));
+  assert.match(lamb.className, /is-dim/);
+  assert.equal(picker.element.querySelector('.picker-status').textContent, '所持している種族を先に表示');
+  // 検索語があるときは、一致の段階が先（番号の完全一致）
+  const input = picker.element.querySelector('input');
+  input.value = '1';
+  await input.dispatch('input');
+  assert.match(picker.element.querySelectorAll('[role="option"]')[0].textContent, /No\.1モコロン/);
+  picker.destroy();
+
+  // order がなければ、注記を付けても図鑑順のまま
+  const plain = mountPicker(t, { describe: () => ({ badges: new Map([['PinkCat', '親 3 件']]) }) });
+  await plain.trigger.dispatch('click');
+  const rows = plain.picker.element.querySelectorAll('[role="option"]');
+  assert.match(rows[1].textContent, /モコロン/);
+  assert.match(rows[2].textContent, /ツッパニャン親 3 件/);
+  assert.equal(plain.picker.element.querySelector('.picker-status').textContent, '図鑑順で表示');
+});
+
+test('パル選択: 名前以外（パートナースキル）で一致したら添え書きを出す', async (t) => {
+  const { picker, trigger } = mountPicker(t);
+  await trigger.dispatch('click');
+  const input = picker.element.querySelector('input');
+  input.value = 'モコモコ';
+  await input.dispatch('input');
+  const notes = picker.element.querySelectorAll('.picker-note').map((node) => node.textContent);
+  assert.deepEqual(notes, ['パートナースキル: モコモコの盾']);
+});
+
+test('パル選択: update は開いたまま注記を描き直し、検索語と矢印の位置を保つ', async (t) => {
+  let badge = '親 1 件';
+  const { picker, trigger, changes } = mountPicker(t, { describe: () => ({ badges: new Map([['SheepBall', badge]]) }) });
+  await trigger.dispatch('click');
+  const input = picker.element.querySelector('input');
+  input.value = 'もこ';
+  await input.dispatch('input');
+  await input.dispatch('keydown', { key: 'ArrowDown' });
+  const active = input.getAttribute('aria-activedescendant');
+  badge = '親 2 件';
+  picker.update();
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  assert.equal(picker.element.querySelector('input'), input);
+  assert.equal(input.value, 'もこ');
+  assert.equal(input.getAttribute('aria-activedescendant'), active);
+  assert.equal(picker.element.querySelector('.picker-badge').textContent, '親 2 件');
+  await input.dispatch('keydown', { key: 'Enter' });
+  assert.deepEqual(changes, ['SheepBall']);
+  // 閉じているときの update は何もしない
+  picker.update({ describe: () => ({}) });
+  assert.equal(picker.element.querySelector('.picker-popover'), null);
 });

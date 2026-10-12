@@ -3,7 +3,7 @@
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 import { dateTime, worldName, roleLabel, timeLines } from './owned-status.js';
-import { headerPopup } from './header-popup.js';
+import { createPopover } from './popover.js';
 
 // 古いデータの目安。この PC で読むデータは 1 分ごとに読み直すので 5 分、共有のデータは 60 分（実機で直してよい）
 export const STALE_LOCAL_MS = 5 * 60 * 1000;
@@ -94,19 +94,26 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now() 
   // 押したときの動き（読み込み中に前の文を残していても、今の状態で決める）
   let action = null;
 
-  const popup = headerPopup({ wrapper: element, trigger, create: ({ close }) => {
-    const panel = el('section', 'header-panel save-status-panel');
-    panel.setAttribute('aria-label', 'セーブ連携');
+  // 詳しい状態と操作のパネル。中身は開いたときだけ作り、開いている間の update は閉じずに書き換える
+  let renderPanel = null;
+  const popup = createPopover({
+    anchor: trigger, wrapper: element, tag: 'section', className: 'header-panel save-status-panel',
+    onOpen: () => { renderPanel = buildPanel(); },
+    onClose: () => { renderPanel = null; popup.element.replaceChildren(); },
+  });
+  popup.element.setAttribute('aria-label', 'セーブ連携');
+  function buildPanel() {
+    const panel = popup.element;
     const details = el('dl', 'save-status-details');
     const issues = el('ul', 'save-status-issues');
     // 許可はクリックの中で（await を挟まずに）求める
     const grant = button('読み込みを許可', () => grantPermission(), 'button primary');
     const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message)), 'button secondary');
     const settings = link('設定を開く', '#/settings', 'save-status-settings');
-    settings.addEventListener('click', () => close());
+    settings.addEventListener('click', () => popup.close({ focus: false }));
     const actions = el('div', 'header-panel-actions');
     actions.append(grant, reload, settings);
-    panel.append(el('h2', '', 'セーブ連携'), details, issues, actions);
+    panel.replaceChildren(el('h2', '', 'セーブ連携'), details, issues, actions);
     const render = () => {
       const state = owned.state;
       const items = [];
@@ -124,8 +131,8 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now() 
       reload.disabled = state.busy;
     };
     render();
-    return { panel, update: render };
-  } });
+    return render;
+  }
 
   function grantPermission() {
     owned.grantAndRefresh().catch((error) => toast(error.message));
@@ -133,11 +140,12 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now() 
 
   function onClick() {
     if (action === 'grant') {
-      popup.close();
+      popup.close({ focus: false });
       grantPermission();
       return;
     }
-    popup.toggle();
+    if (popup.isOpen()) popup.close({ focus: false });
+    else popup.open();
   }
 
   function update() {
@@ -160,15 +168,15 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now() 
       if (action === 'grant') trigger.removeAttribute('aria-haspopup');
       else trigger.setAttribute('aria-haspopup', 'dialog');
     }
-    popup.update();
+    renderPanel?.();
   }
 
   const unsubscribe = [owned.subscribe(update), store?.subscribe(update), autoRegister?.subscribe?.(update)].filter(Boolean);
   update();
   return {
-    element, update, close: () => popup.close(),
+    element, update, close: () => popup.close({ focus: false }),
     destroy() {
-      popup.close();
+      popup.destroy();
       for (const off of unsubscribe) off();
     },
   };

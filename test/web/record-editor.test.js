@@ -154,7 +154,7 @@ test('登録画面: 候補はトリガーに合わせて配置し、狭い画面
   assert.equal(popup.style.getPropertyValue('--picker-left'), '700px');
   assert.equal(popup.style.getPropertyValue('--picker-width'), '320px');
   assert.equal(popup.style.getPropertyValue('--picker-top'), '256px');
-  assert.equal(popup.style.getPropertyValue('--picker-max-height'), '400px');
+  assert.equal(popup.style.getPropertyValue('--picker-max-height'), '560px');
   windowEvents.innerWidth = 300;
   windowEvents.innerHeight = 400;
   await windowEvents.dispatch('resize');

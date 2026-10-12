@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIndex, findByPair, findByChild, findByParent } from '../../web/js/core/index.js';
-import { buildCarrierGraph, shortestRoute, findRoutes } from '../../web/js/core/route.js';
+import { buildCarrierGraph, shortestRoute, findRoutes, distancesTo } from '../../web/js/core/route.js';
 
 const pals = ['A', 'B', 'C', 'D', 'E', 'F', 'X', 'Y', 'Z'].map((id, no) => ({ id, no, variant: false }));
 const rec = (id, parent1Id, parent2Id, childId, confirmCount = 1) => ({ id, parent1Id, parent2Id, childId, confirmCount });
@@ -229,4 +229,16 @@ test('ランダムグラフ: 固定シードの 200 ケースを全単純路と�
       assert.deepEqual(result, findRoutes(reversed.graph, reversed.index, from, to, options));
     });
   }
+});
+
+test('目標までの回数: 目標は 0、直接の親は 1、届かないパルは入らず、同じ graph と目標では同じ表を返す', () => {
+  const { graph } = setup([rec('r1', 'A', 'B', 'C'), rec('r2', 'C', 'D', 'E'), rec('r3', 'X', 'Y', 'Z'), rec('r4', 'E', 'E', 'F')]);
+  const distances = distancesTo(graph, 'E');
+  assert.deepEqual(Object.fromEntries(distances), { E: 0, C: 1, D: 1, A: 2, B: 2 });
+  assert.equal(distances.has('X'), false);
+  assert.equal(distances.has('F'), false);
+  assert.equal(distancesTo(graph, 'E'), distances);
+  assert.deepEqual(Object.fromEntries(distancesTo(graph, 'F')), { F: 0, E: 1, C: 2, D: 2, A: 3, B: 3 });
+  // 記録のないパルは自分だけ
+  assert.deepEqual([...distancesTo(graph, 'Q')], [['Q', 0]]);
 });

@@ -636,6 +636,15 @@ test('設定画面: 所持パルの CSV 保存と共有の削除は、ワール�
 // stable-render: 行の使い回し・区切った描画・仮想の一覧・選択肢を作り直さない
 // ---------------------------------------------------------------------------
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+// パッシブの選択欄: 追加のボタンでポップオーバーを開き（開いていなければ）、候補を押す
+const passiveAdd = (view) => view.element.querySelector('.passive-add');
+async function pickPassive(view, id) {
+  if (passiveAdd(view).getAttribute('aria-expanded') !== 'true') await passiveAdd(view).dispatch('click');
+  const option = view.element.querySelector(`[data-value="${id}"]`);
+  assert.ok(option, id);
+  await option.dispatch('click');
+}
+const optionCount = (view, id) => view.element.querySelector(`[data-value="${id}"]`)?.querySelector('.passive-option-count')?.textContent ?? '';
 const manyData = (count, extra = []) => ({
   version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' },
   snapshot: { ...snapshot, pals: [...extra, ...Array.from({ length: count }, (_, i) => ({ instanceId: `s${i}`, characterId: 'SheepBall', gender: i % 2 ? 'Male' : 'Female', level: 1 + (i % 50), passives: [], talent: { hp: i % 101 }, location: { kind: 'palbox', playerUid: P1 } }))] },
@@ -779,26 +788,33 @@ test('設定画面: 読み込み中（busy）になっても登録したワー�
   card.destroy();
 });
 
-test('継承ルート: 所持パルの読み直しで所持数が同じなら、パッシブの選択欄を作り直さず、選んでいる途中は離れるまで待つ', async (t) => {
+test('継承ルート: 所持パルの読み直しでパッシブの選択欄を作り直さず、候補を開いている間に所持数が変わっても閉じずに数だけ描き直す', async (t) => {
   installDom(t);
   const owned = fakeOwned();
   const view = inheritanceView(context(owned), parseHash('#/route?to=SheepBall&p=Rare'));
   document.body.append(view.element);
-  const add = view.element.querySelector('.passive-add');
+  const add = passiveAdd(view);
   owned.state.data = { ...owned.state.data };
   owned.state.owned = normalizeOwned(snapshot, { pals, passives });
   owned.emit();
-  assert.equal(view.element.querySelector('.passive-add'), add);
-  add.focus();
-  const more = { ...snapshot, pals: [...snapshot.pals, { instanceId: 'z', characterId: 'PinkCat', gender: 'Male', passives: ['Rare'], talent: {}, location: { kind: 'palbox', playerUid: P1 } }] };
+  assert.equal(passiveAdd(view), add);
+  await add.dispatch('click');
+  const search = view.element.querySelector('.picker-search');
+  search.value = '職人';
+  await search.dispatch('input');
+  // タマゴも含めて数える（a と、タマゴの c）
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '2 体');
+  const more = { ...snapshot, pals: [...snapshot.pals, { instanceId: 'z', characterId: 'PinkCat', gender: 'Male', passives: ['CraftSpeed_up2'], talent: {}, location: { kind: 'palbox', playerUid: P1 } }] };
   owned.state.data = { ...owned.state.data };
   owned.state.owned = normalizeOwned(more, { pals, passives });
   owned.emit();
-  assert.equal(view.element.querySelector('.passive-add'), add);
-  document.activeElement = document.body;
-  await add.dispatch('blur');
-  await settle();
-  assert.notEqual(view.element.querySelector('.passive-add'), add);
+  assert.equal(passiveAdd(view), add);
+  assert.equal(view.element.querySelector('.picker-search'), search);
+  assert.equal(document.activeElement, search);
+  assert.equal(search.value, '職人');
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '3 体');
+  // 見出しは継承ルートの数え方
+  assert.match(view.element.querySelector('.passive-options').textContent, /^所持パルが持っているもの（タマゴを含む）/);
   view.destroy();
 });
 
@@ -833,27 +849,54 @@ test('所持パル画面: キーワードで多くの行の一致の理由が変
   view.destroy();
 });
 
-test('所持パル画面: パッシブを選ぶと作り直した追加欄へ、4 個目で押せなくなったら残ったチップの最後の × へフォーカスを移す', async (t) => {
+test('所持パル画面: パッシブは候補を開いたまま続けて選べ、4 個目で押せなくなったら残ったチップの最後の × へ、× で外すと追加欄へフォーカスを移す', async (t) => {
   installDom(t);
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
   document.body.append(view.element);
-  const choose = async (id) => {
-    const add = view.element.querySelector('.passive-add');
-    add.focus();
-    add.value = id;
-    await add.dispatch('change');
-    return add;
-  };
-  const first = await choose('Rare');
-  assert.notEqual(view.element.querySelector('.passive-add'), first);
-  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
-  for (const id of ['CraftSpeed_up2', 'Legend']) await choose(id);
-  await choose('WorldTree_ATK');
-  assert.equal(view.element.querySelector('.passive-add').disabled, true);
+  const add = passiveAdd(view);
+  await pickPassive(view, 'Rare');
+  assert.equal(passiveAdd(view), add);
+  assert.equal(document.activeElement, view.element.querySelector('.picker-search'));
+  for (const id of ['CraftSpeed_up2', 'Legend']) await pickPassive(view, id);
+  await pickPassive(view, 'WorldTree_ATK');
+  assert.equal(add.disabled, true);
+  assert.equal(view.element.querySelector('.picker-search'), null);
   assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_ATK');
   // × で外すと、押せるようになった追加欄へ
   await document.activeElement.dispatch('click');
-  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  assert.equal(document.activeElement, add);
+  assert.equal(add.disabled, false);
+  view.destroy();
+});
+
+test('所持パル画面: パッシブの所持数は、選んでいるパッシブも含めた今の絞り込みの結果の中で数え、絞り込みを変えると数え直す', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  document.body.append(view.element);
+  await passiveAdd(view).dispatch('click');
+  assert.match(view.element.querySelector('.passive-options').textContent, /^いまの絞り込みの中で持っているもの/);
+  // 既定ではグローバルボックスを出さず、タマゴは出す（a と、タマゴの c）
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '2 体');
+  assert.equal(optionCount(view, 'Rare'), '1 体');
+  await pickPassive(view, 'Rare');
+  // 希少を持つのは a だけなので、その中で職人気質を持つのは 1 体
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '1 体');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
+  // × を押しても候補は開いたまま
+  await view.element.querySelector('.passive-remove').dispatch('click');
+  assert.equal(passiveAdd(view).getAttribute('aria-expanded'), 'true');
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '2 体');
+  // タマゴを隠すと、タマゴの c を数えない（候補を開いたまま）
+  const eggs = view.element.querySelectorAll('.owned-toggle')[0].children[0];
+  eggs.checked = false;
+  await eggs.dispatch('change');
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '1 体');
+  assert.ok(view.element.querySelector('.picker-search'));
+  // キーワードで絞っても数え直す
+  const query = view.element.querySelectorAll('input').find((node) => node.type === 'search' && node.className !== 'picker-search');
+  query.value = 'ツッパニャン';
+  await query.dispatch('input');
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '');
   view.destroy();
 });
 
@@ -881,4 +924,31 @@ test('所持パル画面: 戻る・進むで条件を入れ直したとき（res
   assert.equal(view.element.querySelectorAll('select').find((node) => node.children.some((option) => option.value === 'passives')).value, 'level');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
   view.destroy();
+});
+
+test('所持パル・継承ルート: パル選択は所持している種族を先に「♂a ♀b」つきで出し（タマゴは数えない）、開いたまま読み直すと数だけ変わる', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  document.body.append(view.element);
+  const picker = view.element.querySelector('.picker');
+  await picker.querySelector('.picker-trigger').dispatch('click');
+  const rows = () => picker.querySelectorAll('[role="option"]').map((node) => [node.querySelector('strong')?.textContent ?? node.textContent, node.querySelector('.picker-badge')?.textContent ?? '']);
+  assert.equal(picker.querySelector('.picker-status').textContent, '所持している種族を先に表示');
+  // モコロン ♀ の a、ツッパニャン ♂ の b とグローバルの g（性別なし）。タマゴのフラリーナ c は数えない
+  assert.deepEqual(rows().slice(0, 3), [['パルを選択', ''], ['モコロン', '♂0 ♀1'], ['ツッパニャン', '♂1 ♀0']]);
+  assert.equal(rows().find(([name]) => name === 'フラリーナ')[1], '');
+  const search = picker.querySelector('input');
+  const more = { ...snapshot, pals: [...snapshot.pals, { instanceId: 'm', characterId: 'SheepBall', gender: 'Male', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }] };
+  owned.state.owned = normalizeOwned(more, { pals, passives });
+  owned.emit();
+  assert.equal(picker.querySelector('input'), search);
+  assert.deepEqual(rows()[1], ['モコロン', '♂1 ♀1']);
+  view.destroy();
+
+  const route = inheritanceView(context(fakeOwned()), parseHash('#/route?to=CuteFox'));
+  const target = route.element.querySelector('.picker');
+  await target.querySelector('.picker-trigger').dispatch('click');
+  assert.deepEqual(target.querySelectorAll('[role="option"]').slice(1, 3).map((node) => node.querySelector('.picker-badge').textContent), ['♂0 ♀1', '♂1 ♀0']);
+  route.destroy();
 });

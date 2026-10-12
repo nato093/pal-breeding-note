@@ -61,6 +61,24 @@ const pairOf = (card) => card.querySelectorAll('.owned-row').map((row) => row.ge
 // 同じ種族の個体は名前で区別できないので、個体値の表示で見分ける
 const talentsOf = (card) => card.querySelectorAll('.owned-talent').map((node) => node.textContent).join(' × ');
 const input = (view, label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label);
+// パッシブの選択欄: 追加のボタンでポップオーバーを開き（開いていなければ）、候補を押す
+const passiveAdd = (view) => view.element.querySelector('.passive-add');
+async function pickPassive(view, id) {
+  if (passiveAdd(view).getAttribute('aria-expanded') !== 'true') await passiveAdd(view).dispatch('click');
+  const option = view.element.querySelector(`[data-value="${id}"]`);
+  assert.ok(option, id);
+  await option.dispatch('click');
+}
+// 候補の所持数（「希少（3）」の形にそろえる。所持数のない候補は名前だけ）
+async function passiveOptions(view) {
+  if (passiveAdd(view).getAttribute('aria-expanded') !== 'true') await passiveAdd(view).dispatch('click');
+  const texts = view.element.querySelectorAll('[role="option"]').map((node) => {
+    const count = node.querySelector('.passive-option-count');
+    return `${node.querySelector('.passive-name').textContent}${count ? `（${count.textContent.replace(' 体', '')}）` : ''}`;
+  });
+  await passiveAdd(view).dispatch('click');
+  return texts;
+}
 
 test('理想個体画面: URL の目標とパッシブで、配合牧場に置く組を別々の個体で上から出す', (t) => {
   install(t);
@@ -167,7 +185,7 @@ test('理想個体画面: 所持パル・目標がないときと、欲しいパ
   assert.equal(idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare')).element.querySelector('.ideal-missing-note').textContent, '');
 });
 
-test('理想個体画面: 所持パルが読み込まれたら作り直し、パッシブを選ぶと URL を変える', (t) => {
+test('理想個体画面: 所持パルが読み込まれたら作り直し、パッシブを選ぶと URL を変える', async (t) => {
   install(t);
   const owned = fakeOwned(null);
   owned.state.ready = false;
@@ -179,9 +197,7 @@ test('理想個体画面: 所持パルが読み込まれたら作り直し、パ
   assert.equal(cards(view).length, 1);
   // 欲しいパッシブを選んでいなければ、余計なパッシブは確率に関係しないので注記しない
   assert.doesNotMatch(view.element.textContent, /余計なパッシブ/);
-  const add = view.element.querySelector('.passive-add');
-  add.value = 'Rare';
-  add.dispatch('change');
+  await pickPassive(view, 'Rare');
   assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare']);
 });
 
@@ -205,13 +221,13 @@ test('理想個体: URL とタブの往復、確率とタマゴの数の表示',
   assert.equal(eggsText(1e-7), '平均 100 万個以上に 1 個');
 });
 
-test('理想個体画面: パッシブの所持数はグローバルボックスとタマゴを数えず、切り替えも出さない', (t) => {
+test('理想個体画面: パッシブの所持数はグローバルボックスとタマゴを数えず、切り替えも出さない', async (t) => {
   install(t);
   const view = idealView(context(fakeOwned([
     ...basePals,
     palworldPal('g1', 'SheepBall', 'Female', ['Legend'], full, { kind: 'global', playerUid: '' }),
   ])), parseHash('#/ideal?to=SheepBall'));
-  const options = view.element.querySelector('.passive-add').querySelectorAll('option').map((node) => node.textContent);
+  const options = await passiveOptions(view);
   // 職人気質は m1・u1、希少は f1・f2・u1（タマゴの e1 は数えない）。伝説はグローバルボックスだけなので所持数なし
   assert.ok(options.includes('職人気質（2）'), options.slice(0, 5).join(','));
   assert.ok(options.includes('希少（3）'));
@@ -328,7 +344,7 @@ test('理想個体画面: 産まれたタマゴは候補にせず、孵化を読
   assert.match(cards(view)[0].textContent, /パルボックス 1 ページ・1 行 1 列/);
   view.destroy();
 });
-test('理想個体画面: 所持者（すべて／自分の個体／各プレイヤー）で親の候補とパッシブの所持数を絞り、選んだプレイヤーがいなくなったら「すべて」に戻す', (t) => {
+test('理想個体画面: 所持者（すべて／自分の個体／各プレイヤー）で親の候補とパッシブの所持数を絞り、選んだプレイヤーがいなくなったら「すべて」に戻す', async (t) => {
   install(t);
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
   const BASE = 'b6800a4a-4b60-f0bb-f425-53bf17b07603';
@@ -355,14 +371,14 @@ test('理想個体画面: 所持者（すべて／自分の個体／各プレイ
   assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', '自分の個体', 'Alice', 'Bob']);
   // すべてなら ♂ 2 体・♀ 2 体で、別々の個体の組は 2 組
   assert.equal(cards(view).length, 2);
-  const counts = () => view.element.querySelector('.passive-add').querySelectorAll('option').map((node) => node.textContent);
   for (const value of [`player:${P1}`, 'mine']) {
     holder.value = value;
     holder.dispatch('change');
     assert.deepEqual(cards(view).map((card) => card.querySelectorAll('.owned-row').map((row) => row.querySelector('.owned-where').textContent).join(' × ')),
       ['Aliceパルボックス × Aliceパルボックス']);
-    assert.ok(counts().includes('希少（2）'));
-    assert.ok(!counts().some((text) => /^伝説（|^脳筋（/.test(text)));
+    const counts = await passiveOptions(view);
+    assert.ok(counts.includes('希少（2）'));
+    assert.ok(!counts.some((text) => /^伝説（|^脳筋（/.test(text)));
   }
   assert.match(view.element.querySelector('.result-note').textContent, /所持者: 自分の個体/);
   // Bob の個体は、Bob のパルボックスと Bob が預けた拠点のパル
@@ -473,7 +489,7 @@ test('理想個体画面: 同じ画面のまま URL が変わると（applyRoute
   view.destroy();
 });
 
-test('理想個体画面: 同じ画面のまま g つきの URL が来ると、登録した条件を入力欄にも入れ、URL から g を外す', (t) => {
+test('理想個体画面: 同じ画面のまま g つきの URL が来ると、登録した条件を入力欄にも入れ、URL から g を外す', async (t) => {
   install(t);
   const owned = fakeOwned();
   const ctx = withIdeals(context(owned), owned);
@@ -489,14 +505,12 @@ test('理想個体画面: 同じ画面のまま g つきの URL が来ると、�
   assert.deepEqual([selectHaving('only').value, selectHaving('talent').value], ['only', 'talent']);
   assert.equal(byLabel(view, '登録済み').disabled, true);
   // ここから作る遷移先の URL に g を残さない
-  const add = view.element.querySelector('.passive-add');
-  add.value = 'Legend';
-  add.dispatch('change');
+  await pickPassive(view, 'Legend');
   assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare%2CLegend']);
   view.destroy();
 });
 
-test('理想個体画面: 同じ画面のままパッシブを足す・外すと、作り直した選択欄の追加欄にフォーカスを移す', async (t) => {
+test('理想個体画面: 同じ画面のままパッシブを足す・外しても選択欄を作り直さず、候補を開いたまま続けて選べ、× の後は追加欄へ', async (t) => {
   const { body } = install(t);
   const owned = fakeOwned();
   const ctx = context(owned);
@@ -505,19 +519,26 @@ test('理想個体画面: 同じ画面のままパッシブを足す・外すと
   ctx.update = (hash) => { updates.push(hash); view.applyRoute(parseHash(hash), { reason: 'update' }); };
   view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
   body.append(view.element);
-  const add = view.element.querySelector('.passive-add');
-  add.focus();
-  add.value = 'Rare';
-  await add.dispatch('change');
+  const add = passiveAdd(view);
+  await pickPassive(view, 'Rare');
   assert.deepEqual(updates, ['#/ideal?to=SheepBall&p=Rare']);
   assert.deepEqual(ctx.navigations, []);
-  assert.notEqual(view.element.querySelector('.passive-add'), add);
-  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  assert.equal(passiveAdd(view), add);
+  // 候補は開いたまま、検索欄にフォーカスがある（続けて選べる）
+  const search = view.element.querySelector('.picker-search');
+  assert.ok(search);
+  assert.equal(document.activeElement, search);
+  assert.equal(view.element.querySelector('[data-value="Rare"]'), null);
+  await pickPassive(view, 'Legend');
+  assert.equal(updates.at(-1), '#/ideal?to=SheepBall&p=Rare%2CLegend');
+  assert.equal(view.element.querySelector('.picker-search'), search);
+  await search.dispatch('keydown', { key: 'Escape' });
+  assert.equal(document.activeElement, add);
   const remove = view.element.querySelector('.passive-remove');
   remove.focus();
   await remove.dispatch('click');
-  assert.equal(updates.at(-1), '#/ideal?to=SheepBall');
-  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  assert.equal(updates.at(-1), '#/ideal?to=SheepBall&p=Legend');
+  assert.equal(document.activeElement, add);
   view.destroy();
 });
 
@@ -528,19 +549,91 @@ test('理想個体画面: 4 個目を足して追加欄が押せなくなった�
   ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' });
   view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare,Legend,WorldTree_ATK'));
   body.append(view.element);
-  const add = view.element.querySelector('.passive-add');
-  add.focus();
-  add.value = 'WorldTree_DEF';
-  await add.dispatch('change');
-  assert.equal(view.element.querySelector('.passive-add').disabled, true);
+  await pickPassive(view, 'WorldTree_DEF');
+  assert.equal(passiveAdd(view).disabled, true);
+  assert.equal(view.element.querySelector('.picker-search'), null);
   const removes = view.element.querySelectorAll('.passive-remove');
   assert.equal(removes.length, 4);
   assert.equal(document.activeElement, removes.at(-1));
   assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_DEF');
   await removes.at(-1).dispatch('click');
-  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  assert.equal(document.activeElement, passiveAdd(view));
   assert.equal(document.activeElement.disabled, false);
   view.destroy();
+});
+
+test('理想個体画面: 目標を選ぶと、欲しいパッシブの候補を「目標と配合の親」と「ほかの所持パル」に分け、マイナスのパッシブは最後の群に', async (t) => {
+  install(t);
+  const owned = fakeOwned([
+    ...basePals,
+    palworldPal('p1', 'PinkCat', 'Male', ['Legend', 'CraftSpeed_down1']),
+    palworldPal('c1', 'ChickenPal', 'Male', ['Noukin']),
+  ]);
+  const groupsOf = async (view) => {
+    await passiveAdd(view).dispatch('click');
+    return view.element.querySelector('.passive-options').querySelectorAll('.passive-group-label').map((node) => node.textContent);
+  };
+  // ツッパニャン × タマコッコ → モコロンの登録があるので、ツッパニャンとタマコッコは親の候補の種族
+  const records = [{ id: 'r1', parent1Id: 'PinkCat', parent2Id: 'ChickenPal', childId: 'SheepBall' }];
+  const view = idealView(context(owned, records), parseHash('#/ideal?to=SheepBall'));
+  assert.deepEqual(await groupsOf(view), ['モコロンと配合の親が持っているもの', 'その他', 'マイナスのパッシブ']);
+  const minus = view.element.querySelector('.passive-options').querySelectorAll('.passive-group-label').at(-1);
+  assert.equal(minus.textContent, 'マイナスのパッシブ');
+  assert.equal(view.element.querySelector('[data-value="CraftSpeed_down1"]').querySelector('.passive-option-count').textContent, '1 体');
+  view.destroy();
+  // 登録がなければ、ほかの種族はほかの所持パルの群へ
+  const other = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
+  assert.deepEqual(await groupsOf(other), ['モコロンと配合の親が持っているもの', 'ほかの所持パルが持っているもの', 'その他', 'マイナスのパッシブ']);
+  assert.equal(other.element.querySelector('[data-value="Legend"]').querySelector('.passive-option-count').textContent, '1 体');
+  other.destroy();
+  // 目標を選んでいなければ 1 群（と、その他・マイナス）
+  const none = idealView(context(owned), parseHash('#/ideal'));
+  assert.deepEqual(await groupsOf(none), ['所持パルが持っているもの', 'その他', 'マイナスのパッシブ']);
+  none.destroy();
+});
+
+test('理想個体画面: 登録した理想個体のパッシブの組み合わせを（重複を除き新しい順に）「登録した組み合わせ」に出し、押すとその組で選び直す', async (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  const goal = (name, passiveIds, palId = 'SheepBall') => ctx.ideals.add({ name, palId, passives: passiveIds, mode: 'include', targets: full, cake: 'none', order: 'next' });
+  goal('古い', ['Rare']);
+  goal('同じ組', ['Rare'], 'PinkCat');
+  goal('パッシブなし', []);
+  goal('新しい', ['Legend', 'Rare']);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Noukin'));
+  await passiveAdd(view).dispatch('click');
+  const presets = view.element.querySelectorAll('.passive-preset');
+  assert.deepEqual(presets.map((node) => node.title), ['新しい', '同じ組']);
+  await presets[0].dispatch('click');
+  assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Legend%2CRare']);
+  // 登録を足すと、開いたまま組み合わせを入れ直す
+  goal('もっと新しい', ['WorldTree_ATK']);
+  assert.ok(view.element.querySelector('.picker-search'));
+  assert.deepEqual(view.element.querySelectorAll('.passive-preset').map((node) => node.title), ['もっと新しい', '新しい', '同じ組']);
+  view.destroy();
+});
+
+test('理想個体画面: 余計なパッシブ・配合では作れないパッシブ・「○○を運ぶ経路」のボタンは小さなチップで出す', (t) => {
+  install(t);
+  const extra = idealView(context(fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', ['Rare', 'Noukin']),
+    palworldPal('f1', 'SheepBall', 'Female', ['Rare']),
+  ])), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  const note = extra.element.querySelector('.ideal-extras');
+  assert.ok(note);
+  assert.equal(note.querySelector('.passive-chip').className, 'passive-chip passive-rank-2 compact');
+  assert.match(note.textContent, /^余計なパッシブ: 脳筋（これがなければ/);
+  extra.destroy();
+  const missing = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  const warning = missing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning');
+  assert.match(warning.querySelector('.passive-chip').className, /compact/);
+  const action = missing.element.querySelector('.ideal-carry');
+  assert.equal(action.textContent, '伝説を運ぶ経路');
+  assert.match(action.querySelector('.passive-chip').className, /compact/);
+  // チップの title と重ならないよう、ボタンには title を付けない
+  assert.equal(action.title, undefined);
+  missing.destroy();
 });
 
 test('理想個体画面: 登録を外すと一覧から消え、所持パルのデータがないときは「未確認」と出す', (t) => {
@@ -559,16 +652,14 @@ test('理想個体画面: 登録を外すと一覧から消え、所持パルの
   view.destroy();
 });
 
-test('理想個体画面: g で開いた後にパッシブを変えても、遷移先の URL に g を残さない', (t) => {
+test('理想個体画面: g で開いた後にパッシブを変えても、遷移先の URL に g を残さない', async (t) => {
   install(t);
   const owned = fakeOwned();
   const ctx = withIdeals(context(owned), owned);
   ctx.ideals.add({ name: '攻撃型', palId: 'SheepBall', passives: ['Rare'], mode: 'only', targets: { hp: 0, shot: 100, defense: 90 }, cake: 'talent', order: 'next' });
   const [goal] = ctx.ideals.list();
   const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`));
-  const add = view.element.querySelector('.passive-add');
-  add.value = 'Legend';
-  add.dispatch('change');
+  await pickPassive(view, 'Legend');
   assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare%2CLegend']);
   view.destroy();
 });
@@ -906,7 +997,7 @@ test('理想個体画面: 計算が 1 回の区切りで終わらないときは
   assert.equal(results.getAttribute('aria-busy'), 'true');
 });
 
-test('理想個体画面: 所持者とパッシブの選択欄は、中身が同じなら作り直さず、変わってもフォーカス中は離れるまで待つ', async (t) => {
+test('理想個体画面: 所持者の選択欄は中身が同じなら作り直さず、変わってもフォーカス中は離れるまで待つ。パッシブの選択欄は作り直さず、開いたまま所持数だけ変わる', async (t) => {
   install(t);
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
   const owned = fakeOwned();
@@ -914,12 +1005,12 @@ test('理想個体画面: 所持者とパッシブの選択欄は、中身が同
   document.body.append(view.element);
   const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
   const options = [...holder.children];
-  const passiveAdd = view.element.querySelector('.passive-add');
+  const add = passiveAdd(view);
   // 中身が同じデータの読み直し
   owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
   owned.emit();
   assert.deepEqual([...holder.children], options);
-  assert.equal(view.element.querySelector('.passive-add'), passiveAdd);
+  assert.equal(passiveAdd(view), add);
   // プレイヤーと所持数が変わった。所持者の欄を選んでいる途中は作り直さない
   const snapshot = { ...owned.state.data.snapshot, players: [...owned.state.data.snapshot.players, { uid: P2, name: 'Bob', level: 3 }],
     pals: [...owned.state.data.snapshot.pals, palworldPal('n1', 'SheepBall', 'Female', ['Noukin'], full, { kind: 'palbox', playerUid: P2 })] };
@@ -927,22 +1018,24 @@ test('理想個体画面: 所持者とパッシブの選択欄は、中身が同
   owned.state.owned = normalizeOwned(snapshot, { pals, passives });
   owned.emit();
   assert.deepEqual([...holder.children], options);
-  // パッシブの欄はフォーカスがないので、所持数が変わればすぐ作り直す
-  assert.notEqual(view.element.querySelector('.passive-add'), passiveAdd);
+  assert.equal(passiveAdd(view), add);
   // 離れたら作り直す
   document.activeElement = document.body;
   await holder.dispatch('blur');
   await settle();
   assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', 'Alice', 'Bob']);
-  // パッシブの欄を選んでいる途中も待つ
-  const add = view.element.querySelector('.passive-add');
-  add.focus();
+  // パッシブの候補を開いて検索している途中に所持数が変わっても（20 秒ごとの確認など）、閉じずに数だけ描き直す
+  await add.dispatch('click');
+  const search = view.element.querySelector('.picker-search');
+  search.value = '脳筋';
+  await search.dispatch('input');
+  assert.equal(view.element.querySelector('[data-value="Noukin"]').querySelector('.passive-option-count').textContent, '2 体');
   owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
   owned.emit();
-  assert.equal(view.element.querySelector('.passive-add'), add);
-  document.activeElement = document.body;
-  await add.dispatch('blur');
-  await settle();
-  assert.notEqual(view.element.querySelector('.passive-add'), add);
+  assert.equal(view.element.querySelector('.picker-search'), search);
+  assert.equal(document.activeElement, search);
+  assert.equal(search.value, '脳筋');
+  assert.equal(view.element.querySelector('[data-value="Noukin"]').querySelector('.passive-option-count').textContent, '1 体');
+  assert.equal(passiveAdd(view), add);
   view.destroy();
 });

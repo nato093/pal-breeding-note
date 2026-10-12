@@ -5,8 +5,7 @@ import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { captureFocus, restoreFocus } from '../ui/focus.js';
-import { viewHeading, syncPicker, syncOptions, renderWhenIdle } from './shared.js';
+import { viewHeading, syncPicker, syncOptions, ownedSpeciesNotes } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
@@ -216,8 +215,21 @@ export function ownedView(context, route) {
     wrapper.append(el('span', '', label), input);
     talents.append(wrapper);
   }
-  const picker = palPicker({ label: 'パル', value: filter.palId, onChange: (id) => { filter.palId = id; renderResults(); } });
+  // 所持している種族を先に「♂3 ♀2」つきで出す
+  const picker = palPicker({ label: 'パル', value: filter.palId, describe: () => ownedSpeciesNotes(owned.state.owned),
+    onChange: (id) => { filter.palId = id; renderResults(); } });
+  // パッシブの選択欄は 1 回だけ作り、絞り込み・データが変わったら update で合わせる（開いた候補を閉じない）。
+  // 所持数は、選んでいるパッシブも含めた今の絞り込みの結果の中の数（renderResults が数える）
+  const passive = passiveSelector({
+    label: 'パッシブ（すべて持つ個体）', selected: filter.passives, countLabel: 'いまの絞り込みの中で持っているもの', negatives: 'inline',
+    onChange: (ids) => {
+      filter.passives = ids;
+      passive.update({ selected: ids });
+      renderResults();
+    },
+  });
   const passiveSlot = el('div', 'owned-passive-slot');
+  passiveSlot.append(passive.element);
   filters.append(field('所持者', holder), field('場所', place), picker.element, field('キーワード', query), field('並べ替え', sort),
     field('パル濃縮（★）', stars), group('個体値（以上）', talents), group('表示', toggles), passiveSlot);
   const count = el('p', 'result-note');
@@ -273,30 +285,6 @@ export function ownedView(context, route) {
       .map((group) => [group, placeGroupLabel(group)])];
     syncOptions(place, places, () => keepChoice(place, 'place', state));
     sort.value = filter.sort;
-  }
-
-  // パッシブの選択欄は、選んだパッシブと所持数が同じなら作り直さない。データの更新では、選んでいる途中（フォーカス中）は待つ
-  let shownPassives = '';
-  function renderPassives(state, { force = false } = {}) {
-    const counts = passiveCounts(state.owned?.pals ?? []);
-    const signature = JSON.stringify([filter.passives, [...counts]]);
-    if (signature === shownPassives) return;
-    const draw = () => {
-      shownPassives = signature;
-      // 選ぶ・外すと選択欄を作り直すので、続けて選べるよう同じ役目の部品（追加欄。押せなければ残ったチップの最後の ×）へフォーカスを移す
-      const token = captureFocus(passiveSlot);
-      passiveSlot.replaceChildren(passiveSelector({
-        label: 'パッシブ（すべて持つ個体）', selected: filter.passives, counts,
-        onChange: (ids) => {
-          filter.passives = ids;
-          renderPassives(owned.state, { force: true });
-          renderResults();
-        },
-      }));
-      restoreFocus(passiveSlot, token);
-    };
-    if (force) draw();
-    else renderWhenIdle(passiveSlot, () => renderPassives(owned.state, { force: true }));
   }
 
   // ---- 一覧（行は個体の ID で使い回す。中身が同じ行は触らない） ----
@@ -376,12 +364,15 @@ export function ownedView(context, route) {
     if (!state.owned) {
       count.textContent = '';
       shownCount = 0;
+      passive.update({ selected: filter.passives, counts: new Map() });
       leaveVirtual();
       clearList(results);
       results.append(empty(state.ready ? '表示できる所持パルがありません。' : '読み込み中…'));
       return;
     }
-    const list = sortOwned(filterOwned(state.owned.pals, filter), filter.sort);
+    const matched = filterOwned(state.owned.pals, filter);
+    passive.update({ selected: filter.passives, counts: passiveCounts(matched) });
+    const list = sortOwned(matched, filter.sort);
     terms = keywordTerms(filter.query);
     termsKey = terms.join(' ');
     count.textContent = `${list.length} 体`;
@@ -451,7 +442,8 @@ export function ownedView(context, route) {
     if (state.owned !== renderedOwned) {
       renderedOwned = state.owned;
       renderFilters(state);
-      renderPassives(state);
+      // 候補を開いたままでも、所持数だけ描き直す（閉じない）
+      picker.update();
       renderResults({ keepPosition: true });
       warmKeywords(state.owned);
     }
@@ -461,7 +453,6 @@ export function ownedView(context, route) {
   renderedOwned = owned.state.owned;
   renderSummary(owned.state);
   renderFilters(owned.state);
-  renderPassives(owned.state);
   renderResults();
   warmKeywords(owned.state.owned);
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
@@ -475,7 +466,6 @@ export function ownedView(context, route) {
       if (restored) showFilter();
       syncPicker(picker, filter.palId);
       renderFilters(owned.state);
-      renderPassives(owned.state, { force: true });
       renderResults();
     },
     destroy() {
@@ -484,6 +474,7 @@ export function ownedView(context, route) {
       warmSeq++;
       unsubscribe();
       picker.destroy();
+      passive.destroy();
       leaveVirtual();
       clearList(results);
     },
