@@ -229,6 +229,10 @@ async function boot() {
   // 画面に出している route（作り直した後・applyRoute の後に入れる）と、そのときログイン中だったか（'in' | 'out'）
   let shownRoute = null;
   let shownAuth = '';
+  // 画面に出しているエントリの ID と URL のハッシュ（描いた後に入れる。ログイン画面では ''）。戻る・進むで離れるエントリに条件を書くのと、
+  // 同じ URL のエントリどうしの戻る・進む（popstate だけが来る）を見分けるのに使う
+  let shownEntry = '';
+  let shownHash = '';
   // 次の hashchange の理由（'navigate'・'tab'）。1 回使ったら消す。印がなければ戻る・進む・手入力
   let intent = null;
   let booted = false;
@@ -255,11 +259,14 @@ async function boot() {
     scrolled = null;
     if (last) writeEntry(last);
   }, SCROLL_SAVE_DELAY);
+  // 画面が間引いて待っている入力（打ってすぐタブ・リンクを押したときのキーワードなど）を、条件を書く前に当てる
+  const flushInputs = () => currentView?.flushInputs?.();
   // 今のエントリの条件と位置を書く（移る前・ページを離れるとき）
   function saveEntry() {
     saveScrolled.cancel();
     scrolled = null;
     if (showingLogin) return;
+    flushInputs();
     writeEntry({ id: entryId(), shown: shownRoute, y: scrollTop() });
   }
   // 読み込み直し用の保存（ページを離れるとき）: 画面ごとの条件とタブの行き先
@@ -319,6 +326,7 @@ async function boot() {
     replace(hash) {
       history.replaceState(history.state, '', urlOf(hash));
       if (showingLogin) return;
+      shownHash = location.hash;
       route = parseHash(hash);
       if (sameScreen(shownRoute, route)) shownRoute = route;
       remember(route);
@@ -407,21 +415,24 @@ async function boot() {
   }
 
   // 位置: 同じ画面の条件の変更はそのまま、リンクで違う画面へは先頭、タブで違う画面へはその画面を離れたときの位置、
-  // 戻る・進む・起動はエントリに保存した位置（無ければ動かさない。ID のない新しいエントリで違う画面なら先頭）、ログインの切り替えは先頭
-  function placeScroll(reason, previous, entry, fresh) {
+  // 戻る・進む・起動はエントリに保存した位置、ログインの切り替えは先頭。
+  // 戻る・進むで位置の無いエントリ（ID のない新しいエントリ＝ヘッダーの通知・ダイアログのリンク・手入力で来た、
+  // ID はあるが中身が 50 件の上限・名前の変更で消えたエントリ）は、違う画面なら先頭から。「動かさない」は同じ画面のときだけ
+  function placeScroll(reason, previous, entry) {
     const changed = !sameScreen(previous, route);
     let y = null;
     if (reason === 'auth') y = 0;
     else if (reason === 'navigate') y = changed ? 0 : null;
     else if (reason === 'tab') y = changed ? viewState(route.view).scrollY ?? 0 : null;
-    else if (entry) y = entry.scrollY;
-    // 印のない hashchange で ID のないエントリ（ヘッダーの通知・ダイアログのリンク・手入力で新しく来た）は、違う画面なら先頭から
-    else if (reason === 'history' && fresh && changed) y = 0;
+    else if (reason === 'history' || reason === 'boot') {
+      y = entry?.scrollY ?? null;
+      if (y === null && reason === 'history' && changed) y = 0;
+    }
     if (Number.isFinite(y)) moveTo(y);
   }
 
   // 遷移の適用。reason は 'boot'（起動）・'auth'（ログインの有無が変わった）・'navigate'（context.navigate・リンク）・'tab'（ナビのタブ）・
-  // 'update'（context.update＝同じ画面の条件の変更）・'history'（印のない hashchange＝戻る・進む・手入力）。
+  // 'update'（context.update＝同じ画面の条件の変更）・'history'（印のない hashchange＝戻る・進む・手入力。同じ URL のエントリどうしの戻る・進むは popstate）。
   // 順番は ① 条件を当てる → ② 描く（作り直すか applyRoute）→ ③ 位置を戻す
   function render(reason = 'auth') {
     const needsLogin = !store.state.passcode || !store.state.userId;
@@ -430,9 +441,14 @@ async function boot() {
     saveScrolled.flush();
     scrolling?.cancel();
     scrolling = null;
+    // 戻る・進むでは、この時点で history.state がもう次のエントリなので、表示していたエントリ（離れるエントリ）に、
+    // 離れるときの条件と位置を書く（スクロールしていなくても、最後に変えた条件で「進む」で戻れるように）
+    if (shownEntry && shownEntry !== entryId() && !showingLogin) {
+      flushInputs();
+      writeEntry({ id: shownEntry, shown: shownRoute, y: scrollTop() });
+    }
     const auth = authKey();
     const previous = shownRoute;
-    const fresh = !entryId();
     // ① 戻る・進む・起動は、そのエントリに保存した条件（版・環境・利用者・ワールド・URL が今と合うものだけ）
     const entry = !needsLogin && (reason === 'history' || reason === 'boot')
       ? memory.readEntry(entryId(), { view: route.view, key: routeKey(route) }) : null;
@@ -445,8 +461,9 @@ async function boot() {
       shownRoute = route;
       // restored: 戻る・進むで、そのエントリの条件を viewState に入れ直した（ビューは入力欄も合わせる）
       currentView.applyRoute(route, { reason, restored: Boolean(entry?.cond) });
-      placeScroll(reason, previous, entry, fresh);
+      placeScroll(reason, previous, entry);
       ensureEntry();
+      markShown();
       return;
     }
     // 画面を作り直すと部品も新しくなるため、同じ役目の部品（data-focus-key）へフォーカスを引き継ぐ
@@ -467,6 +484,8 @@ async function boot() {
     sync.update(store.state);
     if (showingLogin) {
       bell.close(); save.close(); account.close(); forget(); loginView();
+      shownEntry = '';
+      shownHash = '';
       if (reason === 'auth') moveTo(0);
       return;
     }
@@ -478,8 +497,14 @@ async function boot() {
     shownRoute = route;
     main.replaceChildren(currentView.element);
     restoreFocus(main, focus);
-    placeScroll(reason, previous, entry, fresh);
+    placeScroll(reason, previous, entry);
     ensureEntry();
+    markShown();
+  }
+  // 描いた後の今のエントリと URL を覚える（ensureEntry の後）
+  function markShown() {
+    shownEntry = entryId();
+    shownHash = location.hash;
   }
 
   // ナビのタブ・本文やヘッダーのリンクで移るときは、移る前に今のエントリを書き、次の hashchange に理由を付ける
@@ -539,6 +564,15 @@ async function boot() {
     intent = null;
     route = nextRoute;
     render(reason);
+  });
+  // 同じ URL のエントリどうし（理想個体の「呼び出す」で g を外すと、URL が同じでエントリの違う履歴が並ぶ）を戻る・進むと、
+  // hashchange が来ない。popstate で URL が表示中のまま、エントリだけが替わったときは、ここで戻る・進むとして描く。
+  // URL が替わったときは、続けて来る hashchange（ルーター）に任せる（2 回描かない。リンクの移動でも popstate を出すブラウザでも同じ）
+  window.addEventListener('popstate', () => {
+    if (!booted || showingLogin || location.hash !== shownHash || entryId() === shownEntry) return;
+    intent = null;
+    route = parseHash(location.hash);
+    render('history');
   });
   store.subscribe((state) => {
     envChip.hidden = state.env !== 'test';

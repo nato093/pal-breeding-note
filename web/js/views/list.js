@@ -43,15 +43,29 @@ export function listView(context) {
     memory.sort = sort.value;
   };
   let shownRows = 0;
-  // 登録者名は入力を間引く（日本語の変換中は絞らない）。並べ替えはすぐ（行の順番が変わるので、動きを付ける）
-  onTextInput(registrant, () => { remember(); update(context.store.state); }, { delay: context.inputDelay ?? 150 });
+  let destroyed = false;
+  // 登録者名は入力を間引く（日本語の変換中は絞らない）。画面を閉じたら待っている入力は取り消す
+  const inputs = new AbortController();
+  const typed = onTextInput(registrant, () => { remember(); update(context.store.state); }, { delay: context.inputDelay ?? 150, signal: inputs.signal });
+  // 並べ替えはすぐ（行の順番が変わるので、動きを付ける）。利用者が変えたときは、結果の始まりが見える位置へ（データの更新では動かさない）
   sort.addEventListener('input', () => {
     remember();
-    const draw = () => update(context.store.state);
+    const draw = () => {
+      update(context.store.state);
+      showStart();
+    };
     if (shownRows > TRANSITION_MAX) draw();
     else withTransition(draw);
   });
+  // 結果の始まり（件数の行）が固定のヘッダーの下に隠れているときだけ、そこまで戻す（上の余白は html の scroll-padding-top）
+  function showStart() {
+    if (destroyed) return;
+    const header = globalThis.document?.querySelector?.('.app-header')?.getBoundingClientRect().bottom ?? 0;
+    if (count.getBoundingClientRect().top < header) count.scrollIntoView?.({ block: 'start' });
+  }
   function update(state) {
+    // 閉じた後に遅れて呼ばれたとき（並べ替えの動きの後など）は描かない
+    if (destroyed) return;
     if (dataPending(results, state)) { shownRows = 0; return; }
     const query = registrant.value.trim().toLocaleLowerCase('ja');
     const records = state.records.filter((record) => record.registrant.toLocaleLowerCase('ja').includes(query));
@@ -64,5 +78,15 @@ export function listView(context) {
       empty: () => empty('条件に合う登録はありません。見つけた配合を登録しましょう。', button('配合を登録', () => context.register(), 'button primary')),
     });
   }
-  return watchView(context.store, element, update);
+  const view = watchView(context.store, element, update);
+  return {
+    ...view,
+    // 間引いて待っている登録者名の入力をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
+    flushInputs: () => typed.flush(),
+    destroy() {
+      destroyed = true;
+      inputs.abort();
+      view.destroy();
+    },
+  };
 }

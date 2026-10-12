@@ -93,3 +93,26 @@ test('フォーカス: 作り直さずにフォーカスが残っていれば動
   restoreFocus(root, token);
   assert.equal(document.activeElement, nextTrigger);
 });
+
+test('フォーカス: key・group に " や改行が入っていても（URL の値から作った key）、落ちずに同じ key の要素へ戻す', (t) => {
+  const { body } = installDom(t);
+  const root = node('div');
+  body.append(root);
+  const key = 'passive-chip:欲しい:a"b\nc]\\';
+  root.append(node('button', { 'data-focus-key': key }));
+  root.querySelector('button').focus();
+  const token = captureFocus(root);
+  const next = node('button', { 'data-focus-key': key });
+  root.replaceChildren(next);
+  assert.equal(restoreFocus(root, token), true);
+  assert.equal(document.activeElement, next);
+  // 押せなければ同じ group（" 入り）の最後へ
+  next.disabled = true;
+  const group = 'passive:"欲しい"\n';
+  next.setAttribute('data-focus-group', group);
+  const last = node('button', { 'data-focus-group': group });
+  root.append(node('button', { 'data-focus-group': group }), last);
+  document.activeElement = body;
+  assert.equal(restoreFocus(root, token), true);
+  assert.equal(document.activeElement, last);
+});

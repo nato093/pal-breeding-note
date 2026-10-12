@@ -13,7 +13,8 @@ const rankClass = (rank) => (rank > 0 ? `passive-rank-${Math.min(rank, 5)}` : ra
 /**
  * パッシブの表示（ランクで矢印と色が変わる）。マスターにないものは内部名で出す。
  * compact: 小さいチップ（文の中・候補の行・登録した組み合わせ）。
- * focusGroup: × のフォーカスの目印（ui/focus.js）。× が消えたら同じ名前の追加欄へ、追加欄が押せなければ残った × の最後へ
+ * focusGroup: × のフォーカスの目印（ui/focus.js。'passive:<ラベル>'）。× が消えたら同じ名前の追加欄へ、追加欄が押せなければ残った × の最後へ。
+ * × の key は 'passive-chip:<ラベル>:<id>'（部品ごとに分ける。作り直した後に、別の画面の同じパッシブの × へ移らないように）
  */
 export function passiveChip(id, { onRemove, focusGroup = '', compact = false } = {}) {
   const passive = passivesById.get(id);
@@ -30,7 +31,7 @@ export function passiveChip(id, { onRemove, focusGroup = '', compact = false } =
     const remove = button('×', onRemove, 'passive-remove');
     remove.setAttribute('aria-label', `${passive?.ja ?? id} を外す`);
     if (focusGroup) {
-      remove.setAttribute('data-focus-key', `passive-chip:${id}`);
+      remove.setAttribute('data-focus-key', `passive-chip:${focusGroup.replace(/^passive:/, '')}:${id}`);
       remove.setAttribute('data-focus-fallback', focusGroup);
       remove.setAttribute('data-focus-group', focusGroup);
     }

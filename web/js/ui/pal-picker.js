@@ -102,6 +102,19 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder 
     input.focus();
   }
 
+  // 開いている候補の、選んでいる行の印（is-selected・✓・aria-selected）だけを今の値に合わせる（検索語・矢印の行・一覧の位置は触らない）
+  function markSelected() {
+    const { list, choices } = view;
+    list.querySelectorAll('[role="option"]').forEach((node, index) => {
+      const on = choices[index]?.id === selected;
+      node.classList.toggle('is-selected', on);
+      node.setAttribute('aria-selected', String(on));
+      const check = Array.from(node.children).find((child) => child.getAttribute?.('class') === 'picker-check');
+      if (on && !check) node.append(checkMark());
+      if (!on && check) check.remove();
+    });
+  }
+
   function highlight() {
     const { input, list, choices, position } = view;
     const options = list.querySelectorAll('[role="option"]');
@@ -173,7 +186,12 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder 
   renderSelected();
   return {
     element: wrapper,
-    setValue(id) { selected = id; renderSelected(); },
+    // 候補を開いたまま値が変わったとき（戻る・進む、同じ画面の URL の変更）は、開いた候補の選んでいる行の印も合わせる
+    setValue(id) {
+      selected = id;
+      renderSelected();
+      if (view) markSelected();
+    },
     getValue() { return selected; },
     /** 注記を変える（describe を渡さなければ同じ関数で数え直す）。開いていれば、検索語と矢印の位置を保って候補を描き直す */
     update({ describe: next } = {}) {

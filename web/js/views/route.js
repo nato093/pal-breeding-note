@@ -2,7 +2,7 @@ import { el, button, empty, link } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palTile, palsById } from '../ui/pal-icon.js';
 import { routeView } from '../ui/route-view.js';
-import { passiveSelector, passiveList } from '../ui/passive-picker.js';
+import { passiveSelector, passiveList, passivesById } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
@@ -52,7 +52,8 @@ export function inheritanceView(context, route) {
     current = next;
     from = validId(next, 'from', context);
     to = validId(next, 'to', context);
-    passives = (next.params.get('p') ?? '').split(',').filter(Boolean).slice(0, 4);
+    // 重複とマスターにない ID は除く（知らない ID のチップを出さない）
+    passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => passivesById.has(id)))].slice(0, 4);
   }
   readRoute(route);
   const selectPal = (key) => (id) => navigateSelection(context, current, key, id);

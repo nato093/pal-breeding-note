@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { installDom } from '../helpers/dom.js';
 import passives from '../../web/data/passives.js';
 import { passiveSelector, passiveGroups, passiveChip } from '../../web/js/ui/passive-picker.js';
+import { captureFocus, restoreFocus } from '../../web/js/ui/focus.js';
 
 // 呼び出し側と同じく、onChange を受けたら作り直さずに update で選んだものを合わせる
 function mount(t, options = {}) {
@@ -160,7 +161,7 @@ test('パッシブ選択: max 個に達したら閉じて最後のチップの �
   assert.equal(search(), null);
   assert.equal(add.disabled, true);
   assert.equal(add.textContent, '最大 4 個まで');
-  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_ATK');
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:欲しいパッシブ:WorldTree_ATK');
   // 押せないボタンでは開かない
   await add.dispatch('click');
   await add.dispatch('keydown', { key: 'ArrowDown' });
@@ -248,12 +249,28 @@ test('パッシブ選択: Escape・外側の pointerdown・destroy で閉じ、d
   assert.equal((events.listeners.get('keydown') ?? []).length, 0);
 });
 
-test('パッシブのチップ: compact で小さいチップにし、× の目印は今までどおり', (t) => {
+test('パッシブのチップ: compact で小さいチップにし、× の目印は部品のラベルと ID', (t) => {
   installDom(t);
   const chip = passiveChip('Rare', { compact: true });
   assert.equal(chip.className, 'passive-chip passive-rank-4 compact');
   assert.equal(chip.querySelector('.passive-remove'), null);
   const removable = passiveChip('Rare', { onRemove() {}, focusGroup: 'passive:欲しいパッシブ' });
   assert.doesNotMatch(removable.className, /compact/);
-  assert.equal(removable.querySelector('.passive-remove').getAttribute('data-focus-key'), 'passive-chip:Rare');
+  assert.equal(removable.querySelector('.passive-remove').getAttribute('data-focus-key'), 'passive-chip:欲しいパッシブ:Rare');
+});
+
+test('パッシブ選択: × のフォーカスの目印は部品のラベルごとなので、作り直した後に別の部品の同じパッシブの × へは移らない', (t) => {
+  const { body } = installDom(t);
+  const root = document.createElement('div');
+  body.append(root);
+  const carry = passiveSelector({ label: '運びたいパッシブ', selected: ['Rare'], onChange() {} });
+  const filter = passiveSelector({ label: 'パッシブ（すべて持つ個体）', selected: ['Rare'], onChange() {} });
+  t.after(() => { carry.destroy(); filter.destroy(); });
+  root.append(carry.element);
+  carry.element.querySelector('.passive-remove').focus();
+  const token = captureFocus(root);
+  // 別の画面に作り直した（同じパッシブを選んだ別の部品だけがある）
+  root.replaceChildren(filter.element);
+  assert.equal(restoreFocus(root, token), false);
+  assert.equal(document.activeElement, body);
 });

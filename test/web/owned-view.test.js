@@ -7,7 +7,8 @@ import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash } from '../../web/js/router.js';
-import { ownedView } from '../../web/js/views/owned.js';
+import { ownedView, OWNED_MEMORY } from '../../web/js/views/owned.js';
+import { cleanSaved } from '../../web/js/core/boundary.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
 import { inheritanceView } from '../../web/js/views/route.js';
@@ -861,7 +862,7 @@ test('所持パル画面: パッシブは候補を開いたまま続けて選べ
   await pickPassive(view, 'WorldTree_ATK');
   assert.equal(add.disabled, true);
   assert.equal(view.element.querySelector('.picker-search'), null);
-  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_ATK');
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:パッシブ（すべて持つ個体）:WorldTree_ATK');
   // × で外すと、押せるようになった追加欄へ
   await document.activeElement.dispatch('click');
   assert.equal(document.activeElement, add);
@@ -951,4 +952,86 @@ test('所持パル・継承ルート: パル選択は所持している種族を
   await target.querySelector('.picker-trigger').dispatch('click');
   assert.deepEqual(target.querySelectorAll('[role="option"]').slice(1, 3).map((node) => node.querySelector('.picker-badge').textContent), ['♂0 ♀1', '♂1 ♀0']);
   route.destroy();
+});
+
+// ---- フェーズ 1a のレビューで直したもの ----
+test('所持パル画面: キーワード・個体値の入力の間引きの途中で画面を閉じたら、閉じた後に一覧を描かない。flushInputs は待っている入力をすぐ当てる', async (t) => {
+  installDom(t);
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const rows = (view) => view.element.querySelectorAll('.owned-row').length;
+  for (const pick of [(view) => view.element.querySelectorAll('input').find((node) => node.type === 'search'),
+    (view) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）')]) {
+    const view = ownedView({ ...context(fakeOwned()), inputDelay: 20 }, parseHash('#/owned'));
+    const field = pick(view);
+    field.value = field.type === 'search' ? 'もこ' : '5';
+    await field.dispatch('input');
+    view.destroy();
+    assert.equal(rows(view), 0);
+    await wait(40);
+    assert.equal(rows(view), 0);
+  }
+  const view = ownedView({ ...context(fakeOwned()), inputDelay: 1000 }, parseHash('#/owned'));
+  const keyword = view.element.querySelectorAll('input').find((node) => node.type === 'search');
+  keyword.value = 'もこ';
+  await keyword.dispatch('input');
+  assert.equal(rows(view), 3);
+  view.flushInputs();
+  assert.equal(rows(view), 1);
+  view.destroy();
+});
+
+test('所持パル画面: 選んでいる所持者が、フォーカス中の更新で選択肢から消えたら、離れた後に「すべて」に戻して一覧とパッシブの数を数え直す', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  document.body.append(view.element);
+  const holder = view.element.querySelectorAll('select')[0];
+  holder.value = `player:${P1}`;
+  await holder.dispatch('change');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
+  holder.focus();
+  // 同じワールドの更新で Alice がいなくなり、Bob の個体だけになった
+  const P2 = 'abcd1234-0000-0000-0000-000000000000';
+  const bob = { ...snapshot, players: [{ uid: P2, name: 'Bob', level: 3 }],
+    pals: [{ instanceId: 'x', characterId: 'PinkCat', gender: 'Male', level: 4, passives: ['Rare'], talent: {}, location: { kind: 'palbox', playerUid: P2 } }] };
+  owned.state.owned = normalizeOwned(bob, { pals, passives });
+  owned.emit();
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 0);
+  document.activeElement = document.body;
+  await holder.dispatch('blur');
+  await settle();
+  assert.equal(holder.value, '');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
+  assert.equal(view.element.querySelector('.result-note').textContent, '1 体');
+  await passiveAdd(view).dispatch('click');
+  assert.equal(optionCount(view, 'Rare'), '1 体');
+  view.destroy();
+});
+
+test('所持パル画面: 所持パルのデータが無いまま開いて読み込みが終わったら、「読み込み中…」から案内に描き直す', (t) => {
+  installDom(t);
+  const owned = fakeOwned(null, { ready: false });
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  assert.match(view.element.querySelector('.owned-list').textContent, /読み込み中…/);
+  owned.state.ready = true;
+  owned.emit();
+  assert.match(view.element.querySelector('.owned-list').textContent, /表示できる所持パルがありません/);
+  view.destroy();
+});
+
+test('所持パル画面: URL のパッシブの重複を除き、保存した条件のパッシブはマスターにある ID だけを読み戻す', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned?p=Rare,Rare'));
+  assert.equal(view.element.querySelectorAll('.passive-remove').length, 1);
+  await passiveAdd(view).dispatch('click');
+  assert.match(view.element.querySelector('.picker-status').textContent, /あと 3 個まで選べます/);
+  view.destroy();
+  assert.deepEqual(cleanSaved({ passives: ['Rare', '知らないパッシブ', 'Rare', 'Legend'] }, OWNED_MEMORY).passives, ['Rare', 'Legend']);
+});
+
+test('継承ルート: URL のパッシブの重複とマスターにない ID を除く', (t) => {
+  installDom(t);
+  const view = inheritanceView(context(fakeOwned()), parseHash('#/route?to=CuteFox&p=Rare,Rare,知らないパッシブ'));
+  assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す']);
+  view.destroy();
 });
