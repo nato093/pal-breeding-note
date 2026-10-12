@@ -1,7 +1,7 @@
 # フェーズ 1b・1c: 理想個体と所持パルの安定化（実装ドキュメント）
 
 > このドキュメントだけを読めば、フェーズ 1b（理想個体）と 1c（所持パル）の 7 テーマを、経緯も含めて把握して実装できるように書いた。
-> 書いた日: 2026-10-12。コードの行番号は HEAD `6028a48`（web/ に未コミットの変更なし）で、**実際にファイルを開いて確かめた**もの。実装の前にもう一度開いて確かめること（フェーズ 1a の変更で行はずれる）。
+> 書いた日: 2026-10-12。コードの行番号は HEAD `c5c0683`（web/ に未コミットの変更なし）で、**実際にファイルを開いて確かめた**もの。実装の前にもう一度開いて確かめること（フェーズ 1a の変更で行はずれる）。
 >
 > 方針の優先順位: 統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`。写しは [appendix/plan-snapshot.md](appendix/plan-snapshot.md)）の決定事項 D1〜D8・判断事項 ＞ このドキュメント ＞ 付録の案の文面（[appendix/catalog.md](appendix/catalog.md)）。案の「判断:」の直しとプランの要点が食い違うときはプランが優先する（食い違いは各テーマの「経緯」に書いた）。
 > 別セッションのプラン（F 番号）は [appendix/other-session-plan.md](appendix/other-session-plan.md)（§3 タブ別・§6 バッチ 1 の実装計画・§9 Codex 2 回目レビューの決まり）。Codex のプランレビューは [appendix/codex-reviews.md](appendix/codex-reviews.md)、計測は [appendix/measurements.md](appendix/measurements.md)。
