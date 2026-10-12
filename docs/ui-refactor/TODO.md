@@ -127,7 +127,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 読み戻しの境界の共通の検証
 
-- 状態: 済 ／ ブランチ: `feature/data-boundary` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/data-boundary` ／ マージのコミット: `d29d395`
 - 文書と違う形にしたこと: `isObject`・`idText`・`screenHref`・`cleanSnapshot` などを足し、cleanRecords は届いた項目だけを直す（欠けた項目は足さない）、cleanOwnedPayload は文字列でない列名を '' にして列の位置を保つ、ワールドの行・プレイヤー・拠点は知っている項目だけを写す（後のテーマで項目を足すときはそこにも足す）、既読は保存するときも 2,000 件まで（phase-1a の data-boundary の「実装の記録」）
 
 - [x] core/boundary.js（int・intOrNull・text・oneOf・isoTime・list・worldId・cleanSaved）と単体テストを作る
@@ -146,22 +146,23 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 固定ヘッダー・状態・ID・重なり順の変数
 
-- 状態: 未着手 ／ ブランチ: `feature/header-frame` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/header-frame` ／ マージのコミット: （マージの後に書く）
+- 文書と違う形にしたこと: セーブ連携の状態の最大幅（22em・14em）をやめてワールド名だけを縮める形にし（測ると 22em では時刻と自動登録が切れた）、`ui/header-popup.js`（popovers で置き換える）・`formatShortTime`・`syncStatus` の部品を足し、`accountMenu({ store, renamer })` にした。読み込み中の印は `auto.status === 'checking'` の間も立てる（phase-1a の header-frame の「実装の記録」）
 
-- [ ] app.css に `--header-h` と `--z-*` を足し、既存の z-index を置き換える
-- [ ] テスト環境の帯をヘッダーの中のチップにする
-- [ ] `.header-actions` をなくし、ベル・登録をヘッダーの中へ移す（DOM の順番＝Tab の順番）
-- [ ] ui/sync-status.js（syncStatusText）を作り、同期状況を押せる button にする（aria-live を外す・失敗しても前回値）
-- [ ] api.js:20 の TIMEOUT の文を直す
-- [ ] ui/save-status.js（saveStatusModel・saveStatus とポップオーバー）を作る
-- [ ] auto-register.js に subscribe を足し、setEnabled・setMapping で知らせる
-- [ ] openRenameDialog・confirmLogout を ui/account-actions.js に移し、ui/account-menu.js（右端の ID）を作る
-- [ ] ヘッダーの CSS（sticky・高さ固定・nowrap・scrollbar-gutter・scroll-padding-top・min-width 920px）を直す
-- [ ] 幅が足りないときの隠す順番を @media で入れ、実機で閾値を確かめる
-- [ ] app.test.js:72・116 を直し、並び・同期状況・失敗時のテストを足す
-- [ ] save-status・auto-register・account-menu のテストを足す
-- [ ] release-notes に 1 件足す
-- [ ] モックと実機で、固定・幅・許可・テスト環境を確かめる
+- [x] app.css に `--header-h` と `--z-*` を足し、既存の z-index を置き換える
+- [x] テスト環境の帯をヘッダーの中のチップにする
+- [x] `.header-actions` をなくし、ベル・登録をヘッダーの中へ移す（DOM の順番＝Tab の順番）
+- [x] ui/sync-status.js（syncStatusText）を作り、同期状況を押せる button にする（aria-live を外す・失敗しても前回値）
+- [x] api.js:20 の TIMEOUT の文を直す
+- [x] ui/save-status.js（saveStatusModel・saveStatus とポップオーバー）を作る
+- [x] auto-register.js に subscribe を足し、setEnabled・setMapping で知らせる
+- [x] openRenameDialog・confirmLogout を ui/account-actions.js に移し、ui/account-menu.js（右端の ID）を作る
+- [x] ヘッダーの CSS（sticky・高さ固定・nowrap・scrollbar-gutter・scroll-padding-top・min-width 920px）を直す
+- [x] 幅が足りないときの隠す順番を @media で入れ、実機で閾値を確かめる（モックの 1280〜920px で測った。閾値は文書のまま。実機の Windows Chrome は未確認）
+- [x] app.test.js:72・116 を直し、並び・同期状況・失敗時のテストを足す
+- [x] save-status・auto-register・account-menu のテストを足す（sync-status のテストも足した）
+- [x] release-notes に 1 件足す
+- [x] モックと実機で、固定・幅・許可・テスト環境を確かめる（モックで固定・幅・拡大・テスト環境・失敗のチップ・ライトとダーク。許可の画面と実機の幅 960px の窓は未確認）
 
 ### 5. [stable-render](phase-1a-foundation.md#stable-render-差分更新区切った描画再計算の省略ずれの解消)（L）
 
@@ -221,7 +222,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 - [ ] negatives・groups（I-49）・presets（I-51）を入れる
 - [ ] passiveChip に compact を足し、views/ideal.js:118・391・393 をチップにする
 - [ ] 所持パル・理想個体・継承ルートの呼び出し側を「作り直さず update」にする（O-14 の数え方）
-- [ ] header-frame のセーブ連携の状態と ID のメニューを ui/popover.js に移す
+- [ ] header-frame のセーブ連携の状態と ID のメニューを ui/popover.js に移す（`ui/header-popup.js` の `headerPopup` を置き換えて消す）
 - [ ] CSS（1 行・候補・選択中と矢印・バッジ・compact・高さ）を入れる
 - [ ] pal-picker・ideal-view・owned-view のテストの期待値を直す
 - [ ] pal-search・popover・passive-picker・route・owned のテストを足す
@@ -1009,7 +1010,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 4 番目 header-frame**（[phase-1a-foundation.md の節](phase-1a-foundation.md#header-frame-固定ヘッダー状態id重なり順の変数)）から。始めに、TODO の data-boundary の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。data-boundary の「実装の記録」（足した部品・ワールドの行とプレイヤーと拠点は知っている項目だけを写す・cleanRecords は届いた項目だけを直す）を読んでから入る。
+- **フェーズ 1a の 5 番目 stable-render**（[phase-1a-foundation.md の節](phase-1a-foundation.md#stable-render-差分更新区切った描画再計算の省略ずれの解消)）から。始めに、TODO の header-frame の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。header-frame の「実装の記録」（`--z-*` の値・セーブ連携の状態は前の文を残して is-busy だけ足す・同期バーは `.header-status` の中で文の下）を読んでから入る。
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
 - 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。
-- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary を済ませた。ideal-calc のレビューで D19 を足した）
+- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract・data-boundary・header-frame を済ませた。ideal-calc のレビューで D19 を足した）

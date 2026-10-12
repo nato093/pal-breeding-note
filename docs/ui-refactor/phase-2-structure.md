@@ -308,7 +308,7 @@
 - レールの `drafts` タブ（`app.js:103`）、`router.js:1` の `drafts`、`nav-icons.js:7`。
 
 ### 実装の手順
-1. **ヘッダーの「＋ 登録」を外す**: `app.js` の `register` ボタン・`actions.append(…, register)`・`register.hidden` の行（header-frame で移った先）を消す。`.register-button` の CSS（`app.css` の `register-button` を含むセレクタ。`:827-828` の動きの指定にも名前がある）を片づける。
+1. **ヘッダーの「＋ 登録」を外す**: `app.js` の `register` ボタン・`actions.append(…, register)`・`register.hidden` の行（header-frame で移った先）を消す。追記（header-frame の実装、2026-10-12）: 移った先は `header.append(brand, envChip, headerStatus, save.element, bell.element, register, account.element)`。app.test.js のログイン画面で隠す部品の一覧 `signedInParts` とヘッダーの並びのテストからも `register-button` を外す。`.register-button` の CSS（`app.css` の `register-button` を含むセレクタ。`:827-828` の動きの指定にも名前がある）を片づける。
 2. **文脈のボタン**（どの時点でも、配合を探すに出る登録のボタンは 1 つだけにする）
    - 配合を探すで、パルの条件（親1・親2・子）がない（全件表示）とき: 見出しの右に「＋ 配合を登録」（`button secondary small`。`context.register()`）。
    - パルの条件があって結果が 1 件以上のとき: 件数の行の右に、親 2 体なら「この組み合わせで別の結果を登録」（親 2 体を初期値）、親が片方なら「この親で配合を登録」（親1 を初期値）、子だけなら「この子の配合を登録」（子を初期値）。
@@ -965,7 +965,7 @@
 - 新規 `test/web/device-data.test.js`: 書き出しに含める・含めない項目、読み込みの断り（形・版・環境・大きさ・壊れた JSON）、併合（今のものを優先・目標の重複と上限・既読の和）、ID が違うときの確認の呼び出し。
 - `test/web/views.test.js:139-145`（カードの順）: 所持パルのないテストの文脈では「アカウント」「書き出し」「この端末のデータ」（警告 0 件は隠れる）。`:144` のログイン中の ID は新しい文に。
 - `test/web/owned-view.test.js:234`（状態の dl）・`:236`（ワールドの行の表記と、`summary` の外の編集・削除）・`:553,562`（ワールドの行の CSV ボタンがなくなる）。
-- `test/web/app.test.js:486-490`: 設定の「最新に更新」がなくなるので、ヘッダーの同期状況のボタン（header-frame で作ったもの）を押す形に。`:510` の「これまでの配合の登録者名もすべて新しい名前になります」は、モーダルの中で確かめる形に。
+- `test/web/app.test.js:486-490`: 設定の「最新に更新」がなくなるので、ヘッダーの同期状況のボタン（header-frame で作ったもの。`byClass('sync-status')`）を押す形に。`:510` の「これまでの配合の登録者名もすべて新しい名前になります」は、モーダルの中で確かめる形に。
 - `test/web/drafts.test.js`・`test/web/ideals.test.js`: `importMany`・`importGoals` の成否。
 
 ### INV-2・互換・セキュリティ・性能の注意
@@ -1036,7 +1036,7 @@
    - ホスト: 「このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。」
    - 参加者（`role === 'guest'`）: 「この PC では読み込みません。配合牧場の自動登録は {ホスト} の画面が行います（{ホスト} が自動登録をオンにしていて、あなたが登録者として対応づいているとき）· 最後の共有 3 分前」。{ホスト} は `meta.uploadedBy`（なければ `meta.hostName`、どちらもなければ「ホスト」）。最後の共有が 10 分より前なら `warning` にして「最後の共有は 2 時間前です。{ホスト} の画面が閉じていると、配合牧場の自動登録も止まります。」。
    - 未連携で共有を見ている人: 「{ホスト} が共有した所持パルを表示しています · 最後の共有 3 分前」。共有がなければ `null`（「セーブ未登録」の案内は copy-dead-ends の setupHint に任せる）。
-   - 経過時間の言い方は header-frame の同期状況と同じ部品を使う。
+   - 経過時間の言い方は header-frame の同期状況と同じ部品を使う。追記（header-frame の実装、2026-10-12）: header-frame は経過時間を出さず（G-18 の判断）、短い時刻 `formatShortTime(value, now, fallback)`（ui/dom.js。今日なら 時:分、違う日なら 月/日 時:分）を足した。経過時間を出すならここで足す。
    - 使う所: 設定の参加者のワールドの行（`owned-settings.js:224` を差し替え）、ホストのワールドの行（チェックの下）、所持パルの案内（`ownedNotices` の `:53-56` を差し替え）、ヘッダーの状態のポップオーバー（header-frame。役割の説明の欄）。
 2. **名前が合わないとき**（X-07 の判断）: 参加者・未連携の人で、共有の players（`owned.state.owned.players`）に、ログイン中の ID と同じ名前（`userIdKey` で比べる）のプレイヤーがいないときだけ、手順 1 の参加者の文の下に 1 行: 「このワールドに「Bob」という名前のプレイヤーがいません（Alice・Carol・ぼぶ）。あなたが親 2 体を預けた配合は、ホストに設定の「プレイヤーの対応」で Bob を選んでもらうまで登録されません。」。「このワールドでの自分」（participant-self）を選んでも、ホストの対応は変わらないことを（ ）で添える。一致したときは何も出さない。
 3. **プレイヤーの対応を独立した欄に**（C-03・C-04）
