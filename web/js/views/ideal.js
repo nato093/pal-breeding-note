@@ -11,11 +11,26 @@ import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, 
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus, syncOptions, renderWhenIdle } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, renderWhenIdle } from './shared.js';
+import { captureFocus, restoreFocus } from '../ui/focus.js';
+import { cleanSaved, oneOf, intIn } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
 const LIMIT = 20;
 const TALENT_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
+
+const targetValue = (value) => intIn(value, { min: 0, max: 100, fallback: 100 });
+/**
+ * 保存して読み戻す条件の形（ui/view-memory.js が sessionStorage・履歴のエントリから読むときに、項目ごとに確かめる）。
+ * 合わない項目は既定の値に戻す。登録する名前・配合牧場の基準（planBaselines）は保存しない
+ */
+export const IDEAL_MEMORY = {
+  // 所持者: すべて・自分の個体（mine）・プレイヤー（player:<uid>）
+  holder: (value) => (typeof value === 'string' && value.length <= 48 && (value === '' || value === 'mine' || /^player:\S/.test(value)) ? value : ''),
+  mode: (value) => oneOf(value, PASSIVE_MODES.map(([key]) => key), 'include'),
+  targets: (value) => cleanSaved(value, Object.fromEntries(TALENT_KEYS.map((key) => [key, targetValue]))),
+  cake: (value) => oneOf(value, CAKES.map(([key]) => key), 'none'),
+};
 // 開いている間、孵化させて受け取ったパルを取り込むためにセーブ（参加している人は共有）を確かめる間隔。
 // 所持パルの自動の読み込みは 20 秒以上空ける（owned.js の AUTO_INTERVAL）ので、タイマーのずれで読み飛ばさないよう少し足す
 const REFRESH_INTERVAL = 20 * 1000 + 500;
@@ -184,7 +199,7 @@ function explanation() {
 export function idealView(context, route) {
   const owned = context.owned;
   const element = el('section', 'view ideal-view');
-  // 画面の中の条件は、タブを切り替えても残す（ページを読み込み直すと既定に戻る）
+  // 画面の中の条件は、タブを切り替えても残す。読み込み直しても、同じタブ（sessionStorage）の間は残る（app.js が戻す）
   const memory = context.viewState?.('ideal');
   const conditions = memory?.conditions ?? { holder: '', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
   conditions.holder ??= '';
@@ -366,7 +381,10 @@ export function idealView(context, route) {
     main.append(title);
     if (goal.passives.length) main.append(passiveList(goal.passives));
     main.append(el('small', 'muted', goalSummary(goal)), el('span', `ideal-goal-status${status.done ? ' ready' : ''}`, status.text));
-    row.append(main, link('呼び出す', goalHash(goal), 'button secondary'),
+    const recall = link('呼び出す', goalHash(goal), 'button secondary');
+    // 一覧を描き直しても、押した「呼び出す」にフォーカスを戻す（ui/focus.js）
+    recall.setAttribute('data-focus-key', `goal:${goal.id}`);
+    row.append(main, recall,
       actionIcon(`「${goal.name}」の登録を外す`, icons.remove, () => removeGoal(goal), 'danger-text'));
     return row;
   }
@@ -383,8 +401,10 @@ export function idealView(context, route) {
     if (key === shownGoals) return;
     shownGoals = key;
     goalsSummary.textContent = `登録した理想個体（${goals.length} 件）`;
+    const token = captureFocus(goalsList);
     goalsList.replaceChildren(...(ordered.length ? ordered.map(({ goal, status }) => goalRow(goal, status))
       : [el('li', 'muted', '登録した理想個体はまだありません。条件を選んで「この条件を登録」を押すと、ここに並び、完成したら右上のベルで知らせます。')]));
+    restoreFocus(goalsList, token);
   }
 
   element.append(viewHeading('理想個体'), goalsBox, query, panel, registerRow, note, missingBox, farmBox, results, explanation());
@@ -405,10 +425,10 @@ export function idealView(context, route) {
     if (signature === shownPassives) return;
     if (!force) { renderWhenIdle(passiveSlot, () => renderPassives(owned?.state?.owned?.pals, { force: true })); return; }
     shownPassives = signature;
-    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう追加欄へフォーカスを移す
-    keepFocus(passiveSlot, () => passiveSlot.replaceChildren(passiveSelector({
-      label: '欲しいパッシブ', selected: passives, counts, onChange: setPassives,
-    })), () => passiveSlot.querySelector('.passive-add'));
+    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう同じ役目の部品（追加欄。押せなければ残ったチップの最後の ×）へフォーカスを移す
+    const token = captureFocus(passiveSlot);
+    passiveSlot.replaceChildren(passiveSelector({ label: '欲しいパッシブ', selected: passives, counts, onChange: setPassives }));
+    restoreFocus(passiveSlot, token);
   }
 
   function noPairs(result) {
@@ -645,13 +665,15 @@ export function idealView(context, route) {
   }
 
   // 同じ画面のまま URL が変わったとき（目標・パッシブを選ぶ、戻る・進む、一覧や通知の「呼び出す」）。
-  // 画面を作り直さないので、入力中の登録する名前・開いた一覧・条件の入力は残る（一覧は描き直さない）
-  function applyRoute(next) {
+  // 画面を作り直さないので、入力中の登録する名前・開いた一覧・条件の入力は残る（一覧は描き直さない）。
+  // 戻る・進むで app.js が履歴のエントリの条件を conditions に入れ直したとき（restored）は、入力欄にも出す
+  function applyRoute(next, { restored = false } = {}) {
     const before = to;
     const fromGoal = readRoute(next);
     // 前の目標の名前で別のパルを登録しないよう、目標が変わったら名前を消す（パッシブだけの変更では残す）
     if (to !== before) nameInput.value = '';
-    if (fromGoal) showConditions();
+    if (fromGoal || restored) showConditions();
+    if (restored) renderHolders();
     syncPicker(toPicker, to);
     renderPassives(owned?.state?.owned?.pals, { force: true });
     renderResults();

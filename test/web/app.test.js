@@ -4,6 +4,7 @@ import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { FakeElement, descendants } from '../helpers/dom.js';
 import releaseNotes from '../../web/js/release-notes.js';
 import pals from '../../web/data/pals.js';
+import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
 
 const find = (predicate) => descendants(document.body).find(predicate);
 const byClass = (name) => find((node) => node.className.split(' ').includes(name));
@@ -18,8 +19,9 @@ async function sortOneCardPerRecord() {
 }
 let imports = 0;
 
-// pushState を true にすると、history に pushState を足す（足さないときは、無い環境として動くことを確かめる）
-async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings', pushState = false } = {}) {
+// pushState を true にすると、history に pushState を足す（足さないときは、無い環境として動くことを確かめる）。
+// session（初めの値の object）を渡すと window に sessionStorage を、scroll を true にすると scrollY・innerHeight・scrollTo（呼ばれた位置を記録）を足す
+async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings', pushState = false, session, scroll = false } = {}) {
   for (const name of ['document', 'window', 'location', 'history', 'fetch', 'setInterval']) {
     const before = Object.getOwnPropertyDescriptor(globalThis, name);
     t.after(() => before ? Object.defineProperty(globalThis, name, before) : Reflect.deleteProperty(globalThis, name));
@@ -40,6 +42,14 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
     localStorage: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) },
     addEventListener: (name, handler) => events.set(name, handler),
   };
+  const sessionValues = new Map(Object.entries(session ?? {}));
+  if (session) {
+    window.sessionStorage = {
+      getItem: (key) => sessionValues.get(key) ?? null, setItem: (key, value) => sessionValues.set(key, value), removeItem: (key) => sessionValues.delete(key),
+    };
+  }
+  const scrolls = [];
+  if (scroll) Object.assign(window, { scrollY: 0, innerHeight: 900, scrollTo(x, y) { scrolls.push(y); window.scrollY = y; } });
   globalThis.location = { hostname: 'example.test', hash, search: '?k=旧招待値', pathname: '/Pal/' };
   window.location = location;
   const replacements = [];
@@ -74,7 +84,14 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   globalThis.setInterval = (fn, ms) => intervals.push({ fn, ms });
   await import(`../../web/js/app.js?case=${++imports}`);
   assert.equal(byClass('startup-error'), undefined);
-  return { values, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
+  const changeHash = (next) => { location.hash = next; events.get('hashchange')(); };
+  return {
+    values, sessionValues, scrolls, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash,
+    // ブラウザと同じく、リンク・タブで移った先は state のない新しいエントリになる
+    go(next) { history.state = null; changeHash(next); },
+    // 戻る・進む: そのエントリの state に戻ってから hashchange が来る
+    back(next, state) { history.state = state; changeHash(next); },
+  };
 }
 
 // ログイン画面で隠す（ログインした後に出す）部品
@@ -679,8 +696,8 @@ test('画面: ウィッシュリストに追加したパルが作れるように
   assert.equal(row.querySelector('a').href, `#/reverse?c=${target.id}`);
 });
 
-test('画面: 設定から名前を変えると、ログイン中の ID・登録者名が新しい名前になる', async (t) => {
-  const { values, calls } = await boot(t);
+test('画面: 設定から名前を変えると、ログイン中の ID・登録者名が新しい名前になり、前の ID のエントリと保存を消す', async (t) => {
+  const { values, calls, sessionValues, events } = await boot(t, { session: {} });
   await byText('新規登録').dispatch('click');
   input('username').value = 'Taro';
   input('new-password').value = '入力';
@@ -693,6 +710,9 @@ test('画面: 設定から名前を変えると、ログイン中の ID・登録
   await byText('変更する').dispatch('click');
   await flush();
   assert.match(byClass('form-errors').textContent, /20文字以内/);
+  events.get('pagehide')();
+  assert.ok(sessionValues.has('pal-note.entries'));
+  assert.ok(sessionValues.has('pal-note.views'));
   dialogInput().value = 'Jiro';
   await byText('変更する').dispatch('click');
   await flush();
@@ -705,6 +725,8 @@ test('画面: 設定から名前を変えると、ログイン中の ID・登録
   assert.equal(byText('ログアウト').disabled, false);
   assert.equal(values.get('pal-note.userId'), 'Jiro');
   assert.equal(values.has('pal-note.rename'), false);
+  assert.equal(sessionValues.has('pal-note.entries'), false);
+  assert.equal(sessionValues.has('pal-note.views'), false);
   assert.deepEqual(calls.filter((request) => request.action === 'rename').map((request) => [request.userId, request.newUserId]), [['Taro', 'Jiro']]);
 });
 
@@ -732,4 +754,286 @@ test('画面: 新しいバージョンの案内の「読み込み直す」は、
   await reload.dispatch('click');
   assert.equal(banner.querySelector('.update-banner-hint').textContent, '開いている入力画面を閉じてから、もう一度押してください。');
   assert.equal(reload.disabled, false);
+});
+
+// ---- 位置と条件の保持（keep-state） ----
+const frame = () => new Promise((resolve) => setTimeout(resolve, 0));
+const clickLink = (anchor) => document.getElementById('app').dispatch('click', { target: anchor });
+const inputLabeled = (label) => find((node) => node.tagName === 'input' && node.getAttribute('aria-label') === label);
+const selectHaving = (value) => find((node) => node.tagName === 'select' && node.children.some((option) => option.value === value));
+const entriesOf = (sessionValues) => JSON.parse(sessionValues.get('pal-note.entries') ?? '[]');
+const WORLD_A = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const WORLD_B = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+const PLAYER = '00000000000000000000000000000001';
+
+// 配合の全件のキャッシュ（ログイン済みで読み込み直したとき、起動の時点で環境が分かる）
+async function cachedSignIn(development) {
+  const snapshot = await development({ action: 'snapshot', passcode: '入力' });
+  const { records, warnings, serverTime, users } = snapshot;
+  return { ...signedIn, 'pal-note.authenticated': 'test', 'pal-note.cache.test': JSON.stringify({ records, warnings, serverTime, users }) };
+}
+
+// 開発 API に 1 ワールドの所持パルを共有しておく（所持者のプレイヤーは PLAYER）
+async function shareWorld(development, worldId) {
+  const row = Object.fromEntries(OWNED_FIELDS.map((field) => [field, '']));
+  Object.assign(row, { instanceId: `pal-${worldId.slice(0, 4)}`, palId: 'SheepBall', palName: 'モコロン', gender: 'M', level: '10', rank: '1', stars: '0',
+    talentHp: '50', talentShot: '50', talentDefense: '50', lucky: 'false', alpha: 'false', egg: 'false', place: 'palbox', placeLabel: 'パルボックス',
+    holderUid: PLAYER, holder: 'アリス' });
+  const response = await development({
+    action: 'ownedUpload', passcode: '入力', userId: '架空データ', worldId, world: { name: 'ワールド', hostName: 'アリス' },
+    saveUpdatedAt: new Date().toISOString(), players: [{ uid: PLAYER, name: 'アリス' }], bases: [], farms: [],
+    columns: OWNED_FIELDS, rows: [OWNED_FIELDS.map((field) => row[field])],
+  });
+  assert.equal(response.stored, true);
+}
+
+// 共有の所持パルが届くまで待つ（所持者の選択肢にプレイヤーが出るまで）
+async function untilShared() {
+  for (let i = 0; i < 50 && !selectHaving(`player:${PLAYER}`); i++) await flush();
+  assert.ok(selectHaving(`player:${PLAYER}`), '共有の所持パルが届かない');
+}
+
+test('画面: タブで戻るとその画面を離れたときの位置に、本文のリンクで別の画面へ移ると先頭から表示する', async (t) => {
+  const development = createDevelopmentApi();
+  await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
+  await development({ action: 'create', passcode: '入力', opId: crypto.randomUUID(), record: {
+    id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
+    parent1Gender: '', parent2Gender: '', registrant: '架空データ', memo: '',
+  } });
+  const { go, scrolls } = await boot(t, { initial: signedIn, api: development, hash: '#/search?p1=SheepBall', scroll: true });
+  // 起動では動かさない（ブラウザが先頭から開く）
+  await frame();
+  assert.deepEqual(scrolls, []);
+  const tab = async (label) => {
+    await clickLink(navTab(label));
+    go(navTab(label).href);
+    await frame();
+  };
+  await tab('一覧');
+  assert.deepEqual(scrolls, [0]);
+  window.scrollY = 2500;
+  await tab('配合検索');
+  assert.deepEqual(scrolls, [0, 0]);
+  window.scrollY = 400;
+  await tab('一覧');
+  assert.equal(scrolls.at(-1), 2500);
+  await tab('配合検索');
+  assert.equal(scrolls.at(-1), 400);
+  // 本文のリンク（カードのパル名）で詳細へ移ると先頭から
+  window.scrollY = 500;
+  const palLink = find((node) => node.tagName === 'a' && String(node.href).startsWith('#/pal/'));
+  assert.ok(palLink);
+  await clickLink(palLink);
+  go(palLink.href);
+  await frame();
+  assert.equal(scrolls.at(-1), 0);
+  assert.ok(document.getElementById('main').querySelector('.pal-hero'));
+});
+
+test('画面: 戻る・進むでは、そのときの履歴のエントリの条件と位置に戻し、別の利用者・別のワールドのエントリは使わない', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const { go, back, scrolls, sessionValues } = await boot(t, { initial: signedIn, api: development, hash: '#/ideal?to=SheepBall', session: {}, scroll: true });
+  const first = history.state.palEntry;
+  assert.ok(first);
+  const setTarget = async (label, value) => {
+    const input = inputLabeled(label);
+    input.value = value;
+    // 入力は間引くので、確定（change）で計算する
+    await input.dispatch('input');
+    await input.dispatch('change');
+  };
+  // 条件 X（所持者「自分の個体」・HP 50）で 300px まで読んでから、配合検索へ
+  const holder = selectHaving('mine');
+  holder.value = 'mine';
+  await holder.dispatch('change');
+  await setTarget('HPの目標', '50');
+  window.scrollY = 300;
+  await clickLink(navTab('配合検索'));
+  go(navTab('配合検索').href);
+  const second = history.state.palEntry;
+  assert.notEqual(second, first);
+  assert.deepEqual(entriesOf(sessionValues).find((entry) => entry.id === first).cond, { holder: 'mine', mode: 'include', targets: { hp: 50, shot: 100, defense: 100 }, cake: 'none' });
+  // 理想個体のタブで戻って条件 Y（HP 70）にする（新しいエントリ）
+  await clickLink(navTab('理想個体'));
+  go(navTab('理想個体').href);
+  await setTarget('HPの目標', '70');
+  assert.equal(inputLabeled('HPの目標').value, '70');
+  // 2 回戻ると、最初のエントリの条件 X と位置に戻る
+  back('#/search', { palEntry: second });
+  back('#/ideal?to=SheepBall', { palEntry: first });
+  await frame();
+  assert.equal(inputLabeled('HPの目標').value, '50');
+  assert.equal(selectHaving('mine').value, 'mine');
+  assert.equal(scrolls.at(-1), 300);
+  // 別の利用者・別の環境・保存の形の版が違うエントリは使わない（画面には今の条件が残る。ワールドは次のテスト）
+  await setTarget('HPの目標', '80');
+  for (const change of [{ user: '別の人' }, { env: 'prod' }, { v: 2 }]) {
+    const entries = entriesOf(sessionValues).map((entry) => (entry.id === first ? { ...entry, ...change, cond: { ...entry.cond, targets: { hp: 10, shot: 100, defense: 100 } } } : entry));
+    sessionValues.set('pal-note.entries', JSON.stringify(entries));
+    back('#/search', { palEntry: second });
+    back('#/ideal?to=SheepBall', { palEntry: first });
+    assert.equal(inputLabeled('HPの目標').value, '80', JSON.stringify(change));
+  }
+});
+
+test('画面: 戻る・進むのエントリは、表示中のワールドと違うワールドで書いたものを使わない', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_B);
+  const { back, sessionValues } = await boot(t, { initial: signedIn, api: development, hash: '#/owned', session: {} });
+  await untilShared();
+  const entry = (world, registrant) => ({ v: 1, id: `list-${world}`, env: 'test', user: '架空データ', world, view: 'list', key: '#/list', cond: { registrant, sort: '' }, scrollY: 0, at: 1 });
+  sessionValues.set('pal-note.entries', JSON.stringify([entry(WORLD_A, '別のワールド'), entry(WORLD_B, '同じワールド')]));
+  const registrant = () => find((node) => node.placeholder === '登録者名で絞り込む');
+  back('#/list', { palEntry: `list-${WORLD_A}` });
+  assert.equal(registrant().value, '');
+  back('#/owned', { palEntry: 'x' });
+  back('#/list', { palEntry: `list-${WORLD_B}` });
+  assert.equal(registrant().value, '同じワールド');
+});
+
+test('画面: 読み込み直したら、同じタブで保存した所持パルの絞り込み・理想個体の条件・一覧の並べ替えに戻し、形の合わない項目は既定に戻す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const saved = {
+    v: 1, env: 'test', user: '架空データ', world: '', appVersion: '前の版',
+    views: {
+      owned: { query: 'もこ', sort: 'xxx', stars: 2, eggs: false, globals: true, talent: { hp: 150, shot: 40, defense: -1 }, passives: ['Legend', 7], palId: 'SheepBall' },
+      ideal: { holder: 'mine', mode: 'only', targets: { hp: 90, shot: 150, defense: 80 }, cake: 'talent', name: '保存しない' },
+      list: { registrant: 'ボブ', sort: 'updated' },
+    },
+    tabs: { search: '#/search?p1=SheepBall', list: 'https://example.com/#/list' },
+  };
+  const { go } = await boot(t, { initial: await cachedSignIn(development), api: development, hash: '#/owned', session: { 'pal-note.views': JSON.stringify(saved) } });
+  const keyword = find((node) => node.tagName === 'input' && node.type === 'search');
+  assert.equal(keyword.value, 'もこ');
+  assert.equal(selectHaving('passives').value, 'dex');
+  assert.equal(selectHaving('4').value, '2');
+  assert.deepEqual(['HPの個体値（以上）', '攻撃の個体値（以上）', '防御の個体値（以上）'].map((label) => inputLabeled(label).value), ['', '40', '']);
+  const checks = descendants(document.getElementById('main')).filter((node) => node.type === 'checkbox').map((node) => node.checked);
+  assert.deepEqual(checks, [false, true]);
+  assert.ok(find((node) => node.getAttribute('aria-label') === 'パル: No.1 モコロン'));
+  // パッシブは文字列の ID だけ
+  assert.ok(find((node) => node.getAttribute('data-focus-key') === 'passive-chip:Legend'));
+  assert.equal(descendants(document.getElementById('main')).filter((node) => String(node.getAttribute('data-focus-key')).startsWith('passive-chip:')).length, 1);
+  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall');
+  assert.equal(navTab('一覧').href, '#/list');
+  go('#/ideal?to=SheepBall');
+  assert.deepEqual(['HPの目標', '攻撃の目標', '防御の目標'].map((label) => inputLabeled(label).value), ['90', '100', '80']);
+  assert.equal(selectHaving('only').value, 'only');
+  assert.equal(selectHaving('talent').value, 'talent');
+  assert.equal(selectHaving('mine').value, 'mine');
+  go('#/list');
+  assert.equal(find((node) => node.placeholder === '登録者名で絞り込む').value, 'ボブ');
+  assert.equal(selectHaving('updated').value, 'updated');
+});
+
+for (const change of [{ v: 2 }, { env: 'prod' }, { user: '別の人' }]) {
+  test(`画面: 読み込み直したときの保存は、${JSON.stringify(change)} が違えば使わない`, async (t) => {
+    const development = createDevelopmentApi({ seed: '2' });
+    const saved = { v: 1, env: 'test', user: '架空データ', world: '', views: { list: { registrant: 'ボブ', sort: 'updated' } }, tabs: {}, ...change };
+    await boot(t, { initial: await cachedSignIn(development), api: development, hash: '#/list', session: { 'pal-note.views': JSON.stringify(saved) } });
+    assert.equal(find((node) => node.placeholder === '登録者名で絞り込む').value, '');
+  });
+}
+
+for (const [world, expected] of [[WORLD_A, ''], [WORLD_B, `player:${PLAYER}`]]) {
+  test(`画面: 読み込み直したとき、${world === WORLD_A ? '別の' : '同じ'}ワールドで保存した所持者の条件は、表示するワールドが分かったところで${expected ? '残す' : '外す'}`, async (t) => {
+    const development = createDevelopmentApi({ seed: '2' });
+    await shareWorld(development, WORLD_B);
+    const saved = { v: 1, env: 'test', user: '架空データ', world, views: { owned: { holder: `player:${PLAYER}` }, ideal: { holder: `player:${PLAYER}` } }, tabs: {} };
+    const { go } = await boot(t, { initial: await cachedSignIn(development), api: development, hash: '#/owned', session: { 'pal-note.views': JSON.stringify(saved) } });
+    await untilShared();
+    assert.equal(selectHaving(`player:${PLAYER}`).value, expected);
+    go('#/ideal');
+    assert.equal(selectHaving(`player:${PLAYER}`).value, expected);
+  });
+}
+
+const lastView = 'pal-note.lastView.架空データ';
+for (const [hash, last, expected] of [['', 'owned', '#/owned'], ['#/', 'list', '#/list'], ['#/settings', 'owned', '#/settings'], ['', 'pal', ''], ['', '知らない', '']]) {
+  test(`画面: 最後に開いたタブが ${last} で「${hash}」を開くと ${expected || 'ハッシュなし（配合検索）'} から始める`, async (t) => {
+    await boot(t, { initial: { ...signedIn, [lastView]: last }, api: createDevelopmentApi({ seed: '2' }), hash });
+    assert.equal(location.hash, expected);
+  });
+}
+
+test('画面: ハッシュのない URL で開くと、保存したタブの行き先のまま最後のタブから始め、開いたタブ（パル詳細を除く）を ID ごとに覚える', async (t) => {
+  // タブの行き先を保存していれば、その条件のまま開く
+  const development = createDevelopmentApi({ seed: '2' });
+  const saved = { v: 1, env: 'test', user: '架空データ', world: '', views: {}, tabs: { search: '#/search?p1=SheepBall' } };
+  await boot(t, { initial: { ...(await cachedSignIn(development)), [lastView]: 'search' }, api: development, hash: '', session: { 'pal-note.views': JSON.stringify(saved) } });
+  assert.equal(location.hash, '#/search?p1=SheepBall');
+  // 開いたタブを覚える
+  const { values, go } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
+  assert.equal(values.get(lastView), 'search');
+  go('#/ideal');
+  assert.equal(values.get(lastView), 'ideal');
+  go('#/pal/SheepBall');
+  assert.equal(values.get(lastView), 'ideal');
+});
+
+test('画面: ページを離れるときに今のエントリと読み込み直し用の保存を書き、ログアウトで消す（最後のタブは残す）', async (t) => {
+  const { values, sessionValues, events, changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list', session: {} });
+  const registrant = find((node) => node.placeholder === '登録者名で絞り込む');
+  registrant.value = 'ボブ';
+  await registrant.dispatch('input');
+  await registrant.dispatch('change');
+  events.get('pagehide')();
+  const saved = JSON.parse(sessionValues.get('pal-note.views'));
+  assert.deepEqual([saved.v, saved.env, saved.user, saved.views.list], [1, 'test', '架空データ', { registrant: 'ボブ', sort: 'parent-dex' }]);
+  assert.equal(saved.tabs.list, '#/list');
+  // 保存するのは条件と位置だけ（パスワード・記録の中身は入れない）
+  assert.doesNotMatch(sessionValues.get('pal-note.views') + sessionValues.get('pal-note.entries'), /入力|動作確認用/);
+  const [entry] = entriesOf(sessionValues);
+  assert.deepEqual([entry.id, entry.view, entry.key, entry.cond], [history.state.palEntry, 'list', '#/list', { registrant: 'ボブ', sort: 'parent-dex' }]);
+  changeHash('#/settings');
+  const logout = byText('ログアウト').dispatch('click');
+  await descendants(find((node) => node.tagName === 'dialog')).find((node) => node.tagName === 'button' && node.textContent === 'ログアウト').dispatch('click');
+  await logout;
+  assertLoginOnly();
+  assert.equal(sessionValues.has('pal-note.views'), false);
+  assert.equal(sessionValues.has('pal-note.entries'), false);
+  assert.equal(values.get('pal-note.lastView.架空データ'), 'settings');
+});
+
+test('画面: 画面を作り直すときは、同じ役目の部品（data-focus-key）があればフォーカスを引き継ぎ、無ければ何もしない', async (t) => {
+  const { back } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
+  // 配合検索の親 1 の選択欄 → 逆引き（同じ役目の部品がない）
+  find((node) => node.getAttribute('aria-label') === '親1: No.1 モコロン').focus();
+  back('#/reverse?c=SheepBall', null);
+  assert.equal(document.activeElement, document.body);
+  // 継承ルートの目標の選択欄 → 戻るで理想個体へ（目標の選択欄がある）
+  back('#/route?to=MoonQueen', null);
+  find((node) => node.getAttribute('data-focus-key') === 'picker:目標').focus();
+  back('#/ideal?to=SheepBall', null);
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'picker:目標');
+  assert.ok(byClass('ideal-view').contains(document.activeElement));
+});
+
+test('画面: 同じ画面の中で戻る（作り直さない）ときも、エントリの条件を入力欄に戻し、新しいエントリには新しい ID を付ける', async (t) => {
+  const { back, pushes, sessionValues } = await boot(t, {
+    initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/ideal?to=SheepBall', session: {}, pushState: true,
+  });
+  const view = byClass('ideal-view');
+  const first = history.state.palEntry;
+  const hp = () => inputLabeled('HPの目標');
+  const setHp = async (value) => {
+    hp().value = value;
+    await hp().dispatch('input');
+    await hp().dispatch('change');
+  };
+  await setHp('50');
+  const add = view.querySelector('.passive-add');
+  add.value = 'Rare';
+  await add.dispatch('change');
+  assert.deepEqual(pushes, ['/Pal/#/ideal?to=SheepBall&p=Rare']);
+  const second = history.state.palEntry;
+  assert.ok(second);
+  assert.notEqual(second, first);
+  // 押す前のエントリには、そのときの条件を書いてある
+  assert.equal(entriesOf(sessionValues).find((entry) => entry.id === first).cond.targets.hp, 50);
+  await setHp('70');
+  back('#/ideal?to=SheepBall', { palEntry: first });
+  assert.equal(byClass('ideal-view'), view);
+  assert.equal(hp().value, '50');
+  assert.equal(view.querySelectorAll('.passive-remove').length, 0);
 });

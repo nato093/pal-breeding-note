@@ -832,3 +832,53 @@ test('所持パル画面: キーワードで多くの行の一致の理由が変
   assert.equal(rows[0].children[0], cell);
   view.destroy();
 });
+
+test('所持パル画面: パッシブを選ぶと作り直した追加欄へ、4 個目で押せなくなったら残ったチップの最後の × へフォーカスを移す', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  document.body.append(view.element);
+  const choose = async (id) => {
+    const add = view.element.querySelector('.passive-add');
+    add.focus();
+    add.value = id;
+    await add.dispatch('change');
+    return add;
+  };
+  const first = await choose('Rare');
+  assert.notEqual(view.element.querySelector('.passive-add'), first);
+  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  for (const id of ['CraftSpeed_up2', 'Legend']) await choose(id);
+  await choose('WorldTree_ATK');
+  assert.equal(view.element.querySelector('.passive-add').disabled, true);
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:WorldTree_ATK');
+  // × で外すと、押せるようになった追加欄へ
+  await document.activeElement.dispatch('click');
+  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  view.destroy();
+});
+
+test('所持パル画面: 戻る・進むで条件を入れ直したとき（restored）は、キーワード・個体値・チェック・並べ替えの入力欄も合わせる', (t) => {
+  installDom(t);
+  const states = new Map();
+  const app = Object.assign(context(fakeOwned()), {
+    viewState(view) { if (!states.has(view)) states.set(view, {}); return states.get(view); },
+    replace() {},
+  });
+  const view = ownedView(app, parseHash('#/owned'));
+  const inputs = () => view.element.querySelectorAll('input');
+  const keyword = inputs().find((node) => node.type === 'search');
+  const hp = inputs().find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
+  const checks = () => inputs().filter((node) => node.type === 'checkbox').map((node) => node.checked);
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
+  // app.js が履歴のエントリの条件を filter に入れ直す
+  Object.assign(states.get('owned').filter, { query: 'もこ', talent: { hp: 5, shot: 0, defense: 0 }, eggs: false, sort: 'level' });
+  view.applyRoute(parseHash('#/owned'), { reason: 'history' });
+  assert.equal(keyword.value, '');
+  view.applyRoute(parseHash('#/owned'), { reason: 'history', restored: true });
+  assert.equal(keyword.value, 'もこ');
+  assert.equal(hp.value, '5');
+  assert.deepEqual(checks(), [false, false]);
+  assert.equal(view.element.querySelectorAll('select').find((node) => node.children.some((option) => option.value === 'passives')).value, 'level');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
+  view.destroy();
+});

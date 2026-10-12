@@ -3,9 +3,18 @@ import { palsById } from '../ui/pal-icon.js';
 import { withTransition } from '../ui/motion.js';
 import { parentRows, recordComparator } from '../core/record-sort.js';
 import { viewHeading, renderCards, watchView, dataPending } from './shared.js';
+import { text, oneOf } from '../core/boundary.js';
 
 // 並べ替えの動き（View Transition）を使う行の数の上限（多いとスナップショットが重い）
 const TRANSITION_MAX = 2000;
+const SORTS = [['parent-dex', '親の図鑑番号順'], ['parent-name', '親の五十音順'],
+  ['child-dex', '子の図鑑番号順'], ['child-name', '子の五十音順'], ['updated', '更新日の新しい順']];
+
+/** 保存して読み戻す絞り込みと並べ替えの形（ui/view-memory.js）。合わない値は ''（＝既定の並べ替え） */
+export const LIST_MEMORY = {
+  registrant: (value) => text(value, 30),
+  sort: (value) => oneOf(value, SORTS.map(([key]) => key), ''),
+};
 
 export function listView(context) {
   const element = el('section', 'view');
@@ -14,13 +23,12 @@ export function listView(context) {
   registrant.type = 'search';
   registrant.placeholder = '登録者名で絞り込む';
   const sort = el('select');
-  for (const [key, label] of [['parent-dex', '親の図鑑番号順'], ['parent-name', '親の五十音順'],
-    ['child-dex', '子の図鑑番号順'], ['child-name', '子の五十音順'], ['updated', '更新日の新しい順']]) {
+  for (const [key, label] of SORTS) {
     const option = el('option', '', label);
     option.value = key;
     sort.append(option);
   }
-  // タブを切り替えて戻ってきても、前の絞り込みと並べ替えのまま出す。
+  // タブを切り替えて戻ってきても、前の絞り込みと並べ替えのまま出す。読み込み直しても、同じタブ（sessionStorage）の間は残る（app.js が戻す）。
   const memory = context.viewState?.('list') ?? {};
   if (memory.registrant) registrant.value = memory.registrant;
   if (memory.sort) sort.value = memory.sort;

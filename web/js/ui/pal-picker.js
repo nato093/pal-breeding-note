@@ -26,6 +26,10 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder 
   const listId = `pals-${crypto.randomUUID()}`;
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', 'false');
+  // 部品を作り直した後に、同じ役目の要素へフォーカスを戻す目印（ui/focus.js）。解除の × が消えたら選択欄へ
+  trigger.setAttribute('data-focus-key', `picker:${label}`);
+  clear.setAttribute('data-focus-key', `picker-clear:${label}`);
+  clear.setAttribute('data-focus-fallback', `picker:${label}`);
   control.append(trigger, clear);
   wrapper.append(labelNode, control);
 

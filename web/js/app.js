@@ -8,8 +8,12 @@ import { createPlanMemory } from './ideal-plan-memory.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
-import { startRouter, buildHash, parseHash, sameScreen } from './router.js';
-import { el, button, link, field, runButton } from './ui/dom.js';
+import { startRouter, buildHash, parseHash, sameScreen, routeKey } from './router.js';
+import { el, button, link, field, runButton, debounce } from './ui/dom.js';
+import { createViewMemory, restoreScroll } from './ui/view-memory.js';
+import { captureFocus, restoreFocus } from './ui/focus.js';
+import { cleanSaved, idText, isObject, worldId } from './core/boundary.js';
+import { userIdKey } from './core/user.js';
 import { toast } from './ui/toast.js';
 import { syncInBackground } from './ui/sync.js';
 import { syncProgress } from './ui/sync-progress.js';
@@ -28,9 +32,9 @@ import releaseNotes from './release-notes.js';
 import { searchView } from './views/search.js';
 import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
-import { listView } from './views/list.js';
-import { ownedView } from './views/owned.js';
-import { idealView } from './views/ideal.js';
+import { listView, LIST_MEMORY } from './views/list.js';
+import { ownedView, OWNED_MEMORY } from './views/owned.js';
+import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { draftsView } from './views/drafts.js';
 import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
@@ -38,6 +42,12 @@ import { settingsView } from './views/settings.js';
 
 // 登録したセーブを読み直す間隔
 const SAVE_POLL_INTERVAL = 60 * 1000;
+// スクロールした位置を今の履歴のエントリに書くまでの間引き
+const SCROLL_SAVE_DELAY = 300;
+// 画面ごとに保存する条件（viewState の中の入れ物の名前。'' は viewState そのもの）と、その形（各画面が export する）
+const CONDITIONS = { owned: ['filter', OWNED_MEMORY], ideal: ['conditions', IDEAL_MEMORY], list: ['', LIST_MEMORY] };
+// 条件がワールドに依存する画面（所持者がワールドのプレイヤー）
+const WORLD_VIEWS = ['owned', 'ideal'];
 
 async function boot() {
   // 開発用モジュールは配信物に含めず、ループバックの明示指定時だけ読み込む。
@@ -117,19 +127,68 @@ async function boot() {
     nav.append(tab);
     tabLinks.set(view, tab);
   }
-  // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。メモリにだけ持つため、ページを読み込み直すと消える。
+  // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。読み込み直しても、同じタブ（sessionStorage）の間は残る
+  //（ページを離れるときに保存し、起動したときに戻す。戻る・進むでは、そのときの履歴のエントリの条件と位置に戻す。ui/view-memory.js）。
   const viewStates = new Map();
-  function remember(next) {
-    const href = buildHash(next.view, next.params, next.id);
-    const tab = tabLinks.get(next.view);
-    if (tab) tab.href = href;
-    if (next.view === 'search') brand.href = href;
+  const viewState = (view) => {
+    if (!viewStates.has(view)) viewStates.set(view, {});
+    return viewStates.get(view);
+  };
+  // タブの行き先（読み込み直し用に保存する）
+  const tabHrefs = new Map();
+  // 所持パル・理想個体の条件が前提にしているワールド（所持者はワールドのプレイヤーなので、別のワールドに替わったら外す）
+  let conditionWorld = '';
+  let sessionStore = null;
+  try { sessionStore = window.sessionStorage; } catch { /* 保存できない端末では、読み込み直すと既定に戻るだけ。 */ }
+  const memory = createViewMemory({
+    storage: safeStorage(sessionStore), local: safeStorage(browserStorage), namespace,
+    scope: () => ({ env: store.state.env ?? '', user: store.state.userId, world: worldId(owned.state.meta?.worldId) || conditionWorld }),
+    schemas: Object.fromEntries(Object.entries(CONDITIONS).map(([view, [, schema]]) => [view, schema])),
+    views: tabs.map(([view]) => view), worldViews: WORLD_VIEWS,
+  });
+  function setTabHref(view, href) {
+    const tab = tabLinks.get(view);
+    if (!tab) return;
+    tab.href = href;
+    tabHrefs.set(view, href);
+    if (view === 'search') brand.href = href;
   }
-  // ログアウトしたら、次にログインする人へ前の人の選択を引き継がない。
+  function remember(next) {
+    if (!tabLinks.has(next.view)) return;
+    setTabHref(next.view, buildHash(next.view, next.params, next.id));
+    memory.setLastView(store.state.userId, next.view);
+  }
+  // ログアウトしたら、次にログインする人へ前の人の選択を引き継がない（最後に開いたタブは ID ごとなので残す）。
   function forget() {
     viewStates.clear();
+    tabHrefs.clear();
     for (const [view, tab] of tabLinks) tab.href = buildHash(view);
     brand.href = buildHash('search');
+    conditionWorld = '';
+    memory.clear();
+  }
+  // 画面の条件の写し（保存する形の項目だけ）と、保存した条件を viewState に入れる（画面が持っている入れ物はそのまま使う）
+  function snapshotCond(view) {
+    const state = viewStates.get(view);
+    if (!CONDITIONS[view] || !state) return null;
+    const [slot, schema] = CONDITIONS[view];
+    const source = slot ? state[slot] : state;
+    return isObject(source) ? cleanSaved(source, schema) : null;
+  }
+  function applyCond(view, cond, world = '') {
+    if (!CONDITIONS[view] || !isObject(cond)) return;
+    const [slot] = CONDITIONS[view];
+    const state = viewState(view);
+    if (slot) state[slot] = Object.assign(isObject(state[slot]) ? state[slot] : {}, cond);
+    else Object.assign(state, cond);
+    if (world && WORLD_VIEWS.includes(view)) conditionWorld = world;
+  }
+  // 別のワールドに替わったら、所持者の条件を外す（そのワールドのプレイヤーとは限らない）
+  function forgetHolders() {
+    const ownedFilter = viewStates.get('owned')?.filter;
+    if (isObject(ownedFilter)) ownedFilter.holder = '';
+    const idealConditions = viewStates.get('ideal')?.conditions;
+    if (isObject(idealConditions)) idealConditions.holder = '';
   }
   const main = el('main', 'app-main');
   main.id = 'main';
@@ -162,17 +221,63 @@ async function boot() {
   });
   root.append(skip, header, nav, update.element, main);
   installRipple();
+  // 位置はアプリが戻す（戻る・進む・読み込み直しは、履歴のエントリに保存した位置）
+  try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch { /* 戻せないブラウザでは今までどおり。 */ }
   let route;
   let currentView;
   let showingLogin = false;
   // 画面に出している route（作り直した後・applyRoute の後に入れる）と、そのときログイン中だったか（'in' | 'out'）
   let shownRoute = null;
   let shownAuth = '';
-  // 次の hashchange の理由（'navigate'。keep-state で 'tab' も付ける）。1 回使ったら消す。印がなければ戻る・進む・手入力
+  // 次の hashchange の理由（'navigate'・'tab'）。1 回使ったら消す。印がなければ戻る・進む・手入力
   let intent = null;
   let booted = false;
   const authKey = () => (store.state.passcode && store.state.userId ? 'in' : 'out');
   const urlOf = (hash) => `${location.pathname}${location.search}${hash}`;
+  // 履歴のエントリの ID（history.state の palEntry。中身は ui/view-memory.js が sessionStorage に持つ）
+  const entryId = () => idText(isObject(history.state) ? history.state.palEntry : '', 40);
+  const scrollTop = () => Number(window.scrollY) || 0;
+  // 新しく来たエントリ（リンク・タブで移った・初めて開いた）に ID を付ける。history.state のほかの鍵は消さない
+  function ensureEntry() {
+    if (entryId()) return;
+    const state = isObject(history.state) ? history.state : {};
+    try { history.replaceState({ ...state, palEntry: memory.newEntryId() }, '', urlOf(location.hash)); } catch { /* 付けられなければ、位置と条件を残さないだけ。 */ }
+  }
+  function writeEntry({ id, shown, y }) {
+    if (!id || !shown) return;
+    memory.writeEntry(id, { view: shown.view, key: routeKey(shown), cond: snapshotCond(shown.view), scrollY: y });
+  }
+  // スクロールした位置は間引いて書く。戻る・進むの hashchange の時点では、もう次のエントリになっているので、
+  // スクロールしたときのエントリと画面を覚えておき、次の遷移の始めにも書き切る
+  let scrolled = null;
+  const saveScrolled = debounce(() => {
+    const last = scrolled;
+    scrolled = null;
+    if (last) writeEntry(last);
+  }, SCROLL_SAVE_DELAY);
+  // 今のエントリの条件と位置を書く（移る前・ページを離れるとき）
+  function saveEntry() {
+    saveScrolled.cancel();
+    scrolled = null;
+    if (showingLogin) return;
+    writeEntry({ id: entryId(), shown: shownRoute, y: scrollTop() });
+  }
+  // 読み込み直し用の保存（ページを離れるとき）: 画面ごとの条件とタブの行き先
+  function saveViews() {
+    if (showingLogin || !store.state.passcode || !store.state.userId) return;
+    const saved = {};
+    for (const view of Object.keys(CONDITIONS)) {
+      const cond = snapshotCond(view);
+      if (cond) saved[view] = cond;
+    }
+    memory.saveViews({ views: saved, tabs: Object.fromEntries(tabHrefs) });
+  }
+  // 位置を戻す（データの読み込み・区切った描画で高さが足りなければ、届くまでやり直す）。次の遷移・利用者の操作でやめる
+  let scrolling = null;
+  function moveTo(y) {
+    scrolling?.cancel();
+    scrolling = restoreScroll(y);
+  }
 
   const context = {
     store,
@@ -186,8 +291,12 @@ async function boot() {
     autoRegister,
     renamer,
     navigate(hash) {
-      // 同じハッシュの代入では hashchange が来ないので、印を残さない（次の戻る・進むに付いてしまう）
-      if (location.hash !== hash) intent = 'navigate';
+      // 同じハッシュの代入では hashchange が来ないので、印を残さない（次の戻る・進むに付いてしまう）。
+      // 移る前に、今のエントリの条件と位置を書いておく（hashchange の時点では、もう次のエントリになっている）
+      if (location.hash !== hash) {
+        saveEntry();
+        intent = 'navigate';
+      }
       location.hash = hash;
     },
     // 同じ画面の条件の変更（パル・パッシブを選ぶなど）。画面を作り直さず、ビューの applyRoute で合わせる。
@@ -197,8 +306,10 @@ async function boot() {
       if (showingLogin || !currentView?.applyRoute || !sameScreen(shownRoute, next)) { context.navigate(hash); return; }
       // 同じ URL（押されている「すべて」をもう一度押すなど）では、履歴を増やさない
       if (location.hash === hash) return;
+      saveEntry();
       if (replace) history.replaceState(history.state, '', urlOf(hash));
-      else if (typeof history.pushState === 'function') history.pushState(null, '', urlOf(hash));
+      // 新しいエントリには新しい ID を付ける（条件と位置は、次に離れるときに書く）
+      else if (typeof history.pushState === 'function') history.pushState({ palEntry: memory.newEntryId() }, '', urlOf(hash));
       // pushState の無い環境。後で hashchange が来ても、applyRoute は同じ route では結果が変わらない
       else location.hash = hash;
       route = next;
@@ -213,10 +324,7 @@ async function boot() {
       remember(route);
     },
     // 画面ごとの入力を残す入れ物（画面を作り直しても同じものを返す）
-    viewState(view) {
-      if (!viewStates.has(view)) viewStates.set(view, {});
-      return viewStates.get(view);
-    },
+    viewState,
     register(initial, options) { return openRecordEditor(context, initial, options); },
     async merge(source, target, { ask = true, retry } = {}) {
       if (ask) {
@@ -298,25 +406,53 @@ async function boot() {
     }
   }
 
-  // 遷移の適用。reason は 'boot'（起動）・'auth'（ログインの有無が変わった）・'navigate'（context.navigate）・
-  // 'update'（context.update＝同じ画面の条件の変更）・'history'（印のない hashchange＝戻る・進む・手入力）
+  // 位置: 同じ画面の条件の変更はそのまま、リンクで違う画面へは先頭、タブで違う画面へはその画面を離れたときの位置、
+  // 戻る・進む・起動はエントリに保存した位置（無ければ動かさない。ID のない新しいエントリで違う画面なら先頭）、ログインの切り替えは先頭
+  function placeScroll(reason, previous, entry, fresh) {
+    const changed = !sameScreen(previous, route);
+    let y = null;
+    if (reason === 'auth') y = 0;
+    else if (reason === 'navigate') y = changed ? 0 : null;
+    else if (reason === 'tab') y = changed ? viewState(route.view).scrollY ?? 0 : null;
+    else if (entry) y = entry.scrollY;
+    // 印のない hashchange で ID のないエントリ（ヘッダーの通知・ダイアログのリンク・手入力で新しく来た）は、違う画面なら先頭から
+    else if (reason === 'history' && fresh && changed) y = 0;
+    if (Number.isFinite(y)) moveTo(y);
+  }
+
+  // 遷移の適用。reason は 'boot'（起動）・'auth'（ログインの有無が変わった）・'navigate'（context.navigate・リンク）・'tab'（ナビのタブ）・
+  // 'update'（context.update＝同じ画面の条件の変更）・'history'（印のない hashchange＝戻る・進む・手入力）。
+  // 順番は ① 条件を当てる → ② 描く（作り直すか applyRoute）→ ③ 位置を戻す
   function render(reason = 'auth') {
     const needsLogin = !store.state.passcode || !store.state.userId;
     if (showingLogin && needsLogin) return;
+    // 前のエントリでスクロールした位置を書き切り、前の遷移で始めた位置の戻しをやめる
+    saveScrolled.flush();
+    scrolling?.cancel();
+    scrolling = null;
     const auth = authKey();
+    const previous = shownRoute;
+    const fresh = !entryId();
+    // ① 戻る・進む・起動は、そのエントリに保存した条件（版・環境・利用者・ワールド・URL が今と合うものだけ）
+    const entry = !needsLogin && (reason === 'history' || reason === 'boot')
+      ? memory.readEntry(entryId(), { view: route.view, key: routeKey(route) }) : null;
+    if (entry?.cond) applyCond(route.view, entry.cond, entry.world);
     // 同じ画面（view と id が同じ）で、ログインの有無も変わっていなければ作り直さず、ビューが条件と結果を合わせる
     //（入力中の値・開いた欄・フォーカスが残る）。applyRoute を持たない画面は作り直す
     if (!needsLogin && currentView?.applyRoute && auth === shownAuth && sameScreen(shownRoute, route)) {
       remember(route);
       markTabs(route);
       shownRoute = route;
-      currentView.applyRoute(route, { reason });
+      // restored: 戻る・進むで、そのエントリの条件を viewState に入れ直した（ビューは入力欄も合わせる）
+      currentView.applyRoute(route, { reason, restored: Boolean(entry?.cond) });
+      placeScroll(reason, previous, entry, fresh);
+      ensureEntry();
       return;
     }
-    const pickerLabel = document.activeElement?.getAttribute('aria-haspopup') === 'listbox'
-      ? document.activeElement.getAttribute('aria-label') : null;
-    const passiveLabel = String(document.activeElement?.className ?? '').split(' ').includes('passive-add')
-      ? document.activeElement.getAttribute('aria-label') : null;
+    // 画面を作り直すと部品も新しくなるため、同じ役目の部品（data-focus-key）へフォーカスを引き継ぐ
+    const focus = captureFocus(main);
+    // 離れる画面の位置を覚える（タブで戻ったとき用）
+    if (previous) viewState(previous.view).scrollY = scrollTop();
     currentView?.destroy();
     currentView = null;
     shownRoute = null;
@@ -329,7 +465,11 @@ async function boot() {
     save.element.hidden = showingLogin;
     account.element.hidden = showingLogin;
     sync.update(store.state);
-    if (showingLogin) { bell.close(); save.close(); account.close(); forget(); loginView(); return; }
+    if (showingLogin) {
+      bell.close(); save.close(); account.close(); forget(); loginView();
+      if (reason === 'auth') moveTo(0);
+      return;
+    }
     // 画面の部品が URL を書き換える（不正な ID を消すなど）ときは、context.replace が route を入れ直して覚え直す。
     remember(route);
     markTabs(route);
@@ -337,14 +477,61 @@ async function boot() {
     // 作る途中の context.replace で route が入れ替わることがあるので、作った後に入れる
     shownRoute = route;
     main.replaceChildren(currentView.element);
-    // 画面を作り直したときは部品も新しくなるため、同じ選択欄へフォーカスを引き継ぐ（同じ画面の条件の変更では作り直さない）。
-    if (pickerLabel) {
-      Array.from(main.querySelectorAll('.picker-trigger')).find((picker) => picker.getAttribute('aria-label') === pickerLabel)?.focus();
+    restoreFocus(main, focus);
+    placeScroll(reason, previous, entry, fresh);
+    ensureEntry();
+  }
+
+  // ナビのタブ・本文やヘッダーのリンクで移るときは、移る前に今のエントリを書き、次の hashchange に理由を付ける
+  //（タブ: その画面を離れたときの位置へ、それ以外: 先頭から）。document ではなく root に付ける（テストの偽の document でも動く）
+  const anchorOf = (node) => {
+    for (let current = node; current && current !== root; current = current.parentElement) {
+      if (String(current.tagName ?? '').toLowerCase() === 'a') return current;
     }
-    if (passiveLabel) {
-      Array.from(main.querySelectorAll('.passive-add')).find((select) => select.getAttribute('aria-label') === passiveLabel)?.focus();
+    return null;
+  };
+  root.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const anchor = anchorOf(event.target);
+    const hash = anchor ? String(anchor.getAttribute?.('href') ?? anchor.href ?? '') : '';
+    if (!hash.startsWith('#/') || hash === location.hash) return;
+    saveEntry();
+    intent = String(anchor.className).split(' ').includes('nav-tab') ? 'tab' : 'navigate';
+  });
+  window.addEventListener('scroll', () => {
+    if (showingLogin) return;
+    scrolled = { id: entryId(), shown: shownRoute, y: scrollTop() };
+    saveScrolled();
+  }, { passive: true });
+  // ページを離れる・裏に回るとき（読み込み直す前を含む）に、今のエントリと読み込み直し用の保存を書く
+  const persist = () => {
+    saveEntry();
+    saveViews();
+  };
+  window.addEventListener('pagehide', persist);
+
+  // 読み込み直したとき: 同じタブで前に保存した条件とタブの行き先を戻し、ハッシュのない URL なら最後に開いたタブから始める
+  //（ブックマーク・通知のリンクなど、ハッシュがあればそれを使う）。今のエントリの条件は、この後の起動の描画で当てる
+  if (store.state.passcode && store.state.userId) {
+    const saved = memory.loadViews();
+    if (saved) {
+      for (const [view, cond] of Object.entries(saved.views)) applyCond(view, cond, saved.world);
+      for (const [view, href] of Object.entries(saved.tabs)) setTabHref(view, href);
+    }
+    if (['', '#', '#/'].includes(location.hash)) {
+      const view = memory.lastView(store.state.userId);
+      if (view) history.replaceState(history.state, '', urlOf(saved?.tabs[view] ?? buildHash(view)));
     }
   }
+  // 表示するワールドが替わったら所持者の条件を外す（画面より先に知らせを受けるよう、画面を作る前に登録する）
+  owned.subscribe((state) => {
+    const world = worldId(state.meta?.worldId);
+    if (!world || world === conditionWorld) return;
+    if (conditionWorld) forgetHolders();
+    conditionWorld = world;
+  });
+  // ID が替わったら（名前の変更・別の ID でのログイン）、前の ID のエントリと保存を消す
+  let memoryUser = store.state.userId ? userIdKey(store.state.userId) : '';
 
   startRouter((nextRoute) => {
     const reason = booted ? intent ?? 'history' : 'boot';
@@ -355,6 +542,11 @@ async function boot() {
   });
   store.subscribe((state) => {
     envChip.hidden = state.env !== 'test';
+    const userKey = state.userId ? userIdKey(state.userId) : '';
+    if (userKey !== memoryUser) {
+      if (memoryUser && userKey) memory.clear();
+      memoryUser = userKey;
+    }
     const scope = state.passcode && state.userId && state.env ? state.env : '';
     if (scope !== ownedScope) {
       ownedScope = scope;
@@ -406,6 +598,7 @@ async function boot() {
     save.update();
   }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persist();
     if (document.visibilityState === 'visible') {
       watcher.check();
       refresh({ throttled: true });

@@ -6,7 +6,8 @@ import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
 import { buildHash } from '../router.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus, renderWhenIdle } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, renderWhenIdle } from './shared.js';
+import { captureFocus, restoreFocus } from '../ui/focus.js';
 
 function holderSummary(carriers) {
   // 要約なので、パルボックスのページと位置までは出さない
@@ -30,7 +31,7 @@ function carrierList(carriers) {
   return list;
 }
 
-// key は作り直した後に同じチップを探すための目印（start:<palId>・start:all。keep-state の data-focus-key と同じ形）
+// key は作り直した後に同じチップを探すための目印（start:<palId>・start:all。ui/focus.js の data-focus-key）
 function startChip(content, pressed, onClick, key) {
   const chip = button('', onClick, 'start-chip');
   chip.setAttribute('aria-pressed', String(pressed));
@@ -79,7 +80,13 @@ export function inheritanceView(context, route) {
   // 所持パルがあるときは目標とパッシブだけで探し、開始は候補から絞り込む形にする（選ばなくてよい）。
   // ないときは開始と目標を並べて選ぶ。所持パルは後から読み込まれるため、update のたびに形を確かめる。
   let filterLayout = null;
+  // 形を変えると選択欄を付け直すので、同じ役目の部品（目標・開始の選択欄・⇄）へフォーカスを戻す
   function arrange(filter) {
+    const token = captureFocus(element);
+    layout(filter);
+    restoreFocus(element, token);
+  }
+  function layout(filter) {
     filterLayout = filter;
     fromPicker?.destroy();
     if (filter) {
@@ -98,6 +105,7 @@ export function inheritanceView(context, route) {
       changeRoute(context, buildHash('route', params));
     }, 'icon-button swap-button');
     swap.setAttribute('aria-label', '開始と目標を入れ替える');
+    swap.setAttribute('data-focus-key', 'route:swap');
     panel.className = 'selection-panel pair-selection';
     panel.replaceChildren(fromPicker.element, swap, toPicker.element);
     element.replaceChildren(heading, panel);
@@ -121,8 +129,9 @@ export function inheritanceView(context, route) {
     }
     syncPicker(fromPicker, from && !starts.some((start) => start.palId === from) ? from : '');
     // 押したチップは作り直すと消えるので、同じパルのチップへフォーカスを移す（「他のパル…」の欄は付け直した同じ要素へ）
-    keepFocus(startChips, () => startChips.replaceChildren(...chips, fromPicker.element), (previous) => (previous.isConnected ? previous
-      : chips.find((chip) => chip.getAttribute('data-focus-key') === previous.getAttribute('data-focus-key'))));
+    const token = captureFocus(startChips);
+    startChips.replaceChildren(...chips, fromPicker.element);
+    restoreFocus(startChips, token);
   }
 
   // パッシブの選択欄は、選んだパッシブと所持数が同じなら作り直さない。データの更新では、選んでいる途中（フォーカス中）は待つ（force は条件の変更）
@@ -133,10 +142,10 @@ export function inheritanceView(context, route) {
     if (signature === shownPassives) return;
     if (!force) { renderWhenIdle(passiveSlot, () => renderPassives(owned?.state?.owned?.pals ?? null, { force: true })); return; }
     shownPassives = signature;
-    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう追加欄へフォーカスを移す
-    keepFocus(passiveSlot, () => passiveSlot.replaceChildren(passiveSelector({
-      label: '運びたいパッシブ（所持パルから探す）', selected: passives, counts, onChange: setPassives,
-    })), () => passiveSlot.querySelector('.passive-add'));
+    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう同じ役目の部品（追加欄。押せなければ残ったチップの最後の ×）へフォーカスを移す
+    const token = captureFocus(passiveSlot);
+    passiveSlot.replaceChildren(passiveSelector({ label: '運びたいパッシブ（所持パルから探す）', selected: passives, counts, onChange: setPassives }));
+    restoreFocus(passiveSlot, token);
   }
 
   function renderOwned(state, pals, starts, force) {

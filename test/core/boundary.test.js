@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isObject, int, intOrNull, text, idText, oneOf, isoTime, list, worldId, screenHref, cleanSaved,
+  isObject, int, intOrNull, intIn, bool, text, idText, oneOf, isoTime, list, worldId, screenHref, cleanSaved,
   cleanRecords, cleanUsers, cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload,
 } from '../../web/js/core/boundary.js';
 import { OWNED_FIELDS, OWNED_MAX_ROWS } from '../../web/js/core/owned-shared.js';
@@ -16,6 +16,15 @@ test('境界: int は有限の整数にして範囲に収め、数にならな�
   assert.equal(int(0, { min: 1, max: 999, fallback: 1 }), 1);
   assert.equal(int(-3.9), -3);
   assert.equal(int(5000), 5000);
+});
+
+test('境界: intIn は範囲の中の整数だけをそのまま使い、範囲の外・数でない値は丸めずに既定の値にする。bool は真偽値だけ', () => {
+  const talent = { min: 0, max: 100, fallback: 7 };
+  assert.deepEqual([0, 100, 55, 150, -1, 12.5, '12', null, undefined, NaN, Infinity, true].map((value) => intIn(value, talent)),
+    [0, 100, 55, 7, 7, 7, 7, 7, 7, 7, 7, 7]);
+  assert.equal(intIn(3), 3);
+  assert.deepEqual([true, false, 'true', 1, null].map((value) => bool(value, true)), [true, false, true, true, true]);
+  assert.equal(bool(undefined, false), false);
 });
 
 test('境界: intOrNull は欠けている値（undefined・null・空文字）と 0 を区別する', () => {

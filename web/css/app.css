@@ -937,10 +937,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     @starting-style { opacity: 0; transform: scaleY(.9) translateY(-4px); }
   }
   .picker-trigger::after { transition: transform .2s var(--ease-emphasized); }
-  .picker-trigger.has-selection .pal-icon img {
-    transition: transform .25s var(--ease-decelerate), opacity .15s linear;
-    @starting-style { transform: scale(.8); opacity: 0; }
-  }
   /* 通知を開くとベルが一度だけ揺れ、未読の数はページを開いたときに一度だけ輪が広がる */
   .notification-button[aria-expanded="true"] svg { animation: ring .5s var(--ease-emphasized); transform-origin: 50% 15%; }
   .notification-badge::after {
