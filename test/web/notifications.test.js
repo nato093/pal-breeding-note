@@ -65,6 +65,37 @@ test('通知: どの種類の通知も同じ形にそろえ、長すぎる文は
   assert.equal(list[0].body.length, BODY_MAX);
 });
 
+test('通知（読み戻しの検証）: id が 200 字を超える通知は出さず、href は画面内のハッシュ 300 字までにする', () => {
+  const { notifications } = setup({
+    sources: [() => [
+      { id: 'x'.repeat(201), date: '2026-10-03', title: '長い ID' },
+      { id: 'y'.repeat(200), date: '2026-10-03', title: 'ちょうど 200 字' },
+      { id: 'long-href', date: '2026-10-02', title: '長いリンク', href: `#/${'a'.repeat(299)}` },
+      { id: 'href', date: '2026-10-02', title: 'リンク', href: `#/${'a'.repeat(298)}` },
+      { id: 'outside', date: '2026-10-01', title: '外のリンク', href: 'https://example.com/' },
+    ]],
+  });
+  const list = notifications.list();
+  assert.deepEqual(list.map((item) => item.id), ['y'.repeat(200), 'long-href', 'href', 'outside']);
+  assert.deepEqual(list.map((item) => item.href?.length ?? 0), [0, 0, 300, 0]);
+});
+
+test('通知（読み戻しの検証）: 既読の ID は 2,000 件まで（新しく足した末尾の方を残す）、長すぎる ID と文字列でない値は無視する', () => {
+  const storage = memoryStorage();
+  const key = 'pal-note.notifications.read.自分';
+  const ids = releaseNotes.map((note) => `release:${note.id}`);
+  // 古い既読 3,000 件の後に、いちばん新しい更新内容の既読がある
+  storage.values.set(key, JSON.stringify([...Array.from({ length: 3000 }, (_, i) => `old:${i}`), 5, null, 'z'.repeat(201), ids[0]]));
+  const { notifications } = setup({ storage });
+  assert.equal(notifications.unread().some((item) => item.id === ids[0]), false);
+  notifications.markRead([ids[1]]);
+  const saved = JSON.parse(storage.values.get(key));
+  assert.equal(saved.length, 2000);
+  assert.deepEqual(saved.slice(-2), [ids[0], ids[1]]);
+  assert.equal(saved.includes('old:1001'), false);
+  assert.equal(saved.includes('old:1002'), true);
+});
+
 test('通知: 未読は ID ごとにこの端末に残し、ログアウト中は数えない', () => {
   const { storage, notifications } = setup();
   const ids = releaseNotes.map((note) => `release:${note.id}`);

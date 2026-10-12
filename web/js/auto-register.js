@@ -8,6 +8,7 @@ import { findNewBreedings, mappedUser, resolveRegistrant } from './core/auto-bre
 import { createSpeciesResolver } from './core/owned.js';
 import { findConflict } from './core/index.js';
 import { userIdKey } from './core/user.js';
+import { isObject, isoTime, text, idText, list, screenHref } from './core/boundary.js';
 
 // 重複などの失敗は決着として送り直さない。通信やサーバの失敗は、次に新しいセーブを読んだときにもう一度送る。
 // 認証切れ（ログアウトされる）は記録せずに止める。ログインし直したら送り直す。
@@ -16,6 +17,8 @@ const FLIP = { M: 'F', F: 'M' };
 const NOTICE_MAX = 50;
 const PENDING_MAX = 200;
 const EVIDENCE_MAX = 10;
+// セーブのプレイヤーと登録者の対応（ワールドごと）。プレイヤーは共有と同じ 100 人まで、uid 40 字・ノートの ID 20 字
+const MAPPING_MAX = 100;
 // 前の版の「照合が合いません」は、親を入れ替える前の古いタマゴを誤って知らせていたので出さない
 const LEGACY_NOTICE = /^auto-breed:[^:]*:mismatch:/;
 const RECORD_FIELDS = ['parent1Id', 'parent1Gender', 'parent2Id', 'parent2Gender', 'childId'];
@@ -35,6 +38,18 @@ export const conflictText = (pair, registered) => `${pair}：登録済みの配�
 // 前の版の本文の形（親・配合表の子・新しいタマゴの中身か登録済みの子を並べたもの）
 const OLD_ANOMALY = /^(.+?)：表は.*?、新しいタマゴは(.+)$/;
 const OLD_CONFLICT = /^(.+?)：表は.*?、登録は(.+)$/;
+
+// 保存した通知の形を確かめる（id 200 字・日時が読めること・題名 40 字・本文 200 字・href は画面内のハッシュ 300 字まで）。
+// 通知欄に出すときは notifications.js の cleanNotification がさらに 20 字・60 字に切る
+function cleanSavedNotice(value) {
+  if (!isObject(value) || !idText(value.id, 200) || LEGACY_NOTICE.test(value.id)) return null;
+  const date = isoTime(value.date);
+  if (!date) return null;
+  const notice = { id: value.id, date, title: text(value.title, 40), body: text(value.body, 200) };
+  const href = screenHref(value.href);
+  if (href) notice.href = href;
+  return notice;
+}
 
 /**
  * 保存済みの通知を、配合表の答えを含まない文にする（前の版が保存した通知と、旧コードのまま開いているタブが書いた通知のため）。
@@ -214,9 +229,9 @@ export function createAutoRegister({
   }
 
   function readNotices(env, userId) {
-    const list = env && userId ? readJson(noticeKey(env, userId), []) : [];
-    // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）
-    return Array.isArray(list) ? list.filter((n) => n && typeof n.id === 'string' && !LEGACY_NOTICE.test(n.id)).map(safeAutoNotice) : [];
+    const saved = env && userId ? readJson(noticeKey(env, userId), []) : [];
+    // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）。形を確かめてから、配合表の答えを外す
+    return list(saved, { max: NOTICE_MAX, map: cleanSavedNotice }).map(safeAutoNotice);
   }
 
   // 同じ ID の通知は足さない。新しい順に NOTICE_MAX 件まで残す
@@ -339,9 +354,12 @@ export function createAutoRegister({
     });
   }
 
+  // 形の合わない対応（数値・長すぎる ID など）は、その対応だけ無視する
   function mappingOf(env, worldId) {
     const value = readJson(mappingKey(env, worldId), {});
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    if (!isObject(value)) return {};
+    const entries = Object.entries(value).filter(([uid, userId]) => idText(uid, 40) && idText(userId, 20));
+    return Object.fromEntries(entries.slice(0, MAPPING_MAX));
   }
 
   return {

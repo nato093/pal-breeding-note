@@ -633,3 +633,41 @@ test('自動登録: 産まれて 2 秒で拾い、牧場の上で一度も見え
   await t.run();
   assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分']);
 });
+
+test('自動登録（読み戻しの検証）: 対応表に数値・長すぎる値が入っていても落ちず、その対応だけ無視する', async () => {
+  const t = await setup({ farms: [sheepFarm(P2)] });
+  const key = 't.autoBreeding.players.test.W1';
+  t.storage.set(key, JSON.stringify({ [P2]: 5, [P1]: 'x'.repeat(21), ['u'.repeat(41)]: '仲間', '': '仲間' }));
+  assert.deepEqual(t.auto.mapping(), {});
+  await t.run();
+  // 対応が無いのと同じ（未設定の通知）。正しい対応は今までどおり使う
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['プレイヤーの対応が未設定です']);
+  t.storage.set(key, JSON.stringify({ [P2]: '仲間', [P1]: 7 }));
+  assert.deepEqual(t.auto.mapping(), { [P2]: '仲間' });
+  await t.run();
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
+  for (const broken of ['[]', '"text"', '3', '壊れた値']) {
+    t.storage.set(key, broken);
+    assert.deepEqual(t.auto.mapping(), {});
+  }
+});
+
+test('自動登録（読み戻しの検証）: 保存した通知に日時のないもの・形の違うものがあっても落ちず、その通知だけを出さない', async () => {
+  const t = await setup({ farms: [] });
+  const key = 't.autoBreeding.notices.test.自分';
+  const date = '2026-10-06T00:00:00.000Z';
+  t.storage.set(key, JSON.stringify([
+    null, 'notice', { id: 5, date }, { id: 'x'.repeat(201), date, title: '長い ID' },
+    { id: 'auto-breed:test:unmapped:W1:a', title: '日時なし' },
+    { id: 'auto-breed:test:unmapped:W1:b', date: 'いつか', title: '読めない日時' },
+    { id: 'auto-breed:test:unmapped:W1:c', date, title: 'あ'.repeat(50), body: 'い'.repeat(250), href: 'https://example.com/' },
+    { id: 'auto-breed:test:unmapped:W1:d', date, title: '画面内', body: 7, href: '#/settings' },
+  ]));
+  const notices = t.auto.notices();
+  assert.deepEqual(notices.map((n) => n.id), ['auto-breed:test:unmapped:W1:c', 'auto-breed:test:unmapped:W1:d']);
+  assert.deepEqual(notices.map((n) => [n.title.length, n.body.length, n.href ?? '']), [[40, 200, ''], [3, 0, '#/settings']]);
+  // 件数は NOTICE_MAX（50 件）まで
+  t.storage.set(key, JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ id: `auto-breed:test:unmapped:W1:${i}`, date, title: '未設定' }))));
+  assert.equal(t.auto.notices().length, 50);
+});

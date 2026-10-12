@@ -1,10 +1,14 @@
 import releaseNotes from './release-notes.js';
 import { userIdKey } from './core/user.js';
 import { sanitizeText } from './core/validate.js';
+import { screenHref } from './core/boundary.js';
 
 // 通知欄に収まる長さ。更新内容のお知らせはテストでこの長さを守り、ほかの通知は超えた分を省いて表示する。
 export const TITLE_MAX = 20;
 export const BODY_MAX = 60;
+// 通知の id の長さと、この端末に残す既読の数の上限（極端に長い・多い保存データで描画が詰まらないように）
+const ID_MAX = 200;
+const READ_MAX = 2000;
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export function clip(value, max) {
@@ -21,13 +25,15 @@ export function notificationTime(date) {
 // どの種類の通知も、この形にそろえて通知欄に出す。
 // id: 既読の判定に使う変わらない文字列 / date: 'YYYY-MM-DD' か ISO 日時 / title・body: 表示する文
 // href: 押したときに開く画面（任意）。外部の URL や script を開かないよう、画面内のハッシュ（#/…）だけを受け付ける。
+// id が 200 字を超える通知は出さない。href は 300 字まで（超えたら外す）。
 export function cleanNotification(value) {
-  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id) return null;
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id || value.id.length > ID_MAX) return null;
   const time = notificationTime(value.date);
   const title = clip(value.title, TITLE_MAX);
   if (!Number.isFinite(time) || !title) return null;
   const notification = { id: value.id, date: value.date, time, title, body: clip(value.body, BODY_MAX) };
-  if (typeof value.href === 'string' && value.href.startsWith('#/')) notification.href = value.href;
+  const href = screenHref(value.href);
+  if (href) notification.href = href;
   return notification;
 }
 
@@ -48,7 +54,8 @@ export function createNotificationStore({ store, storage, namespace = 'pal-note'
   function stored(key) {
     let ids = [];
     try { ids = JSON.parse(storage?.getItem(key) ?? '[]'); } catch { /* 読めない端末はすべて未読として扱う。 */ }
-    return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [];
+    // 新しく既読にしたものは末尾に足すので、多すぎるときは末尾（新しい方）を残す
+    return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id.length <= ID_MAX).slice(-READ_MAX) : [];
   }
 
   function readIds(key) {
@@ -86,7 +93,8 @@ export function createNotificationStore({ store, storage, namespace = 'pal-note'
       // 別のタブで既読にした分を消さないよう、保存先の最新の内容に足す（保存に失敗した分は手元に残す）。
       const next = new Set([...stored(key), ...read, ...ids]);
       cache.set(key, next);
-      try { storage?.setItem(key, JSON.stringify([...next])); } catch { /* 保存できなくても、開いている間は既読として扱う。 */ }
+      // 保存するのも新しい方の READ_MAX 件まで（読み出しと同じ）
+      try { storage?.setItem(key, JSON.stringify([...next].slice(-READ_MAX))); } catch { /* 保存できなくても、開いている間は既読として扱う。 */ }
       emit();
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
