@@ -49,8 +49,9 @@ function context(owned, records = [], states = new Map()) {
 
 // 画面は開いている間 20 秒ごとに読み直すので、タイマーはモックにする（開いたままの画面がテストを止めないように）
 function install(t) {
-  installDom(t);
+  const dom = installDom(t);
   t.mock.timers.enable({ apis: ['setInterval'] });
+  return dom;
 }
 
 const cards = (view) => view.element.querySelectorAll('.ideal-pair');
@@ -439,6 +440,82 @@ test('理想個体画面: 一覧や通知から開くと（g）、登録した�
   assert.equal(byLabel(view, '登録済み').disabled, true);
   // 一覧の「呼び出す」は g つきのリンク
   assert.equal(view.element.querySelector('.ideal-goal').querySelectorAll('a').find((node) => node.textContent === '呼び出す').href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
+  view.destroy();
+});
+
+test('理想個体画面: 同じ画面のまま URL が変わると（applyRoute）、登録する名前はパッシブの変更では残し、目標が変わったら消す', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  const name = input(view, '登録する名前');
+  const trigger = view.element.querySelector('.picker-trigger');
+  const goals = view.element.querySelector('.ideal-goals');
+  goals.open = true;
+  name.value = '最強モコロン';
+  view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare'), { reason: 'update' });
+  assert.equal(input(view, '登録する名前'), name);
+  assert.equal(name.value, '最強モコロン');
+  assert.equal(name.placeholder, 'モコロン（希少）');
+  assert.equal(view.element.querySelector('.picker-trigger'), trigger);
+  assert.equal(view.element.querySelector('.ideal-goals'), goals);
+  assert.equal(goals.open, true);
+  assert.deepEqual(view.element.querySelector('.passive-selector').querySelectorAll('.passive-name').map((node) => node.textContent), ['希少']);
+  // 同じ route でもう一度呼んでも変わらない
+  view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare'), { reason: 'history' });
+  assert.equal(name.value, '最強モコロン');
+  view.applyRoute(parseHash('#/ideal?to=PinkCat&p=Rare'), { reason: 'update' });
+  assert.equal(name.value, '');
+  assert.equal(trigger.getAttribute('aria-label'), '目標: No.2 ツッパニャン');
+  assert.equal(name.placeholder, 'ツッパニャン（希少）');
+  view.destroy();
+});
+
+test('理想個体画面: 同じ画面のまま g つきの URL が来ると、登録した条件を入力欄にも入れ、URL から g を外す', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  ctx.ideals.add({ name: '攻撃型', palId: 'SheepBall', passives: ['Rare'], mode: 'only', targets: { hp: 0, shot: 100, defense: 90 }, cake: 'talent', order: 'next' });
+  const [goal] = ctx.ideals.list();
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  assert.deepEqual(ctx.replacements, []);
+  view.applyRoute(parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`), { reason: 'history' });
+  assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
+  const value = (label) => input(view, label).value;
+  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['0', '100', '90']);
+  const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
+  assert.deepEqual([selectHaving('only').value, selectHaving('talent').value], ['only', 'talent']);
+  assert.equal(byLabel(view, '登録済み').disabled, true);
+  // ここから作る遷移先の URL に g を残さない
+  const add = view.element.querySelector('.passive-add');
+  add.value = 'Legend';
+  add.dispatch('change');
+  assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare%2CLegend']);
+  view.destroy();
+});
+
+test('理想個体画面: 同じ画面のままパッシブを足す・外すと、作り直した選択欄の追加欄にフォーカスを移す', async (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned();
+  const ctx = context(owned);
+  const updates = [];
+  let view;
+  ctx.update = (hash) => { updates.push(hash); view.applyRoute(parseHash(hash), { reason: 'update' }); };
+  view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  body.append(view.element);
+  const add = view.element.querySelector('.passive-add');
+  add.focus();
+  add.value = 'Rare';
+  await add.dispatch('change');
+  assert.deepEqual(updates, ['#/ideal?to=SheepBall&p=Rare']);
+  assert.deepEqual(ctx.navigations, []);
+  assert.notEqual(view.element.querySelector('.passive-add'), add);
+  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
+  const remove = view.element.querySelector('.passive-remove');
+  remove.focus();
+  await remove.dispatch('click');
+  assert.equal(updates.at(-1), '#/ideal?to=SheepBall');
+  assert.equal(document.activeElement, view.element.querySelector('.passive-add'));
   view.destroy();
 });
 

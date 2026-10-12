@@ -21,6 +21,12 @@ export function buildHash(view, params = {}, id = '') {
   return query.size ? `${path}?${query}` : path;
 }
 
+/** 同じ画面か（条件のクエリだけが違う）。パル詳細は id まで比べる。 */
+export function sameScreen(a, b) {
+  return Boolean(a && b) && a.view === b.view && a.id === b.id;
+}
+
+/** ハッシュが変わるたびに onChange(route, { hash }) を呼ぶ。遷移の理由（タブ・戻るなど）はアプリが決める。 */
 export function startRouter(onChange, browser = window) {
   const change = () => {
     const { pathname, search, hash } = browser.location;
@@ -36,7 +42,7 @@ export function startRouter(onChange, browser = window) {
       const nextHash = cleanHash ? `${path}${params.size ? `?${params}` : ''}` : hash;
       browser.history.replaceState(browser.history.state, '', `${pathname}${nextSearch}${nextHash}`);
     }
-    onChange(parseHash(browser.location.hash));
+    onChange(parseHash(browser.location.hash), { hash: browser.location.hash });
   };
   browser.addEventListener('hashchange', change);
   change();

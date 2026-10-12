@@ -89,7 +89,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 自動登録の通知から配合表の答えを外す
 
-- 状態: 済 ／ ブランチ: `feature/inv2-notice` ／ マージのコミット: （マージの後に書く）
+- 状態: 済 ／ ブランチ: `feature/inv2-notice` ／ マージのコミット: `9688079`
 - 文書と違う形にしたこと: release-notes の本文は、見送りの通知にはタマゴの中身も出るので「親・タマゴの中身・登録済みの子だけを出します」にした（44 字）。テストの :406-407 相当は登録済みの子が 2 つで、並びは登録の順なので、どちらの順でも通る形にした。コメントの「配合表は〜」の言い回しも、`grep -n "表は"` が旧本文を読む所だけになるように直した
 
 - [x] auto-register.js に `AUTO_NOTICE_TITLES`・`anomalyText`・`conflictText` を足す
@@ -107,20 +107,21 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 同じ画面なら作り直さない遷移の契約
 
-- 状態: 未着手 ／ ブランチ: `feature/render-contract` ／ マージのコミット: （未）
+- 状態: 済 ／ ブランチ: `feature/render-contract` ／ マージのコミット: （マージの後に書く）
+- 文書と違う形にしたこと: 開始チップとパッシブの欄はビューの中で作り直すため（手順 6 の「要素が残る」は誤り）、views/shared.js に `keepFocus` を足し、開始チップに `data-focus-key` を付けた（keep-state で ui/focus.js に置き換える）。ほかに `syncPicker`・各ビューの `readRoute`（生成時は applyRoute を呼ばない）・理想個体の g での入力欄の合わせ直し（`showConditions`）・同じ URL への update は何もしない、を足した（phase-1a の render-contract の「実装の記録」）
 
-- [ ] router.js に `sameScreen` を足し、onChange に第 2 引数を渡す
-- [ ] app.js の render を「同じ画面なら applyRoute・違えば作り直し」にし、`shownRoute`・`shownAuth`・`intent` を持つ
-- [ ] `context.update` を足し、`context.navigate` に intent を、`context.replace` に state の保持と route の更新を入れる
-- [ ] views/shared.js に `changeRoute` を足し、navigateSelection と watchView を直す
-- [ ] search.js・reverse.js を applyRoute の形にする
-- [ ] route.js を applyRoute の形にする（setPassives・⇄・開始チップを changeRoute に）
-- [ ] ideal.js を applyRoute の形にする（g の処理を移す・目標が変わったら名前を消す）
-- [ ] owned.js の URL の条件の読み込みを applyRoute に移す
-- [ ] app.test.js:319 の期待値を直し、作り直さない・作り直す・ログアウト・replace の state のテストを足す
-- [ ] views・router のテストを足す
-- [ ] release-notes に 1 件足す
-- [ ] モックで要素が同じこと・フォーカス・名前・戻る/進むを確かめる
+- [x] router.js に `sameScreen` を足し、onChange に第 2 引数を渡す
+- [x] app.js の render を「同じ画面なら applyRoute・違えば作り直し」にし、`shownRoute`・`shownAuth`・`intent` を持つ
+- [x] `context.update` を足し、`context.navigate` に intent を、`context.replace` に state の保持と route の更新を入れる
+- [x] views/shared.js に `changeRoute` を足し、navigateSelection と watchView を直す
+- [x] search.js・reverse.js を applyRoute の形にする
+- [x] route.js を applyRoute の形にする（setPassives・⇄・開始チップを changeRoute に）
+- [x] ideal.js を applyRoute の形にする（g の処理を移す・目標が変わったら名前を消す）
+- [x] owned.js の URL の条件の読み込みを applyRoute に移す
+- [x] app.test.js:319 の期待値を直し、作り直さない・作り直す・ログアウト・replace の state のテストを足す
+- [x] views・router のテストを足す
+- [x] release-notes に 1 件足す
+- [x] モックで要素が同じこと・フォーカス・名前・戻る/進むを確かめる（実機の戻る・進むの手応えはヘッドレスでは確かめられない）
 
 ### 3. [data-boundary](phase-1a-foundation.md#data-boundary-読み戻しの境界の共通の検証)（M）
 
@@ -1007,7 +1008,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1a の 2 番目 render-contract**（[phase-1a-foundation.md の節](phase-1a-foundation.md#render-contract-同じ画面なら作り直さない遷移の契約)）から。始めに、TODO の inv2-notice の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。phase-1a の冒頭の「テスト環境の制約」を読み直してから入る（多くのビューに触れるので、先に小さく入れて全タブのテストを通す。README の 8-1）。
-- 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**1 テーマ終えるごとに報告して止まる**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
+- **フェーズ 1a の 3 番目 data-boundary**（[phase-1a-foundation.md の節](phase-1a-foundation.md#data-boundary-読み戻しの境界の共通の検証)）から。始めに、TODO の render-contract の「マージのコミット」に `main` のマージのコミットの短いハッシュを書く。render-contract の「実装の記録」（`keepFocus`・`syncPicker`・`readRoute`・app.test.js の boot の `pushState`）を読んでから入る。
+- 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
 - 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。
-- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice を済ませた。ideal-calc のレビューで D19 を足した）
+- 最終更新: 2026-10-12（セッション `300704ce`。フェーズ 0・ideal-calc・inv2-notice・render-contract を済ませた。ideal-calc のレビューで D19 を足した）

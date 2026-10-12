@@ -18,7 +18,8 @@ async function sortOneCardPerRecord() {
 }
 let imports = 0;
 
-async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings' } = {}) {
+// pushState を true にすると、history に pushState を足す（足さないときは、無い環境として動くことを確かめる）
+async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings', pushState = false } = {}) {
   for (const name of ['document', 'window', 'location', 'history', 'fetch', 'setInterval']) {
     const before = Object.getOwnPropertyDescriptor(globalThis, name);
     t.after(() => before ? Object.defineProperty(globalThis, name, before) : Reflect.deleteProperty(globalThis, name));
@@ -41,14 +42,23 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   globalThis.location = { hostname: 'example.test', hash, search: '?k=旧招待値', pathname: '/Pal/' };
   window.location = location;
   const replacements = [];
+  const replaceStates = [];
+  const pushes = [];
+  const moveTo = (url) => {
+    const next = new URL(url, 'https://example.test');
+    Object.assign(location, { pathname: next.pathname, search: next.search, hash: next.hash });
+  };
   globalThis.history = {
     state: null,
     replaceState(state, title, url) {
       replacements.push(url);
-      const next = new URL(url, 'https://example.test');
-      Object.assign(location, { pathname: next.pathname, search: next.search, hash: next.hash });
+      replaceStates.push(state);
+      this.state = state;
+      moveTo(url);
     },
   };
+  // ブラウザと同じく、pushState は hashchange を起こさない
+  if (pushState) history.pushState = (state, title, url) => { pushes.push(url); history.state = state; moveTo(url); };
   window.history = history;
   const calls = [];
   // 所持パルの共有（owned*）は配合の操作と別に数える
@@ -63,7 +73,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   globalThis.setInterval = (fn, ms) => intervals.push({ fn, ms });
   await import(`../../web/js/app.js?case=${++imports}`);
   assert.equal(byClass('startup-error'), undefined);
-  return { values, calls, ownedCalls, replacements, events, intervals, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
+  return { values, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash(next) { location.hash = next; events.get('hashchange')(); } };
 }
 
 function assertLoginOnly() {
@@ -304,22 +314,119 @@ for (const [hash, next, label] of [
   ['#/reverse?c=SheepBall', '#/reverse', '生まれる子'],
   ['#/route?from=SheepBall&to=MoonQueen', '#/route?to=MoonQueen', '開始'],
 ]) {
-  test(`画面: ${label} の × で URL を変更しても新しいトリガーにフォーカスを戻す`, async (t) => {
+  test(`画面: ${label} の × で URL を変えても画面を作り直さず、同じトリガーにフォーカスを残す`, async (t) => {
     const { changeHash } = await boot(t, {
       initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' },
       api: createDevelopmentApi({ seed: '2' }), hash,
     });
+    const view = document.getElementById('main').children[0];
     const clear = find((node) => node.getAttribute('aria-label') === `${label}の選択を解除`);
     assert.ok(clear);
     const original = clear.parentElement.querySelector('.picker-trigger');
     await clear.dispatch('click');
     assert.equal(location.hash, next);
+    // テストの history には pushState が無いので location.hash に入れている。ブラウザなら来る hashchange を起こしても変わらない
     changeHash(next);
     const trigger = find((node) => node.getAttribute('aria-label') === `${label}: パルを選択`);
-    assert.notEqual(trigger, original);
+    assert.equal(trigger, original);
     assert.equal(document.activeElement, trigger);
+    assert.equal(document.getElementById('main').children[0], view);
   });
 }
+
+const signedIn = { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' };
+const navTab = (label) => find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.endsWith(label));
+
+// パル選択の候補から名前で選ぶ
+async function choosePal(picker, name) {
+  await picker.querySelector('.picker-trigger').dispatch('click');
+  const search = picker.querySelector('input');
+  search.value = name;
+  await search.dispatch('input');
+  await picker.querySelectorAll('[role="option"]').find((option) => option.textContent.includes(name)).dispatch('click');
+}
+
+test('画面: 同じ画面で親を選ぶと、作り直さずに結果と URL を変えて履歴を 1 件足し、戻ると同じ画面のまま前の選択に戻る', async (t) => {
+  const development = createDevelopmentApi();
+  await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
+  await development({ action: 'create', passcode: '入力', opId: crypto.randomUUID(), record: {
+    id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
+    parent1Gender: '', parent2Gender: '', registrant: '架空データ', memo: '',
+  } });
+  const { changeHash, pushes } = await boot(t, { initial: signedIn, api: development, hash: '#/search?p1=SheepBall', pushState: true });
+  const main = document.getElementById('main');
+  const view = main.children[0];
+  const [first, second] = view.querySelectorAll('.picker');
+  const firstTrigger = first.querySelector('.picker-trigger');
+  assert.equal(view.querySelectorAll('.breeding-card').length, 1);
+  await choosePal(second, 'ツッパニャン');
+  assert.equal(location.hash, '#/search?p1=SheepBall&p2=PinkCat');
+  assert.deepEqual(pushes, ['/Pal/#/search?p1=SheepBall&p2=PinkCat']);
+  assert.equal(main.children[0], view);
+  assert.equal(first.querySelector('.picker-trigger'), firstTrigger);
+  assert.equal(view.querySelectorAll('.breeding-card').length, 0);
+  assert.match(view.textContent, /この組み合わせはまだ登録されていません/);
+  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall&p2=PinkCat');
+  // 戻る（hashchange だけが来る）と、同じ画面のまま前の選択と結果に戻る
+  changeHash('#/search?p1=SheepBall');
+  assert.equal(main.children[0], view);
+  assert.equal(second.querySelector('.picker-trigger').getAttribute('aria-label'), '親2: パルを選択');
+  assert.equal(view.querySelectorAll('.breeding-card').length, 1);
+  assert.equal(pushes.length, 1);
+});
+
+test('画面: 別の画面へ移るときと、パル詳細で別のパルを開くときは作り直す', async (t) => {
+  const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
+  const main = document.getElementById('main');
+  const search = main.children[0];
+  changeHash('#/reverse?c=SheepBall');
+  assert.notEqual(main.children[0], search);
+  assert.equal(search.isConnected, false);
+  assert.match(main.textContent, /この子の親を探す/);
+  changeHash('#/pal/SheepBall');
+  const sheep = main.children[0];
+  changeHash('#/pal/FlowerDoll');
+  assert.notEqual(main.children[0], sheep);
+  assert.equal(sheep.isConnected, false);
+  assert.match(main.querySelector('.pal-hero').textContent, /フラリーナ/);
+});
+
+test('画面: ログアウトしてから同じ URL でログインし直すと、画面を作り直して前の選択を引き継がない', async (t) => {
+  const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
+  const main = document.getElementById('main');
+  const before = main.children[0];
+  await choosePal(before.querySelectorAll('.picker')[1], 'ツッパニャン');
+  assert.equal(main.children[0], before);
+  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall&p2=PinkCat');
+  changeHash('#/settings');
+  const logout = byText('ログアウト').dispatch('click');
+  await descendants(find((node) => node.tagName === 'dialog')).find((node) => node.tagName === 'button' && node.textContent === 'ログアウト').dispatch('click');
+  await logout;
+  assertLoginOnly();
+  assert.equal(navTab('配合検索').href, '#/search');
+  changeHash('#/search?p1=SheepBall');
+  assertLoginOnly();
+  input('current-password').value = '入力';
+  await byText('ログイン').dispatch('click');
+  const after = main.children[0];
+  assert.notEqual(after, before);
+  assert.deepEqual(after.querySelectorAll('.picker-trigger').map((node) => node.getAttribute('aria-label')), ['親1: No.1 モコロン', '親2: パルを選択']);
+  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall');
+});
+
+test('画面: 不正な ID を URL から外すときは履歴の state を消さず、外した後の URL から同じ画面のまま選び直せる', async (t) => {
+  const { changeHash, replaceStates } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
+  history.state = { palEntry: '前のエントリ' };
+  changeHash('#/reverse?c=存在しない');
+  assert.equal(location.hash, '#/reverse');
+  assert.deepEqual(replaceStates.at(-1), { palEntry: '前のエントリ' });
+  assert.equal(history.state.palEntry, '前のエントリ');
+  assert.equal(navTab('逆引き').href, '#/reverse');
+  const view = document.getElementById('main').children[0];
+  await choosePal(view.querySelector('.picker'), 'モコロン');
+  assert.equal(location.hash, '#/reverse?c=SheepBall');
+  assert.equal(document.getElementById('main').children[0], view);
+});
 
 test('画面: タブを切り替えても選んだパルと絞り込みを残し、ログアウトすると忘れる', async (t) => {
   const { changeHash } = await boot(t, {

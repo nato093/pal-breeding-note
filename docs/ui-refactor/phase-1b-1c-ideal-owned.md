@@ -37,7 +37,7 @@
 
 | 1a のテーマ | このフェーズで使うもの |
 |---|---|
-| render-contract | `context.update(hash)`（同じ画面なら作り直さない遷移）。ビューは `applyRoute(route)`（URL の条件・部品を最新の route に同期）と `update(state)`（データの描き直し）を持つ。理想個体の `to`・`passives`（今は views/ideal.js:178-179 の定数）は `applyRoute` で読み直す変数になっている。`navigateSelection`・`setPassives` は同じ画面なら `context.update` を使う |
+| render-contract | `context.update(hash)`（同じ画面なら作り直さない遷移）。ビューは `applyRoute(route)`（URL の条件・部品を最新の route に同期）と `update(state)`（データの描き直し）を持つ。理想個体の `to`・`passives`（今は views/ideal.js:178-179 の定数）は `applyRoute` で読み直す変数になっている。`navigateSelection`・`setPassives` は同じ画面なら `context.update` を使う。（追記 2026-10-12、実装の後: URL は生成時と applyRoute で同じ `readRoute(next)` が読む。g を読んだときは `showConditions()` が個体値・パッシブの条件・ケーキの入力欄を合わせる。作り直すパッシブの欄のフォーカスは views/shared.js の `keepFocus`。phase-1a の render-contract の「実装の記録」） |
 | header-frame | CSS 変数 `--header-h`（ヘッダーの高さ）と重なり順の変数（ヘッダー・固定のパネル・候補・レール・トースト・ダイアログ・ドロワー）。このドキュメントでは `--z-header`・`--z-panel`（条件のパネル）・`--z-sticky`（2 段目の固定＝牧場の帯・列見出し）・`--z-popover` と書く（値は phase-1a の header-frame の表）。ヘッダーにセーブ連携の状態（ワールド・セーブ時刻・自動登録）が出る |
 | stable-render | `ui/dom.js` の `syncList(container, items, { key, create })`（create は `{ element, update, destroy }`）。画面用の変更番号。理想個体の「データ・index・実効の条件・本人」の署名で再計算を省く仕組みと、idealPlan の区切った計算。所持パルの最初の 200 行を先に出して残りを区切って足す仕組み（古い仕事の無効化つき）。件数の行（`.result-note`）の min-height。View Transition のヘルパー |
 | keep-state | 画面ごとの条件とスクロール位置の保持（viewState・history.state）。条件の適用 → 描画 → 位置の復元の順番 |
@@ -119,7 +119,7 @@
      onChange: (value) => { conditions.targets = { ...value }; renderResults(); },
    });
    ```
-   aria-label は今と同じ「HPの目標」にする（テストの探し方を変えないため。I-01 の判断）。g で目標を呼び出したとき（:188-195）と、render-contract の `applyRoute` で条件が変わったときは `talent.update(conditions.targets)`。見出しは「個体値の目標（以上）」（:258）。
+   aria-label は今と同じ「HPの目標」にする（テストの探し方を変えないため。I-01 の判断）。g で目標を呼び出したとき（:188-195）と、render-contract の `applyRoute` で条件が変わったときは `talent.update(conditions.targets)`（render-contract の実装では、applyRoute で g を読んだときの入力欄の合わせ直しを `showConditions()` に置いた。その中の個体値の行を置き換える）。見出しは「個体値の目標（以上）」（:258）。
 3. **所持パル**（web/js/views/owned.js:131-150 を置き換え）: aria-label は今の「HPの個体値（以上）」のまま。presets は `[{ label: 'すべて 90 以上', value: { hp: 90, shot: 90, defense: 90 } }, { label: 'すべて 100', value: { hp: 100, shot: 100, defense: 100 } }]`（O-19）。`onChange` で `filter.talent = { ...value }; renderResults();`。見出しは「個体値（以上）」のまま。
 4. **要約の書き方**（views/ideal.js:133 の `goalSummary`）: ``${TALENT_LABELS[key]} ${goal.targets[key] ? `${goal.targets[key]} 以上` : '—'}``。例「HP —・攻撃 100 以上・防御 90 以上」（I-01 の判断）。
 5. **並べ替え「個体値の合計が低い順」**（X-30）: core/owned.js の `OWNED_SORTS`（:328-335）の「個体値の合計が高い順」の次に `['talent-low', '個体値の合計が低い順']`、`sortOwned` の comparators（:341-348）に `'talent-low': (a, b) => talent(a) - talent(b) || dex(a, b)`。owned-rows で並べ替えに向き（dir）を足すときは、`'talent-low'` を `{ key: 'talent', dir: 'asc' }` に読み替えて残す（viewState・URL の互換）。

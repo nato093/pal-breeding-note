@@ -10,7 +10,7 @@ import { idealPlan, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSI
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow } from './owned.js';
-import { viewHeading, validId, navigateSelection, watchView, dataPending } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, keepFocus } from './shared.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
 const LIMIT = 20;
@@ -175,33 +175,43 @@ function explanation() {
 export function idealView(context, route) {
   const owned = context.owned;
   const element = el('section', 'view ideal-view');
-  const to = validId(route, 'to', context);
-  const passives = [...new Set((route.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, MAX_WANTED);
   // 画面の中の条件は、タブを切り替えても残す（ページを読み込み直すと既定に戻る）
   const memory = context.viewState?.('ideal');
   const conditions = memory?.conditions ?? { holder: '', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
   conditions.holder ??= '';
   if (memory) memory.conditions = conditions;
   const ideals = context.ideals;
-  // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
-  const goalId = route.params.get('g');
-  if (goalId) {
+  let current = route;
+  let to = '';
+  let passives = [];
+  // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）。登録した理想個体の条件を入れたら true を返す
+  function readRoute(next) {
+    current = next;
+    to = validId(next, 'to', context);
+    passives = [...new Set((next.params.get('p') ?? '').split(',').filter(Boolean))].slice(0, MAX_WANTED);
+    // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
+    const goalId = next.params.get('g');
+    if (!goalId) return false;
     const goal = ideals?.find(goalId);
     if (goal) Object.assign(conditions, { mode: goal.mode, cake: goal.cake, targets: { ...goal.targets } });
     else toast('登録した理想個体が見つかりません');
     // 元の params から外す（ここから作る遷移先の URL や、作り直した画面に g を残さない）
-    route.params.delete('g');
-    context.replace(buildHash('ideal', route.params));
+    next.params.delete('g');
+    context.replace(buildHash('ideal', next.params));
+    return Boolean(goal);
   }
+  readRoute(route);
 
-  const toPicker = palPicker({ label: '目標', value: to, onChange: (id) => navigateSelection(context, route, 'to', id) });
+  const toPicker = palPicker({ label: '目標', value: to, onChange: (id) => navigateSelection(context, current, 'to', id) });
   const passiveSlot = el('div', 'ideal-passives');
   const query = el('div', 'selection-panel route-query');
   query.append(toPicker.element, passiveSlot);
 
   const targets = el('div', 'owned-talent-filter');
+  const targetInputs = new Map();
   for (const key of TALENT_KEYS) {
     const input = el('input');
+    targetInputs.set(key, input);
     input.type = 'number';
     input.min = '0';
     input.max = '100';
@@ -251,12 +261,20 @@ export function idealView(context, route) {
     const ids = new Set((allowed ?? []).map((pal) => pal.id));
     return pals.filter((pal) => ids.has(pal.id));
   }
+  const modeSelect = select(PASSIVE_MODES, conditions.mode, (value) => { conditions.mode = value; renderResults(); });
+  const cakeSelect = select(CAKES, conditions.cake, (value) => { conditions.cake = value; renderResults(); });
+  // 同じ画面のまま登録した理想個体を呼び出したとき（g）、入れた条件を入力欄にも出す
+  function showConditions() {
+    for (const [key, input] of targetInputs) input.value = String(conditions.targets[key]);
+    modeSelect.value = conditions.mode;
+    cakeSelect.value = conditions.cake;
+  }
   const panel = el('div', 'selection-panel ideal-conditions');
   panel.append(
     field('所持者', holderSelect),
-    field('パッシブの条件', select(PASSIVE_MODES, conditions.mode, (value) => { conditions.mode = value; renderResults(); })),
+    field('パッシブの条件', modeSelect),
     group('個体値の目標（0 は気にしない）', targets),
-    field('ケーキ', select(CAKES, conditions.cake, (value) => { conditions.cake = value; renderResults(); })));
+    field('ケーキ', cakeSelect));
 
   const note = el('p', 'result-note');
   // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定
@@ -355,17 +373,18 @@ export function idealView(context, route) {
   element.append(viewHeading('理想個体'), goalsBox, query, panel, registerRow, note, missingBox, farmBox, results, explanation());
 
   const setPassives = (ids) => {
-    const params = new URLSearchParams(route.params);
+    const params = new URLSearchParams(current.params);
     if (ids.length) params.set('p', ids.join(','));
     else params.delete('p');
-    context.navigate(buildHash('ideal', params));
+    changeRoute(context, buildHash('ideal', params));
   };
 
   function renderPassives(pals) {
-    passiveSlot.replaceChildren(passiveSelector({
+    // パッシブを選ぶ・外すと選択欄を作り直すので、続けて選べるよう追加欄へフォーカスを移す
+    keepFocus(passiveSlot, () => passiveSlot.replaceChildren(passiveSelector({
       // 所持数も、親の候補にしない個体（グローバルパルボックス）を除いて数える
       label: '欲しいパッシブ', selected: passives, counts: passiveCounts(ofHolder((pals ?? []).filter(isParentCandidate))), onChange: setPassives,
-    }));
+    })), () => passiveSlot.querySelector('.passive-add'));
   }
 
   function noPairs(result) {
@@ -528,11 +547,24 @@ export function idealView(context, route) {
     renderGoals();
   }
 
+  // 同じ画面のまま URL が変わったとき（目標・パッシブを選ぶ、戻る・進む、一覧や通知の「呼び出す」）。
+  // 画面を作り直さないので、入力中の登録する名前・開いた一覧・条件の入力は残る（一覧は描き直さない）
+  function applyRoute(next) {
+    const before = to;
+    const fromGoal = readRoute(next);
+    // 前の目標の名前で別のパルを登録しないよう、目標が変わったら名前を消す（パッシブだけの変更では残す）
+    if (to !== before) nameInput.value = '';
+    if (fromGoal) showConditions();
+    syncPicker(toPicker, to);
+    renderPassives(owned?.state?.owned?.pals);
+    renderResults();
+  }
+
   const pickers = { destroy() { toPicker.destroy(); } };
   const view = watchView(context.store, element, update, [pickers]);
   // 登録が変わったら（別のタブ・完成の判定を含む）、一覧と「登録済み」を描き直す
   const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); }) ?? (() => {});
-  if (!owned) return { element, destroy() { unsubscribeGoals(); view.destroy(); } };
+  if (!owned) return { element, update, applyRoute, destroy() { unsubscribeGoals(); view.destroy(); } };
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
@@ -550,5 +582,5 @@ export function idealView(context, route) {
   };
   owned.load().then(refresh).catch(() => {});
   const timer = setInterval(refresh, REFRESH_INTERVAL);
-  return { element, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); unsubscribeGoals(); view.destroy(); } };
+  return { element, update, applyRoute, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); unsubscribeGoals(); view.destroy(); } };
 }

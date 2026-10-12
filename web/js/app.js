@@ -8,7 +8,7 @@ import { createPlanMemory } from './ideal-plan-memory.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
-import { startRouter, buildHash, parseHash } from './router.js';
+import { startRouter, buildHash, parseHash, sameScreen } from './router.js';
 import { el, button, link, field, formatTime, runButton } from './ui/dom.js';
 import { toast } from './ui/toast.js';
 import { syncInBackground } from './ui/sync.js';
@@ -155,6 +155,14 @@ async function boot() {
   let route;
   let currentView;
   let showingLogin = false;
+  // 画面に出している route（作り直した後・applyRoute の後に入れる）と、そのときログイン中だったか（'in' | 'out'）
+  let shownRoute = null;
+  let shownAuth = '';
+  // 次の hashchange の理由（'navigate'。keep-state で 'tab' も付ける）。1 回使ったら消す。印がなければ戻る・進む・手入力
+  let intent = null;
+  let booted = false;
+  const authKey = () => (store.state.passcode && store.state.userId ? 'in' : 'out');
+  const urlOf = (hash) => `${location.pathname}${location.search}${hash}`;
 
   const context = {
     store,
@@ -167,10 +175,32 @@ async function boot() {
     owned,
     autoRegister,
     renamer,
-    navigate(hash) { location.hash = hash; },
+    navigate(hash) {
+      // 同じハッシュの代入では hashchange が来ないので、印を残さない（次の戻る・進むに付いてしまう）
+      if (location.hash !== hash) intent = 'navigate';
+      location.hash = hash;
+    },
+    // 同じ画面の条件の変更（パル・パッシブを選ぶなど）。画面を作り直さず、ビューの applyRoute で合わせる。
+    // 履歴は今までと同じく 1 選択＝1 件。違う画面・作り直すしかない画面では navigate と同じ
+    update(hash, { replace = false } = {}) {
+      const next = parseHash(hash);
+      if (showingLogin || !currentView?.applyRoute || !sameScreen(shownRoute, next)) { context.navigate(hash); return; }
+      // 同じ URL（押されている「すべて」をもう一度押すなど）では、履歴を増やさない
+      if (location.hash === hash) return;
+      if (replace) history.replaceState(history.state, '', urlOf(hash));
+      else if (typeof history.pushState === 'function') history.pushState(null, '', urlOf(hash));
+      // pushState の無い環境。後で hashchange が来ても、applyRoute は同じ route では結果が変わらない
+      else location.hash = hash;
+      route = next;
+      render('update');
+    },
+    // 画面を作る途中・applyRoute の中での URL の正規化（不正な ID を外すなど）。履歴の state は消さず、描き直さない
     replace(hash) {
-      history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);
-      if (!showingLogin) remember(parseHash(hash));
+      history.replaceState(history.state, '', urlOf(hash));
+      if (showingLogin) return;
+      route = parseHash(hash);
+      if (sameScreen(shownRoute, route)) shownRoute = route;
+      remember(route);
     },
     // 画面ごとの入力を残す入れ物（画面を作り直しても同じものを返す）
     viewState(view) {
@@ -249,44 +279,66 @@ async function boot() {
     main.replaceChildren(panel);
   }
 
-  function render() {
+  function markTabs(current) {
+    for (const [view, tab] of tabLinks) {
+      const active = current.view === view;
+      tab.classList.toggle('active', active);
+      if (active) tab.setAttribute('aria-current', 'page');
+      else tab.removeAttribute('aria-current');
+    }
+  }
+
+  // 遷移の適用。reason は 'boot'（起動）・'auth'（ログインの有無が変わった）・'navigate'（context.navigate）・
+  // 'update'（context.update＝同じ画面の条件の変更）・'history'（印のない hashchange＝戻る・進む・手入力）
+  function render(reason = 'auth') {
     const needsLogin = !store.state.passcode || !store.state.userId;
     if (showingLogin && needsLogin) return;
+    const auth = authKey();
+    // 同じ画面（view と id が同じ）で、ログインの有無も変わっていなければ作り直さず、ビューが条件と結果を合わせる
+    //（入力中の値・開いた欄・フォーカスが残る）。applyRoute を持たない画面は作り直す
+    if (!needsLogin && currentView?.applyRoute && auth === shownAuth && sameScreen(shownRoute, route)) {
+      remember(route);
+      markTabs(route);
+      shownRoute = route;
+      currentView.applyRoute(route, { reason });
+      return;
+    }
     const pickerLabel = document.activeElement?.getAttribute('aria-haspopup') === 'listbox'
       ? document.activeElement.getAttribute('aria-label') : null;
     const passiveLabel = String(document.activeElement?.className ?? '').split(' ').includes('passive-add')
       ? document.activeElement.getAttribute('aria-label') : null;
     currentView?.destroy();
     currentView = null;
+    shownRoute = null;
     showingLogin = needsLogin;
+    shownAuth = auth;
     brand.inert = showingLogin;
     nav.hidden = showingLogin;
     register.hidden = showingLogin;
     bell.element.hidden = showingLogin;
     if (showingLogin) { bell.close(); forget(); loginView(); return; }
-    // 画面の部品が URL を書き換える（不正な ID を消すなど）ときは context.replace が覚え直す。
+    // 画面の部品が URL を書き換える（不正な ID を消すなど）ときは、context.replace が route を入れ直して覚え直す。
     remember(route);
-    for (const [view, tab] of tabLinks) {
-      const active = route.view === view;
-      tab.classList.toggle('active', active);
-      if (active) tab.setAttribute('aria-current', 'page');
-      else tab.removeAttribute('aria-current');
-    }
+    markTabs(route);
     currentView = views[route.view](context, route);
+    // 作る途中の context.replace で route が入れ替わることがあるので、作った後に入れる
+    shownRoute = route;
     main.replaceChildren(currentView.element);
-    // 選択の解除で URL が変わると部品も作り直されるため、同じ選択欄へフォーカスを引き継ぐ。
+    // 画面を作り直したときは部品も新しくなるため、同じ選択欄へフォーカスを引き継ぐ（同じ画面の条件の変更では作り直さない）。
     if (pickerLabel) {
       Array.from(main.querySelectorAll('.picker-trigger')).find((picker) => picker.getAttribute('aria-label') === pickerLabel)?.focus();
     }
-    // パッシブを選ぶと URL が変わって画面が作り直されるため、続けて選べるよう同じ選択欄へフォーカスを戻す。
     if (passiveLabel) {
       Array.from(main.querySelectorAll('.passive-add')).find((select) => select.getAttribute('aria-label') === passiveLabel)?.focus();
     }
   }
 
   startRouter((nextRoute) => {
+    const reason = booted ? intent ?? 'history' : 'boot';
+    booted = true;
+    intent = null;
     route = nextRoute;
-    render();
+    render(reason);
   });
   store.subscribe((state) => {
     banner.hidden = state.env !== 'test';
@@ -305,7 +357,7 @@ async function boot() {
       ? `${state.cached ? '前回取得' : '最新取得'} ${formatTime(state.serverTime)}${state.cached ? ' 時点' : ''} · ${state.records.length} 件` : '仲間だけの配合ノート');
     if (showingLogin !== (!state.passcode || !state.userId)) {
       if (!state.passcode || !state.userId) closeDialogs();
-      render();
+      render('auth');
     }
   });
   async function refresh(options) {

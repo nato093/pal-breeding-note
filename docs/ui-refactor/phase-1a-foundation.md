@@ -56,6 +56,7 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 - **test/web/app.test.js の boot（:21-68）**:
   - `window.addEventListener` は名前ごとに 1 つしか持てない（`events.set(name, handler)`。:38-40）。**app.js に `hashchange`・`storage`・`beforeunload` の 2 つ目のリスナーを足すと、テストでは前の登録が消える**。hashchange はルーター（router.js:41）経由でだけ受ける。新しい名前（`pagehide` など）は足してよい。
   - `window` に `sessionStorage`・`scrollTo`・`scrollY`・`matchMedia`・`requestAnimationFrame`・`ResizeObserver` が無い。`history` は `state` と `replaceState` だけで **`pushState` が無い**（:44-51）。`document.addEventListener` は何もしない（:33）。`setInterval` は記録するだけ（:63-64）。→ 新しいコードは、これらが無くても動く（`typeof … === 'function'` で確かめる、try/catch）。
+    - 追記（render-contract の実装、2026-10-12）: boot に `pushState` の引数を足した（`boot(t, { pushState: true })` で `history.pushState` を足す。既定は今までどおり無い）。fake の `replaceState` は渡された state を `history.state` に入れ、boot は `replaceStates`（渡された state）・`pushes`（push した URL）も返す。
 - **ビューのテストの context**（test/web/views.test.js:14-20、ideal-view.test.js:40-46、owned-view.test.js:47-51）は `navigate`（と一部 `replace`・`viewState`）だけを持つ。`update` は無い → **ビューは `context.update` が無ければ `context.navigate` に落とす**（render-contract の `changeRoute`）。
 - **web/ の中のファイルに「mock」という語を書かない**（コメントも。test/static/security.test.js:34-39）。
 - `web/js/core/owned-shared.js` を変えたら `npm run build:gas` で `gas/Shared.js` を作り直す必要がある（test/core/shared.test.js:7-14 が一致を確かめる）。このフェーズでは owned-shared.js を**変えない**設計にした（新しい検証は core/boundary.js に置く）。
@@ -67,6 +68,7 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 | 同じ画面の判定 | router.js | render-contract | `sameScreen(a, b) → boolean` |
 | 同じ画面なら作り直さない遷移 | app.js の context | render-contract | `context.update(hash, { replace? })` |
 | 画面内の遷移の共通口 | views/shared.js | render-contract | `changeRoute(context, hash)` |
+| 選択欄の値合わせ・作り直す欄のフォーカス | views/shared.js | render-contract（実装で足した） | `syncPicker(picker, value)`（値が違うときだけ setValue）・`keepFocus(container, render, target)`（keep-state で ui/focus.js に置き換える） |
 | ビューの契約 | 各 views | render-contract | `{ element, destroy, applyRoute?(route, { reason }), update?(state) }` |
 | 読み戻しの検証 | core/boundary.js（新規） | data-boundary | `int`・`intOrNull`・`text`・`oneOf`・`isoTime`・`list`・`worldId`・`cleanRecords`・`cleanOwnedWorlds`・`cleanOwnedPayload`・`cleanSaved` |
 | 高さと重なり順 | app.css の :root | header-frame | `--header-h`・`--z-sticky`・`--z-panel`・`--z-rail`・`--z-header`・`--z-drawer`・`--z-snackbar`・`--z-toast`・`--z-popover`・`--z-skip` |
@@ -421,6 +423,18 @@ header-frame ─────┴──（--z-*・下端のスナックバー）�
 - [ ] views・router のテストを足す
 - [ ] release-notes に 1 件足す
 - [ ] モックで要素が同じこと・フォーカス・名前・戻る/進むを確かめる
+
+### 実装の記録（2026-10-12、セッション `300704ce`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマはこちらを正とする）。
+
+1. **フォーカス（手順 6 の直し）**: 手順 6 は「applyRoute の経路では要素が残るので、フォーカスも残る」としていたが、継承ルートの開始チップ（renderStartFilter の replaceChildren）とパッシブの選択欄（継承ルートの renderOwned・理想個体の renderPassives）は update の中で作り直すので、押した要素が消えて body に落ちる（パッシブを足した後に追加欄へ戻る今の動きも、作り直しの経路にある app.js の決め打ちが効かなくなるので失われる）。→ views/shared.js に `keepFocus(container, render, target)`（作り直す欄の中にフォーカスがあって外れたら、target が返す要素へ移す）を足し、開始チップに `data-focus-key`（`start:<palId>`・`start:all`。keep-state の名前と同じ）を付けた。パッシブの欄は作り直した `.passive-add` へ移す。4 個目を足して select が押せなくなったときは、今と同じく body に落ちる（keep-state の group で直す）。**keep-state は keepFocus を ui/focus.js の captureFocus／restoreFocus に置き換える**。
+2. **値合わせ**: views/shared.js に `syncPicker(picker, value)`（値が違うときだけ setValue）を足した。同じ値で setValue すると、選んだパルの画像が現れる動き（app.css の `@starting-style`）がもう一度出るため。継承ルートの「他のパル…」の欄（renderStartFilter）で毎回 setValue していたのも、これにした。
+3. **生成と applyRoute**: 各ビューは URL を読む `readRoute(next)` を 1 つ持ち、生成時はそれを 1 回呼んでから部品を作る。最初の描画は今のとおり watchView（理想個体は update）が行う（生成時に applyRoute を呼ぶと、理想個体の計算が 2 回走るため）。「生成時も同じ内部関数を 1 回呼ぶだけ」の意図（初期化と更新の 2 つの道を作らない）はこの形で守る。`reason` はビューに渡すが、このテーマでは使わない（keep-state が使う）。返す値は search・reverse が `{ ...watchView(...), applyRoute }`、route・ideal・owned が `{ element, update, applyRoute, destroy }`。
+4. **理想個体の g**: 同じ画面のまま g つきの URL が来たとき（一覧・通知の「呼び出す」）は、条件を入れたうえで、個体値・パッシブの条件・ケーキの入力欄も合わせる（`showConditions()`。作り直していた今までは、新しい入力欄が条件をそのまま出していた）。所持者は g で変わらないので触らない。1b の talent-target で個体値の行を部品にしたら、この中の個体値を `talent.update(conditions.targets)` にする。
+5. **所持パル**: URL に絞り込み（holder・place・pal・p）が無い applyRoute は何もしない。あるときは絞り込みを入れ、パルの選択欄を syncPicker で合わせ、所持者・場所・パッシブ・一覧を描き直す（キーワードなどの入力欄は触らない）。
+6. **context.update と navigate**: 今と同じ URL への update（押されている「すべて」をもう一度押すなど）は何もしない（pushState で同じ履歴が増えるのを防ぐ。今までの location.hash の代入と同じ動き）。navigate は、今と違うハッシュのときだけ intent を付ける（同じハッシュでは hashchange が来ず、印が次の戻る・進むに付いてしまうため）。
+7. **テスト**: app.test.js の boot の追記は「テスト環境の制約」のとおり。ビューのテストで context.update の経路を確かめるときは、`ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' })` のように小さく組む（ideal-view.test.js・owned-view.test.js のフォーカスのテスト）。
 
 ---
 
@@ -1224,6 +1238,7 @@ export function withTransition(fn) {
    - 付ける key: パル選択のトリガー `picker:<label>`（ui/pal-picker.js）・解除の × は key `picker-clear:<label>` と fallback `picker:<label>`・パッシブの追加欄 `passive:<label>`・パッシブのチップの × は key `passive-chip:<id>`・fallback `passive:<label>`・group `passive:<label>`（ui/passive-picker.js）・開始チップ `start:<palId>`・「すべて」`start:all`・⇄ `route:swap`（views/route.js）・理想個体の「呼び出す」`goal:<id>`（views/ideal.js）。同じ画面に同じラベルの部品が 2 つあるとき（継承ルートの目標と開始）はラベルが違うので重ならない。key に `"` を入れない（テスト用の DOM のセレクターが `[attr="値"]` を `"` で区切るため）。
    - app.js:255-258・277-284 の決め打ちを `const token = captureFocus(main)` → 作り直し → `restoreFocus(main, token)` に置き換える（同じ動きを保つ。app.test.js:302-322 は render-contract で「同じトリガーのまま」に直してある）。
    - ビューの中で一部を作り直す所でも使う: views/route.js の renderStartFilter（:112 の replaceChildren の前後）・arrange（:71-97）・passiveSlot の作り直し（popovers までの間）。
+   - 追記（render-contract の実装、2026-10-12）: renderStartFilter・継承ルートの renderOwned・理想個体の renderPassives には、views/shared.js の `keepFocus` が入っている（開始チップには `data-focus-key` の `start:<palId>`・`start:all` も付けてある）。これを captureFocus／restoreFocus に置き換え、keepFocus は消す。
 9. **V-20**: app.css:785-788 の `.picker-trigger.has-selection .pal-icon img` の規則（`@starting-style` のポップイン）を消す。:779-783 の候補が開く動きは残す。
 10. **コメントと通知**: app.js:115・views/owned.js:75・views/ideal.js:180 の「ページを読み込み直すと既定に戻る／消える」を、「読み込み直しても同じタブ（sessionStorage）の間は残る」に直す。release-notes に 1 件（下）。
 
@@ -1239,7 +1254,7 @@ export function withTransition(fn) {
 
 ### テスト
 
-- **テストの準備**: app.test.js の boot の `window` に、必要なテストだけ `sessionStorage`（Map で作る）・`scrollY`・`scrollTo(x, y)`（呼ばれた値を記録）・`innerHeight` を足し、`history` に `pushState(state, title, url)`（state を `history.state` に入れ、URL を location に反映）を足す。fake の `replaceState` も `history.state = state` を入れるように直す（今は URL だけ）。足さないテストでは、新しいコードが無い API を飛ばして今と同じに動くこと。
+- **テストの準備**: app.test.js の boot の `window` に、必要なテストだけ `sessionStorage`（Map で作る）・`scrollY`・`scrollTo(x, y)`（呼ばれた値を記録）・`innerHeight` を足し、`history` に `pushState(state, title, url)`（state を `history.state` に入れ、URL を location に反映）を足す。fake の `replaceState` も `history.state = state` を入れるように直す（今は URL だけ）。足さないテストでは、新しいコードが無い API を飛ばして今と同じに動くこと。（追記 2026-10-12: pushState の引数と replaceState の state は render-contract で入れた。「テスト環境の制約」の追記を参照）
 - **追加**:
   1. app.test.js: 一覧で `scrollY` を 2500 にして配合検索へ（タブの click）→ 一覧のタブで戻ると `scrollTo(0, 2500)` が呼ばれる。配合検索のカードのパル名のリンクから詳細へ（本文のリンク）→ `scrollTo(0, 0)`。
   2. app.test.js: 理想個体で所持者・個体値を変えた後、別の画面へ移ってから「戻る」（`history.state` に前のエントリの ID を入れて hashchange）→ 条件が戻る。別の利用者・別のワールドのエントリは使わない（3 回目 新 2）。
@@ -1410,6 +1425,7 @@ export function withTransition(fn) {
    - **理想個体**（views/ideal.js:364-369）: `to` があるとき groups は I-49 の 2 群（`breedingLayouts(state.index, to)` の種族の集合で、親の候補 `ofHolder(pals.filter(isParentCandidate))` を分けて passiveCounts）。`to` が無いときは 1 群。negatives 'last'。presets は `ideals.list()` の passives（空でないもの）を重複を除いて新しい順に 5 件、label は目標の名前。applyRoute（パッシブの変更）と update（データの変更）で `passive.update`。
    - **継承ルート**（views/route.js:115-118）: countLabel「所持パルが持っているもの（タマゴを含む）」、negatives 'last'、presets は理想個体と同じ（context.ideals があるとき）。
    - stable-render で入れた「署名が同じなら作り直さない」比較（D-5・F-6・G-1）は、update に置き換わるので消す。
+   - 理想個体・継承ルートのパッシブの欄を作り直すところにある `keepFocus`（render-contract で足したもの。keep-state で restoreFocus にしていればそれ）も、作り直さなくなるので外す（追記 2026-10-12）。
 7. **文字のパッシブをチップに**（V-35）: views/ideal.js:118 の「余計なパッシブ: …」・:391 の警告の中のパッシブ名・:393 のボタン（「[伝説] を運ぶ経路」＝ボタンの中に compact のチップ＋文字）。チップの title とボタンの title が重ならないよう、ボタンには title を付けない。1b の ideal-results でこの 3 か所を作り直すときは、このチップの形を引き継ぐ。
 8. **CSS**（app.css）: `.passive-row`（1 行・min-height 40px）、`.passive-option`・`.passive-option-desc`・`.passive-group-label`、`.picker-option.is-selected`・`.highlighted` の分離、`.picker-badge`・`.picker-note`・`.is-dim`、`.passive-chip.compact`、`.picker-options` の max-height。app.css:958-960（`.passive-selector .passive-list` の下の余白・`:empty` で隠す・`.passive-add` の最大幅）の、チップの行を select の上に置く前提の規則を見直す。
 
@@ -1512,4 +1528,5 @@ export function withTransition(fn) {
 | 2026-10-12 | ideal-calc（表の使い回し） | 表を作った後の計画（`idealPlan`。今の牧場の組 3 つを優先・見張り） | 欲しい 4 つ・ケーキなし ♂1000×♀1000 451 ms、欲しい 4 つ・キノコケーキ ♂200×♀200 129、欲しい 1 つ・ケーキなし ♂1000×♀1000 571、欲しい 1 つ・キノコケーキ ♂1000×♀1000（0〜100）784 | 1 回 2 秒以内 | 欲しいものを欠いて余計を 3〜4 個持つ親を含む fixture（`test/perf/ideal.perf.js` の 3 つ目） |
 | 2026-10-12 | ideal-calc（画面） | モックに画像の 4 体（ゴウカブキ。拠点 4 の牧場に ♂A×♀B）を注入して理想個体タブを開く | 1 番 ♂A×♀D「世代を重ねて 平均 約 3,592 個」、2 番 ♂C×♀B（約 4,948 個）。牧場は「交換推奨 → おすすめ 1 番」「外す: ゴウカブキ♀（HP 97・攻 99・防 96） / 入れる: ゴウカブキ♀（HP 100・攻 14・防 96）」 | 完了の条件の画面の確認 | 注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`（inject.js を元に 4 体だけにしたもの。注入 → 読み込み直し → 新規登録し直し）、確かめは同じ場所の `check-kabuki.js`（playwright-cli の run-code） |
 | 2026-10-12 | フェーズ 0（0-8） | モックで基準の再現（`?mock=1&seed=80`・1280×900） | 配合検索で親 1 を選ぶ: `.card-stack` の top 223 → 250（+27px、件数の行のぶん）。一覧で scrollY=800: `.app-header` top −773（position: static）・`.header-actions` top −765（absolute）・`.navigation` は fixed | README 7-2 の基準と同じ値 | モックの配合は `Math.random` なので、配合のある親（一覧の先頭の配合の親）を選んで測る |
+| 2026-10-12 | render-contract（画面） | モック（`?mock=1&seed=80`、ヘッドレスの Chromium）で、配合検索・継承ルート（inject.js の所持パルあり）・理想個体を操作。選ぶ前の `.picker-trigger`・`#main` の子・`.route-query`・「登録する名前」の要素を覚えて比べる | 配合検索: 親 1 → 親 2 を選んでも `.picker-trigger` と `#main` の子が同じ。1 選択ごとに `history.length` が 1 増え、戻る・進むで同じ画面のまま前の選択と件数に戻る。親 1 の × を Enter で押すとフォーカスは親 1 のトリガーに残る。継承ルート: パッシブを足す → 追加欄、開始チップ（`start:SheepBall`）と「すべて」を Enter → 押したチップ、チップの × → 追加欄（どれも body にならない）。理想個体: 名前を入れてパッシブを足すと名前が残り、同じ画面の一覧の「呼び出す」で攻撃の目標の欄が登録の 90 に戻り URL から g が外れ、目標を変えると名前が消える。コンソールのエラー 0 件 | 完了の条件の画面の確認 | 確かめのスクリプトはセッションの一時フォルダに置いた（find/login.js・owned/inject.js の写しと、run-code で動かす確かめ用の js）。実機の戻る・進むの手応え（スワイプ・マウスのボタン）は確かめていない |
 

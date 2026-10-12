@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHash, buildHash, startRouter } from '../../web/js/router.js';
+import { parseHash, buildHash, startRouter, sameScreen } from '../../web/js/router.js';
 
 test('ルーティング: 旧招待パラメータは認証情報として取り出さない', () => {
   const route = parseHash('#/search?p1=A&k=旧値');
@@ -63,4 +63,33 @@ test('ルーティング: 起動時とハッシュ変更時に旧 k を URL・�
   assert.equal(routes[3].params.size, 0);
   stop();
   assert.equal(events.size, 0);
+});
+
+test('ルーティング: 同じ画面は view と id で判定し、条件（クエリ）の違いは同じ画面とみなす', () => {
+  assert.equal(sameScreen(parseHash('#/search?p1=A'), parseHash('#/search?p1=A&p2=B')), true);
+  assert.equal(sameScreen(parseHash('#/search'), parseHash('#/reverse')), false);
+  // パル詳細は id まで比べる
+  assert.equal(sameScreen(parseHash('#/pal/A'), parseHash('#/pal/A')), true);
+  assert.equal(sameScreen(parseHash('#/pal/A'), parseHash('#/pal/B')), false);
+  assert.equal(sameScreen(null, parseHash('#/search')), false);
+  assert.equal(sameScreen(parseHash('#/search'), undefined), false);
+});
+
+test('ルーティング: 変わったときの知らせに、k を除いた後のハッシュを渡す（理由はアプリが決める）', () => {
+  const events = new Map();
+  const calls = [];
+  const browser = {
+    location: { pathname: '/Pal/', search: '', hash: '#/search?p1=A&k=旧値' },
+    addEventListener: (name, callback) => events.set(name, callback),
+    removeEventListener: (name) => events.delete(name),
+    history: {
+      state: null,
+      replaceState(state, title, value) { Object.assign(browser.location, { hash: new URL(value, 'https://example.test').hash }); },
+    },
+  };
+  const stop = startRouter((route, info) => calls.push([route.view, info]), browser);
+  browser.location.hash = '#/route?to=B';
+  events.get('hashchange')();
+  assert.deepEqual(calls, [['search', { hash: '#/search?p1=A' }], ['route', { hash: '#/route?to=B' }]]);
+  stop();
 });

@@ -6,6 +6,7 @@ import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { parseHash } from '../../web/js/router.js';
 import { searchView } from '../../web/js/views/search.js';
+import { reverseView } from '../../web/js/views/reverse.js';
 import { inheritanceView } from '../../web/js/views/route.js';
 import { listView } from '../../web/js/views/list.js';
 import { settingsView } from '../../web/js/views/settings.js';
@@ -85,6 +86,70 @@ test('配合検索: × は該当する親だけを URL から解除する', asyn
   await picker.querySelector('.picker-clear').dispatch('click');
   assert.equal(app.navigations[0], '#/search?p2=FlowerDoll');
   assert.equal(document.activeElement, picker.querySelector('.picker-trigger'));
+  view.destroy();
+});
+
+test('配合検索: 同じ画面のまま URL が変わると（applyRoute）、選択欄と結果だけを合わせ、要素は作り直さない', async (t) => {
+  const { body } = installDom(t);
+  const app = context();
+  const updates = [];
+  app.update = (hash) => updates.push(hash);
+  const view = searchView(app, parseHash('#/search?p1=SheepBall'));
+  body.append(view.element);
+  const triggers = view.element.querySelectorAll('.picker-trigger');
+  assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
+  const next = parseHash('#/search?p1=SheepBall&p2=PinkCat');
+  view.applyRoute(next, { reason: 'update' });
+  assert.deepEqual(view.element.querySelectorAll('.picker-trigger'), triggers);
+  assert.equal(triggers[1].getAttribute('aria-label'), '親2: No.2 ツッパニャン');
+  assert.match(view.element.textContent, /この組み合わせはまだ登録されていません/);
+  // 同じ route でもう一度呼んでも変わらない
+  view.applyRoute(next, { reason: 'history' });
+  assert.match(view.element.textContent, /この組み合わせはまだ登録されていません/);
+  // 選び直しの URL は、入れ直した route から作り、context.update があればそれで変える
+  await view.element.querySelectorAll('.picker-clear')[0].dispatch('click');
+  assert.deepEqual(updates, ['#/search?p2=PinkCat']);
+  assert.deepEqual(app.navigations, []);
+  view.applyRoute(parseHash('#/search?p2=FlowerDoll'), { reason: 'history' });
+  assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
+  view.destroy();
+});
+
+test('逆引き: applyRoute で子を合わせ、不正な ID は URL から外す', (t) => {
+  installDom(t);
+  const app = context();
+  const replaced = [];
+  app.replace = (hash) => replaced.push(hash);
+  const view = reverseView(app, parseHash('#/reverse'));
+  const trigger = view.element.querySelector('.picker-trigger');
+  assert.match(view.element.textContent, /探したい子を選んでください/);
+  view.applyRoute(parseHash('#/reverse?c=MoonQueen'), { reason: 'history' });
+  assert.equal(view.element.querySelector('.picker-trigger'), trigger);
+  assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
+  view.applyRoute(parseHash('#/reverse?c=存在しない'), { reason: 'history' });
+  assert.deepEqual(replaced, ['#/reverse']);
+  assert.equal(trigger.getAttribute('aria-label'), '生まれる子: パルを選択');
+  assert.match(view.element.textContent, /探したい子を選んでください/);
+  view.destroy();
+});
+
+test('継承ルート: applyRoute で開始と目標を合わせ、入れ替えは入れ直した route から URL を作る', async (t) => {
+  installDom(t);
+  const app = context();
+  const updates = [];
+  app.update = (hash) => updates.push(hash);
+  const view = inheritanceView(app, parseHash('#/route?to=MoonQueen'));
+  const triggers = view.element.querySelectorAll('.picker-trigger');
+  const swap = view.element.querySelector('.swap-button');
+  assert.match(view.element.textContent, /開始と目標のパルを選んでください/);
+  view.applyRoute(parseHash('#/route?from=SheepBall&to=MoonQueen'), { reason: 'update' });
+  assert.deepEqual(view.element.querySelectorAll('.picker-trigger'), triggers);
+  assert.equal(view.element.querySelector('.swap-button'), swap);
+  assert.equal(triggers[0].getAttribute('aria-label'), '開始: No.1 モコロン');
+  assert.match(view.element.textContent, /最短 1 回の配合/);
+  await swap.dispatch('click');
+  assert.deepEqual(updates, ['#/route?from=MoonQueen&to=SheepBall']);
+  assert.deepEqual(app.navigations, []);
   view.destroy();
 });
 
