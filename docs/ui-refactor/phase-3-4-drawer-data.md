@@ -210,7 +210,7 @@
 ### INV-2・互換・セキュリティ・性能の注意
 - INV-2: ドロワーは入れ物だけ。中身が出すものは各テーマの決まりに従う。
 - セキュリティ: 見出しは `textContent`。幅は CSS 変数、動的な位置は `style.setProperty`。
-- 互換: history.state は keep-state と共有するので、**必ず `{ ...history.state, drawer }` の形で書き、ほかの鍵を消さない**。旧コードの state（drawer なし）では何もしない。ドロワーを開く pushState は、keep-state のエントリ ID（history.state の中）をそのまま引き継ぐので、同じ ID の履歴エントリが 2 つになる。本文の URL と位置は同じなので条件と位置の保存を共有してよい見込みだが、keep-state の実物で「閉じて戻ったときに位置が飛ばない」ことを確かめる（2026-10-12 の最終確認で足した確かめる点）。
+- 互換: history.state は keep-state と共有するので、**必ず `{ ...history.state, drawer }` の形で書き、ほかの鍵を消さない**。（追記 2026-10-13、keep-state の実装: エントリの ID は `history.state.palEntry`。新しく来たエントリに ID を付ける app.js の `ensureEntry` は state を展開して足す。同じ画面の条件の変更の `context.update` の pushState は `{ palEntry: 新しい ID }` だけの state を作るので、ドロワーを開いたまま条件を変えたときに drawer を引き継ぐかは、このテーマで決めて update を直す）旧コードの state（drawer なし）では何もしない。ドロワーを開く pushState は、keep-state のエントリ ID（history.state の中）をそのまま引き継ぐので、同じ ID の履歴エントリが 2 つになる。本文の URL と位置は同じなので条件と位置の保存を共有してよい見込みだが、keep-state の実物で「閉じて戻ったときに位置が飛ばない」ことを確かめる（2026-10-12 の最終確認で足した確かめる点）。
 - 性能: ドロワーを開くたびに本文を描き直さない（`app.test.js` で確かめる）。中身の差し替えは「前の中身の `destroy()` → 新しい中身の作成」だけ。
 - 重なり: ヘッダー・固定のパネル・候補・トースト・ダイアログ・ドロワーの重なりは、ブラウザで幅 920px・1100px・拡大 125〜150% で確かめる（統合プランの「ブラウザでしか確かめられないこと」）。
 
