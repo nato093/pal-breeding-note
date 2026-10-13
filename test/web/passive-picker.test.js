@@ -308,4 +308,12 @@ test('パッシブ選択: 候補の一覧の高さを窓の下端までに収め
   windowEvents.innerHeight = 300;
   selector.update({ presets: [] });
   assert.equal(list().style.getPropertyValue('--passive-options-max'), '160px');
+  // ブラウザでは、開くときの動き（transform で縮めて出す）の途中の getBoundingClientRect ではなく、板を置いた要素の位置＋板と一覧の offsetTop で測る
+  windowEvents.innerHeight = 600;
+  const board = list().parentElement;
+  const host = { getBoundingClientRect: () => ({ top: 50 }), clientTop: 1 };
+  Object.assign(list(), { offsetParent: board, offsetTop: 150 });
+  Object.assign(board, { offsetParent: host, offsetTop: 40 });
+  selector.update({ presets: [{ label: '作業用', passives: ['Rare'] }] });
+  assert.equal(list().style.getPropertyValue('--passive-options-max'), `${600 - (50 + 1 + 40 + 150) - 12}px`);
 });

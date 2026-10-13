@@ -182,10 +182,21 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
   // 拡大 150% 相当〔853×600〕で、組み合わせの段のぶん窓の下へはみ出していた）。一覧の上端から窓の下端まで 12px 空ける。
   // 狭すぎるときは 160px（固定でない画面では、ページを動かして見る）。CSS の --passive-options-max（上限は今までどおり min(60vh, 520px)）
   function fitList() {
-    const top = view.list.getBoundingClientRect?.().top;
+    const top = listTop();
     const height = globalThis.window?.innerHeight;
     if (!Number.isFinite(top) || !Number.isFinite(height)) return;
     view.list.style.setProperty('--passive-options-max', `${Math.max(160, Math.floor(height - top - 12))}px`);
+  }
+  // 一覧の上端（窓の中の位置）。開くときの動き（transform で縮めて出す）の途中でも同じ値になるよう、板と一覧の位置は offsetTop で測り、
+  // 板を置いている要素（動かない）の getBoundingClientRect に足す。offsetTop が無い環境（テストの DOM）は一覧の getBoundingClientRect
+  function listTop() {
+    const { list } = view;
+    const board = list.offsetParent;
+    const host = board?.offsetParent;
+    if (board === popover.element && host && Number.isFinite(board.offsetTop) && Number.isFinite(list.offsetTop)) {
+      return host.getBoundingClientRect().top + (host.clientTop || 0) + board.offsetTop + list.offsetTop;
+    }
+    return list.getBoundingClientRect?.().top;
   }
 
   // 保存した目標の組み合わせ（並びが変わったときだけ作り直す。押したボタンのフォーカスを失わないように）
