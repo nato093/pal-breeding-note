@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
-import { FakeElement, descendants } from '../helpers/dom.js';
+import { FakeElement, descendants, installResizeObserver } from '../helpers/dom.js';
 import releaseNotes from '../../web/js/release-notes.js';
 import pals from '../../web/data/pals.js';
 import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
@@ -20,8 +20,9 @@ async function sortOneCardPerRecord() {
 let imports = 0;
 
 // pushState を true にすると、history に pushState を足す（足さないときは、無い環境として動くことを確かめる）。
-// session（初めの値の object）を渡すと window に sessionStorage を、scroll を true にすると scrollY・innerHeight・scrollTo（呼ばれた位置を記録）を足す
-async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings', pushState = false, session, scroll = false } = {}) {
+// session（初めの値の object）を渡すと window に sessionStorage を、scroll を true にすると scrollY・innerHeight・scrollTo（呼ばれた位置を記録）を足す。
+// resize を true にすると ResizeObserver を足す（返す resize(target, 高さ) で知らせ、observed(target) で監視しているかを見る）
+async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/settings', pushState = false, session, scroll = false, resize = false } = {}) {
   for (const name of ['document', 'window', 'location', 'history', 'fetch', 'setInterval']) {
     const before = Object.getOwnPropertyDescriptor(globalThis, name);
     t.after(() => before ? Object.defineProperty(globalThis, name, before) : Reflect.deleteProperty(globalThis, name));
@@ -79,6 +80,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
     (request.action.startsWith('owned') ? ownedCalls : calls).push(request);
     return { ok: true, json: async () => api(request) };
   };
+  const resizing = resize ? installResizeObserver(t) : {};
   // 定期の処理は記録だけする（本物のタイマーを残すとテストが終わらない）
   const intervals = [];
   globalThis.setInterval = (fn, ms) => intervals.push({ fn, ms });
@@ -86,7 +88,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   assert.equal(byClass('startup-error'), undefined);
   const changeHash = (next) => { location.hash = next; events.get('hashchange')(); };
   return {
-    values, sessionValues, scrolls, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash,
+    ...resizing, values, sessionValues, scrolls, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash,
     // ブラウザと同じく、リンク・タブで移った先は state のない新しいエントリになる
     go(next) { history.state = null; changeHash(next); },
     // 戻る・進む: ブラウザと同じく、そのエントリの state に戻ってから popstate が来て、URL のハッシュが変わったときだけ続けて hashchange が来る
@@ -785,6 +787,18 @@ test('画面: 理想個体のタブから開け、所持パルがなければ案
   assert.match(byClass('ideal-view').textContent, /所持パルのデータがありません/);
 });
 
+test('画面: 理想個体の条件のパネルの高さを画面の --panel-h に書き、ほかのタブへ移ると監視をやめる（ResizeObserver）', async (t) => {
+  const { go, resize, observed } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/ideal?to=SheepBall', resize: true });
+  const view = byClass('ideal-view');
+  const panel = view.querySelector('.ideal-panel');
+  assert.ok(observed(panel));
+  resize(panel, 141.5);
+  assert.equal(view.style.getPropertyValue('--panel-h'), '141.5px');
+  go('#/search');
+  assert.notEqual(byClass('ideal-view'), view);
+  assert.equal(observed(panel), false);
+});
+
 test('画面: 新しいバージョンの案内の「読み込み直す」は、入力画面（ダイアログ）が開いている間は読み込み直さず、閉じるよう案内する', async (t) => {
   await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const banner = byClass('update-banner');
@@ -802,6 +816,9 @@ const frame = () => new Promise((resolve) => setTimeout(resolve, 0));
 const clickLink = (anchor) => document.getElementById('app').dispatch('click', { target: anchor });
 const inputLabeled = (label) => find((node) => node.tagName === 'input' && node.getAttribute('aria-label') === label);
 const selectHaving = (value) => find((node) => node.tagName === 'select' && node.children.some((option) => option.value === value));
+// 押しボタンの選択（role=radiogroup。理想個体のパッシブの条件・ケーキ）で選んでいる値
+const radioChecked = (label) => find((node) => node.getAttribute('role') === 'radiogroup' && node.getAttribute('aria-label') === label)
+  ?.children.find((node) => node.getAttribute('aria-checked') === 'true')?.getAttribute('data-value');
 const entriesOf = (sessionValues) => JSON.parse(sessionValues.get('pal-note.entries') ?? '[]');
 const WORLD_A = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const WORLD_B = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
@@ -961,8 +978,8 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   assert.equal(navTab('一覧').href, '#/list');
   go('#/ideal?to=SheepBall');
   assert.deepEqual(['HPの目標', '攻撃の目標', '防御の目標'].map((label) => inputLabeled(label).value), ['90', '100', '80']);
-  assert.equal(selectHaving('only').value, 'only');
-  assert.equal(selectHaving('talent').value, 'talent');
+  assert.equal(radioChecked('パッシブの条件'), 'only');
+  assert.equal(radioChecked('ケーキ'), 'talent');
   assert.equal(selectHaving('mine').value, 'mine');
   go('#/list');
   assert.equal(find((node) => node.placeholder === '登録者名で絞り込む').value, 'ボブ');
@@ -1173,13 +1190,18 @@ test('画面: 同じ URL のエントリどうし（理想個体の「呼び出�
     await hp().dispatch('change');
   };
   const first = history.state.palEntry;
-  // HP 50 の条件を登録してから、HP 70 にする
+  // HP 50 の条件を目標として保存してから、HP 70 にする
   await setHp('50');
-  await byText('この条件を登録').dispatch('click');
+  await byText('☆ 目標として保存').dispatch('click');
+  await byText('保存').dispatch('click');
   await setHp('70');
+  // 見出しの「目標（1）」で目標のダイアログを開く
+  await byText('目標（1）').dispatch('click');
   const recall = find((node) => String(node.getAttribute('data-focus-key')).startsWith('goal:'));
   assert.ok(recall);
-  // 「呼び出す」: 登録した条件（HP 50）を入れ、URL から g を外す（前のエントリと同じ URL になる）
+  // 「呼び出す」: 保存した条件（HP 50）を入れ、URL から g を外す（前のエントリと同じ URL になる）。ダイアログは閉じる
+  await recall.dispatch('click');
+  assert.equal(find((node) => node.tagName === 'dialog' && node.open), undefined);
   await clickLink(recall);
   go(recall.href);
   assert.equal(location.hash, '#/ideal?to=SheepBall');

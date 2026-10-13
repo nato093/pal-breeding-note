@@ -773,10 +773,11 @@ const bitCount = (mask) => {
  *   targets?: { hp?: number, shot?: number, defense?: number }, cake?: string, limit?: number,
  *   prefer?: { placed?: Set<string>, baseline?: Set<string> }, watch?: Set<string> }} input
  * @returns {{ pairs: object[], total: number, layouts: object[], candidates: number, unknownGender: number, missing: string[],
- *   complete: { M: number, F: number }, tooMany: number, blocked: number,
+ *   complete: { M: number, F: number }, sameSpecies: { M: number, F: number }, tooMany: number, blocked: number,
  *   measures: Map<string, { status: 'ok', rank: number, ambiguous: boolean, eggs?: number, gathered?: number, gatherChance?: number,
  *     talentEggs?: number, chance: number } | { status: 'blocked' }> }}
  *   total は並べた組の数（blocked を除く）。missing は候補のどの個体も持たない欲しいパッシブ（あれば配合では作れない）。
+ *   sameSpecies は目標と同じ種族の親の候補の ♂・♀ の数、complete はそのうち欲しいパッシブを全部持つ（5 個以上ではない）数（画面の所持の状況）。
  *   measures の rank は組の目的（PLAN_GROUPS の順）、ambiguous は同じ組み合わせで別の子も登録されている組
  */
 export function idealPlan(input) {
@@ -1070,5 +1071,5 @@ export function* idealPlanSteps({
         ? { talentGenerations: pair.talentGenerations, talentGenerationsUpper: upper(pair.talentGenerations, pair.talentGenerationsUpper) } : {}),
     };
   });
-  return { pairs, total, layouts, candidates, unknownGender, missing, complete, tooMany, blocked, measures };
+  return { pairs, total, layouts, candidates, unknownGender, missing, complete, sameSpecies, tooMany, blocked, measures };
 }

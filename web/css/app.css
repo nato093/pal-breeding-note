@@ -1271,8 +1271,75 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .route-options > .route-owned-note { grid-column: auto; display: block; padding-bottom: 6px; }
 .route-options > .route-owned-note + .breeding-equation { border-top: 1px dashed var(--line); }
 /* 理想個体: 組ごとに確率の見出しと、♂・♀の個体の行（所持パルの行と同じ形）を並べる */
-.ideal-conditions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 24px; }
-.ideal-conditions .field { min-width: 14em; }
+/* 理想個体: 条件は sticky の 2 段のパネル（ideal-panel）。ヘッダーの下に固定し、高さは JS が画面の section の --panel-h に書く。
+   1 段目: [目標 240px][欲しいパッシブ 1fr][☆ 目標として保存 auto]（見出しは入力の上）。欲しいパッシブのチップが 1 行に入りきらないときは
+   改行してパネルが 1 行分伸びる（2026-10-13 のユーザーの判断。横に省略しない）。
+   2 段目: 見出しを入力の左に置いた [所持者][パッシブの条件][個体値（以上）][ケーキ] と右端の所持の状況。幅に応じて折り返す */
+.view-heading:has(> .view-heading-actions) { display: flex; align-items: center; gap: 12px; }
+.view-heading-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.view-help-button { font-size: 16px; font-weight: 700; border: 1px solid var(--md-sys-color-outline-variant); }
+.ideal-goals-button { white-space: nowrap; }
+.ideal-panel {
+  position: sticky;
+  top: var(--header-h);
+  z-index: var(--z-panel);
+  display: grid;
+  gap: 5px;
+  padding: 4px 0 6px;
+  margin-bottom: 2px;
+  background: var(--md-sys-color-surface);
+  border-bottom: 1px solid var(--line);
+}
+.ideal-panel .field-label { margin: 0; line-height: 1.2; white-space: nowrap; }
+.ideal-panel-main { display: grid; grid-template-columns: 240px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 2px 12px; align-items: start; }
+/* 見出しの行と入力の行を 3 つの欄でそろえる（パッシブが改行しても、目標と保存は 1 行目の高さのまま） */
+.ideal-panel-main > .picker, .ideal-panel-main > .passive-selector { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; gap: 0; margin: 0; }
+/* パッシブの欄が改行して入力の行が高くなっても、目標の選択欄（と解除の ×）は 1 行目に置く */
+.ideal-panel-main > .picker > .picker-control { align-self: start; }
+.ideal-save-slot { grid-row: 2; grid-column: 3; position: relative; }
+/* 「☆ 目標として保存」と「★ 保存済み」で幅が変わらない（パッシブの欄の幅が変わって改行の位置が動かない） */
+.ideal-save { min-height: 40px; min-width: 10.5em; }
+/* 目標を選ぶ前は見えないまま場所を残す（選んだときに右が動かない） */
+.ideal-save.is-placeholder { visibility: hidden; }
+.ideal-save[aria-disabled="true"] { opacity: .55; cursor: default; }
+.ideal-save-popover { left: auto; right: 0; width: 320px; display: grid; gap: 8px; padding: 12px; }
+.ideal-save-popover .field { margin: 0; }
+.ideal-save-note { margin: 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-save-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.ideal-panel-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 18px; }
+.ideal-panel-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.ideal-panel-sub select { width: 150px; min-height: 32px; padding: 3px 10px; }
+/* 個体値の部品を詰める: 各欄の「以上」は見出しに 1 回だけ、増減のボタンを隠して数値欄を狭める（↑↓ キーでは増減できる） */
+.ideal-panel .talent-input { flex-wrap: nowrap; gap: 6px 10px; }
+.ideal-panel .talent-input-unit { display: none; }
+.ideal-panel .talent-input-item input[type="number"] { width: 3.6em; min-height: 32px; padding: 3px 8px; text-align: right; appearance: textfield; -moz-appearance: textfield; }
+.ideal-panel .talent-input-item input[type="number"]::-webkit-inner-spin-button,
+.ideal-panel .talent-input-item input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* 所持の状況は右端に固定の幅（数が変わっても折り返しの位置が動かない）。目標がないときは「—」 */
+.ideal-holding { margin-left: auto; width: 17em; font-size: 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
+a.ideal-holding[href] { color: var(--md-sys-color-primary); }
+/* 押しボタンの選択（ui/segmented.js）。選んでいるものは継承ルートの開始チップと同じ secondary-container の地 */
+.segmented { display: inline-flex; }
+.segmented-option {
+  min-height: 32px;
+  padding: 3px 12px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-left-width: 0;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.segmented-option:first-child { border-left-width: 1px; border-radius: 8px 0 0 8px; }
+.segmented-option:last-child { border-radius: 0 8px 8px 0; }
+.segmented-option:hover:not([aria-checked="true"]) { background: var(--state-hover); }
+.segmented-option[aria-checked="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.segmented-option:focus-visible { position: relative; z-index: 1; }
+/* 要約の行は 1 行に固定（入りきらない分は省略し、title に全文。中身を短くするのは ideal-results） */
+.ideal-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 固定のパネルの下に、フォーカス・scrollIntoView の先が隠れない */
+.ideal-view > :not(.view-heading, .ideal-panel), .ideal-view > :not(.view-heading, .ideal-panel) * { scroll-margin-top: calc(var(--header-h) + var(--panel-h, 0px) + 8px); }
 .ideal-results { display: grid; gap: 12px; position: relative; }
 /* 区切って計算している間（aria-busy）。前の結果を残したまま薄くし、上に「計算中…」を重ねる */
 .ideal-results.is-computing > * { opacity: .45; }
@@ -1326,20 +1393,26 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .ideal-notes { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .ideal-warning { color: var(--warning); }
 .ideal-missing { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.ideal-help { margin-top: 16px; font-size: 13px; color: var(--muted); }
-.ideal-help ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-/* 理想個体の登録（名前を付けて登録する欄と、登録した理想個体の一覧） */
-.ideal-register { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 8px; }
-.ideal-register .field-label { margin: 0; }
-.ideal-register input { flex: 1 1 16em; max-width: 360px; }
-.ideal-goals { margin: 4px 0 12px; padding: 0 16px; background: var(--md-sys-color-surface-container-low); border-radius: 16px; }
-.ideal-goal-list { list-style: none; margin: 0; padding: 0 0 8px; display: grid; }
-.ideal-goal { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+/* 計算のしくみ（見出しの「?」のダイアログ。4 つの見出しにするのは ideal-results） */
+.ideal-help { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
+/* 保存した目標（見出しの「目標（N）」のダイアログ。列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す） */
+.ideal-goals-dialog { width: min(960px, calc(100% - 24px)); }
+.ideal-goal-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.ideal-goal {
+  display: grid;
+  grid-template-columns: minmax(250px, 1.6fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(80px, .8fr) auto auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
 .ideal-goal:last-child { border-bottom: 0; }
-.ideal-goal-main { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.ideal-goal-title { display: flex; align-items: center; gap: 10px; }
-.ideal-goal-status { font-size: 12px; font-weight: 700; color: var(--muted); }
+.ideal-goal-title { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.ideal-goal-title > .pal-tile { flex: none; }
+.ideal-goal-summary { min-width: 0; }
+.ideal-goal-status { font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
 .ideal-goal-status.ready { color: var(--md-sys-color-primary); }
+.ideal-goal-empty { padding: 12px 0; }
 .owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
 .owned-auto-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 .owned-warnings { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 12px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }

@@ -196,6 +196,38 @@ export function restoreAnchor(container, anchor) {
   return true;
 }
 
+/**
+ * target の高さ（border-box）を host の CSS 変数 name に書き続ける（sticky のパネルの下に重ねる帯の top・scroll-margin-top が使う）。
+ * 値は style.setProperty で書き（style 属性の文字列は使わない）、同じ高さでは書き直さない。
+ * ResizeObserver が無い環境（テスト）では 1 回だけ測る。戻り値は監視をやめる関数
+ */
+export function trackHeight(target, host, name = '--panel-h') {
+  let written = '';
+  const write = (height) => {
+    if (!Number.isFinite(height)) return;
+    const value = `${Math.round(height * 100) / 100}px`;
+    if (value === written) return;
+    written = value;
+    host.style.setProperty(name, value);
+  };
+  const measure = () => {
+    const rect = target.getBoundingClientRect();
+    write(rect.height ?? rect.bottom - rect.top);
+  };
+  const Observer = globalThis.ResizeObserver;
+  if (typeof Observer !== 'function') {
+    measure();
+    return () => {};
+  }
+  const observer = new Observer((entries) => {
+    const size = entries.at(-1)?.borderBoxSize?.[0];
+    if (size) write(size.blockSize);
+    else measure();
+  });
+  observer.observe(target);
+  return () => observer.disconnect();
+}
+
 // ---------------------------------------------------------------------------
 // 入力の間引き
 // ---------------------------------------------------------------------------
