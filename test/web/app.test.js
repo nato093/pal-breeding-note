@@ -100,8 +100,11 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   };
 }
 
-// ログイン画面で隠す（ログインした後に出す）部品
-const signedInParts = ['navigation', 'register-button', 'notification-menu', 'save-status', 'account-chip'];
+// ログイン画面で隠す（ログインした後に出す）部品。sync-line は同期状況（取得の失敗のチップを含む）
+const signedInParts = ['navigation', 'register-button', 'notification-menu', 'save-status', 'account-chip', 'sync-line'];
+// 読み上げで読まれる文（hidden・aria-hidden・inert の中は読まれない）
+const readable = (node) => (node.hidden || node.inert || node.getAttribute('aria-hidden') === 'true'
+  ? '' : node.text + node.children.map(readable).join(''));
 
 function assertLoginOnly() {
   assert.ok(byClass('login-form'));
@@ -109,6 +112,8 @@ function assertLoginOnly() {
   for (const name of signedInParts) assert.equal(byClass(name).hidden, true, name);
   assert.equal(byClass('sync-status').disabled, true);
   assert.equal(byClass('brand').inert, true);
+  // ヘッダーで読まれるのは、テスト環境のチップだけ（同期状況の文・ログインのエラーは読まれない）
+  assert.match(readable(byClass('app-header')), /^(テスト環境)?$/);
 }
 
 test('画面: 登録したセーブは 1 分ごとに読み直す（タブが裏にあっても）', async (t) => {
@@ -140,6 +145,8 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   input('current-password').value = '入力';
   await byText('ログイン').dispatch('click');
   assert.match(byClass('form-errors').textContent, /登録されていません/);
+  // ログインのエラーはフォームにだけ出す（ヘッダーの同期状況は隠したまま）
+  assertLoginOnly();
   assert.equal(values.has('pal-note.passcode'), false);
   await byText('新規登録').dispatch('click');
   assert.equal(find((node) => node.tagName === 'h1').textContent, '新規登録');

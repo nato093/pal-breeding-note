@@ -107,7 +107,7 @@ async function boot() {
   // テスト環境はロゴの右のチップ（後から帯が入って本文がずれないように、ヘッダーの中に置く）
   const envChip = el('span', 'env-chip', 'テスト環境');
   envChip.hidden = true;
-  // 同期状況は押すと最新に更新する（読み上げの告知は付けない）
+  // 同期状況は押すと最新に更新する（読み上げの告知は付けない）。ログイン画面では隠す（render）
   const sync = syncStatus({ store, locked: () => showingLogin });
   const progress = syncProgress();
   const headerStatus = el('div', 'header-status');
@@ -483,6 +483,8 @@ async function boot() {
     bell.element.hidden = showingLogin;
     save.element.hidden = showingLogin;
     account.element.hidden = showingLogin;
+    // 同期状況（取得の失敗の文を含む）もログイン画面では出さない。ログインのエラーはフォームに出る
+    sync.element.hidden = showingLogin;
     sync.update(store.state);
     if (showingLogin) {
       bell.close(); save.close(); account.close(); forget(); loginView();

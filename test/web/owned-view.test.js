@@ -382,6 +382,26 @@ test('継承ルート: 所持パルのデータがないときは、開始と目
   view.destroy();
 });
 
+test('パッシブの選択欄: 所持パルのある継承ルートは目標と横に並べる欄（.route-query。CSS で空でも 2 行分の高さ）に置き、所持パルのない継承ルート・所持パル画面は置かない', (t) => {
+  installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const inQuery = (view) => Boolean(view.element.querySelector('.route-query')?.querySelector('.passive-selector'));
+  const route = inheritanceView(context(fakeOwned(), records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  assert.equal(inQuery(route), true);
+  route.destroy();
+  // 所持パルがないときは全幅の欄（ふつうは 4 個とも 1 行に収まるので、1 行分のまま）
+  const noOwned = inheritanceView(context(fakeOwned(null)), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  assert.ok(noOwned.element.querySelector('.passive-selector'));
+  assert.equal(inQuery(noOwned), false);
+  noOwned.destroy();
+  const owned = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  assert.ok(owned.element.querySelector('.passive-selector'));
+  assert.equal(owned.element.querySelector('.route-query'), null);
+  owned.destroy();
+});
+
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const DROP_WIN = { DataTransferItem: { prototype: { getAsFileSystemHandle() {} } } };
 const WORLD_PATH = 'C:\\Users\\a\\AppData\\Local\\Pal\\Saved\\SaveGames\\7656\\ABCDEF0123456789ABCDEF0123456789';

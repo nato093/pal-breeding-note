@@ -99,6 +99,8 @@ test('理想個体画面: URL の目標とパッシブで、配合牧場に置�
   assert.match(view.element.querySelector('.ideal-help').textContent, /計算のしくみ/);
   // 選んだパッシブは選択欄に出る
   assert.deepEqual(view.element.querySelectorAll('.passive-selector')[0].querySelectorAll('.passive-name').map((node) => node.textContent), ['職人気質', '希少']);
+  // 選択欄は目標と横に並べる欄（.route-query）の中に置く（CSS で、空でも 2 行分の高さを取る）
+  assert.ok(view.element.querySelector('.route-query').querySelector('.passive-selector'));
   assert.equal(owned.loads, 1);
   view.destroy();
   assert.equal(owned.listeners.size, 0);
