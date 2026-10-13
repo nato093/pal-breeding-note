@@ -725,27 +725,58 @@ header-frame（ヘッダーの状態表示。文言の作り方をそろえる�
 - body: 「読み込みの状態は要約の右端に出します。理想個体と継承ルートにも、どのワールドのいつのデータかを出します。」（52 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る（auto-register のテストを含む）。
-- [ ] モックで所持パルを開いたまま、1 分ごとの確認と 20 秒ごとの読み直しをまたいでも、絞り込みと一覧の top が変わらない（帯が出入りしない。layout-shift 0）。
-- [ ] 状態のスロットの幅が「確認中…」「最終確認 13:42」で変わらない。設定のセーブ連携でもエラーの行が点滅せず、横のボタンが動かない。
-- [ ] 所持パルを表示できているときは「ファイル未登録」の帯が出ない。データがないときはボタンで設定へ行ける。
-- [ ] 理想個体と継承ルートに「「ワールド」· この PC／共有 · N 体 · セーブ M/D HH:MM」の 1 行が出る。
-- [ ] 参加者（共有だけを見る）で所持パルを開いたまま、ホストの共有の更新が 30 秒程度で反映される。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — `busy` の意味を変えていない（`test/web/auto-register.test.js:161` が通る）。`stats` のない古い IndexedDB でも壊れない。性能 — 定期の読み直しは裏のタブ（`visibilityState === 'hidden'`）では動かない。セキュリティ — 1 行の文は textContent（`test/static/security.test.js`）。INV-2 — 対象外。
+- [x] `npm test` が通る（auto-register のテストを含む）。（1,321 件・exit 0）
+- [x] モックで所持パルを開いたまま、1 分ごとの確認と 20 秒ごとの読み直しをまたいでも、絞り込みと一覧の top が変わらない（帯が出入りしない。layout-shift 0）。（70 秒で絞り込み 157.69・一覧 627.66 のまま、layout-shift 0。確認中・読み込み中・共有中の状態を入れても 0。phase-1a の「計測の記録」）
+- [x] 状態のスロットの幅が「確認中…」「最終確認 13:42」で変わらない。設定のセーブ連携でもエラーの行が点滅せず、横のボタンが動かない。（スロットは 121px のまま。設定は状態の文 84px・「今すぐ読み込む」の左 308.5px・エラーの行の高さ 18.59px のまま。モックではファイルを登録できないので、設定は状態を入れて確かめた）
+- [x] 所持パルを表示できているときは「ファイル未登録」の帯が出ない。データがないときはボタンで設定へ行ける。
+- [x] 理想個体と継承ルートに「「ワールド」· この PC／共有 · N 体 · セーブ M/D HH:MM」の 1 行が出る。
+- [x] 参加者（共有だけを見る）で所持パルを開いたまま、ホストの共有の更新が 30 秒程度で反映される。（実測は最大 約 41 秒。20.5 秒ごとの読み直しと共有の 30 秒の制限が重なるため。実装の記録 11。ユーザーに確かめる）
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — `busy` の意味を変えていない（`test/web/auto-register.test.js:161` が通る）。`stats` のない古い IndexedDB でも壊れない。性能 — 定期の読み直しは裏のタブ（`visibilityState === 'hidden'`）では動かない。セキュリティ — 1 行の文は textContent（`test/static/security.test.js`）。INV-2 — 対象外。
 
 ### TODO
-- [ ] owned.js に `activity` と `checkedAt` を足し、各所で入れる（busy は変えない）
-- [ ] 確認の始めに `auto.error` を消さないようにし、'empty' の文を短くする
-- [ ] owned-store のテストを足す
-- [ ] `ownedNotices` から busy・確認中・共有中を外し、未登録の案内をデータがないときだけにする
-- [ ] 場所の分からないパル・読めなかった項目の 1 行と「見る」を足す
-- [ ] `activityText`・`sourceText`・`ownedSourceLine` を作る
-- [ ] 所持パルの要約を 1 行に置き換え、案内のボタン（設定・見る）を足す
-- [ ] 理想個体の要約の上と継承ルートの所持パルの欄に 1 行を置く
-- [ ] `keepRefreshing` を作り、理想個体と所持パルで使う
-- [ ] 設定の `autoError` と `.owned-auto-state` の幅を固定する
-- [ ] owned-view・ideal-view・route-view のテストを直し・足す
-- [ ] release-notes に 1 件足し、1 分以上開いたままで動かないことを確かめる
+- [x] owned.js に `activity` と `checkedAt` を足し、各所で入れる（busy は変えない）
+- [x] 確認の始めに `auto.error` を消さないようにし、'empty' の文を短くする
+- [x] owned-store のテストを足す
+- [x] `ownedNotices` から busy・確認中・共有中を外し、未登録の案内をデータがないときだけにする
+- [x] 場所の分からないパル・読めなかった項目の 1 行と「見る」を足す
+- [x] `activityText`・`sourceText`・`ownedSourceLine` を作る
+- [x] 所持パルの要約を 1 行に置き換え、案内のボタン（設定・見る）を足す
+- [x] 理想個体の要約の上と継承ルートの所持パルの欄に 1 行を置く
+- [x] `keepRefreshing` を作り、理想個体と所持パルで使う
+- [x] 設定の `autoError` と `.owned-auto-state` の幅を固定する
+- [x] owned-view・ideal-view・route-view のテストを直し・足す
+- [x] release-notes に 1 件足し、1 分以上開いたままで動かないことを確かめる
+
+### 実装の記録（2026-10-13、ブランチ `feature/owned-status`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ owned-toolbar・owned-rows・フェーズ 1d の participant-self・copy-dead-ends・cleanup-dead-code・フェーズ 2 の autoreg-visibility・roles はこちらを正とする）。
+
+1. **`state.activity`・`state.checkedAt`（web/js/owned.js。手順 1）**: `activity` は `'' | 'checking' | 'reading' | 'sharing'`（画面だけが読む。`busy`・`progress` の意味とタイミングは変えていない。auto-register のテストが通る）。入れる所は文書のとおり: `autoTask` の始めに `'checking'`、`runImportTask` の始めと `previewTask` のホストの読み込みで `'reading'`、`uploadLocal` の送信で `'sharing'`、`serial` の終わり（pending 0）で `upload.status === 'sending' ? 'sharing' : ''`、`uploadLocal` の終わりで `!busy` なら `''`。`fetchShared` では `activity` を変えない（参加者の 30 秒ごとの共有の読み直しは「確認中…」を出さず、終わったら時刻だけが変わる）。
+   - **`checkedAt`（ISO の文字列）は、確かめ終えて読めたときだけ入れる**: `autoTask` が `'unchanged'`・`'guest'`・`'imported'` を返すとき（中の `checked()`）と `fetchShared` が成功したとき（`shared.fetchedAt` と同じ値）。文書の「autoTask の結果が出たとき（どの return でも）」から、`stop()`（許可・登録なし・読めない）と読み込みの失敗では進めない形にした。ideal-results の「読めなかった確認では時刻を進めない」（その記録 3 とテスト）を引き継ぎ、読めていないのに「最終確認 13:42」と出さないため。
+2. **確認の始めのエラー（手順 2）**: `autoTask` の始めの `state.auto.error = ''` を消し、`status = 'ready'` の直後で消してから「選んだワールドの登録がないため…」などを入れ直す。`'empty'` の文は「自分のセーブを読むには、設定でワールドを登録してください」（句点なし。案内の帯は下の `REGISTER_TEXT` で句点つき）。
+3. **案内（`ownedNotices`。手順 3）**: `!ready` のときは空。`auto.enabled` でないときは、表示できるデータ（`meta.source`）がないときだけ `REGISTER_TEXT`「自分のセーブを読むには、設定でワールドを登録してください。」（kind info・action `'settings'`）。`auto.status` が `'permission'` は今のまま（action `'grant'`）、**`'empty'` も同じ `REGISTER_TEXT`＋action `'settings'`（kind warning）にした**（文書は `'empty'` の扱いを決めていなかった。前の「〜（設定タブで確認できます）」だと短くした文と重なるため）。`'error'` は今のまま「〜（設定タブで確認できます）」。参加者は「ホストがまだこのワールドの所持パルを共有していません。」だけ（データがあるときの「参加しているワールドのため…」は消した）。共有の `sending` は出さない（`uploadText` から消した）。読めなかったファイル・Players の警告は `!busy` の条件を外した。
+   - 場所の分からないパル（C-32）: この PC で読んだデータ（`meta.source === 'local'` の `data.snapshot.stats`。文書の `state.owned.stats` と同じ値で、共有のデータには無い）の `unknownLocation` を core/boundary.js の `int(…, { min: 0, fallback: 0 })` で数にしてから、0 より大きく Players の警告が出ていないとき「場所が分からないパルが N 体います」（kind info・action `'unknownPlace'`）。`malformed` は `isObject` の値ごとに `int` で数えた合計が 0 でなければ「セーブの一部を読めませんでした（ゲームの更新で形が変わったかもしれません）」（kind warning）。`orphanEggs` は出さない。手元の実セーブ（ホストの 14 ワールド。読み取りのみ・数だけ）: 今の形（2026-09〜10 の 3 ワールド）と 2025-12 の 3 ワールドは unknownLocation 0・malformed なし、2025-12 の 1 ワールドは unknownLocation 454、2024-02 の古い形の 7 ワールドはどれも malformed あり（itemSlots など）で、多くが unknownLocation もあり。orphanEggs は今の形でも 13〜37 個ある（文書のとおり出さない）。
+   - 使わなくなった `linkLabel`（ui/owned-status.js）は消した（**cleanup-dead-code の「`linkLabel` は消さない（:46 で使っている）」はもう当てはまらない**。roles のテストの「`linkLabel`・データの有無の組み合わせ」は、`auto.enabled` とデータの有無に読み替える）。
+4. **確かめている間の案内（文書になかった手当て）**: `autoTask` は始めに `auto.status` を `'checking'` にするので、案内をそのまま描くと、1 分ごとの確認のたびに許可・エラーの帯が消えてまた出る。→ views/owned.js の `renderSummary` は、**`state.busy` か `auto.status === 'checking'` の間は前の案内のまま描かず**、終わったら描き直す（案内の JSON が同じなら要素も作り直さない。`noticesKey`）。header-frame の `saveStatus` が読み込み中に前の文を残すのと同じ考え方。データ元の 1 行の許可のボタンも、`checking` の間は前の見せ方のまま。
+5. **`activityText(state, now = Date.now())`（手順 5）**: 文書の形に `now` を足した。`!ready` → `{ kind: 'busy', text: '確認中…' }`、`checking` → 「確認中…」、`reading` → `progress`（なければ「セーブを読み込み中…」）、`sharing` → 「共有中…」、ほかは `{ kind: 'idle', text: '最終確認 ' + formatShortTime(checkedAt, now, '—') }`（今日なら 時:分、違う日なら 月/日 時:分、まだなら「最終確認 —」）。`activity`・`checkedAt` のない古い形の state でも壊れない。
+6. **`sourceText(state)`**: `[worldName(meta), 'この PC' か '共有', '${n} 体', 'セーブ ' + dateTime(meta.saveUpdatedAt)].join(' · ')`（n は `state.owned.pals.length`、無ければ `meta.palCount`）。`meta.source` が無ければ ''。
+7. **`ownedSourceLine({ actions, now })` → `{ element, update(state), destroy() }`（手順 5・10）**: `div.owned-source`（高さ 28px・1 行・12px）＝ `span.owned-source-text`（省略記号。title に 1 行の文＋`timeLines` を改行でつないだもの＝「セーブの更新: …」「共有: …（Alice）」「この PC で読み込み: …」）＋ `span.owned-activity`（幅 11em＝121px・11px・tabular-nums。中は `svg.owned-activity-spinner`〔createElementNS・aria-hidden〕と `span.owned-activity-text`。busy のとき `.is-busy`、title に同じ文）＋ `actions.grant` があれば `button.button.secondary.small.owned-source-grant`（`auto.enabled` でなければ hidden、許可が要らなければ `.is-placeholder`〔visibility hidden〕と disabled）＋ `a.owned-source-settings`「設定 →」（`#/settings`）。aria-live なし。`update` は同じ値を書かない（文・title・hidden・disabled とも、変わったものだけ）。`destroy` は今は何もしない（形をそろえるため）。
+   - **状態のスロットは右寄せではなく、回る輪の場所を残した左寄せにした**（文書は「右寄せ」）。右寄せだと文の長さが変わるたびに文の箱の左端が動き、Chrome の layout-shift が 1 回 0.0001 ずつ出たため（輪を `display: none` にしても同じ）。輪は `visibility` で出し入れし、回すのは `.is-busy` のときの `@media (prefers-reduced-motion: no-preference)` の中だけ（`@keyframes owned-spin`）。
+   - **許可のボタンの場所を残すのは、自動の読み込みを使っている（`auto.enabled`）ときだけ**にした（文書は「visibility で場所を残す」。使っていない人〔参加者・未登録〕には出ることがないので、文の幅を 112px 狭めない）。`.button.small` の min-height 32px は `.owned-source .owned-source-grant` で 24px にした（行の 28px に収める）。
+8. **所持パル（手順 4・6）**: `section.owned-summary` の中を `[ownedSourceLine の element, ul.owned-notices]` にした（`.owned-world`・`.owned-times` の 2 行はなくした）。`noticeActions` は `grant`（今のまま）・`settings`（「セーブ連携を開く」→ `context.navigate('#/settings')`）・`unknownPlace`（「見る」→ **`changeRoute(context, buildHash('owned', { place: 'unknown' }))`**。文書は `context.navigate`。同じ画面なので作り直さず applyRoute で絞る）。1 行の許可のボタンは `noticeActions.grant` と同じもの。CSS の `.owned-times` は消し、`.owned-world` は設定の「使うワールド」の select が使っているので残した。
+9. **理想個体（手順 7）**: 画面の子の並びは「見出し → パネル → **`div.owned-source`** → 要約 → 足りないパッシブ → 帯 → 詳細 → 結果」（`context.owned` が無い画面では 1 行を作らない）。**要約の行の `span.ideal-checked` ごと外し**（子は `span.ideal-summary-text`・`button.ideal-excluded` の 2 つ）、`renderChecked`・`lastChecked`・`REFRESH_INTERVAL` と `formatTime`・`dateTime` の import を消した。`owned.subscribe` の中で最初に `sourceLine.update(ownedState)` を呼び、データが同じなら今までどおり結果は描き直さない。開いたときの 1 回の `autoRefresh` は `owned.load()` の後に、閉じていなくて裏のタブでないときだけ。1100px の実測: `--panel-h` 140.39px・帯の sticky の top 196.39px（下までスクロールしてパネルの下端 196.39・帯の上端 196.38 で重ならない）・要約の行の高さ 18.59px はどれも前と同じ。要約の top は 272.4 → 302.39、帯の top は 299 → 328.98（+30px＝1 行の 28px＋パネルの下の余白 2px）。920px でも 1 行 28px・`--panel-h` 163.98px・横のスクロールなし。
+10. **継承ルート（手順 7）**: `renderOwned` で所持パルのデータがあるときだけ、`section.route-owned` の先頭に同じ 1 行の要素を付け直す（作り直さない）。`owned.subscribe` の中で最初に `sourceLine.update` を呼び、`data` が同じなら今までどおり描き直さない。下の余白は `.route-owned > .owned-source { margin-bottom: 10px }`。
+11. **`keepRefreshing(owned, { interval = 20500 } = {}) → () => void`（views/shared.js。手順 8）**: `setInterval` の中で `globalThis.document?.visibilityState === 'hidden'` なら呼ばず、ほかは `owned.autoRefresh().catch(() => {})`。理想個体（前の自前のタイマーを置き換え）と所持パル（開いたときの 1 回の隣）で使い、destroy で止める。テストの偽の document に visibilityState が無くても動く。**参加者（共有だけ）の反映は、実測で最大 約 41 秒**（モックで別の PC のホストが共有し直してから所持パルの 1 行の体数が変わるまで 40.3・41.1 秒）。`fetchShared` の 30 秒の制限に 20.5 秒の間隔が 2 回目で届くため（平均は約 20 秒）。間隔を 10.25 秒にすれば最大 約 31 秒になる（共有の一覧の取得は 30 秒に 1 回のまま増える。ホストのセーブの読み直しは 20 秒以上空けるので変わらない）が、文書の 20500 のままにした（ユーザーに確かめる）。
+12. **設定のセーブ連携（手順 9）**: `autoError` は文が変わったときだけ textContent を書き、空なら `.is-empty`（visibility hidden・`min-height: 1lh` で 1 行分の場所を残す）。`hidden` は「登録したワールドがなく、エラーの文もない」ときだけ（`'empty'` などワールドのないエラーは今どおり出す）。`.owned-auto-state` に `min-width: 7em`（12px で 84px。「読み込み済み」72px も入る）。
+13. **テスト**: test/web/owned-store.test.js に 5 件（activity と busy の動き・reading と sharing〔読み込みが先に終わっても共有中〕・確認の始めに auto.error を残す・empty の文・checkedAt〔読めなかったときは進めない・共有の成功〕）。新しい test/web/owned-status.test.js に 6 件（activityText・sourceText・ownedSourceLine の部品・案内の busy・未登録の案内とデータの有無・stats と古い形）。owned-view.test.js に 7 件（データがないときの案内と「セーブ連携を開く」・データがあれば出さない・busy でも帯が出入りせず許可の案内も残る・場所が分からないパルと「見る」・20 秒ごとの読み直しと裏のタブ・継承ルートの 1 行・設定のエラーの行）、ideal-view.test.js に 1 件（1 行の場所と書き換え。前の「20 秒ごとの確認で最終確認だけ変わる」を置き換えた）。どれも変える前のコードで落ちることを確かめた。**継承ルートのテストは route-view.test.js ではなく owned-view.test.js に置いた**（route-view.test.js は ui/route-view.js の部品だけを確かめていて、`inheritanceView` と所持パルの偽物は owned-view.test.js にあるため）。期待値を直したもの: 所持パルの見出しの 2 行（`.owned-source-text` と title に）・未登録の案内の文とボタン（テスト名に前の設計を変えたことを書いた）・empty の文・理想個体の子の並びと要約の子。テストの偽 DOM（test/helpers/dom.js）は変えていない。
+14. **そのほか**: docs/OPERATIONS.md の所持パルの共有・表示・理想個体の読み直しの記述を新しい画面に合わせた（触るファイルの一覧にはなかった）。release-notes は文書の案のまま（id `2026-10-13-owned-status`）。
+15. **後のテーマへの申し送り**:
+    - owned-toolbar: 「要約の行」はデータ元の 1 行（`div.owned-source`、高さ 28px）と、その下の案内の帯（`ul.owned-notices`。ふだんは出ない）。絞り込みのパネルの中に状態の行（`.owned-status-row`）を作るなら、この 1 行の要素をそのまま置く（作り直さない）。件数の行（`.owned-view > .result-note`「N 体」）は絞り込みの下のまま。
+    - owned-rows: このテーマで行は変えていない。
+    - participant-self: 所持パルの `update(state)` は emit のたびに `renderSummary`（1 行と案内）を呼び、行の一覧はデータが変わったときだけ。理想個体の `owned.subscribe` は最初に 1 行を書き換えてから、`owned`・`ready` が同じなら return する（本人の変更で描き直す経路はこの return の前か、別の購読に足す）。案内の「セーブ連携を開く」（`noticeActions.settings`）は `#/settings` へ行くだけなので、`settingsHash(worldId)`・`?open=auto` を作ったらここを差し替える。
+    - copy-dead-ends: `ui/owned-status.js` の未登録の案内は `REGISTER_TEXT`＋action `'settings'`（ボタン「セーブ連携を開く」）になった（文書の `register`〔ワールドを登録のダイアログ〕にするかはそのテーマで決める）。`owned.js` の `'empty'` の文は「自分のセーブを読むには、設定でワールドを登録してください」。`'error'` の「（設定タブで確認できます）」と登録されていないプレイヤーの文、views/route.js の「所持パルのデータがありません。設定タブの…」は残っている。
+    - autoreg-visibility: 許可切れは、所持パルの案内の帯（action `'grant'`）・データ元の 1 行の「読み込みを許可」（3 画面）・設定・ヘッダーの 4 か所に出る。`permissionNotice` を作ったら案内の帯はそれを使い、1 行のボタンは `auto.status === 'permission'` で出す今の形のままでよい。`activity` の名前（`checking`・`reading`・`sharing`）と `checkedAt` は題名・ファビコンの「読み込み停止」の判定に使える（止まった時刻 `stoppedAt` は別に足す）。
+    - roles: 共有だけを見ている人の「〜が共有した所持パルを表示しています」は、データ元の 1 行の「共有」と重なる（1 行は title に「共有: 時刻（ID）」）。`ownedNotices` の参加者の文はデータがないときだけになった。
 
 ---
 

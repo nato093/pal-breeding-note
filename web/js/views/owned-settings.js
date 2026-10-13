@@ -390,8 +390,12 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const needsPermission = state.auto.enabled && state.auto.status === 'permission';
     autoState.textContent = state.auto.enabled ? AUTO_STATES[state.auto.status] ?? '' : '';
     autoState.className = `owned-auto-state state-${state.auto.status}`;
-    autoError.textContent = state.auto.enabled ? state.auto.error : '';
-    autoError.hidden = !autoError.textContent;
+    // 確かめている途中もエラーは残り（owned.js）、エラーがないときも見えないまま 1 行分の場所を残す（点滅しない・下が上下しない）。
+    // 登録したワールドがなければ、エラーがあるときだけ出す
+    const errorText = state.auto.enabled ? state.auto.error : '';
+    if (autoError.textContent !== errorText) autoError.textContent = errorText;
+    autoError.classList.toggle('is-empty', !errorText);
+    autoError.hidden = !hasWorlds && !errorText;
     autoNow.hidden = !hasWorlds;
     grant.hidden = !needsPermission;
     stateRow.hidden = !hasWorlds;

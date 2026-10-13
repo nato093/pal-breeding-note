@@ -142,8 +142,8 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
   const children = view.element.children;
-  // 並び: 見出し → パネル → 要約 → 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果（登録の行・登録した一覧の折りたたみはない）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'result-note ideal-summary', 'ideal-missing-note', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  // 並び: 見出し → パネル → データ元の 1 行 → 要約 → 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果（登録の行・登録した一覧の折りたたみはない）
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'owned-source', 'result-note ideal-summary', 'ideal-missing-note', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
   assert.equal(view.element.querySelector('.ideal-register'), null);
   const panel = view.element.querySelector('.ideal-panel');
@@ -1782,8 +1782,9 @@ test('理想個体画面: 要約は「上位 N 組（全 M 組・候補 K 体）
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
   body.append(view.element);
   const summary = view.element.querySelector('.ideal-summary');
-  const [text, excluded, checked] = summary.children;
-  assert.deepEqual(summary.children.map((node) => node.className.split(' ')[0]), ['ideal-summary-text', 'ideal-excluded', 'ideal-checked']);
+  // 「最終確認」は要約の行から外し、データ元の 1 行の状態のスロットに任せた（owned-status）
+  const [text, excluded] = summary.children;
+  assert.deepEqual(summary.children.map((node) => node.className.split(' ')[0]), ['ideal-summary-text', 'ideal-excluded']);
   assert.equal(text.textContent, '上位 1 組（全 2 組・候補 3 体） · 同じ種族どうし');
   // 省略されても title で全文を読める
   assert.equal(text.title, text.textContent);
@@ -1797,9 +1798,9 @@ test('理想個体画面: 要約は「上位 N 組（全 M 組・候補 K 体）
   assert.equal(hintBoards()[0].textContent, '性別不明の 1 体');
   await excluded.dispatch('click');
   assert.equal(hintBoards().length, 0);
-  // 条件を変えても、要約の 3 つの子は同じ要素のまま（文字だけ書き換える）
+  // 条件を変えても、要約の 2 つの子は同じ要素のまま（文字だけ書き換える）
   chooseRadio(view, 'ケーキ', 'talent');
-  assert.deepEqual(view.element.querySelector('.ideal-summary').children, [text, excluded, checked]);
+  assert.deepEqual(view.element.querySelector('.ideal-summary').children, [text, excluded]);
   // 除外がないときは見えないまま幅を残す（hidden にしない）。開いていた内訳は閉じる
   await excluded.dispatch('click');
   owned.state.owned = fakeOwned(basePals.filter((pal) => pal.instanceId !== 'u1')).state.owned;
@@ -1834,37 +1835,42 @@ test('理想個体画面: 所持者で絞っているときは要約の最後に
   view.destroy();
 });
 
-test('理想個体画面: 20 秒ごとの確認を終えたら「最終確認」の時刻（とセーブの時刻）だけを書き換え、カードも要約の文も作り直さない。確認に失敗したときは時刻を変えない', async (t) => {
+test('理想個体画面: 要約の上にデータ元の 1 行を出し、確認・読み込みの状態や最後に確かめた時刻が変わっても、その行の文だけを書き換えて結果は描き直さない', async (t) => {
   installDom(t);
   const start = new Date(2026, 9, 13, 12, 34, 50).getTime();
   t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: start });
   const owned = fakeOwned();
   const saved = new Date(2026, 9, 13, 12, 30).toISOString();
-  owned.state.meta = { saveUpdatedAt: saved };
+  Object.assign(owned.state, {
+    busy: false, activity: '', checkedAt: '', auto: { enabled: true, status: 'ready', worlds: [], worldId: '', error: '' },
+    meta: { worldId: 'W', worldName: 'テスト', hostName: 'Alice', source: 'local', saveUpdatedAt: saved, importedAt: saved },
+  });
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
-  const checked = view.element.querySelector('.ideal-checked');
-  // 最初の読み込みが終わって確かめるまでは「—」
-  assert.equal(checked.textContent, `最終確認 — · セーブ ${dateTime(saved)}`);
-  await settle();
-  assert.equal(checked.textContent, `最終確認 ${formatTime(start)} · セーブ ${dateTime(saved)}`);
+  const line = view.element.querySelector('.owned-source');
+  const children = view.element.children;
+  assert.equal(children[children.indexOf(line) + 1], view.element.querySelector('.ideal-summary'));
+  assert.equal(line.querySelector('.owned-source-text').textContent, `「テスト」（ホスト Alice） · この PC · 5 体 · セーブ ${dateTime(saved)}`);
+  // 「最終確認」は要約の行ではなく、この行の状態のスロットに出す（確かめる前は「—」）
+  assert.equal(view.element.querySelector('.ideal-checked'), null);
+  const label = line.querySelector('.owned-activity-text');
+  assert.equal(label.textContent, '最終確認 —');
   const [card] = cards(view);
   const text = view.element.querySelector('.ideal-summary-text');
   const before = text.textContent;
-  // 20 秒の確認を 2 回またぐ（41 秒後。分が変わる）
-  t.mock.timers.tick(20 * 1000 + 500);
-  await settle();
-  t.mock.timers.tick(20 * 1000 + 500);
-  await settle();
+  // 1 分ごとの確認の途中
+  Object.assign(owned.state, { busy: true, activity: 'checking', auto: { ...owned.state.auto, status: 'checking' } });
+  owned.emit();
+  assert.equal(label.textContent, '確認中…');
+  // 確かめ終えた（41 秒後。分が変わる）
+  t.mock.timers.tick(41 * 1000);
+  Object.assign(owned.state, { busy: false, activity: '', checkedAt: new Date(start + 41 * 1000).toISOString(), auto: { ...owned.state.auto, status: 'ready' } });
+  owned.emit();
   assert.notEqual(formatTime(start + 41 * 1000), formatTime(start));
-  assert.equal(checked.textContent, `最終確認 ${formatTime(start + 41 * 1000)} · セーブ ${dateTime(saved)}`);
+  assert.equal(label.textContent, `最終確認 ${formatTime(start + 41 * 1000)}`);
+  assert.equal(view.element.querySelector('.owned-source'), line);
   assert.equal(cards(view)[0], card);
   assert.equal(view.element.querySelector('.ideal-summary-text'), text);
   assert.equal(text.textContent, before);
-  // 読めなかった確認では時刻を変えない
-  owned.autoRefresh = () => Promise.resolve('error');
-  t.mock.timers.tick(3 * (20 * 1000 + 500));
-  await settle();
-  assert.equal(checked.textContent, `最終確認 ${formatTime(start + 41 * 1000)} · セーブ ${dateTime(saved)}`);
   view.destroy();
 });
 

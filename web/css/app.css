@@ -1015,7 +1015,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-help { font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
 .owned-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; }
 .owned-toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; }
-.owned-auto-state { font-size: 12px; color: var(--muted); }
+/* 状態の文（確認中…・読み込み済み・許可が必要など）は幅をそろえ、横のボタンが動かないようにする */
+.owned-auto-state { min-width: 7em; font-size: 12px; color: var(--muted); }
 .owned-auto-state.state-ready { color: var(--md-sys-color-tertiary); }
 .owned-auto-state.state-permission { color: var(--warning); }
 /* セーブ連携: 登録したワールドの一覧と、配合牧場からの自動登録 */
@@ -1340,8 +1341,8 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 .segmented-option:hover:not([aria-checked="true"]) { background: var(--state-hover); }
 .segmented-option[aria-checked="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .segmented-option:focus-visible { position: relative; z-index: 1; }
-/* 要約の行は 1 行に固定。[件数などの文（入りきらない分は省略し、title に全文）][除外 N][最終確認 · セーブ]。
-   子は固定の 3 つで、条件を変えても行の高さと位置が変わらない */
+/* 要約の行は 1 行に固定。[件数などの文（入りきらない分は省略し、title に全文）][除外 N]。
+   子は固定の 2 つで、条件を変えても行の高さと位置が変わらない（最終確認の時刻は上のデータ元の 1 行の状態のスロットに出す） */
 .ideal-summary { display: flex; align-items: center; gap: 10px; white-space: nowrap; height: 1lh; }
 .ideal-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ideal-excluded {
@@ -1358,7 +1359,6 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 .ideal-excluded:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-highest)); }
 /* 除外がないときは見えないまま幅を残す */
 .ideal-excluded.is-placeholder { visibility: hidden; }
-.ideal-checked { flex: none; margin-left: auto; font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
 /* 押すと開く説明（ui/hint.js）。板は body に浮かせる（固定配置で周りを動かさない） */
 .hint-button {
   flex: none;
@@ -1615,7 +1615,9 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-goal-status.ready { color: var(--md-sys-color-primary); }
 .ideal-goal-empty { padding: 12px 0; }
 .owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
-.owned-auto-error { font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
+.owned-auto-error { min-height: 1lh; font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
+/* エラーがないときも見えないまま 1 行分の場所を残す（確かめるたびに点滅しない） */
+.owned-auto-error.is-empty { visibility: hidden; }
 .owned-warnings { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 12px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }
 .owned-drop.disabled { opacity: .5; }
 /* パッシブ（ゲームのパル詳細画面の表示に合わせる）
@@ -1736,8 +1738,28 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .passive-remove { border: 0; background: transparent; padding: 0 2px; font-size: 16px; line-height: 1; color: inherit; min-height: 0; }
 /* 所持パル */
 .owned-summary { margin-bottom: 12px; }
+/* .owned-world は設定の「使うワールド」の選択欄（所持パルの画面の見出しの行はデータ元の 1 行にした） */
 .owned-world { font-weight: 700; margin: 0 0 2px; }
-.owned-times { font-size: 12px; margin: 0 0 8px; }
+/* データ元の 1 行（所持パル・理想個体・継承ルート。ui/owned-status.js の ownedSourceLine）。
+   [ワールド · この PC／共有 · N 体 · セーブ 時刻（入りきらない分は省略し、title に全文）][状態のスロット][読み込みを許可][設定 →]。
+   高さと状態のスロットの幅を固定し、1 分ごとの確認・20 秒ごとの読み直しで行も周りも動かない */
+.owned-source { display: flex; align-items: center; gap: 12px; height: 28px; margin: 0 0 6px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.owned-source-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 状態のスロット。回る輪の場所はいつも残し、文は輪の右から左寄せで置く（文の長さが変わっても、輪・文の始まりも周りも動かない） */
+.owned-activity { flex: none; display: inline-flex; align-items: center; gap: 4px; width: 11em; overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; }
+.owned-activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.owned-activity-spinner { flex: none; visibility: hidden; }
+.owned-activity.is-busy { color: var(--md-sys-color-primary); }
+.owned-activity.is-busy .owned-activity-spinner { visibility: visible; }
+.owned-source .owned-source-grant { flex: none; min-height: 24px; padding: 0 10px; }
+/* 許可が要らないときも見えないまま場所を残す（許可が切れて出たときに文の幅が変わらない） */
+.owned-source-grant.is-placeholder { visibility: hidden; }
+.owned-source-settings { flex: none; }
+.route-owned > .owned-source { margin-bottom: 10px; }
+@media (prefers-reduced-motion: no-preference) {
+  .owned-activity.is-busy .owned-activity-spinner { animation: owned-spin 1s linear infinite; }
+}
+@keyframes owned-spin { to { transform: rotate(360deg); } }
 .owned-notices { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
 .owned-notice {
   padding: 8px 12px;

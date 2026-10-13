@@ -3,10 +3,10 @@ import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
 import { talentInput } from '../ui/talent-input.js';
-import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
+import { ownedNotices, noticeList, ownedSourceLine } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { viewHeading, syncPicker, syncOptions, ownedSpeciesNotes } from './shared.js';
+import { viewHeading, syncPicker, syncOptions, ownedSpeciesNotes, keepRefreshing, changeRoute } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import { filterOwned, sortOwned, passiveCounts, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel } from '../core/owned.js';
@@ -215,14 +215,18 @@ export function ownedView(context, route) {
   }
   readRoute(route);
 
-  // 表示しているデータのワールドと更新時刻、連携の案内（設定の操作は設定タブで行う）
+  // データ元の 1 行（どのワールドの・どこから・いつのデータか。右端に読み込みの状態のスロット）と、対応が要るときだけの案内。
+  // 設定の操作（ワールドの切り替え・今すぐ読み込む）は設定タブで行う。データがないときだけ、案内に設定へ行くボタンを出す
   const summary = el('section', 'owned-summary');
-  const title = el('p', 'owned-world');
-  const times = el('p', 'owned-times muted');
   const notices = noticeList([]);
   // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）
-  const noticeActions = { grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) } };
-  summary.append(title, times, notices);
+  const noticeActions = {
+    grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) },
+    settings: { label: 'セーブ連携を開く', run: () => context.navigate('#/settings') },
+    unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
+  };
+  const sourceLine = ownedSourceLine({ actions: { grant: noticeActions.grant } });
+  summary.append(sourceLine.element, notices);
 
   const filters = el('div', 'selection-panel owned-filters');
   const holder = el('select');
@@ -308,13 +312,17 @@ export function ownedView(context, route) {
   // キーワードは入力を間引き、日本語の変換中は絞らない
   pendingInputs.push(onTextInput(query, (value) => { filter.query = value; renderResults(); }, { delay: inputDelay, signal: inputs.signal }));
 
+  // 案内は、確かめている・読んでいる間（busy）は前の結果のまま残す（確認のたびに状態が「確認中」になって、
+  // 許可・エラーの帯が消えてまた出ないように）。終わったら結果で描き直し、同じ案内なら要素も作り直さない
+  let noticesKey = null;
   function renderSummary(state) {
-    const meta = state.meta;
-    title.textContent = meta?.source ? `${worldName(meta)} · ${state.owned.pals.length} 体` : (meta ? worldName(meta) : '');
-    title.hidden = !title.textContent;
-    times.textContent = timeLines(state).join(' · ');
-    times.hidden = !times.textContent;
-    noticeList(ownedNotices(state), notices, noticeActions);
+    sourceLine.update(state);
+    if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
+    const list = ownedNotices(state);
+    const key = JSON.stringify(list);
+    if (key === noticesKey) return;
+    noticesKey = key;
+    noticeList(list, notices, noticeActions);
   }
 
   // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。
@@ -534,6 +542,8 @@ export function ownedView(context, route) {
   renderResults();
   warmKeywords(owned.state.owned);
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
+  // 開いている間は読み直す（参加している人も、ホストが共有し直した所持パルが入る）
+  const stopRefreshing = keepRefreshing(owned);
   return {
     element, update,
     // 同じ画面のまま絞り込みつきの URL が来たとき。作り直さずに、絞り込みと選択欄・一覧を合わせる（キーワードなどの入力は残す）。
@@ -553,6 +563,8 @@ export function ownedView(context, route) {
     },
     destroy() {
       destroyed = true;
+      stopRefreshing();
+      sourceLine.destroy();
       inputs.abort();
       for (const input of pendingInputs) input.cancel();
       talents.destroy();
