@@ -610,6 +610,24 @@ const planOf = (pals, extra = {}) => idealPlan({ pals, index: index(extra.record
 const names = (result) => result.pairs.map((pair) => `${pair.male.id}×${pair.female.id}:${pair.group}`);
 assert.deepEqual(PLAN_GROUPS, ['complete', 'passive', 'talent']);
 
+test('理想個体（計画）: 戻り値の sameSpecies は目標と同じ種族の親の候補の ♂・♀ の数（タマゴ・グローバルパルボックス・性別不明・ほかの種族を除く）', () => {
+  const records = [rec('r1', 'A', 'B', 'X')];
+  const pals = [
+    pal('m1', 'X', 'M', ['P1']),
+    pal('m2', 'X', 'M', []),
+    pal('f1', 'X', 'F', ['P1']),
+    pal('e1', 'X', 'F', ['P1'], talent(), { egg: true }),
+    pal('g1', 'X', 'M', ['P1'], talent(), { place: 'global' }),
+    pal('u1', 'X', '', ['P1']),
+    pal('am', 'A', 'M', ['P1']),
+    pal('bf', 'B', 'F', ['P1']),
+  ];
+  const result = planOf(pals, { records, passives: ['P1'] });
+  assert.deepEqual(result.sameSpecies, { M: 2, F: 1 });
+  // complete は欲しいパッシブを全部持つ同じ種族の数
+  assert.deepEqual(result.complete, { M: 1, F: 1 });
+});
+
 test('理想個体（計画）: 完全体を作れる組を一番上に、次に欲しいパッシブを集める組、最後に個体値だけを狙う組', () => {
   const pals = [
     pal('mA', 'X', 'M', ['P1', 'P2', 'P3'], talent(100, 100, 100)),
@@ -905,9 +923,10 @@ function runSteps(input) {
   }
 }
 
-// 結果を比べるための文字列（個体は ID に、配合の記録の参照は外し、measures は並べた組の配列。数は有効数字 12 桁）
+// 結果を比べるための文字列（個体は ID に、配合の記録の参照は外し、measures は並べた組の配列。数は有効数字 12 桁）。
+// sameSpecies は区切る前の実装（固定の期待値を作った 76001f7）の後で足した数（ideal-panel の所持の状況）なので外す
 const canonicalPlan = (result) => JSON.stringify({
-  ...result, layouts: undefined, measures: [...result.measures].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  ...result, sameSpecies: undefined, layouts: undefined, measures: [...result.measures].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   pairs: result.pairs.map((pair) => ({ ...pair, male: pair.male.id, female: pair.female.id, sources: undefined })),
 }, (key, value) => (typeof value === 'number' && Number.isFinite(value) ? Number(value.toPrecision(12)) : value));
 

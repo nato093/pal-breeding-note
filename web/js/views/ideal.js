@@ -1,5 +1,8 @@
-import { el, field, empty, link, button } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight } from '../ui/dom.js';
 import { startSliced } from '../ui/slice.js';
+import { segmented } from '../ui/segmented.js';
+import { createPopover } from '../ui/popover.js';
+import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile } from '../ui/pal-icon.js';
 import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/passive-picker.js';
@@ -13,12 +16,15 @@ import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature } from './owned.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets } from './shared.js';
-import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
 const LIMIT = 20;
 const TALENT_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
+// 条件のパネルの押しボタンの短いラベル（長い説明は core/ideal.js の PASSIVE_MODES・CAKES の文を title に出す）
+const MODE_LABELS = { include: '全部持つ', only: 'だけ' };
+const CAKE_LABELS = { none: 'なし', talent: 'キノコ等', special: 'スペシャル' };
+const shortChoices = (choices, labels) => choices.map(([key, text]) => [key, labels[key] ?? text, text]);
 
 const targetValue = (value) => intIn(value, { min: 0, max: 100, fallback: 100 });
 /**
@@ -57,20 +63,6 @@ function candidateSignature(pals, species) {
     signature += `${pal.id}\u0001${pal.palId}\u0001${pal.gender}\u0001${pal.passives.join(',')}\u0001${pal.talent.hp},${pal.talent.shot},${pal.talent.defense}\u0002`;
   }
   return signature;
-}
-
-function option(value, label) {
-  const node = el('option', '', label);
-  node.value = value;
-  return node;
-}
-
-function select(choices, value, onChange) {
-  const node = el('select');
-  for (const [key, label] of choices) node.append(option(key, label));
-  node.value = value;
-  node.addEventListener('change', () => onChange(node.value));
-  return node;
 }
 
 /** 確率の表示。1% 未満は有効数字 2 桁にする。 */
@@ -190,10 +182,9 @@ function goalStatus(goal, pals) {
   return { done: true, text: `完成済み: ${where}${found.length > 1 ? ` ほか ${found.length - 1} 体` : ''}` };
 }
 
+// 計算のしくみ（見出しの「?」のダイアログに出す。4 つの見出しに分けて短くするのは ideal-results）
 function explanation() {
-  const details = el('details', 'ideal-help');
-  details.append(el('summary', '', '計算のしくみ'));
-  const list = el('ul');
+  const list = el('ul', 'ideal-help');
   for (const text of [
     'パッシブ: 両親のパッシブを合わせて重複を除いた中から、1〜4 個（40/30/20/10%）を同じ確率で選んで継ぎます。どちらの親が持っていても同じで、欲しいもの以外のパッシブが少ないほど、欲しいものがそろいやすくなります。',
     'ランダムに付くパッシブで偶然そろう分は数えていないため、実際より少し低めの値です。',
@@ -210,8 +201,7 @@ function explanation() {
     '開いている間は 20 秒ごとにセーブを確かめ、孵化させて受け取ったパルも候補に入れて並べ直します（参加している人は、ホストが共有した内容で並べ直します。牧場の中身もホストの共有から分かります）。',
     '突然変異やアルファの子は数えていません。Palworld v1.0.5 のゲームの仕組みで計算しています。',
   ]) list.append(el('li', '', text));
-  details.append(list);
-  return details;
+  return list;
 }
 
 export function idealView(context, route) {
@@ -254,13 +244,10 @@ export function idealView(context, route) {
     onChange: (id) => navigateSelection(context, current, 'to', id) });
   // 欲しいパッシブの選択欄は 1 回だけ作り、条件・データが変わったら update で合わせる（開いた候補を閉じない）
   const passive = passiveSelector({ label: '欲しいパッシブ', selected: passives, negatives: 'last', presets: passivePresets(ideals), onChange: (ids) => setPassives(ids) });
-  const passiveSlot = el('div', 'ideal-passives');
-  passiveSlot.append(passive.element);
-  const query = el('div', 'selection-panel route-query');
-  query.append(toPicker.element, passiveSlot);
 
-  // 個体値の目標（☑ HP [100] 以上。チェックを外すか空欄で条件なし＝保存は 0）。数字の入力は間引き（打っている途中の値で重い計算を回さない）、
-  // 確定（change）・チェック・「すべて 100」ですぐ計算する。間引いて待っている入力は、閉じるときに取り消し、移る前の保存の前に flushInputs で当てる
+  // 個体値の目標（☑ HP [100]。チェックを外すか空欄で条件なし＝保存は 0。「以上」は見出しに 1 回だけ出す）。数字の入力は間引き
+  //（打っている途中の値で重い計算を回さない）、確定（change）・チェック・「すべて 100」ですぐ計算する。
+  // 間引いて待っている入力は、閉じるときに取り消し、移る前の保存の前に flushInputs で当てる
   const talent = talentInput({
     keys: TALENT_KEYS, labels: TALENT_LABELS, value: conditions.targets,
     ariaLabel: (key) => `${TALENT_LABELS[key]}の目標`,
@@ -268,12 +255,6 @@ export function idealView(context, route) {
     debounce: inputDelay,
     onChange: (value) => { conditions.targets = { ...value }; renderResults(); },
   });
-  // 複数の入力をまとめた欄（label で包むと最初の入力にしか結びつかないため div にする）
-  const group = (label, control) => {
-    const wrapper = el('div', 'owned-filter-group');
-    wrapper.append(el('span', 'field-label', label), control);
-    return wrapper;
-  };
   // 親にする個体の所持者（すべて／自分の個体／各プレイヤー）。プレイヤーの個体は、所持者がそのプレイヤーの個体と、
   // そのプレイヤーが預けた拠点のパル（core/ideal-goals.js の palsOfPlayers）。自分の個体は登録者の対応か同じ名前で決める
   const holderSelect = el('select');
@@ -317,22 +298,116 @@ export function idealView(context, route) {
     const ids = new Set((allowed ?? []).map((pal) => pal.id));
     return pals.filter((pal) => ids.has(pal.id));
   }
-  const modeSelect = select(PASSIVE_MODES, conditions.mode, (value) => { conditions.mode = value; renderResults(); });
-  const cakeSelect = select(CAKES, conditions.cake, (value) => { conditions.cake = value; renderResults(); });
-  // 同じ画面のまま登録した理想個体を呼び出したとき（g）、入れた条件を入力欄にも出す
+  // パッシブの条件とケーキは押しボタン（値と計算は前の select と同じ。長い説明は title）。押したらすぐ計算する
+  const modeChoice = segmented({ label: 'パッシブの条件', choices: shortChoices(PASSIVE_MODES, MODE_LABELS), value: conditions.mode,
+    onChange: (value) => { conditions.mode = value; renderResults(); } });
+  const cakeChoice = segmented({ label: 'ケーキ', choices: shortChoices(CAKES, CAKE_LABELS), value: conditions.cake,
+    onChange: (value) => { conditions.cake = value; renderResults(); } });
+  // 同じ画面のまま登録した理想個体を呼び出したとき（g）・戻る・進むで条件を入れ直したとき、入れた条件を入力欄にも出す
   function showConditions() {
     talent.update(conditions.targets);
-    modeSelect.value = conditions.mode;
-    cakeSelect.value = conditions.cake;
+    modeChoice.update(conditions.mode);
+    cakeChoice.update(conditions.cake);
   }
-  const panel = el('div', 'selection-panel ideal-conditions');
-  panel.append(
-    field('所持者', holderSelect),
-    field('パッシブの条件', modeSelect),
-    group('個体値の目標（以上）', talent.element),
-    field('ケーキ', cakeSelect));
 
-  const note = el('p', 'result-note');
+  // 所持の状況（I-53）: 目標と同じ種族の親の候補の数（idealPlan の数。所持者で絞った後）。押すと所持パルをその種族とパッシブで開く。
+  // 目標がないときは「—」で幅を保ち、文字だけ書き換える（要素は作り直さない）
+  const holding = el('a', 'ideal-holding', '—');
+  holding.title = '親の候補の数（タマゴ・グローバルパルボックスを除き、所持者の絞り込みの後）';
+  function renderHolding(result) {
+    const text = result && to ? `所持 ♂${result.sameSpecies.M} ♀${result.sameSpecies.F}${passives.length
+      ? ` · 全部持つ ♂${result.complete.M} ♀${result.complete.F}` : ''}` : '—';
+    if (holding.textContent !== text) holding.textContent = text;
+    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(',') }));
+    else holding.removeAttribute('href');
+  }
+
+  // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ）を、名前を付けて目標として保存する（この端末だけ）。
+  // 名前の変更・条件の更新はしない（外して保存し直す。I-18）
+  const defaultName = () => `${palName(to)}${passives.length ? `（${passiveNames(passives)}）` : ''}`.slice(0, GOAL_NAME_MAX);
+  const goalConditions = () => ({ palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, order: 'next' });
+  const saveSlot = el('div', 'ideal-save-slot');
+  saveSlot.hidden = !ideals;
+  // 目標がないときは見えないまま場所を残す（選んだときに右が動かない）。保存済みは押せない印（aria-disabled）にし、フォーカスは残す
+  const saveButton = button('☆ 目標として保存', () => {
+    if (!to || saveButton.getAttribute('aria-disabled') === 'true') return;
+    if (saveBoard.isOpen()) saveBoard.close();
+    else saveBoard.open();
+  }, 'button secondary ideal-save');
+  saveButton.setAttribute('aria-haspopup', 'dialog');
+  saveSlot.append(saveButton);
+  // 保存の小さな板（名前・注記・キャンセル・保存）。Enter で保存、Esc で閉じてボタンへ戻る
+  const nameInput = el('input');
+  nameInput.type = 'text';
+  nameInput.maxLength = GOAL_NAME_MAX;
+  nameInput.setAttribute('aria-label', '目標の名前');
+  const saveBoard = createPopover({
+    anchor: saveButton, wrapper: saveSlot, className: 'picker-popover ideal-save-popover', focusOut: true,
+    onOpen() {
+      nameInput.value = defaultName();
+      nameInput.focus();
+      nameInput.select?.();
+    },
+  });
+  saveBoard.element.setAttribute('role', 'dialog');
+  saveBoard.element.setAttribute('aria-label', '目標として保存');
+  const nameField = el('label', 'field');
+  nameField.append(el('span', 'field-label', '名前'), nameInput);
+  const saveActions = el('div', 'ideal-save-actions');
+  saveActions.append(button('キャンセル', () => saveBoard.close(), 'button secondary small'), button('保存', () => saveGoal(), 'button primary small'));
+  saveBoard.element.append(nameField, el('p', 'ideal-save-note', 'この端末に保存します。完成したら右上のベルで知らせます。'), saveActions);
+  nameInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    saveGoal();
+  });
+  function renderSave() {
+    if (!ideals) return;
+    const registered = Boolean(to) && ideals.has(goalConditions());
+    const text = registered ? '★ 保存済み' : '☆ 目標として保存';
+    if (saveButton.textContent !== text) saveButton.textContent = text;
+    saveButton.classList.toggle('is-placeholder', !to);
+    saveButton.disabled = !to;
+    saveButton.setAttribute('aria-disabled', String(registered));
+    saveButton.title = to ? goalSummary(goalConditions()) : '';
+    // 保存できなくなったら（目標を外した・保存済みになった）板を閉じる
+    if ((!to || registered) && saveBoard.isOpen()) saveBoard.close({ focus: Boolean(to) });
+  }
+  function saveGoal() {
+    if (!to || !ideals) return;
+    const goal = goalConditions();
+    const name = nameInput.value.trim() || defaultName();
+    const result = ideals.add({ ...goal, name });
+    saveBoard.close();
+    if (result === 'added') toast(`「${name}」を保存しました（${goalSummary(goal)}）。完成したら右上のベルで知らせます`);
+    else if (result === 'duplicate') toast('この条件はすでに保存しています');
+    else if (result === 'full') toast(`保存できる目標は ${GOAL_LIMIT} 件までです`);
+    else if (context.store.state.renaming) toast('名前の変更が終わってから保存してください');
+    else toast('ログインしてから保存してください');
+  }
+
+  // 条件のパネル（sticky の 2 段）。1 段目: 目標・欲しいパッシブ・保存、2 段目: 所持者・パッシブの条件・個体値・ケーキ・所持の状況
+  //（2 段目は幅に応じて折り返す）。高さは画面の section の --panel-h に書き続ける（下の帯・scroll-margin-top が使う）
+  const panel = el('section', 'ideal-panel');
+  panel.setAttribute('aria-label', '理想個体の条件');
+  const panelMain = el('div', 'ideal-panel-main');
+  panelMain.append(toPicker.element, passive.element, saveSlot);
+  // 2 段目の欄（見出しを入力の左に置く）。押しボタンの見出しは radiogroup の名前と重ねて読まれないよう隠す
+  const panelItem = (caption, control, { tag = 'div', hidden = false } = {}) => {
+    const node = el(tag, 'ideal-panel-item');
+    const label = el('span', 'field-label', caption);
+    if (hidden) label.setAttribute('aria-hidden', 'true');
+    node.append(label, control);
+    return node;
+  };
+  const panelSub = el('div', 'ideal-panel-sub');
+  panelSub.append(panelItem('所持者', holderSelect, { tag: 'label' }), panelItem('条件', modeChoice.element, { hidden: true }),
+    panelItem('個体値（以上）', talent.element), panelItem('ケーキ', cakeChoice.element, { hidden: true }), holding);
+  panel.append(panelMain, panelSub);
+  const stopTracking = trackHeight(panel, element);
+
+  // 要約の行（1 行に固定し、入り切らない分は省略して title に全文）
+  const note = el('p', 'result-note ideal-note');
   // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定
   const missingBox = el('div', 'ideal-missing-note');
   const farmBox = el('section', 'ideal-farms');
@@ -344,48 +419,39 @@ export function idealView(context, route) {
     return { get: (id) => kept.get(id) ?? null, set: (id, value) => kept.set(id, value) };
   })();
 
-  // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ）を、名前を付けて登録する
-  const defaultName = () => `${palName(to)}${passives.length ? `（${passiveNames(passives)}）` : ''}`.slice(0, GOAL_NAME_MAX);
-  const goalConditions = () => ({ palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, order: 'next' });
-  const nameInput = el('input');
-  nameInput.type = 'text';
-  nameInput.maxLength = GOAL_NAME_MAX;
-  nameInput.setAttribute('aria-label', '登録する名前');
-  const registerButton = button('この条件を登録', () => registerGoal(), 'button secondary');
-  const registerRow = el('div', 'ideal-register');
-  registerRow.append(el('span', 'field-label', '理想個体として登録'), nameInput, registerButton);
-  registerRow.hidden = !ideals;
-  function renderRegister() {
-    if (!ideals) return;
-    const registered = Boolean(to) && ideals.has(goalConditions());
-    nameInput.placeholder = to ? defaultName() : '目標のパルを選ぶと登録できます';
-    registerButton.textContent = registered ? '登録済み' : 'この条件を登録';
-    registerButton.disabled = !to || registered;
-  }
-  function registerGoal() {
-    if (!to) return;
-    const name = nameInput.value.trim() || defaultName();
-    const result = ideals.add({ ...goalConditions(), name });
-    if (result === 'added') {
-      nameInput.value = '';
-      toast(`「${name}」を登録しました。完成したら右上のベルで知らせます`);
-    } else if (result === 'duplicate') toast('この条件はすでに登録しています');
-    else if (result === 'full') toast(`登録できるのは ${GOAL_LIMIT} 件までです`);
-    else if (context.store.state.renaming) toast('名前の変更が終わってから登録してください');
-    else toast('ログインしてから登録してください');
+  // 見出しの右端: 保存した目標のダイアログを開く「目標（N）」と、計算のしくみの「?」
+  const goalsButton = button('', () => openGoals(), 'button secondary small ideal-goals-button');
+  goalsButton.setAttribute('aria-haspopup', 'dialog');
+  goalsButton.hidden = !ideals;
+  const helpButton = button('?', () => openHelp(), 'icon-button view-help-button');
+  helpButton.setAttribute('aria-label', '計算のしくみの説明');
+  helpButton.setAttribute('aria-haspopup', 'dialog');
+  const heading = viewHeading('理想個体');
+  const headingActions = el('div', 'view-heading-actions');
+  headingActions.append(goalsButton, helpButton);
+  heading.append(headingActions);
+  let helpModal = null;
+  function openHelp() {
+    if (helpModal) return;
+    helpModal = openDialog('計算のしくみ', { className: 'ideal-help-dialog', onClose: () => { helpModal = null; } });
+    helpModal.body.append(explanation());
+    helpModal.footer.append(button('閉じる', helpModal.close, 'button secondary'));
   }
 
-  // 登録した理想個体の一覧（折りたたみ。開いているかはタブを切り替えても残す）
-  const goalsBox = el('details', 'ideal-goals');
-  goalsBox.hidden = !ideals;
-  goalsBox.open = Boolean(memory?.goalsOpen);
-  goalsBox.addEventListener('toggle', () => { if (memory) memory.goalsOpen = goalsBox.open; });
-  const goalsSummary = el('summary', '', '登録した理想個体');
-  const goalsWarning = el('p', 'form-errors', 'この端末に登録を保存できませんでした。ページを閉じると、保存できなかった変更は失われます。');
+  // 保存した目標のダイアログ（表。完成済みを上に）。開いている間は、登録・所持パルが変わるたびに行を合わせる（同じ行は作り直さない）
+  let goalsModal = null;
+  let goalsClose = null;
+  const goalsWarning = el('p', 'form-errors', 'この端末に目標を保存できませんでした。ページを閉じると、保存できなかった変更は失われます。');
   goalsWarning.setAttribute('role', 'alert');
   const goalsList = el('ul', 'ideal-goal-list');
-  goalsBox.append(goalsSummary, goalsWarning, goalsList);
-  let shownGoals = null;
+  function openGoals() {
+    if (!ideals || goalsModal) return;
+    goalsModal = openDialog('目標', { className: 'ideal-goals-dialog', onClose: () => { goalsModal = null; goalsClose = null; clearList(goalsList); } });
+    goalsClose = button('閉じる', goalsModal.close, 'button secondary');
+    goalsModal.body.append(goalsWarning, goalsList);
+    goalsModal.footer.append(goalsClose);
+    renderGoals();
+  }
   function removeGoal(goal) {
     const key = ideals.scope();
     const removed = ideals.remove(goal.id, key);
@@ -393,45 +459,53 @@ export function idealView(context, route) {
       if (context.store.state.renaming) toast('名前の変更が終わってから外してください');
       return;
     }
-    toast(`「${goal.name}」の登録を外しました`, {
+    toast(`「${goal.name}」を目標から外しました`, {
       action: () => { if (!ideals.restore(removed.goal, removed.index, key)) toast('元に戻せませんでした'); },
     });
   }
-  function goalRow(goal, status) {
-    const row = el('li', `ideal-goal${status.done ? ' done' : ''}`);
-    const main = el('div', 'ideal-goal-main');
+  // 1 行（列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す）。保存した目標の中身は変わらないので、update は状態だけ
+  function goalRow({ goal, status }) {
+    const row = el('li', 'ideal-goal');
     const title = el('div', 'ideal-goal-title');
     title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), el('strong', '', goal.name));
-    main.append(title);
-    if (goal.passives.length) main.append(passiveList(goal.passives));
-    main.append(el('small', 'muted', goalSummary(goal)), el('span', `ideal-goal-status${status.done ? ' ready' : ''}`, status.text));
-    const recall = link('呼び出す', goalHash(goal), 'button secondary');
-    // 一覧を描き直しても、押した「呼び出す」にフォーカスを戻す（ui/focus.js）
+    const state = el('span', 'ideal-goal-status');
+    const recall = link('呼び出す', goalHash(goal), 'button secondary small');
+    // 一覧を合わせ直しても、押した「呼び出す」にフォーカスを戻す（ui/dom.js の syncList・ui/focus.js）
     recall.setAttribute('data-focus-key', `goal:${goal.id}`);
-    row.append(main, recall,
-      actionIcon(`「${goal.name}」の登録を外す`, icons.remove, () => removeGoal(goal), 'danger-text'));
-    return row;
+    recall.setAttribute('data-focus', 'recall');
+    // ダイアログは画面の遷移で閉じないので、呼び出したら閉じる（リンクの遷移はそのまま進む）
+    recall.addEventListener('click', () => goalsModal?.close());
+    const remove = actionIcon(`「${goal.name}」を目標から外す`, icons.remove, () => removeGoal(goal), 'danger-text');
+    remove.setAttribute('data-focus', 'remove');
+    row.append(title, goal.passives.length ? passiveList(goal.passives, { compact: true }) : el('span', 'muted', '—'),
+      el('small', 'muted ideal-goal-summary', goalSummary(goal)), state, recall, remove);
+    const update = (item) => {
+      row.classList.toggle('done', item.status.done);
+      state.classList.toggle('ready', item.status.done);
+      if (state.textContent !== item.status.text) state.textContent = item.status.text;
+    };
+    update({ status });
+    return { element: row, update };
   }
   function renderGoals() {
     if (!ideals) return;
-    goalsWarning.hidden = !ideals.saveFailed;
     const goals = ideals.list();
+    const count = `目標（${goals.length}）${ideals.saveFailed ? '!' : ''}`;
+    if (goalsButton.textContent !== count) goalsButton.textContent = count;
+    goalsButton.title = ideals.saveFailed ? 'この端末に保存できませんでした' : '';
+    if (!goalsModal) return;
+    goalsWarning.hidden = !ideals.saveFailed;
     const pals = ideals.mine();
     const rows = goals.map((goal) => ({ goal, status: goalStatus(goal, pals) }));
-    // 完成済みを上に（それぞれ登録の新しい順）
+    // 完成済みを上に（それぞれ保存の新しい順）
     const ordered = [...rows.filter((item) => item.status.done), ...rows.filter((item) => !item.status.done)];
-    // 所持パルを読み直すたびに作り直すと、操作中のフォーカスを失うので、中身が変わったときだけ描き直す
-    const key = JSON.stringify(ordered.map(({ goal, status }) => [goal.id, goal.name, status.text]));
-    if (key === shownGoals) return;
-    shownGoals = key;
-    goalsSummary.textContent = `登録した理想個体（${goals.length} 件）`;
-    const token = captureFocus(goalsList);
-    goalsList.replaceChildren(...(ordered.length ? ordered.map(({ goal, status }) => goalRow(goal, status))
-      : [el('li', 'muted', '登録した理想個体はまだありません。条件を選んで「この条件を登録」を押すと、ここに並び、完成したら右上のベルで知らせます。')]));
-    restoreFocus(goalsList, token);
+    syncList(goalsList, ordered, {
+      key: (item) => item.goal.id, create: goalRow, fallbackFocus: goalsClose,
+      empty: () => el('li', 'muted ideal-goal-empty', '保存した目標はまだありません。条件を選んで「☆ 目標として保存」を押すと、ここに並び、完成したら右上のベルで知らせます。'),
+    });
   }
 
-  element.append(viewHeading('理想個体'), goalsBox, query, panel, registerRow, note, missingBox, farmBox, results, explanation());
+  element.append(heading, panel, note, missingBox, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -573,16 +647,22 @@ export function idealView(context, route) {
     shownKey = '';
     shown = null;
     setComputing(false);
-    note.textContent = '';
+    showNote('');
+    renderHolding(null);
     missingBox.replaceChildren();
     farmBox.replaceChildren();
+  }
+  // 要約の行（1 行に固定。省略されても title で全文を読める）
+  function showNote(text) {
+    note.textContent = text;
+    note.title = text;
   }
 
   function renderResults() {
     // 閉じた後に遅れて呼ばれたとき（間引いた入力など）は、計算を始めない
     if (destroyed) return;
     const started = clock();
-    renderRegister();
+    renderSave();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
     if (!pals) {
@@ -642,7 +722,8 @@ export function idealView(context, route) {
     const current = { key, cancel: run.cancel };
     job = current;
     if (!shownKey) {
-      note.textContent = '';
+      showNote('');
+      renderHolding(null);
       missingBox.replaceChildren();
       farmBox.replaceChildren();
       results.replaceChildren(empty('計算中…'));
@@ -716,9 +797,10 @@ export function idealView(context, route) {
     return { measureOf, advice: farmAdvice(placedFarms, result.pairs, { measureOf }) };
   }
 
-  // 要約・足りないパッシブ・配合牧場の判定・組のカードを描く
+  // 要約・所持の状況・足りないパッシブ・配合牧場の判定・組のカードを描く
   function drawPlan(result, { placedFarms, cake }, changed) {
-    note.textContent = summaryText(result);
+    showNote(summaryText(result));
+    renderHolding(result);
     renderMissing(result);
     const { measureOf, advice } = farmAdviceOf(result, placedFarms);
     renderFarms(advice, changed.size, (item) => [
@@ -742,14 +824,14 @@ export function idealView(context, route) {
     renderGoals();
   }
 
-  // 同じ画面のまま URL が変わったとき（目標・パッシブを選ぶ、戻る・進む、一覧や通知の「呼び出す」）。
-  // 画面を作り直さないので、入力中の登録する名前・開いた一覧・条件の入力は残る（一覧は描き直さない）。
+  // 同じ画面のまま URL が変わったとき（目標・パッシブを選ぶ、戻る・進む、目標のダイアログや通知の「呼び出す」）。
+  // 画面を作り直さないので、条件のパネル・開いた候補・条件の入力は残る。
   // 戻る・進むで app.js が履歴のエントリの条件を conditions に入れ直したとき（restored）は、入力欄にも出す
   function applyRoute(next, { restored = false } = {}) {
-    const before = to;
+    const before = `${to}|${passives.join(',')}`;
     const fromGoal = readRoute(next);
-    // 前の目標の名前で別のパルを登録しないよう、目標が変わったら名前を消す（パッシブだけの変更では残す）
-    if (to !== before) nameInput.value = '';
+    // 保存の板を開いたまま目標・パッシブが変わったら閉じる（前の条件の名前のまま保存しない）
+    if (`${to}|${passives.join(',')}` !== before) saveBoard.close();
     if (fromGoal || restored) showConditions();
     if (restored) renderHolders();
     syncPicker(toPicker, to);
@@ -767,11 +849,18 @@ export function idealView(context, route) {
       job = null;
       toPicker.destroy();
       passive.destroy();
+      modeChoice.destroy();
+      cakeChoice.destroy();
+      saveBoard.destroy();
+      stopTracking();
+      // ダイアログは画面の遷移で閉じないので、画面を閉じるときに閉じる
+      goalsModal?.close();
+      helpModal?.close();
     },
   };
   const view = watchView(context.store, element, update, [pickers]);
-  // 登録が変わったら（別のタブ・完成の判定を含む）、一覧と「登録済み」を描き直す
-  const unsubscribeGoals = ideals?.subscribe(() => { renderRegister(); renderGoals(); passive.update({ presets: passivePresets(ideals) }); }) ?? (() => {});
+  // 保存した目標が変わったら（別のタブ・完成の判定を含む）、目標の数・ダイアログの行・「保存済み」を描き直す
+  const unsubscribeGoals = ideals?.subscribe(() => { renderSave(); renderGoals(); passive.update({ presets: passivePresets(ideals) }); }) ?? (() => {});
   if (!owned) return { element, update, applyRoute, flushInputs, destroy() { unsubscribeGoals(); view.destroy(); } };
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;

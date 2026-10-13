@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom } from '../helpers/dom.js';
-import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput } from '../../web/js/ui/dom.js';
+import { installDom, installResizeObserver } from '../helpers/dom.js';
+import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight } from '../../web/js/ui/dom.js';
 
 // 行の部品（{ element, update, destroy }）。作った数・更新・破棄を数える
 function rows() {
@@ -235,4 +235,42 @@ test('onTextInput: 入力を間引き、日本語の変換中（compositionstart
   await other.dispatch('input');
   t.mock.timers.tick(500);
   assert.deepEqual(seen, []);
+});
+
+test('trackHeight: target の高さを host の CSS 変数に書き続け、同じ高さでは書き直さない。戻り値で監視をやめる', (t) => {
+  installDom(t);
+  const { resize, observed } = installResizeObserver(t);
+  const panel = el('section');
+  const host = el('section');
+  const writes = [];
+  const set = host.style.setProperty;
+  host.style.setProperty = (name, value) => { writes.push([name, value]); set(name, value); };
+  const stop = trackHeight(panel, host);
+  assert.ok(observed(panel));
+  resize(panel, 128.4);
+  assert.equal(host.style.getPropertyValue('--panel-h'), '128.4px');
+  // 同じ高さの知らせ（中の部品だけが変わった）では書かない
+  resize(panel, 128.4);
+  resize(panel, 166);
+  assert.deepEqual(writes, [['--panel-h', '128.4px'], ['--panel-h', '166px']]);
+  // 名前を変えられる（別の要素の高さを同じ host に）
+  const strip = el('div');
+  trackHeight(strip, host, '--strip-h');
+  resize(strip, 44);
+  assert.equal(host.style.getPropertyValue('--strip-h'), '44px');
+  // やめた後は書かない
+  stop();
+  resize(panel, 200);
+  assert.equal(host.style.getPropertyValue('--panel-h'), '166px');
+});
+
+test('trackHeight: ResizeObserver が無い環境では 1 回だけ測って書き、やめる関数は何もしない', (t) => {
+  installDom(t);
+  assert.equal(globalThis.ResizeObserver, undefined);
+  const panel = el('section');
+  const host = el('section');
+  // テストの DOM の getBoundingClientRect は top 200・bottom 252（高さ 52）
+  const stop = trackHeight(panel, host);
+  assert.equal(host.style.getPropertyValue('--panel-h'), '52px');
+  assert.doesNotThrow(stop);
 });

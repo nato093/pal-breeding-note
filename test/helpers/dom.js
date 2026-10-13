@@ -111,6 +111,33 @@ export class FakeElement {
   close() { this.open = false; return this.dispatch('close'); }
 }
 
+/**
+ * ResizeObserver の代わり（テストの DOM は大きさを持たないので、テストが resize(target, 高さ) で知らせる）。
+ * observed(target) は監視しているか。t.after で元に戻す（Node には ResizeObserver が無いので消す）
+ */
+export function installResizeObserver(t) {
+  const before = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+  t.after(() => (before ? Object.defineProperty(globalThis, 'ResizeObserver', before) : Reflect.deleteProperty(globalThis, 'ResizeObserver')));
+  const observers = new Set();
+  globalThis.ResizeObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.targets = new Set();
+    }
+    observe(target) { this.targets.add(target); observers.add(this); }
+    unobserve(target) { this.targets.delete(target); }
+    disconnect() { this.targets.clear(); observers.delete(this); }
+  };
+  return {
+    observed: (target) => [...observers].some((observer) => observer.targets.has(target)),
+    resize(target, blockSize) {
+      for (const observer of [...observers]) {
+        if (observer.targets.has(target)) observer.callback([{ target, borderBoxSize: [{ blockSize, inlineSize: 0 }] }], observer);
+      }
+    },
+  };
+}
+
 export function installDom(t) {
   for (const name of ['document', 'window']) {
     const before = Object.getOwnPropertyDescriptor(globalThis, name);

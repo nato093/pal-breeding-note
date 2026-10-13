@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom } from '../helpers/dom.js';
+import { installDom, installResizeObserver } from '../helpers/dom.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
@@ -69,6 +69,24 @@ async function pickPassive(view, id) {
   assert.ok(option, id);
   await option.dispatch('click');
 }
+// 条件のパネルの押しボタン（パッシブの条件・ケーキ）。label は radiogroup の名前
+const radioGroup = (view, label) => view.element.querySelectorAll('[role="radiogroup"]').find((node) => node.getAttribute('aria-label') === label);
+const chooseRadio = (view, label, value) => radioGroup(view, label).querySelector(`[data-value="${value}"]`).dispatch('click');
+const chosen = (view, label) => radioGroup(view, label).querySelector('[aria-checked="true"]')?.getAttribute('data-value');
+// 「☆ 目標として保存」のボタンと、保存の板の名前の欄（板は開いている間だけ画面にある）
+const saveButton = (view) => view.element.querySelector('.ideal-save');
+const nameInput = (view) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === '目標の名前');
+// 保存の板を開いて保存する（name を渡せば名前を変える）
+function saveAsGoal(view, name) {
+  saveButton(view).dispatch('click');
+  if (name !== undefined) nameInput(view).value = name;
+  nameInput(view).dispatch('keydown', { key: 'Enter' });
+}
+// 見出しの「目標（N）」で目標のダイアログを開く
+function openGoals(view) {
+  view.element.querySelector('.ideal-goals-button').dispatch('click');
+  return document.body.querySelectorAll('dialog').find((node) => node.className.split(' ').includes('ideal-goals-dialog') && node.open);
+}
 // 候補の所持数（「希少（3）」の形にそろえる。所持数のない候補は名前だけ）
 async function passiveOptions(view) {
   if (passiveAdd(view).getAttribute('aria-expanded') !== 'true') await passiveAdd(view).dispatch('click');
@@ -96,14 +114,94 @@ test('理想個体画面: URL の目標とパッシブで、配合牧場に置�
   assert.equal(view.element.querySelector('.result-note').textContent, '2 組のうち、別々の個体で作れる上位 1 組 · 候補 3 体 · 同じ種族どうし · 性別不明の 1 体は除外 · 20 秒ごとに確認');
   // 並べ方の切り替えはない
   assert.ok(!view.element.querySelectorAll('select').some((node) => [...node.children].some((option) => option.value === 'generations')));
-  assert.match(view.element.querySelector('.ideal-help').textContent, /計算のしくみ/);
+  // 計算のしくみは結果の下に置かず、見出しの「?」からダイアログで開く
+  assert.equal(view.element.querySelector('.ideal-help'), null);
+  const help = view.element.querySelector('.view-heading').querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '計算のしくみの説明');
+  help.dispatch('click');
+  const dialog = document.body.querySelectorAll('dialog').find((node) => node.className.split(' ').includes('ideal-help-dialog'));
+  assert.equal(dialog.open, true);
+  assert.equal(dialog.querySelector('h2').textContent, '計算のしくみ');
+  assert.equal(dialog.querySelector('.ideal-help').children.length, 14);
+  assert.match(dialog.textContent, /並び: 理想個体を作るのにおすすめの組を/);
   // 選んだパッシブは選択欄に出る
   assert.deepEqual(view.element.querySelectorAll('.passive-selector')[0].querySelectorAll('.passive-name').map((node) => node.textContent), ['職人気質', '希少']);
-  // 選択欄は目標と横に並べる欄（.route-query）の中に置く
-  assert.ok(view.element.querySelector('.route-query').querySelector('.passive-selector'));
+  // 選択欄は条件のパネル（.ideal-panel）の 1 段目に、目標と並べて置く
+  assert.ok(view.element.querySelector('.ideal-panel-main').querySelector('.passive-selector'));
   assert.equal(owned.loads, 1);
   view.destroy();
   assert.equal(owned.listeners.size, 0);
+  // 画面を閉じると、開いていたダイアログも閉じる
+  assert.equal(dialog.open, false);
+});
+
+test('理想個体画面: 条件を sticky のパネルにまとめる（1 段目: 目標・欲しいパッシブ・保存、2 段目: 所持者・パッシブの条件・個体値・ケーキ・所持の状況）', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  const children = view.element.children;
+  // 並び: 見出し → パネル → 要約 → 足りないパッシブ → 牧場 → 結果（登録の行・登録した一覧の折りたたみはない）
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'result-note ideal-note', 'ideal-missing-note', 'ideal-farms', 'ideal-results']);
+  assert.equal(view.element.querySelector('.ideal-goals'), null);
+  assert.equal(view.element.querySelector('.ideal-register'), null);
+  const panel = view.element.querySelector('.ideal-panel');
+  assert.equal(panel.tagName, 'section');
+  assert.equal(panel.getAttribute('aria-label'), '理想個体の条件');
+  const [main, sub] = panel.children;
+  assert.deepEqual(main.children.map((node) => node.className.split(' ')[0]), ['picker', 'field', 'ideal-save-slot']);
+  assert.ok(main.children[1].className.includes('passive-selector'));
+  // 2 段目は見出しを入力の左に置いた欄と、右端の所持の状況
+  assert.deepEqual(sub.children.map((node) => (node.tagName === 'a' ? node.textContent : node.children[0].textContent)), ['所持者', '条件', '個体値（以上）', 'ケーキ', '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2']);
+  assert.equal(sub.children[0].tagName, 'label');
+  assert.equal(sub.children[0].querySelector('select').value, '');
+  // パッシブの条件・ケーキは押しボタン（短いラベル、長い説明は title）
+  assert.deepEqual(radioGroup(view, 'パッシブの条件').children.map((node) => [node.textContent, node.title]),
+    [['全部持つ', '欲しいものを全部持つ（他も可）'], ['だけ', '欲しいものだけを持つ']]);
+  assert.deepEqual(radioGroup(view, 'ケーキ').children.map((node) => [node.textContent, node.title]),
+    [['なし', 'ケーキ・野菜ケーキ'], ['キノコ等', 'キノコケーキ・豪華野菜ケーキ（個体値 +1〜5）'], ['スペシャル', 'スペシャルケーキ（パッシブを 4 個まで継ぐ）']]);
+  assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['include', 'none']);
+  // パネルの高さは画面の section の --panel-h に書く（ResizeObserver の無いテストの DOM では 1 回だけ測る）
+  assert.equal(view.element.style.getPropertyValue('--panel-h'), '52px');
+  view.destroy();
+});
+
+test('理想個体画面: パネルの高さは ResizeObserver で追って --panel-h に書き、画面を閉じたら監視をやめる', (t) => {
+  install(t);
+  const { resize, observed } = installResizeObserver(t);
+  const owned = fakeOwned();
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
+  const panel = view.element.querySelector('.ideal-panel');
+  assert.ok(observed(panel));
+  resize(panel, 141.5);
+  assert.equal(view.element.style.getPropertyValue('--panel-h'), '141.5px');
+  // パッシブのチップが改行して 1 行増えた
+  resize(panel, 179.5);
+  assert.equal(view.element.style.getPropertyValue('--panel-h'), '179.5px');
+  view.destroy();
+  assert.equal(observed(panel), false);
+});
+
+test('理想個体画面: 所持の状況は目標と同じ種族の親の候補の ♂♀（所持者で絞った後）と、欲しいパッシブを全部持つ数。押すと所持パルをその種族とパッシブで開く', async (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const ctx = context(owned);
+  let view;
+  ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' });
+  view = idealView(ctx, parseHash('#/ideal'));
+  const holding = view.element.querySelector('.ideal-holding');
+  // 目標がないときは「—」（場所は残す）で、押せない
+  assert.equal(holding.tagName, 'a');
+  assert.equal(holding.textContent, '—');
+  assert.equal(holding.getAttribute('href'), null);
+  assert.equal(holding.title, '親の候補の数（タマゴ・グローバルパルボックスを除き、所持者の絞り込みの後）');
+  // モコロン: ♂ m1、♀ f1・f2（性別不明の u1・タマゴの e1 は数えない）
+  view.applyRoute(parseHash('#/ideal?to=SheepBall'), { reason: 'update' });
+  assert.equal(view.element.querySelector('.ideal-holding'), holding);
+  assert.equal(holding.textContent, '所持 ♂1 ♀2');
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall');
+  await pickPassive(view, 'Rare');
+  assert.equal(holding.textContent, '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2');
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare');
+  view.destroy();
 });
 
 test('理想個体画面: 個体値の目標とケーキを変えると結果だけ作り直し、条件はタブを戻っても残る', (t) => {
@@ -131,16 +229,14 @@ test('理想個体画面: 個体値の目標とケーキを変えると結果だ
   assert.match(cards(view)[0].textContent, /完全体作成組/);
   assert.match(cards(view)[0].textContent, /1 個のタマゴで 30.8%/);
   // ケーキを変えると、結果だけ計算し直す（+1〜5 で 90 からでも目標の 90 以上は変わらず、乱数の分が上がる）
-  const cake = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent'));
-  cake.value = 'talent';
-  cake.dispatch('change');
+  chooseRadio(view, 'ケーキ', 'talent');
   assert.match(cards(view)[0].textContent, /1 個のタマゴで 31.8%/);
   assert.equal(input(view, '攻撃の目標'), attack);
   view.destroy();
   // 作り直しても、入力した条件のまま
   const again = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
   assert.equal(input(again, '攻撃の目標').value, '90');
-  assert.equal(again.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent')).value, 'talent');
+  assert.equal(chosen(again, 'ケーキ'), 'talent');
 });
 
 test('理想個体画面: 個体値の目標はチェックつきの入力。チェックを外すと HP 0 と同じ結果になり、登録の要約は「HP —」。「すべて 100」で全部 100 に戻す', (t) => {
@@ -151,7 +247,8 @@ test('理想個体画面: 個体値の目標はチェックつきの入力。チ
   ]);
   const ctx = withIdeals(context(owned), owned);
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
-  assert.ok(view.element.querySelectorAll('.field-label').some((node) => node.textContent === '個体値の目標（以上）'));
+  // 見出しは 1 回だけ「個体値（以上）」（各欄の「以上」は CSS で隠す）
+  assert.ok(view.element.querySelectorAll('.field-label').some((node) => node.textContent === '個体値（以上）'));
   const full100 = cards(view)[0].textContent;
   // HP のチェックを外す（数字は薄く残す）
   const hp = input(view, 'HPを条件にする');
@@ -165,10 +262,11 @@ test('理想個体画面: 個体値の目標はチェックつきの入力。チ
     parseHash('#/ideal?to=SheepBall'));
   assert.equal(cards(zero)[0].textContent, unchecked);
   zero.destroy();
-  // 登録すると保存は 0（条件なし）のまま、一覧の要約は「HP —」
-  byLabel(view, 'この条件を登録').dispatch('click');
+  // 目標として保存すると保存は 0（条件なし）のまま、保存のボタンの title と目標のダイアログの要約は「HP —」
+  assert.match(saveButton(view).title, /^HP —・攻撃 100 以上・防御 100 以上/);
+  saveAsGoal(view);
   assert.deepEqual(ctx.ideals.list()[0].targets, { hp: 0, shot: 100, defense: 100 });
-  assert.match(view.element.querySelector('.ideal-goal').textContent, /HP —・攻撃 100 以上・防御 100 以上/);
+  assert.match(openGoals(view).querySelector('.ideal-goal').textContent, /HP —・攻撃 100 以上・防御 100 以上/);
   // 「すべて 100」で全部 100 に戻す
   byLabel(view, 'すべて 100').dispatch('click');
   assert.equal(input(view, 'HPの目標').value, '100');
@@ -307,9 +405,7 @@ test('理想個体画面: 完全体作成組・パッシブ厳選組・個体値
   // 個体値厳選組: 個体値がそろうまでの平均（パッシブは見ない）
   assert.match(list[2].textContent, /個体値がそろうまで 平均 約 [\d,.]+ 個.*パッシブは見ていません/);
   // キノコケーキでは、世代の組は目安で並べ、離れているときは上限を「多くても」で添える
-  const cake = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent'));
-  cake.value = 'talent';
-  cake.dispatch('change');
+  chooseRadio(view, 'ケーキ', 'talent');
   assert.match(cards(view)[0].textContent, /キノコケーキは目安/);
   view.destroy();
 });
@@ -448,35 +544,166 @@ function withIdeals(ctx, owned, storage = new Map()) {
 }
 const byLabel = (view, label) => view.element.querySelectorAll('button').find((node) => node.textContent === label);
 
-test('理想個体画面: 今の条件を名前を付けて登録し、一覧に完成の状態を出す', (t) => {
-  install(t);
+test('理想個体画面: 「☆ 目標として保存」の板で名前を付けて保存し（Enter）、「目標（N）」のダイアログに完成の状態を出す', (t) => {
+  const { body } = install(t);
   const owned = fakeOwned([
     palworldPal('m1', 'SheepBall', 'Male', ['Rare'], full),
     palworldPal('f1', 'SheepBall', 'Female', ['Rare'], { hp: 90, shot: 90, defense: 90 }),
   ]);
   const ctx = withIdeals(context(owned), owned);
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
-  const name = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === '登録する名前');
-  assert.equal(name.placeholder, 'モコロン（希少）');
+  body.append(view.element);
+  const save = saveButton(view);
+  assert.equal(save.textContent, '☆ 目標として保存');
+  assert.equal(save.getAttribute('aria-disabled'), 'false');
+  // title は保存される条件の要約（I-20）
+  assert.equal(save.title, 'HP 100 以上・攻撃 100 以上・防御 100 以上 · 欲しいものを全部持つ（他も可） · ケーキ・野菜ケーキ');
+  assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（0）');
+  // 押すと板が開き、名前の欄に自動の名前（パル名＋パッシブ）を入れてフォーカスする
+  save.dispatch('click');
+  const board = view.element.querySelector('.ideal-save-popover');
+  assert.equal(board.getAttribute('role'), 'dialog');
+  assert.match(board.textContent, /この端末に保存します/);
+  const name = nameInput(view);
+  assert.equal(name.value, 'モコロン（希少）');
+  assert.equal(document.activeElement, name);
+  // 日本語の変換中の Enter では保存しない
   name.value = '最強モコロン';
-  byLabel(view, 'この条件を登録').dispatch('click');
+  name.dispatch('keydown', { key: 'Enter', isComposing: true });
+  assert.equal(ctx.ideals.list().length, 0);
+  name.dispatch('keydown', { key: 'Enter' });
   assert.deepEqual(ctx.ideals.list().map((goal) => [goal.name, goal.palId, goal.passives.join(','), goal.mode, goal.order]), [['最強モコロン', 'SheepBall', 'Rare', 'include', 'next']]);
-  // 同じ条件はもう登録できない
-  assert.equal(byLabel(view, '登録済み').disabled, true);
-  const box = view.element.querySelector('.ideal-goals');
-  assert.match(box.querySelector('summary').textContent, /登録した理想個体（1 件）/);
+  // 板は閉じてボタンへフォーカスを戻す。同じ条件はもう保存できない（押せない印。フォーカスは残す）
+  assert.equal(nameInput(view), undefined);
+  assert.equal(document.activeElement, save);
+  assert.equal(save.textContent, '★ 保存済み');
+  assert.equal(save.getAttribute('aria-disabled'), 'true');
+  save.dispatch('click');
+  assert.equal(nameInput(view), undefined);
+  assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（1）');
   // m1 は 3 つとも 100 で希少を持つので完成済み
-  assert.match(box.querySelector('.ideal-goal').textContent, /最強モコロン.*完成済み: Alice · パルボックス/);
-  // 条件を変えると、また登録できる
-  const attack = view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === '攻撃の目標');
+  const dialog = openGoals(view);
+  assert.equal(dialog.querySelector('h2').textContent, '目標');
+  assert.match(dialog.querySelector('.ideal-goal').textContent, /最強モコロン.*希少.*HP 100 以上.*完成済み: Alice · パルボックス/);
+  // 条件を変えると、また保存できる
+  const attack = input(view, '攻撃の目標');
   attack.value = '90';
   attack.dispatch('input');
-  assert.equal(byLabel(view, 'この条件を登録').disabled, false);
+  assert.equal(save.textContent, '☆ 目標として保存');
+  assert.equal(save.getAttribute('aria-disabled'), 'false');
   attack.value = '100';
   attack.dispatch('input');
-  assert.equal(byLabel(view, '登録済み').disabled, true);
+  assert.equal(save.textContent, '★ 保存済み');
   // アルファの条件はない
-  assert.ok(!view.element.querySelectorAll('select').some((node) => [...node.children].some((option) => option.value === 'alpha')));
+  assert.ok(!view.element.querySelectorAll('[role="radio"]').some((node) => node.getAttribute('data-value') === 'alpha'));
+  view.destroy();
+  assert.equal(dialog.open, false);
+});
+
+test('理想個体画面: 保存の板は Esc・キャンセルで閉じてボタンへ戻り、何も保存しない。目標を選ぶ前は保存のボタンが見えず（場所は残す）押せない', async (t) => {
+  const { body, events } = install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  body.append(view.element);
+  const save = saveButton(view);
+  save.dispatch('click');
+  assert.ok(nameInput(view));
+  await events.dispatch('keydown', { key: 'Escape' });
+  assert.equal(nameInput(view), undefined);
+  assert.equal(document.activeElement, save);
+  save.dispatch('click');
+  view.element.querySelector('.ideal-save-popover').querySelectorAll('button').find((node) => node.textContent === 'キャンセル').dispatch('click');
+  assert.equal(nameInput(view), undefined);
+  assert.equal(document.activeElement, save);
+  assert.equal(ctx.ideals.list().length, 0);
+  view.destroy();
+  // 目標がないとき: 見えない（visibility で場所は残す）・押せない
+  const none = idealView(withIdeals(context(fakeOwned()), owned), parseHash('#/ideal'));
+  const hidden = saveButton(none);
+  assert.ok(hidden.className.split(' ').includes('is-placeholder'));
+  assert.equal(hidden.disabled, true);
+  assert.equal(hidden.hidden, false);
+  assert.equal(hidden.title, '');
+  none.destroy();
+  // ログインしていない（目標を保存できない）ときは、保存のボタンも「目標（N）」も出さない
+  const guest = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall'));
+  assert.equal(guest.element.querySelector('.ideal-save-slot').hidden, true);
+  assert.equal(guest.element.querySelector('.ideal-goals-button').hidden, true);
+  guest.destroy();
+});
+
+test('理想個体画面: 目標のダイアログから外す・元に戻す・呼び出すができ、呼び出すとダイアログを閉じる', async (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  ctx.ideals.add({ name: '古い目標', palId: 'SheepBall', passives: [], mode: 'include', targets: full, cake: 'none', order: 'next' });
+  ctx.ideals.add({ name: '攻撃型', palId: 'SheepBall', passives: ['Rare'], mode: 'only', targets: { hp: 0, shot: 100, defense: 90 }, cake: 'talent', order: 'next' });
+  const view = idealView(ctx, parseHash('#/ideal'));
+  body.append(view.element);
+  assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（2）');
+  const dialog = openGoals(view);
+  // 名前は .ideal-goal-title の最後の子（パルの絵の中にも strong がある）
+  const goalName = (row) => row.querySelector('.ideal-goal-title').children.at(-1).textContent;
+  const titles = () => dialog.querySelectorAll('.ideal-goal').map(goalName);
+  // 新しい順（完成済みがあれば上）。列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す
+  assert.deepEqual(titles(), ['攻撃型', '古い目標']);
+  const [row] = dialog.querySelectorAll('.ideal-goal');
+  assert.match(row.querySelector('.passive-list').className, /compact/);
+  assert.equal(row.querySelector('.ideal-goal-summary').textContent, 'HP —・攻撃 100 以上・防御 90 以上 · 欲しいものだけを持つ · キノコケーキ・豪華野菜ケーキ');
+  // 外すと行が消え、フォーカスは次の行へ。トーストの「元に戻す」で同じ位置に戻る
+  const remove = row.querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '「攻撃型」を目標から外す');
+  remove.focus();
+  remove.dispatch('click');
+  assert.deepEqual(titles(), ['古い目標']);
+  assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（1）');
+  assert.ok(dialog.querySelectorAll('.ideal-goal')[0].contains(document.activeElement));
+  const undo = dialog.querySelector('.toast-action');
+  assert.ok(undo);
+  await undo.dispatch('click');
+  assert.deepEqual(titles(), ['攻撃型', '古い目標']);
+  // 呼び出す: g つきのリンクで、押すとダイアログを閉じる（遷移はリンクのまま）
+  const recall = dialog.querySelectorAll('a').find((node) => node.textContent === '呼び出す');
+  const [goal] = ctx.ideals.list();
+  assert.equal(recall.href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
+  recall.dispatch('click');
+  assert.equal(dialog.open, false);
+  // 閉じた後は行を描かない（開き直すと今の行）
+  ctx.ideals.add({ name: '新しい目標', palId: 'PinkCat', passives: [], mode: 'include', targets: full, cake: 'none', order: 'next' });
+  assert.equal(dialog.querySelectorAll('.ideal-goal').length, 0);
+  // 完成済み（モコロンの 2 つ。所持パルの f1 が満たす）を上に、未完成のツッパニャンは下
+  const again = openGoals(view);
+  assert.deepEqual(again.querySelectorAll('.ideal-goal').map(goalName), ['攻撃型', '古い目標', '新しい目標']);
+  assert.deepEqual(again.querySelectorAll('.ideal-goal-status').map((node) => node.className), ['ideal-goal-status ready', 'ideal-goal-status ready', 'ideal-goal-status']);
+  view.destroy();
+});
+
+test('理想個体画面: この端末に目標を保存できなかったら「目標（N）!」と title で知らせ、ダイアログに警告を出す。古い viewState の goalsOpen は読まない', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  // 前の画面（登録した一覧の折りたたみ）が viewState に残した goalsOpen
+  const states = new Map([['ideal', { goalsOpen: true }]]);
+  const ctx = withIdeals(context(owned, [], states), owned);
+  const failing = new Map();
+  ctx.ideals = createIdealStore({
+    store: { state: { env: 'test', userId: 'Alice', passcode: '入力', renaming: false, users: ['Alice'] }, subscribe: () => () => {} },
+    owned, storage: { getItem: (key) => failing.get(key) ?? null, setItem() { throw new Error('容量超過'); }, removeItem: () => {} },
+  });
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  // 折りたたみの一覧は出さず、ダイアログも開かない
+  assert.equal(view.element.querySelector('details'), null);
+  assert.equal(document.body.querySelectorAll('dialog').length, 0);
+  const goals = view.element.querySelector('.ideal-goals-button');
+  assert.equal(goals.textContent, '目標（0）');
+  assert.equal(goals.title, '');
+  saveAsGoal(view, '保存できない目標');
+  assert.equal(ctx.ideals.saveFailed, true);
+  assert.equal(goals.textContent, '目標（1）!');
+  assert.equal(goals.title, 'この端末に保存できませんでした');
+  const dialog = openGoals(view);
+  const warning = dialog.querySelector('.form-errors');
+  assert.equal(warning.hidden, false);
+  assert.equal(warning.getAttribute('role'), 'alert');
   view.destroy();
 });
 
@@ -492,40 +719,52 @@ test('理想個体画面: 一覧や通知から開くと（g）、登録した�
   // 保存の 0（条件なし）は、チェックなし・空欄で出す
   assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['', '100', '90']);
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
-  const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
-  assert.deepEqual([selectHaving('only').value, selectHaving('talent').value], ['only', 'talent']);
+  assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['only', 'talent']);
   assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
-  assert.equal(byLabel(view, '登録済み').disabled, true);
-  // 一覧の「呼び出す」は g つきのリンク
-  assert.equal(view.element.querySelector('.ideal-goal').querySelectorAll('a').find((node) => node.textContent === '呼び出す').href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
+  assert.equal(saveButton(view).textContent, '★ 保存済み');
+  assert.equal(saveButton(view).getAttribute('aria-disabled'), 'true');
+  // 目標のダイアログの「呼び出す」は g つきのリンク
+  assert.equal(openGoals(view).querySelector('.ideal-goal').querySelectorAll('a').find((node) => node.textContent === '呼び出す').href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
   view.destroy();
 });
 
-test('理想個体画面: 同じ画面のまま URL が変わると（applyRoute）、登録する名前はパッシブの変更では残し、目標が変わったら消す', (t) => {
-  install(t);
+test('理想個体画面: 同じ画面のまま URL が変わっても（applyRoute）パネルを作り直さず、保存の板は目標・パッシブが変わったら閉じる', (t) => {
+  const { body } = install(t);
   const owned = fakeOwned();
   const ctx = withIdeals(context(owned), owned);
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
-  const name = input(view, '登録する名前');
+  body.append(view.element);
+  const panel = view.element.querySelector('.ideal-panel');
   const trigger = view.element.querySelector('.picker-trigger');
-  const goals = view.element.querySelector('.ideal-goals');
-  goals.open = true;
+  const save = saveButton(view);
+  save.dispatch('click');
+  const name = nameInput(view);
   name.value = '最強モコロン';
+  // 同じ route（戻る・進むの読み直しなど）では閉じない
+  view.applyRoute(parseHash('#/ideal?to=SheepBall'), { reason: 'history' });
+  assert.equal(nameInput(view), name);
+  assert.equal(name.value, '最強モコロン');
+  // パッシブが変わると閉じる（前の条件の名前で保存しない）。パネルと部品は同じ要素
   view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare'), { reason: 'update' });
-  assert.equal(input(view, '登録する名前'), name);
-  assert.equal(name.value, '最強モコロン');
-  assert.equal(name.placeholder, 'モコロン（希少）');
+  assert.equal(nameInput(view), undefined);
+  assert.equal(view.element.querySelector('.ideal-panel'), panel);
   assert.equal(view.element.querySelector('.picker-trigger'), trigger);
-  assert.equal(view.element.querySelector('.ideal-goals'), goals);
-  assert.equal(goals.open, true);
+  assert.equal(saveButton(view), save);
   assert.deepEqual(view.element.querySelector('.passive-selector').querySelectorAll('.passive-name').map((node) => node.textContent), ['希少']);
-  // 同じ route でもう一度呼んでも変わらない
-  view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare'), { reason: 'history' });
-  assert.equal(name.value, '最強モコロン');
+  // 開き直すと今の条件の名前
+  save.dispatch('click');
+  assert.equal(nameInput(view).value, 'モコロン（希少）');
   view.applyRoute(parseHash('#/ideal?to=PinkCat&p=Rare'), { reason: 'update' });
-  assert.equal(name.value, '');
+  assert.equal(nameInput(view), undefined);
   assert.equal(trigger.getAttribute('aria-label'), '目標: No.2 ツッパニャン');
-  assert.equal(name.placeholder, 'ツッパニャン（希少）');
+  save.dispatch('click');
+  assert.equal(nameInput(view).value, 'ツッパニャン（希少）');
+  // 目標を外すと板を閉じ、保存のボタンは見えず押せない
+  view.applyRoute(parseHash('#/ideal'), { reason: 'update' });
+  assert.equal(nameInput(view), undefined);
+  assert.ok(save.className.split(' ').includes('is-placeholder'));
+  assert.equal(save.disabled, true);
+  assert.equal(view.element.querySelector('.ideal-panel'), panel);
   view.destroy();
 });
 
@@ -543,9 +782,8 @@ test('理想個体画面: 同じ画面のまま g つきの URL が来ると、�
   // 保存の 0（条件なし）は、チェックなし・空欄で出す（前に出ていた HP 100 も消す）
   assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['', '100', '90']);
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
-  const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
-  assert.deepEqual([selectHaving('only').value, selectHaving('talent').value], ['only', 'talent']);
-  assert.equal(byLabel(view, '登録済み').disabled, true);
+  assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['only', 'talent']);
+  assert.equal(saveButton(view).textContent, '★ 保存済み');
   // ここから作る遷移先の URL に g を残さない
   await pickPassive(view, 'Legend');
   assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare%2CLegend']);
@@ -678,19 +916,21 @@ test('理想個体画面: 余計なパッシブ・配合では作れないパッ
   missing.destroy();
 });
 
-test('理想個体画面: 登録を外すと一覧から消え、所持パルのデータがないときは「未確認」と出す', (t) => {
+test('理想個体画面: 目標を外すとダイアログの行が消えて空の文を出し、所持パルのデータがないときは「未確認」と出す', (t) => {
   install(t);
   const owned = fakeOwned(null);
   const ctx = withIdeals(context(owned), owned);
   ctx.ideals.add({ name: '目標', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none', order: 'next' });
   const view = idealView(ctx, parseHash('#/ideal'));
-  assert.match(view.element.querySelector('.ideal-goal').textContent, /未確認（所持パルのデータがありません）/);
-  // 目標のパルを選ぶまでは登録できない
-  assert.equal(byLabel(view, 'この条件を登録').disabled, true);
-  const remove = view.element.querySelector('.ideal-goal').querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '「目標」の登録を外す');
+  const dialog = openGoals(view);
+  assert.match(dialog.querySelector('.ideal-goal').textContent, /未確認（所持パルのデータがありません）/);
+  // 目標のパルを選ぶまでは保存できない
+  assert.equal(saveButton(view).disabled, true);
+  const remove = dialog.querySelector('.ideal-goal').querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '「目標」を目標から外す');
   remove.dispatch('click');
   assert.equal(ctx.ideals.list().length, 0);
-  assert.match(view.element.querySelector('.ideal-goals').textContent, /登録した理想個体はまだありません/);
+  assert.equal(dialog.querySelector('.ideal-goal-empty').textContent,
+    '保存した目標はまだありません。条件を選んで「☆ 目標として保存」を押すと、ここに並び、完成したら右上のベルで知らせます。');
   view.destroy();
 });
 
@@ -713,18 +953,14 @@ test('理想個体画面: パッシブの条件を満たす子が産まれない
     palworldPal('f1', 'SheepBall', 'Female', ['Rare']),
   ]);
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
-  const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
-  const choose = (key) => { const node = selectHaving(key); node.value = key; node.dispatch('change'); };
-  choose('only');
-  choose('special');
+  chooseRadio(view, 'パッシブの条件', 'only');
+  chooseRadio(view, 'ケーキ', 'special');
   assert.equal(cards(view).length, 0);
   assert.match(view.element.querySelector('.ideal-results').textContent, /スペシャルケーキは空いた枠をランダムなパッシブで埋めるので/);
   view.destroy();
   // 欲しいパッシブなしで「欲しいものだけ」（パッシブなし）は、パッシブを持つ親からは産まれない
   const none = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
-  const mode = none.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'only'));
-  mode.value = 'only';
-  mode.dispatch('change');
+  chooseRadio(none, 'パッシブの条件', 'only');
   assert.match(none.element.querySelector('.ideal-results').textContent, /パッシブを持つ親からは、パッシブのない子は産まれません/);
   none.destroy();
   // ログイン中の ID と同じ名前のプレイヤーがセーブにいない（登録者の対応もない）と、自分の個体では絞れない
@@ -908,12 +1144,9 @@ test('理想個体画面: 牧場の中身が最後に変わってから新しく
   assert.match(view.element.querySelector('.ideal-farms').textContent, /新しく入った組が 1 組/);
   assert.match(view.element.querySelector('.ideal-farm').textContent, /交換推奨 → おすすめ 1 番/);
   // 条件を変えると別の基準（変えた条件で初めて見るので印はない）。戻すと、もとの基準で印が戻る
-  const cake = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent'));
-  cake.value = 'talent';
-  cake.dispatch('change');
+  chooseRadio(view, 'ケーキ', 'talent');
   assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
-  cake.value = 'none';
-  cake.dispatch('change');
+  chooseRadio(view, 'ケーキ', 'none');
   assert.match(cards(view)[0].textContent, /変更あり/);
   // タブを切り替えても、牧場の中身が変わるまで残る
   view.destroy();
