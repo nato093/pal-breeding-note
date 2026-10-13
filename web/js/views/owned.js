@@ -243,38 +243,74 @@ export function ownedRowLinks(pal) {
 // 行の操作を出せる個体（パルのマスターにある・タマゴでない）
 const canAct = (pal) => pal.known && !pal.egg && Boolean(pal.palId);
 
-// パル（絵と名前・性別）と、名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）。バッジは 1 行（入り切らない分は隠し、title に全部）
-function fillPalCell(cell, pal, marks) {
-  const nodes = [];
-  if (pal.known) nodes.push(palTile(pal.palId, { gender: pal.gender, genderFirst: true }));
-  else {
-    // 人間のキャラクターなど、パルのマスターにないもの。ゲームから取り出した名前とアイコンがあれば出す
-    const unknown = el('span', 'pal-tile owned-unknown');
-    if (pal.human?.icon) unknown.append(humanIcon(pal.human.icon));
-    const label = el('span', 'pal-label');
-    const name = el('strong', '', pal.name);
-    if (pal.gender) {
-      const line = el('span', 'pal-name-line');
-      line.append(el('span', `gender gender-${pal.gender}`, pal.gender === 'M' ? '♂' : '♀'), name);
-      label.append(line);
-    } else label.append(name);
-    unknown.append(label);
-    nodes.push(unknown);
+// パル（絵と名前・性別）。名前のリンクは data-focus="pal"（行の中を書き換えても、同じ部品へフォーカスを戻す目印）
+function palCellTile(pal) {
+  if (pal.known) {
+    const tile = palTile(pal.palId, { gender: pal.gender, genderFirst: true });
+    if (tile.tagName === 'a') tile.setAttribute('data-focus', 'pal');
+    return tile;
   }
-  const badges = [];
-  if (pal.nickname) badges.push(['owned-badge', `「${pal.nickname}」`]);
-  if (pal.egg) badges.push(['owned-badge badge-egg', 'タマゴ']);
-  if (pal.lucky) badges.push(['owned-badge badge-lucky', 'ラッキー']);
-  if (pal.alpha) badges.push(['owned-badge badge-alpha', 'アルファ']);
-  for (const mark of marks) badges.push(['owned-badge badge-mark', mark]);
-  if (badges.length) {
-    const line = el('span', 'owned-badges');
-    line.append(...badges.map(([className, text]) => el('span', className, text)));
-    line.title = badges.map(([, text]) => text).join('\n');
-    nodes.push(line);
-  }
-  cell.replaceChildren(...nodes);
+  // 人間のキャラクターなど、パルのマスターにないもの。ゲームから取り出した名前とアイコンがあれば出す
+  const unknown = el('span', 'pal-tile owned-unknown');
+  if (pal.human?.icon) unknown.append(humanIcon(pal.human.icon));
+  const label = el('span', 'pal-label');
+  const name = el('strong', '', pal.name);
+  if (pal.gender) {
+    const line = el('span', 'pal-name-line');
+    line.append(el('span', `gender gender-${pal.gender}`, pal.gender === 'M' ? '♂' : '♀'), name);
+    label.append(line);
+  } else label.append(name);
+  unknown.append(label);
+  return unknown;
 }
+
+// 行の中に出す目標の印の数。残りは「+N」（押すと板に一覧。板の中身は開いたときに作る）。目標が多いと 1 行に印が 100 個並び、
+// 2,000 行で DOM の予算〔80,000〕を超えたため。キーワードで印を探すのは DOM と別（filterOwned の extraTexts）で、すべての印を見る
+const MARK_SLOTS = 2;
+
+// 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）。1 行（入り切らない分は隠し、title に全部）。バッジがなければ null。
+// 印が MARK_SLOTS を超えたら「+N」のボタン（data-focus="marks-more"）を足し、説明の部品を hints に入れる
+function palCellBadges(pal, marks, hints) {
+  const fixed = [];
+  if (pal.nickname) fixed.push(['owned-badge badge-nickname', `「${pal.nickname}」`]);
+  if (pal.egg) fixed.push(['owned-badge badge-egg', 'タマゴ']);
+  if (pal.lucky) fixed.push(['owned-badge badge-lucky', 'ラッキー']);
+  if (pal.alpha) fixed.push(['owned-badge badge-alpha', 'アルファ']);
+  if (!fixed.length && !marks.length) return null;
+  const shown = marks.slice(0, MARK_SLOTS);
+  const line = el('span', 'owned-badges');
+  line.append(...[...fixed, ...shown.map((mark) => ['owned-badge badge-mark', mark])].map(([className, text]) => el('span', className, text)));
+  line.title = [...fixed.map(([, text]) => text), ...marks].join('\n');
+  const rest = marks.slice(shown.length);
+  if (rest.length) {
+    const more = button(`+${rest.length}`, null, 'owned-badge mark-more');
+    more.setAttribute('aria-label', `ほかの目標の印 ${rest.length} 個`);
+    more.setAttribute('data-focus', 'marks-more');
+    more.title = rest.join('\n');
+    line.append(more);
+    hints.push(hint({ label: 'ほかの目標の印', trigger: more, content: () => {
+      const list = el('div', 'mark-list');
+      list.append(...rest.map((mark) => el('span', 'owned-badge badge-mark', mark)));
+      return [list];
+    } }));
+  }
+  return line;
+}
+
+// 行の中でフォーカスのある部品の目印（data-focus。部品から先祖へたどる）。フォーカスが行の外・目印のない部品なら null
+function focusMark(row) {
+  const active = globalThis.document?.activeElement;
+  if (!active || !row.contains(active)) return null;
+  for (let node = active; node && node !== row; node = node.parentElement) {
+    const mark = typeof node.getAttribute === 'function' ? node.getAttribute('data-focus') : null;
+    if (mark) return mark;
+  }
+  return null;
+}
+const focusLost = () => {
+  const doc = globalThis.document;
+  return !doc?.activeElement || doc.activeElement === doc.body || doc.activeElement.isConnected === false;
+};
 
 // レベル（タマゴは「—」。文字はセルに直接）と、パル濃縮の 4 枠（塗りの ★ は文字、輪郭の ☆ は CSS が data-off から出す。
 // SVG にせず要素 1 つ。2,000 行で要素の数を増やさないため）
@@ -318,6 +354,7 @@ function fillPassiveList(list, ids, wanted, hints, after) {
   }
   const more = button(`+${rest.length}`, null, 'passive-more');
   more.setAttribute('aria-label', `ほかのパッシブ ${rest.length} 個`);
+  more.setAttribute('data-focus', 'passive-more');
   more.title = rest.map((id) => passivesById.get(id)?.ja ?? id).join('\n');
   list.append(more);
   if (after) list.append(after);
@@ -378,14 +415,15 @@ function fillWhereCell(cell, pal) {
     cell.title = '';
     return;
   }
+  // 短い表記と図は見た目だけ（読み上げは隠し、場所の全文「パルボックス 2 ページ・1 行 2 列」を見た目は隠した文で読ませる）
   const place = el('small', 'muted owned-box', `P${pal.box.page} · ${pal.box.row}-${pal.box.column}`);
+  place.setAttribute('aria-hidden', 'true');
   // 図は要素 1 つ（枠は背景の線、位置の印は ::after を --r・--c の枠に置く）
   const map = el('span', 'box-map');
-  map.setAttribute('aria-hidden', 'true');
   map.style.setProperty('--r', String(pal.box.row));
   map.style.setProperty('--c', String(pal.box.column));
   place.append(map);
-  cell.replaceChildren(el('strong', '', pal.holder), place);
+  cell.replaceChildren(el('strong', '', pal.holder), place, el('span', 'visually-hidden', pal.placeLabel));
   cell.title = pal.placeLabel;
 }
 
@@ -394,8 +432,10 @@ function fillWhereCell(cell, pal) {
  * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値の目標との差を見せる
  * （{ wanted, targets }）、marks は名前の下の印（span.owned-badge.badge-mark）、actions は行の操作を出せる行か（所持パルの画面だけ。
  * 操作の要素は showActions で、初めて触れた行にだけ作る）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。省くと行が持つ）。
- * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）
- * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, showActions(): boolean, destroy(): void }}
+ * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）。書き換えたセルにフォーカスがあったら、同じ役目の部品
+ * （data-focus。名前のリンク pal・「+N」passive-more／marks-more・行の操作 action-<key>）へ戻す。印は MARK_SLOTS 個までと「+N」
+ * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, showActions(): boolean,
+ *   hideActions(next?: Element): boolean, destroy(): void }}
  */
 export function ownedRowItem(pal, options) {
   const element = el('article', 'owned-row');
@@ -408,6 +448,10 @@ export function ownedRowItem(pal, options) {
   element.append(cells.pal, cells.level, cells.passives, cells.talent, cells.where);
   const shown = {};
   let ownHints = [];
+  let badgeHints = [];
+  // パルのセルの中: 名前のリンク（絵と名前）とバッジの 1 行。印だけが変わったときに名前のリンクを作り直さない（フォーカスが落ちる）
+  let tileNode = null;
+  let badgeLine = null;
   let actions = null;
   let eligible = false;
   let current = pal;
@@ -423,6 +467,7 @@ export function ownedRowItem(pal, options) {
     actions.replaceChildren(...ownedRowLinks(current).map((item) => {
       const node = link('', item.href, `owned-row-action action-${item.key}`);
       node.setAttribute('aria-label', item.label);
+      node.setAttribute('data-focus', `action-${item.key}`);
       node.title = item.label;
       node.append(navIcon(item.icon));
       return node;
@@ -433,12 +478,26 @@ export function ownedRowItem(pal, options) {
     get pal() { return current; },
     update(next, { notes = [], highlight, marks = [], actions: withActions = false, hints } = {}) {
       current = next;
+      // 書き換えるセルにフォーカスがあったら、書き換えた後に同じ役目の部品（data-focus）へ戻す
+      const focused = focusMark(element);
       let changed = false;
       changed = write('label', `${next.name}\u0001${next.nickname}`, () => {
         element.setAttribute('aria-label', `${next.name}${next.nickname ? `（${next.nickname}）` : ''}`);
       }) || changed;
-      changed = write('pal', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender, next.nickname, next.egg, next.lucky, next.alpha,
-        marks.join('\u0001')].join('\u0002'), () => fillPalCell(cells.pal, next, marks)) || changed;
+      changed = write('tile', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender].join('\u0002'), () => {
+        const tile = palCellTile(next);
+        cells.pal.insertBefore(tile, tileNode ?? cells.pal.children[0] ?? null);
+        tileNode?.remove();
+        tileNode = tile;
+      }) || changed;
+      changed = write('badges', [next.nickname, next.egg, next.lucky, next.alpha, marks.join('\u0001')].join('\u0002'), () => {
+        for (const old of badgeHints) old.destroy();
+        badgeHints = [];
+        const line = palCellBadges(next, marks, hints ?? badgeHints);
+        if (line) cells.pal.insertBefore(line, badgeLine);
+        badgeLine?.remove();
+        badgeLine = line;
+      }) || changed;
       changed = write('level', `${next.egg}:${next.level}:${next.stars}`, () => fillLevelCell(cells.level, next)) || changed;
       changed = write('passives', `${next.passives.join(',')}\u0002${highlight?.wanted?.join(',') ?? ''}`, () => {
         for (const old of ownHints) old.destroy();
@@ -467,6 +526,7 @@ export function ownedRowItem(pal, options) {
         actions = null;
         shown.actions = '';
       } else if (actions) write('actions', actionsKey(next), fillActions);
+      if (focused && changed && focusLost()) element.querySelector(`[data-focus="${focused}"]`)?.focus({ preventScroll: true });
       return changed;
     },
     /** 行の操作（目標に・ここから継承ルート・親1 にして配合を探す）を出す。出せない行（タマゴ・人間・理想個体のカード）は false */
@@ -479,9 +539,22 @@ export function ownedRowItem(pal, options) {
       fillActions();
       return true;
     },
+    /**
+     * 行の操作を外す（ポインターもフォーカスも離れた行。触れた行に付けたままにすると、DOM が増え続けるため）。
+     * next（これからフォーカスが入る要素。既定は今のフォーカス）が操作の中なら外さずに false
+     */
+    hideActions(next = globalThis.document?.activeElement) {
+      if (!actions) return true;
+      if (next && actions.contains(next)) return false;
+      actions.remove();
+      actions = null;
+      shown.actions = '';
+      return true;
+    },
     destroy() {
-      for (const old of ownHints) old.destroy();
+      for (const old of [...ownHints, ...badgeHints]) old.destroy();
       ownHints = [];
+      badgeHints = [];
     },
   };
   item.update(pal, options);
@@ -1287,9 +1360,23 @@ export function ownedView(context, route) {
     }
     return null;
   };
-  const revealActions = (event) => { rowOf(event.target)?.showActions(); };
-  results.addEventListener('pointerover', revealActions, { signal: inputs.signal });
-  results.addEventListener('focusin', revealActions, { signal: inputs.signal });
+  // 操作を出しておく行は、ポインターが乗っている行とフォーカスのある行の 2 つまで（離れた行の操作は外す。触れた行に付けたままにすると、
+  // 1,500 行ほど触れたところで DOM の予算を超えるため）。フォーカスが操作の中にある行は外さない
+  const actionRows = { pointer: null, focus: null };
+  function touchRow(kind, row, next) {
+    const previous = actionRows[kind];
+    if (previous === row) return;
+    actionRows[kind] = row;
+    row?.showActions();
+    if (previous && previous !== actionRows.pointer && previous !== actionRows.focus) previous.hideActions(next);
+  }
+  results.addEventListener('pointerover', (event) => touchRow('pointer', rowOf(event.target)), { signal: inputs.signal });
+  results.addEventListener('pointerleave', () => touchRow('pointer', null), { signal: inputs.signal });
+  results.addEventListener('focusin', (event) => touchRow('focus', rowOf(event.target), event.target), { signal: inputs.signal });
+  // 一覧の外へフォーカスが出たとき（一覧の中の移動は、続く focusin で付け替える）
+  results.addEventListener('focusout', (event) => {
+    if (!event.relatedTarget || !results.contains(event.relatedTarget)) touchRow('focus', null, event.relatedTarget ?? null);
+  }, { signal: inputs.signal });
 
   // ---- 目標の印（O-52）。登録した目標とデータから、どちらかが変わったときに 1 回だけ作る（core/ideal-goals.js の goalMarks） ----
   const ideals = context.ideals;

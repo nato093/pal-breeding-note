@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom, installResizeObserver } from '../helpers/dom.js';
+import { installDom, installResizeObserver, descendants } from '../helpers/dom.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
@@ -87,6 +87,10 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.equal(where.title, 'パルボックス 2 ページ・1 行 2 列');
   const map = where.querySelector('.box-map');
   assert.deepEqual([map.style.getPropertyValue('--r'), map.style.getPropertyValue('--c')], ['1', '2']);
+  // 読み上げは「Alice パルボックス 2 ページ・1 行 2 列」（短い表記と図は aria-hidden、全文は見た目を隠した文。B11: 短い表記だけが読まれていた）
+  assert.equal(where.querySelector('.owned-box').getAttribute('aria-hidden'), 'true');
+  assert.equal(where.querySelector('.visually-hidden').textContent, 'パルボックス 2 ページ・1 行 2 列');
+  assert.match(first.textContent, /Alice.*パルボックス 2 ページ・1 行 2 列/);
   // ★は 4 枠（塗りの ★ は文字、輪郭の ☆ は CSS が data-off から出す）で、読み上げは aria-label（前は「★★」の文字だけ・★ がなければ「☆なし」）
   const stars = first.querySelector('.owned-stars');
   assert.deepEqual([stars.getAttribute('role'), stars.getAttribute('aria-label'), stars.textContent, stars.getAttribute('data-off')], ['img', 'パル濃縮 ★2', '★★', '☆☆']);
@@ -1878,4 +1882,102 @@ test('所持パル画面: 登録した目標の印（完成品・欲しいパッ
   assert.equal(rowOf(/モコロン/), row);
   view.destroy();
   assert.equal(listeners.size, 0);
+});
+
+// ---- フェーズ 1b・1c の終わりのレビューの直し（所持パルの行。B2・B5・B12） ----
+
+const goalsStore = (initial) => {
+  let goals = initial;
+  const listeners = new Set();
+  return {
+    set(next) { goals = next; for (const listener of listeners) listener(); },
+    listeners,
+    ideals: { list: () => goals, subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }, mine: () => [], selfUids: () => new Set() },
+  };
+};
+const rareGoals = (count) => Array.from({ length: count }, (_, i) => ({
+  id: `g${i}`, name: `目標${i + 1}`, palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: { hp: i % 2 ? 0 : 50, shot: 0, defense: 0 },
+}));
+
+test('所持パル画面: 目標の印は行に 2 個までと「+N」（押すと残りを板に一覧）。キーワードはすべての印で探せる（B2: 目標の数だけ印の要素が増えていた）', async (t) => {
+  const { body } = installDom(t);
+  const goals = goalsStore(rareGoals(100));
+  const view = ownedView({ ...memoryApp(fakeOwned(holderData())), ideals: goals.ideals }, parseHash('#/owned'));
+  body.append(view.element);
+  const row = () => view.element.querySelectorAll('.owned-row').find((node) => /モコロン/.test(node.getAttribute('aria-label')));
+  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2']);
+  const more = row().querySelector('.mark-more');
+  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+98', 'ほかの目標の印 98 個']);
+  assert.equal(more.title.split('\n').length, 98);
+  // バッジの行の title にはすべての印
+  assert.equal(row().querySelector('.owned-badges').title.split('\n').length, 100);
+  // 行の要素は目標の数で増えない（印 2 個と「+N」だけ）
+  assert.ok(descendants(row()).length < 45, `行の要素が多すぎます: ${descendants(row()).length}`);
+  // 板は開いたときに作る（残りの 98 個）
+  assert.equal(body.querySelector('.mark-list'), null);
+  await more.dispatch('click');
+  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark').length, 98);
+  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark')[97].textContent, '完成品: 目標100');
+  // 行に出ていない 100 番目の目標の印でも、キーワードで探せる
+  keywordOf(view).value = '目標100';
+  await keywordOf(view).dispatch('input');
+  assert.deepEqual(rowIds(view), ['モコロン']);
+  view.destroy();
+  assert.equal(body.querySelector('.mark-list'), null);
+});
+
+test('所持パル画面: 目標の印だけが変わったときは名前のリンクを作り直さず、フォーカスを残す。「+N」は作り直しても同じ役目のボタンへ戻す（B5）', (t) => {
+  installDom(t);
+  const goals = goalsStore(rareGoals(1));
+  const view = ownedView({ ...memoryApp(fakeOwned(holderData())), ideals: goals.ideals }, parseHash('#/owned'));
+  const row = () => view.element.querySelectorAll('.owned-row').find((node) => /モコロン/.test(node.getAttribute('aria-label')));
+  const link = row().querySelector('[data-focus="pal"]');
+  assert.equal(link.tagName, 'a');
+  link.focus();
+  // 目標を足す（印だけが変わる）。前は名前のリンクごと作り直して、フォーカスが body に落ちた
+  goals.set(rareGoals(2));
+  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2']);
+  assert.equal(row().querySelector('[data-focus="pal"]'), link);
+  assert.equal(document.activeElement, link);
+  // 「+N」にフォーカスがあるまま数が変わったら、新しい「+N」へ
+  goals.set(rareGoals(4));
+  row().querySelector('.mark-more').focus();
+  goals.set(rareGoals(5));
+  assert.equal(row().querySelector('.mark-more').textContent, '+3');
+  assert.equal(document.activeElement, row().querySelector('.mark-more'));
+  view.destroy();
+});
+
+test('所持パル画面: 行の操作はポインターの行とフォーカスの行の 2 つまでにだけ付け、離れた行からは外す（フォーカスが操作の中なら外さない。B12）', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  const rows = list.querySelectorAll('.owned-row').filter((node) => !node.querySelector('.badge-egg'));
+  assert.ok(rows.length >= 4);
+  const withActions = () => list.querySelectorAll('.owned-row').filter((node) => node.querySelector('.owned-row-actions')).map((node) => rows.indexOf(node));
+  await list.dispatch('pointerover', { target: rows[0].querySelector('.owned-talent') });
+  assert.deepEqual(withActions(), [0]);
+  // 次の行に移ると、前の行の操作は外す（前は触れた行に付いたまま増え続けた）
+  await list.dispatch('pointerover', { target: rows[1].querySelector('.owned-talent') });
+  assert.deepEqual(withActions(), [1]);
+  // フォーカスの行（Tab で行の操作へ）とポインターの行は別々に持つ
+  const action = (index) => {
+    rows[index].querySelector('[data-focus="pal"]').focus();
+    return list.dispatch('focusin', { target: rows[index].querySelector('[data-focus="pal"]') });
+  };
+  await action(2);
+  assert.deepEqual(withActions(), [1, 2]);
+  const inner = rows[2].querySelector('[data-focus="action-ideal"]');
+  inner.focus();
+  await list.dispatch('focusin', { target: inner });
+  await list.dispatch('pointerover', { target: rows[3].querySelector('.owned-talent') });
+  assert.deepEqual(withActions(), [2, 3]);
+  // ポインターが一覧を出ると、ポインターの行の操作を外す（フォーカスのある行は残す）
+  await list.dispatch('pointerleave', {});
+  assert.deepEqual(withActions(), [2]);
+  // フォーカスが一覧の外（キーワード）へ出たら外す
+  keywordOf(view).focus();
+  await list.dispatch('focusout', { target: inner, relatedTarget: keywordOf(view) });
+  assert.deepEqual(withActions(), []);
+  view.destroy();
 });
