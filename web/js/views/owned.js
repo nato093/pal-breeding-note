@@ -11,7 +11,7 @@ import { createPopover } from '../ui/popover.js';
 import { ownedNotices, noticeList, ownedSourceLine } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices } from './shared.js';
+import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, fieldHead, panelItem, panelLine } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import {
@@ -235,15 +235,17 @@ const TALENT_CELLS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御'], [
 // 1 つの行に出すパッシブの数。5 個以上なら 3 個と「+N」（残りは押すと板に出す。行の中には広げない）
 const PASSIVE_SLOTS = 4;
 
-// 行の操作（所持パルの画面だけ）の行き先。配合を探す（search）はフェーズ 2 の find-merge で行き先が変わるので、ここ 1 か所で作る
-const positivePassives = (pal) => pal.passives.filter((id) => (passivesById.get(id)?.rank ?? 0) > 0);
-/** 行の操作のリンク（目標に・ここから継承ルート・親1 にして配合を探す）。理想個体と継承ルートへは正のランクのパッシブだけを渡す */
+// 行の操作（所持パルの画面だけ）の行き先。配合検索（search）はフェーズ 2 の find-merge で行き先が変わるので、ここ 1 か所で作る
+/**
+ * 行の操作のリンク [{ key, icon, text, label, title, href }]。text は見えている文字、label は読み上げの名前（text を含む）。
+ * 2026-10-13 のユーザーのフィードバック（D28）で「親にして検索」（配合検索の親1）の 1 つだけにした（所持しているパルを理想個体の目標に
+ * することはなく、継承ルートは目標とパッシブから探すので、「目標に」「ここから継承ルート」はなくした）
+ */
 export function ownedRowLinks(pal) {
-  const p = positivePassives(pal).join(',');
+  const name = palsById.get(pal.palId)?.ja ?? pal.name;
   return [
-    { key: 'ideal', icon: 'ideal', label: '目標に（理想個体）', href: buildHash('ideal', { to: pal.palId, p }) },
-    { key: 'route', icon: 'route', label: 'ここから継承ルート', href: buildHash('route', { from: pal.palId, p }) },
-    { key: 'search', icon: 'search', label: '親1 にして配合を探す', href: buildHash('search', { p1: pal.palId }) },
+    { key: 'search', icon: 'search', text: '親にして検索', label: `${name}を親にして検索`, title: `${name}を親1 にして配合検索を開く`,
+      href: buildHash('search', { p1: pal.palId }) },
   ];
 }
 // 行の操作を出せる個体（パルのマスターにある・タマゴでない）
@@ -510,14 +512,16 @@ export function ownedRowItem(pal, options) {
     fill();
     return true;
   };
-  const actionsKey = (target) => `${target.palId}\u0002${positivePassives(target).join(',')}`;
+  // 行の操作の中身は種族だけで決まる
+  const actionsKey = (target) => target.palId;
+  // 文字のラベルつきのボタン（絵は飾り）。操作が 1 つでも何をするボタンか分かるように、絵だけにしない（D28）
   function fillActions() {
     actions.replaceChildren(...ownedRowLinks(current).map((item) => {
       const node = link('', item.href, `owned-row-action action-${item.key}`);
       node.setAttribute('aria-label', item.label);
       node.setAttribute('data-focus', `action-${item.key}`);
-      node.title = item.label;
-      node.append(navIcon(item.icon));
+      node.title = item.title;
+      node.append(navIcon(item.icon), el('span', 'owned-row-action-text', item.text));
       return node;
     }));
   }
@@ -588,7 +592,7 @@ export function ownedRowItem(pal, options) {
       if (focused && changed && focusLost()) element.querySelector(`[data-focus="${focused}"]`)?.focus({ preventScroll: true });
       return changed;
     },
-    /** 行の操作（目標に・ここから継承ルート・親1 にして配合を探す）を出す。出せない行（タマゴ・人間・理想個体のカード）は false */
+    /** 行の操作（親にして検索）を出す。出せない行（タマゴ・人間・理想個体のカード）は false */
     showActions() {
       if (!eligible) return false;
       if (actions) return true;
@@ -884,7 +888,8 @@ export function ownedView(context, route) {
     changed();
   }
 
-  // ---- 状態の行: 件数と内訳・効いている条件のチップ（入り切らない分は +n）・すべて解除・リンクをコピー・並べ替え・理想個体／継承ルートへ ----
+  // ---- 状態の行（結果の行）: 件数と内訳・効いている条件のチップ（入り切らない分は +n）・すべて解除・リンクをコピー・並べ替え。
+  // 理想個体／継承ルートへのリンクは、パル・パッシブの見出しの行（D28） ----
   const count = el('p', 'result-note owned-count');
   const chipBox = el('div', 'filter-chips');
   chipBox.setAttribute('role', 'group');
@@ -923,7 +928,8 @@ export function ownedView(context, route) {
   linkPopover.element.tabIndex = -1;
   linkPopover.element.setAttribute('aria-label', 'この条件のリンク');
   linkPopover.element.append(el('p', 'owned-link-note', 'コピーできませんでした。下のリンクを選んでコピーしてください。'), linkInput);
-  // 理想個体・継承ルートへのリンク（O-40）。状態の行に収めるため文は短く、長い名前は aria-label と title に
+  // 理想個体・継承ルートへのリンク（O-40）。もとにした欄（パル・パッシブ）の見出しの行の右端に置く（D28。前は状態の行の右端で、
+  // 条件のチップの場所を狭めていた）。文は短く、長い名前は aria-label と title に
   const panelLink = (text, label) => {
     const node = link(text, '#/', 'owned-panel-link');
     node.setAttribute('aria-label', label);
@@ -943,30 +949,36 @@ export function ownedView(context, route) {
   const routeLink = panelLink('継承ルート →', 'このパッシブを運ぶ継承ルートを開く');
 
   // ---- パネル（sticky。高さは画面の section の --panel-h に書き続ける〔owned-rows の列見出しの top・scroll-margin-top が使う〕） ----
-  const panelItem = (caption, control, { tag = 'div', hidden = false, className = '' } = {}) => {
-    const node = el(tag, `owned-panel-item ${className}`.trim());
-    const label = el('span', 'field-label', caption);
-    if (hidden) label.setAttribute('aria-hidden', 'true');
-    node.append(label, control);
-    return node;
-  };
+  // 見出しと区切りは理想個体のパネルと同じ部品・同じ CSS の決まり（views/shared.js の fieldHead・panelItem・panelLine。D28）:
+  //   1 段目 [パル（見出しの行に「理想個体 →」）][パッシブ（見出しの行にパッシブの条件と「継承ルート →」）][キーワード]（見出しは入力の上）
+  //   2 段目 1 行目 [所持者][個体値（以上）][★][属性 ▾]、2 行目 [場所のチップ]（見出しは入力の左、欄の間に縦の区切り線）
+  //   結果の行（状態の行）[件数][効いている条件のチップ][+n] … [目標の印][すべて解除][リンクをコピー][並べ替え]
   const panel = el('section', 'owned-panel');
   panel.setAttribute('aria-label', '所持パルの絞り込み');
   const panelMain = el('div', 'owned-panel-main');
   const keywordField = field('キーワード', query);
   keywordField.classList.add('owned-keyword');
+  fieldHead(picker.element, idealLink);
+  // パッシブの条件（全部持つ／だけ／なし）はパッシブの欄の見出しの行に置く（前は 2 段目に「パッシブ」の見出しでもう 1 回出していた）
+  fieldHead(passive.element, modeChoice.element, routeLink);
   panelMain.append(picker.element, passive.element, keywordField);
   const panelSub = el('div', 'owned-panel-sub');
   panelSub.append(
-    panelItem('所持者', holderSelect.element, { hidden: true, className: 'owned-holder-item' }),
-    panelItem('場所', placeBox, { hidden: true, className: 'owned-places' }),
-    panelItem('パッシブ', modeChoice.element, { hidden: true }),
-    panelItem('個体値（以上）', talentBox),
-    panelItem('★', stars, { tag: 'label', hidden: true, className: 'owned-stars-item' }),
-    elementSlot,
+    panelLine(
+      panelItem('所持者', holderSelect.element, { hidden: true, className: 'owned-holder-item' }),
+      panelItem('個体値（以上）', talentBox, { className: 'owned-talent-item' }),
+      panelItem('★', stars, { tag: 'label', hidden: true, className: 'owned-stars-item' }),
+      elementSlot,
+    ),
+    panelLine(panelItem('場所', placeBox, { hidden: true, className: 'owned-places' })),
   );
+  // 並べ替えの選択にも見出し（読み上げの名前は select の aria-label「並べ替え」のまま）
+  const sortField = el('label', 'owned-sort-field');
+  const sortCaption = el('span', 'field-label', '並べ替え');
+  sortCaption.setAttribute('aria-hidden', 'true');
+  sortField.append(sortCaption, sort);
   const statusRow = el('div', 'owned-status-row');
-  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, copySlot, sort, idealLink, routeLink);
+  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, copySlot, sortField);
   panel.append(panelMain, panelSub, statusRow);
   // ---- 列見出し（F069。押すとその並べ替え、もう一度で向きを反対に）。syncList の行の入れ物とは別の要素で、列の幅は CSS の
   // --owned-cols を行と共有する。パネルの下に貼り付く。並べ替えの選択（状態の行）と同じ filter.sort・filter.dir を使う ----
@@ -1367,7 +1379,11 @@ export function ownedView(context, route) {
     }
     const detail = holder.unknown ? '自分のプレイヤーが分かりません' : `♂${totals.M} ♀${totals.F}${totals.eggs ? ` タマゴ ${totals.eggs}` : ''}`;
     const text = `${shown} / ${state.owned.pals.length} 体 · ${detail}`;
-    if (count.textContent !== text) count.textContent = text;
+    // 出ている数を太く、内訳は薄く（結果の行だと一目で分かるように。D28）。文は前と同じ
+    if (count.textContent !== text) {
+      count.replaceChildren(el('strong', 'owned-count-shown', String(shown)), el('span', '', ` / ${state.owned.pals.length} 体`),
+        el('span', 'owned-count-detail', ` · ${detail}`));
+    }
     const globals = statsOf(state.owned).counts.get('global') ?? 0;
     count.title = !filter.places.includes('global') && globals ? `グローバル ${globals} 体は非表示` : '';
   }

@@ -18,7 +18,7 @@ import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, 
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing, holderChoices } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing, holderChoices, fieldHead, panelItem, panelLine } from './shared.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
@@ -481,23 +481,22 @@ export function idealView(context, route) {
     else toast('ログインしてから保存してください');
   }
 
-  // 条件のパネル（sticky の 2 段）。1 段目: 目標・欲しいパッシブ・保存、2 段目: 所持者・パッシブの条件・個体値・ケーキ・所持の状況
-  //（2 段目は幅に応じて折り返す）。高さは画面の section の --panel-h に書き続ける（下の帯・scroll-margin-top が使う）
+  // 条件のパネル（sticky の 2 段）。見出しと区切りは所持パルのパネルと同じ部品・同じ CSS の決まり（views/shared.js の fieldHead・
+  // panelItem・panelLine。D28）:
+  //   1 段目 [目標][欲しいパッシブ（見出しの行にパッシブの条件）][保存]（見出しは入力の上）
+  //   2 段目 1 行目 [所持者][個体値（以上）]、2 行目 [ケーキ] と右端の所持の状況（見出しは入力の左、欄の間に縦の区切り線）
+  // 高さは画面の section の --panel-h に書き続ける（下の帯・scroll-margin-top が使う）
   const panel = el('section', 'ideal-panel');
   panel.setAttribute('aria-label', '理想個体の条件');
   const panelMain = el('div', 'ideal-panel-main');
+  // パッシブの条件（全部持つ／だけ）は、条件をかける欲しいパッシブの見出しの行に置く（前は 2 段目の「条件」で、何の条件か分かりにくかった）
+  fieldHead(passive.element, modeChoice.element);
   panelMain.append(toPicker.element, passive.element, saveSlot);
-  // 2 段目の欄（見出しを入力の左に置く）。押しボタンの見出しは radiogroup の名前と重ねて読まれないよう隠す
-  const panelItem = (caption, control, { tag = 'div', hidden = false } = {}) => {
-    const node = el(tag, 'ideal-panel-item');
-    const label = el('span', 'field-label', caption);
-    if (hidden) label.setAttribute('aria-hidden', 'true');
-    node.append(label, control);
-    return node;
-  };
   const panelSub = el('div', 'ideal-panel-sub');
-  panelSub.append(panelItem('所持者', holderSelect, { tag: 'label' }), panelItem('条件', modeChoice.element, { hidden: true }),
-    panelItem('個体値（以上）', talent.element), panelItem('ケーキ', cakeChoice.element, { hidden: true }), holding);
+  panelSub.append(
+    panelLine(panelItem('所持者', holderSelect, { tag: 'label' }), panelItem('個体値（以上）', talent.element)),
+    panelLine(panelItem('ケーキ', cakeChoice.element, { hidden: true }), holding),
+  );
   panel.append(panelMain, panelSub);
   const stopTracking = trackHeight(panel, element);
 

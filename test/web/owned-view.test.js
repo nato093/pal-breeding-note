@@ -1388,6 +1388,22 @@ test('所持パル画面: 絞り込みは sticky のパネル（2 段＋状態�
   assert.deepEqual(view.element.children.map((node) => node.className), ['view-heading', 'owned-summary', 'owned-panel', 'owned-list-head', 'owned-list']);
   assert.ok(panel.querySelector('.owned-status-row').querySelector('.result-note'));
   observer.resize(panel, 172.5);
+  // 見出しの置き方（D28。理想個体のパネルと同じ部品・同じ決まり）: 1 段目は入力の上の見出しの行（field-head）。パッシブの条件はパッシブの見出しの
+  // 行に置き、2 段目に「パッシブ」の見出しを 2 回出さない。2 段目は 2 行（所持者・個体値・★・属性 ／ 場所）で、見出しは入力の左
+  const [main, sub] = panel.children;
+  const passiveHead = main.querySelector('.passive-selector').children[0];
+  assert.equal(passiveHead.className, 'field-head');
+  assert.equal(passiveHead.querySelector('.field-label').textContent, 'パッシブ');
+  assert.equal(passiveHead.querySelector('[role="radiogroup"]').getAttribute('aria-label'), 'パッシブの条件');
+  assert.deepEqual(panel.querySelectorAll('.field-label').filter((node) => node.textContent === 'パッシブ').length, 1);
+  assert.deepEqual(sub.children.map((line) => line.className), ['panel-line', 'panel-line']);
+  assert.deepEqual(sub.children.map((line) => line.querySelectorAll('.panel-item').map((item) => item.children[0].textContent)),
+    [['所持者', '個体値（以上）', '★'], ['場所']]);
+  assert.ok(sub.children[0].querySelector('.owned-element-button'));
+  // 並べ替えの選択にも見出し（状態の行の中。読み上げの名前は今までどおり「並べ替え」）
+  const sortField = panel.querySelector('.owned-status-row').querySelector('.owned-sort-field');
+  assert.equal(sortField.querySelector('.field-label').textContent, '並べ替え');
+  assert.equal(sortField.querySelector('select').getAttribute('aria-label'), '並べ替え');
   assert.equal(view.element.style.getPropertyValue('--panel-h'), '172.5px');
   view.destroy();
   assert.equal(observer.observed(panel), false);
@@ -1716,7 +1732,7 @@ test('所持パル画面: 利用者が条件を変えたら（キーワードは
   view.destroy();
 });
 
-test('所持パル画面: パルを選ぶと「理想個体 →」（正のランクのパッシブだけを渡す）、パッシブを選ぶと「継承ルート →」を状態の行に出す', async (t) => {
+test('所持パル画面: パルを選ぶと「理想個体 →」（正のランクのパッシブだけを渡す）をパルの見出しの行に、パッシブを選ぶと「継承ルート →」をパッシブの見出しの行に出す', async (t) => {
   installDom(t);
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
   const links = () => view.element.querySelectorAll('.owned-panel-link').filter((node) => !node.hidden).map((node) => [node.textContent, node.href, node.getAttribute('aria-label')]);
@@ -1726,6 +1742,11 @@ test('所持パル画面: パルを選ぶと「理想個体 →」（正のラ�
     ['理想個体 →', '#/ideal?to=SheepBall&p=Rare', 'この条件で理想個体を開く'],
     ['継承ルート →', '#/route?p=Rare%2CDeffence_down1', 'このパッシブを運ぶ継承ルートを開く'],
   ]);
+  // 置き場所は、もとにした欄の見出しの行（D28。前は状態の行の右端で、条件のチップの場所を狭めていた）
+  const main = view.element.querySelector('.owned-panel-main');
+  assert.equal(main.querySelector('.picker').children[0].querySelector('.owned-panel-link').textContent, '理想個体 →');
+  assert.equal(main.querySelector('.passive-selector').children[0].querySelector('.owned-panel-link').textContent, '継承ルート →');
+  assert.equal(view.element.querySelector('.owned-status-row').querySelector('.owned-panel-link'), null);
   // パッシブの条件「なし」では継承ルートへのリンクを出さない
   await radio(view, 'パッシブの条件', 'none').dispatch('click');
   assert.deepEqual(links().map(([text]) => text), ['理想個体 →']);
@@ -1825,7 +1846,7 @@ test('所持パル画面: 行は固定の枠。パッシブ 5 個以上は 3 個
   assert.equal(body.querySelector('.hint-popover'), null);
 });
 
-test('所持パル画面: 行にポインターかフォーカスが入ると、その行にだけ操作（目標に・ここから継承ルート・親1 にして配合を探す）を作る。リンクには正のパッシブだけ。タマゴ・人間の行には出ない', async (t) => {
+test('所持パル画面: 行にポインターかフォーカスが入ると、その行にだけ操作「親にして検索」（配合検索の親1）を 1 つ作る（D28。「目標に」「ここから継承ルート」はなくした）。タマゴ・人間の行には出ない', async (t) => {
   installDom(t);
   const snap = { ...holderSnapshot, pals: [
     ...holderSnapshot.pals,
@@ -1839,12 +1860,13 @@ test('所持パル画面: 行にポインターかフォーカスが入ると、
   const target = list.querySelectorAll('.owned-row').find((node) => /キツネビ/.test(node.getAttribute('aria-label')) && node.querySelectorAll('.passive-chip').length === 2);
   await list.dispatch('focusin', { target: target.querySelector('.pal-tile') });
   const actions = target.querySelector('.owned-row-actions');
-  assert.deepEqual(actions.querySelectorAll('a').map((node) => [node.getAttribute('aria-label'), node.href]), [
-    ['目標に（理想個体）', '#/ideal?to=Kitsunebi&p=Rare'],
-    ['ここから継承ルート', '#/route?from=Kitsunebi&p=Rare'],
-    ['親1 にして配合を探す', '#/search?p1=Kitsunebi'],
+  // 文字のラベルつきの 1 つのボタン（読み上げの名前は見えている文字を含み、パルの名前を添える）
+  assert.deepEqual(actions.querySelectorAll('a').map((node) => [node.textContent, node.getAttribute('aria-label'), node.title, node.href, node.getAttribute('data-focus')]), [
+    ['親にして検索', 'キツネビを親にして検索', 'キツネビを親1 にして配合検索を開く', '#/search?p1=Kitsunebi', 'action-search'],
   ]);
-  assert.equal(actions.querySelectorAll('svg').length, 3);
+  assert.equal(actions.querySelectorAll('svg').length, 1);
+  assert.equal(target.querySelector('[data-focus="action-ideal"]'), null);
+  assert.equal(target.querySelector('[data-focus="action-route"]'), null);
   assert.equal(list.querySelectorAll('.owned-row-actions').length, 1);
   // 同じ行に何度入っても 1 つだけ
   await list.dispatch('pointerover', { target: target.querySelector('.owned-talent') });
@@ -1988,7 +2010,7 @@ test('所持パル画面: 行の操作はポインターの行とフォーカス
   };
   await action(2);
   assert.deepEqual(withActions(), [1, 2]);
-  const inner = rows[2].querySelector('[data-focus="action-ideal"]');
+  const inner = rows[2].querySelector('[data-focus="action-search"]');
   inner.focus();
   await list.dispatch('focusin', { target: inner });
   await list.dispatch('pointerover', { target: rows[3].querySelector('.owned-talent') });
