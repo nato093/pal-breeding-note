@@ -106,6 +106,22 @@ test('所持パル: 自動の読み込みは間隔を空け、セーブが変わ
   assert.equal(calls.imports, 2);
 });
 
+test('所持パル: 共有の読み直し（開いている画面の 10 秒ごとの autoRefresh）は 10 秒以上空ける（D26。前は 30 秒で、参加している人の画面への反映が最大 約 41 秒だった）', async () => {
+  const shared = sharedServer();
+  const { store, advance } = setup({ server: shared.server });
+  await store.load();
+  shared.calls.length = 0;
+  await store.autoRefresh();
+  assert.ok(shared.calls.includes('ownedWorlds'));
+  shared.calls.length = 0;
+  advance(9999);
+  assert.equal(await store.autoRefresh(), 'skipped');
+  assert.deepEqual(shared.calls, []);
+  advance(1);
+  await store.autoRefresh();
+  assert.deepEqual(shared.calls, ['ownedWorlds']);
+});
+
 test('所持パル: 定期の読み直しは、自動の読み込みが有効なときだけセーブを読み、共有は読み直さない', async () => {
   const shared = sharedServer();
   const { store, calls, advance, register } = setup({ server: shared.server });

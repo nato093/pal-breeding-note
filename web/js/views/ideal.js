@@ -1229,7 +1229,7 @@ export function idealView(context, route) {
   // 描くときのデータ（plan.data。計算の後に読み直したデータ）から求める。読めない牧場があれば判定を保留し、交換推奨・空き牧場・使用中・
   //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）。
   // 作り直す部品（帯のセル・詳細の行・空き牧場の番号・カードと札・行の部品・畳みの見出し）にあったフォーカスは、描いた後に同じ役目の部品
-  //（data-focus-key）へ戻す。20 秒ごとの読み直しや再計算で、キーボードの位置を body に落とさない（開いていた札の説明の板は閉じる）
+  //（data-focus-key）へ戻す。10 秒ごとの読み直しや再計算で、キーボードの位置を body に落とさない（開いていた札の説明の板は閉じる）
   function drawPlan(result, plan, changed) {
     const focus = captureFocus(element);
     paintPlan(result, plan, changed, focus);
@@ -1349,7 +1349,7 @@ export function idealView(context, route) {
     lastReady = ownedState.ready;
     update();
   });
-  // 開いている間は 20 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
+  // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
   // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）。確かめ終えた時刻は、データ元の 1 行が出す
   owned.load().then(() => {
     if (!destroyed && globalThis.document?.visibilityState !== 'hidden') return owned.autoRefresh();

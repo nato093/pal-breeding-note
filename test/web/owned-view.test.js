@@ -426,7 +426,7 @@ test('所持パル画面: この PC で読んだセーブに場所の分から�
   view.destroy();
 });
 
-test('所持パル画面: 開いている間は 20 秒ごとに読み直し（タブが裏にある間は読まない）、閉じたら止める', async (t) => {
+test('所持パル画面: 開いている間は 10 秒ごとに読み直し（タブが裏にある間は読まない）、閉じたら止める（D26 で 20.5 秒から 10 秒にした）', async (t) => {
   installDom(t);
   t.mock.timers.enable({ apis: ['setInterval'] });
   const owned = fakeOwned();
@@ -436,14 +436,14 @@ test('所持パル画面: 開いている間は 20 秒ごとに読み直し（�
   // 開いたときの 1 回
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(refreshes, 1);
-  t.mock.timers.tick(20 * 1000 + 500);
-  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(10 * 1000);
+  t.mock.timers.tick(10 * 1000);
   assert.equal(refreshes, 3);
   document.visibilityState = 'hidden';
-  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(10 * 1000);
   assert.equal(refreshes, 3);
   document.visibilityState = 'visible';
-  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(10 * 1000);
   assert.equal(refreshes, 4);
   view.destroy();
   t.mock.timers.tick(60 * 1000);

@@ -432,7 +432,7 @@ test('理想個体画面: 欲しいパッシブ以外のパッシブが確率を
   view.destroy();
 });
 
-test('理想個体画面: 開いている間は 20 秒ごとに読み直し、閉じた後は読まない', async (t) => {
+test('理想個体画面: 開いている間は 10 秒ごとに読み直し、閉じた後は読まない（D26 で 20.5 秒から 10 秒にした）', async (t) => {
   install(t);
   let release;
   const owned = fakeOwned();
@@ -440,15 +440,15 @@ test('理想個体画面: 開いている間は 20 秒ごとに読み直し、�
   owned.autoRefresh = () => { refreshes++; return Promise.resolve('skipped'); };
   owned.load = () => new Promise((resolve) => { release = resolve; });
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
-  t.mock.timers.tick(20 * 1000 + 500);
-  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(10 * 1000);
+  t.mock.timers.tick(10 * 1000);
   assert.equal(refreshes, 2);
   // タブが裏にある間は読まない
   document.visibilityState = 'hidden';
-  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(10 * 1000);
   assert.equal(refreshes, 2);
   document.visibilityState = 'visible';
-  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(10 * 1000);
   assert.equal(refreshes, 3);
   view.destroy();
   t.mock.timers.tick(60 * 1000);

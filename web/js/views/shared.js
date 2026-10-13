@@ -40,11 +40,12 @@ export function navigateSelection(context, route, key, value) {
 
 /**
  * 開いている間、interval ごとに owned.autoRefresh() を呼ぶ（タブが裏にある間は呼ばない）。戻り値で止める（画面の destroy で呼ぶ）。
- * 孵化させて受け取ったパル・ホストが共有し直した所持パルを、開いたままの画面に入れるため。所持パルの自動の読み込みは
- * 20 秒以上空ける（owned.js の AUTO_INTERVAL）ので、タイマーのずれで読み飛ばさないよう少し足した間隔にしている。
- * 共有の読み直しは owned.js の 30 秒の制限（SHARED_INTERVAL）で抑えられる。裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直し（app.js）に任せる
+ * 孵化させて受け取ったパル・ホストが共有し直した所持パルを、開いたままの画面に入れるため。
+ * 10 秒ごと（D26。前は 20.5 秒で、参加している人の画面への反映が最大 約 41 秒だった。今は最大 約 20 秒）。共有の読み直しは owned.js の
+ * 10 秒の制限（SHARED_INTERVAL）で、タイマーが少し早く来た回は次の回に回る。ホストのセーブの読み直しは 20 秒以上空ける（AUTO_INTERVAL）。
+ * 裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直し（app.js）に任せる
  */
-export function keepRefreshing(owned, { interval = 20500 } = {}) {
+export function keepRefreshing(owned, { interval = 10000 } = {}) {
   const timer = setInterval(() => {
     if (globalThis.document?.visibilityState === 'hidden') return;
     owned.autoRefresh().catch(() => {});
