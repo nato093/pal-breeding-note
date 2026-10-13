@@ -42,7 +42,8 @@ const cancelFrame = (id) => (typeof globalThis.cancelAnimationFrame === 'functio
  * render(items, { anchor }) の anchor は anchorOf（ui/dom.js）で覚えた { key, top }。新しい全件の中で同じ key の行を探し、
  * その行が前と同じ画面の位置（top）に来るスクロール位置で先に描いてから、そこへスクロールする
  *（今の位置で描いてから探すと、前に多くの行が増えたとき行が描く範囲の外になって戻せない）。行が無ければ今の位置で描く
- * @returns {{ rows: Element, render(items: object[], options?: { anchor?: { key: string, top: number } | null }): void, destroy(): void }}
+ * @returns {{ rows: Element, render(items: object[], options?: { anchor?: { key: string, top: number } | null }): void,
+ *   setEstimate(value: number): void, destroy(): void }}
  *   rows は行の入れ物（anchorOf・restoreAnchor に渡す）
  */
 export function virtualRows(container, { key, create, estimate = 60, overscan = 10, topOffset = () => 0 }) {
@@ -105,6 +106,15 @@ export function virtualRows(container, { key, create, estimate = 60, overscan = 
       paint(listTop);
       const moved = container.getBoundingClientRect().top - listTop;
       if (moved) globalThis.window?.scrollBy?.(0, moved);
+    },
+    /**
+     * 測っていない行の見積もりを変え、測って覚えた高さを捨てる（全部の行の高さが一度に変わったとき。所持パルの行の下の段の出し入れ）。
+     * 次の render から使う。同じ値なら何もしない
+     */
+    setEstimate(value) {
+      if (value === estimate) return;
+      estimate = value;
+      heights.clear();
     },
     destroy() {
       controller.abort();

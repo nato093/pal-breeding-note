@@ -47,8 +47,11 @@
   --talent-track: var(--md-sys-color-outline-variant);
   /* 所持パルの行と列見出しの列（[パル][Lv・★][パッシブ][個体値 HP・攻・防・計][所持者・場所]）。理想個体の組の ♂♀ 行も同じ */
   --owned-cols: minmax(170px, 1.3fr) 72px minmax(0, 2fr) 184px minmax(0, 1fr);
-  /* 所持パルの行の高さ（中身はパッシブ 2 段＋キーワードの理由 1 行・バッジ 1 行・場所 2 行に固定）。views/owned.js の ROW_ESTIMATE と同じ値 */
-  --owned-row-h: 80px;
+  /* 所持パルの行の高さ（中身はパッシブ 2 段・バッジ 1 行・場所 2 行に固定）。下の段（目標の印・キーワードに一致した理由。--owned-band-h）を取る
+     一覧（.owned-list.has-band）では全部の行が --owned-row-band-h（D25）。views/owned.js の ROW_ESTIMATE・ROW_ESTIMATE_BAND と同じ値 */
+  --owned-row-h: 64px;
+  --owned-row-band-h: 80px;
+  --owned-band-h: 16px;
   --bg: var(--md-sys-color-surface);
   --surface: var(--md-sys-color-surface-container-low);
   --surface-soft: var(--md-sys-color-surface-container-high);
@@ -1287,12 +1290,15 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 /* 一覧の入れ物はブロック（行はそれぞれ grid）。2,000 行の入れ物を grid にすると、行が増減するたびに全部の行の並びを計算し直すため */
 .owned-list { display: block; }
 /* 所持パルの 1 行（views/owned.js の ownedRowItem）。列は --owned-cols、高さは --owned-row-h に固定（パッシブ 5 個以上・拠点の個体・
-   タマゴ・人間も、キーワードの有無でも同じ高さ。行の推定の高さ〔contain-intrinsic-size〕と見えている範囲だけ描く一覧の見積もりもこの値）。
-   中身は上にそろえ、パッシブの欄の下の 1 行をキーワードの理由に取っておく（キーワードを打つたびに全部の行の高さを変えない） */
+   タマゴ・人間も同じ高さ。行の推定の高さ〔contain-intrinsic-size〕と見えている範囲だけ描く一覧の見積もりもこの値）。中身は上にそろえる。
+   行の下の段（div.owned-band。目標の印とキーワードに一致した理由）は 2 段目に行の幅いっぱいで置き、その場所は一覧に has-band が付いている
+   間だけ全部の行で取る（目標の印を出していて保存した目標があるか、キーワードがあるとき。データの読み直しでは変わらない。D25） */
 .owned-row {
   position: relative;
   display: grid;
   grid-template-columns: var(--owned-cols);
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: var(--owned-band-h);
   align-items: start;
   height: var(--owned-row-h);
   border-bottom: 1px solid var(--line);
@@ -1307,6 +1313,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-unknown { color: var(--ink); }
 /* 件数が多くても全部出すので、画面外の行は描画を後回しにする（推定の高さは固定の行の高さ） */
 .owned-row { content-visibility: auto; contain: strict; contain-intrinsic-size: auto var(--owned-row-h); }
+/* 下の段を取る一覧では、全部の行を下の段の分だけ高くする（一覧の入れ物のクラス 1 つで切り替え、行の子のスタイルは計算し直させない。
+   高さの変わる前後で見ていた行を戻すのは views/owned.js の renderResults） */
+.owned-list.has-band .owned-row { height: var(--owned-row-band-h); contain-intrinsic-size: auto var(--owned-row-band-h); }
 /* 2,000 行を超えたら見えている範囲だけを置く（ui/virtual-list.js）。上下の余白で全体の高さを保ち、行は実際の高さで測る */
 /* 行の要素を使い回すので、並べ替えで行が動いたときにブラウザが画面をその行へ追いかけない（スクロール位置は今までどおり。
    自動の更新の後に位置を戻すのは views/owned.js の anchorOf・restoreAnchor）。見えている範囲だけ描くときは、測った高さの補正に任せる */
@@ -1315,7 +1324,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-list.is-virtual .owned-row { content-visibility: visible; }
 .virtual-spacer { height: var(--space, 0px); }
 .virtual-rows { display: block; }
-/* 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）は 1 行。入り切らない分は隠す（全部は title） */
+/* 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファと、理想個体のカードの「別の配合牧場で使用中」）は 1 行。入り切らない分は隠す（全部は title） */
 .owned-badges { display: flex; gap: 4px; height: 14px; overflow: hidden; white-space: nowrap; }
 .owned-badge {
   flex: none;
@@ -1326,10 +1335,15 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   background: var(--md-sys-color-surface-container-highest);
   color: var(--md-sys-color-on-surface-variant);
 }
-/* ニックネームと印は長いと縮めて省略し、印の「+N」を 1 行の中に残す（全部はバッジの行の title と「+N」の板） */
+/* ニックネームと印は長いと縮めて省略する（全部はバッジの行の title） */
 .owned-badges .badge-nickname, .owned-badges .badge-mark { flex: 0 1 auto; min-width: 2em; overflow: hidden; text-overflow: ellipsis; }
-.owned-badges .mark-more { flex: none; min-width: 0; height: 14px; border: 0; font: inherit; font-size: 11px; line-height: 14px; font-weight: 700; cursor: pointer; }
-.owned-badges .mark-more:focus-visible { outline-offset: -2px; }
+/* 行の下の段（D25）: 目標の印を 4 つまで横に並べ、5 つ目からは「+N」（押すと板に残り）。その後ろにキーワードに一致した理由の 1 行。
+   印は長いと縮めて省略し（全文はそれぞれの title）、理由の場所を少し残す */
+.owned-band { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 4px; min-width: 0; height: var(--owned-band-h); overflow: hidden; white-space: nowrap; }
+.owned-band .badge-mark { flex: 0 1 auto; min-width: 3em; max-width: 18em; overflow: hidden; text-overflow: ellipsis; }
+.owned-band .mark-more { flex: none; min-width: 0; height: 14px; border: 0; font: inherit; font-size: 11px; line-height: 14px; font-weight: 700; cursor: pointer; }
+.owned-band .mark-more:focus-visible { outline-offset: -2px; }
+.owned-band .owned-badge + .owned-hits { margin-left: 6px; }
 .mark-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .badge-lucky { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); font-weight: 700; }
 .badge-alpha { background: var(--Dark); color: #fff; font-weight: 700; }
@@ -1367,8 +1381,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 }
 .passive-list { display: flex; flex-wrap: wrap; gap: 6px; }
 /* パッシブはゲームと同じく 2 列 × 2 段の固定の枠（セルそのものが grid。2 段分の高さをいつも取る）。チップは 1 行で、長い名前は省略（全文は title）。
-   3 段目はキーワードに一致した理由の 1 行（無いときも場所を取る） */
-.owned-passives { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 24px 24px 15px; gap: 3px 6px; height: 69px; }
+   キーワードに一致した理由は行の下の段（.owned-band）に出す */
+.owned-passives { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 24px 24px; gap: 3px 6px; height: 51px; }
 .owned-passives .passive-chip { min-width: 0; width: 100%; min-height: 24px; height: 24px; gap: 4px; padding: 1px 6px 1px 10px; font-size: 12px; }
 .owned-passives .passive-chip::before { border-width: 1px; border-left-width: 4px; }
 .owned-passives .passive-rank { width: 15px; height: 15px; }
@@ -1385,8 +1399,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   font-weight: 700;
 }
 .passive-more:hover { background: var(--state-hover); }
-/* キーワードに一致したスキル・説明（一覧に出していない項目）を、パッシブの下に 1 行で（入り切らない分は省略。全文は title） */
-.owned-hits { grid-column: 1 / -1; grid-row: 3; margin: 0; height: 15px; font-size: 12px; line-height: 15px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* キーワードに一致したスキル・説明（一覧に出していない項目）を、行の下の段の印の後ろに 1 行で（入り切らない分は省略。全文は title） */
+.owned-hits { flex: 1 1 0; min-width: 8em; margin: 0; height: 15px; font-size: 12px; line-height: 15px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .owned-hit + .owned-hit::before { content: ' · '; }
 .owned-hit-desc { margin-left: 4px; font-size: 11px; color: var(--muted); }
 /* 個体値の 4 セル（HP・攻・防・計）。数字は右寄せ、下にミニバー（--v）。目標があれば縦の目印（--t） */

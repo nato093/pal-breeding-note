@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom, installResizeObserver, descendants } from '../helpers/dom.js';
+import { installDom, installResizeObserver, descendants, FakeElement } from '../helpers/dom.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
@@ -1856,7 +1856,7 @@ test('所持パル画面: 行にポインターかフォーカスが入ると、
   view.destroy();
 });
 
-test('所持パル画面: 保存した目標の印（完成品・欲しいパッシブ）を名前の下に出し、キーワードで印の文字も探せる。「目標の印」で隠せ、目標がなければ切り替えも出さない', async (t) => {
+test('所持パル画面: 保存した目標の印（完成品・欲しいパッシブ）を行の下の段に出し（D25。前は名前の下）、キーワードで印の文字も探せる。「目標の印」で隠せ、目標がなければ切り替えも出さない', async (t) => {
   installDom(t);
   let goals = [
     { id: 'g1', name: 'モコロンの理想', palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: { hp: 50, shot: 0, defense: 0 } },
@@ -1867,7 +1867,7 @@ test('所持パル画面: 保存した目標の印（完成品・欲しいパッ
   const states = new Map();
   const view = ownedView({ ...memoryApp(fakeOwned(holderData()), states), ideals }, parseHash('#/owned'));
   const rowOf = (pattern) => view.element.querySelectorAll('.owned-row').find((node) => pattern.test(node.getAttribute('aria-label')));
-  const marksOf = (pattern) => rowOf(pattern)?.querySelectorAll('.badge-mark').map((node) => node.textContent);
+  const marksOf = (pattern) => rowOf(pattern)?.querySelector('.owned-band')?.querySelectorAll('.badge-mark').map((node) => node.textContent) ?? [];
   // モコロン（希少・HP 50）は完成品、ペンタマ（希少・伝説）は欲しいパッシブを持つ
   assert.deepEqual(marksOf(/モコロン/), ['完成品: モコロンの理想']);
   assert.deepEqual(marksOf(/ペンタマ/), ['ペンタマの欲しいパッシブ']);
@@ -1916,25 +1916,26 @@ const rareGoals = (count) => Array.from({ length: count }, (_, i) => ({
   id: `g${i}`, name: `目標${i + 1}`, palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: { hp: i % 2 ? 0 : 50, shot: 0, defense: 0 },
 }));
 
-test('所持パル画面: 目標の印は行に 1 個と「+N」（押すと残りを板に一覧）。キーワードはすべての印で探せる（B2: 目標の数だけ印の要素が増えていた）', async (t) => {
+test('所持パル画面: 目標の印は行の下の段に 4 個と「+N」（押すと残りを板に一覧）。キーワードはすべての印で探せる（B2: 目標の数だけ印の要素が増えていた。D25 で 1 個から 4 個にした）', async (t) => {
   const { body } = installDom(t);
   const goals = goalsStore(rareGoals(100));
   const view = ownedView({ ...memoryApp(fakeOwned(holderData())), ideals: goals.ideals }, parseHash('#/owned'));
   body.append(view.element);
   const row = () => view.element.querySelectorAll('.owned-row').find((node) => /モコロン/.test(node.getAttribute('aria-label')));
-  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1']);
+  const band = () => row().querySelector('.owned-band');
+  assert.deepEqual(band().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2', '完成品: 目標3', '完成品: 目標4']);
+  // 省略されても読めるよう、印ごとに title に全文
+  assert.deepEqual(band().querySelectorAll('.badge-mark').map((node) => node.title), ['完成品: 目標1', '完成品: 目標2', '完成品: 目標3', '完成品: 目標4']);
   const more = row().querySelector('.mark-more');
-  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+99', '+99（ほかの目標の印 99 個）']);
-  assert.equal(more.title.split('\n').length, 99);
-  // バッジの行の title にはすべての印
-  assert.equal(row().querySelector('.owned-badges').title.split('\n').length, 100);
-  // 行の要素は目標の数で増えない（印 1 個と「+N」だけ）
+  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+96', '+96（ほかの目標の印 96 個）']);
+  assert.equal(more.title.split('\n').length, 96);
+  // 行の要素は目標の数で増えない（印 4 個と「+N」だけ）
   assert.ok(descendants(row()).length < 45, `行の要素が多すぎます: ${descendants(row()).length}`);
-  // 板は開いたときに作る（残りの 99 個）
+  // 板は開いたときに作る（残りの 96 個）
   assert.equal(body.querySelector('.mark-list'), null);
   await more.dispatch('click');
-  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark').length, 99);
-  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark')[98].textContent, '完成品: 目標100');
+  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark').length, 96);
+  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark')[95].textContent, '完成品: 目標100');
   // 行に出ていない 100 番目の目標の印でも、キーワードで探せる
   keywordOf(view).value = '目標100';
   await keywordOf(view).dispatch('input');
@@ -1952,15 +1953,14 @@ test('所持パル画面: 目標の印だけが変わったときは名前のリ
   assert.equal(link.tagName, 'a');
   link.focus();
   // 目標を足す（印だけが変わる）。前は名前のリンクごと作り直して、フォーカスが body に落ちた
-  goals.set(rareGoals(2));
-  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1']);
+  goals.set(rareGoals(5));
+  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2', '完成品: 目標3', '完成品: 目標4']);
   assert.equal(row().querySelector('.mark-more').textContent, '+1');
   assert.equal(row().querySelector('[data-focus="pal"]'), link);
   assert.equal(document.activeElement, link);
   // 「+N」にフォーカスがあるまま数が変わったら、新しい「+N」へ
-  goals.set(rareGoals(4));
   row().querySelector('.mark-more').focus();
-  goals.set(rareGoals(5));
+  goals.set(rareGoals(8));
   assert.equal(row().querySelector('.mark-more').textContent, '+4');
   assert.equal(document.activeElement, row().querySelector('.mark-more'));
   view.destroy();
@@ -2242,5 +2242,149 @@ test('所持パル画面: 拠点・属性の板は開くと中の最初の部品
   await events.dispatch('keydown', { key: 'Escape' });
   assert.equal(view.element.querySelector('.owned-element-popover'), null);
   assert.equal(document.activeElement, elements);
+  view.destroy();
+});
+
+// ---- フェーズ 1b・1c の終わりのユーザーの答え（D25〜D27） ----
+
+const mokoronRow = (view) => view.element.querySelectorAll('.owned-row').find((node) => /モコロン/.test(node.getAttribute('aria-label')));
+const hasBand = (view) => view.element.querySelector('.owned-list').className.split(' ').includes('has-band');
+
+test('所持パル画面: 目標の印は名前の下ではなく行の下の段（行の幅いっぱい）に 4 つまで横に並べ、5 つ目からは「+N」。キーワードに一致した理由も同じ段の印の後ろに出す（D25）', async (t) => {
+  const { body } = installDom(t);
+  const goals = goalsStore(rareGoals(6));
+  const view = ownedView({ ...memoryApp(fakeOwned(holderData())), ideals: goals.ideals }, parseHash('#/owned'));
+  body.append(view.element);
+  const row = mokoronRow(view);
+  const band = row.querySelector('.owned-band');
+  // 段は行の 5 つの欄の後ろ。名前の下（パルの欄）には印を出さない
+  assert.equal(row.children.indexOf(band), 5);
+  assert.equal(row.querySelector('.owned-pal').querySelectorAll('.badge-mark').length, 0);
+  assert.deepEqual(band.children.map((node) => [node.className, node.textContent]), [
+    ['owned-badge badge-mark', '完成品: 目標1'], ['owned-badge badge-mark', '完成品: 目標2'], ['owned-badge badge-mark', '完成品: 目標3'],
+    ['owned-badge badge-mark', '完成品: 目標4'], ['owned-badge mark-more hint-trigger', '+2'],
+  ]);
+  const more = band.querySelector('.mark-more');
+  assert.deepEqual([more.getAttribute('aria-label'), more.title, more.getAttribute('data-focus')], ['+2（ほかの目標の印 2 個）', '完成品: 目標5\n完成品: 目標6', 'marks-more']);
+  // 板の部品は初めて押したときに作り、その 1 回で開く（2,000 行ぶんを最初から作らない）。もう一度押すと閉じ、また押すと開く
+  assert.equal(more.getAttribute('aria-expanded'), 'false');
+  await more.dispatch('click');
+  assert.equal(more.getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(body.querySelector('.mark-list').querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標5', '完成品: 目標6']);
+  await more.dispatch('click');
+  assert.equal(body.querySelector('.mark-list'), null);
+  await more.dispatch('click');
+  assert.ok(body.querySelector('.mark-list'));
+  // 印がちょうど 4 つなら「+N」は出さない
+  goals.set(rareGoals(4));
+  assert.deepEqual(mokoronRow(view).querySelector('.owned-band').children.map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2', '完成品: 目標3', '完成品: 目標4']);
+  // キーワードに一致した理由（希少の説明「作業速度」）は、同じ段の印の後ろに 1 行で
+  keywordOf(view).value = '作業速度';
+  await keywordOf(view).dispatch('input');
+  const withHits = mokoronRow(view).querySelector('.owned-band');
+  assert.deepEqual(withHits.children.map((node) => node.className), [
+    'owned-badge badge-mark', 'owned-badge badge-mark', 'owned-badge badge-mark', 'owned-badge badge-mark', 'owned-hits',
+  ]);
+  assert.deepEqual(withHits.querySelector('.owned-hits').querySelectorAll('.owned-hit-name').map((node) => node.textContent), ['パッシブ：希少']);
+  assert.equal(mokoronRow(view).querySelector('.owned-passives').querySelector('.owned-hits'), null);
+  // 印がなくなっても理由は段に残り、理由もなくなれば段ごと外す
+  goals.set([]);
+  assert.deepEqual(mokoronRow(view).querySelector('.owned-band').children.map((node) => node.className), ['owned-hits']);
+  keywordOf(view).value = '';
+  await keywordOf(view).dispatch('input');
+  assert.equal(mokoronRow(view).querySelector('.owned-band'), null);
+  view.destroy();
+});
+
+test('所持パル画面: 行の高さは「目標の印」を出していて保存した目標が 1 つ以上あるか、キーワードがあるときだけ下の段の分高くし（一覧の has-band。全部の行が同じ高さ）、データの読み直しでは変えない（D25）', async (t) => {
+  installDom(t);
+  const goals = goalsStore([]);
+  const owned = fakeOwned(holderData());
+  const view = ownedView({ ...memoryApp(owned), ideals: goals.ideals }, parseHash('#/owned'));
+  assert.equal(hasBand(view), false);
+  // 目標を保存した（印のない行も同じ高さにする）
+  goals.set(rareGoals(1));
+  assert.equal(hasBand(view), true);
+  // 読み直しで印の付く個体がいなくなっても、高さは変えない（利用者が目標・キーワード・印の表示を変えたときだけ）
+  owned.state.owned = normalizeOwned({ ...holderSnapshot, pals: holderSnapshot.pals.filter((pal) => pal.instanceId !== 'a1') }, { pals, passives });
+  owned.emit();
+  assert.equal(view.element.querySelectorAll('.owned-band').length, 0);
+  assert.equal(hasBand(view), true);
+  // 「目標の印」を外すと低くする
+  const check = view.element.querySelector('.owned-marks-toggle').querySelector('input');
+  check.checked = false;
+  await check.dispatch('change');
+  assert.equal(hasBand(view), false);
+  // キーワードがあれば、印を出していなくても高くする（空白だけはキーワードにならない）
+  keywordOf(view).value = '  ';
+  await keywordOf(view).dispatch('input');
+  assert.equal(hasBand(view), false);
+  keywordOf(view).value = 'ペンタマ';
+  await keywordOf(view).dispatch('input');
+  assert.equal(hasBand(view), true);
+  keywordOf(view).value = '';
+  await keywordOf(view).dispatch('input');
+  assert.equal(hasBand(view), false);
+  check.checked = true;
+  await check.dispatch('change');
+  assert.equal(hasBand(view), true);
+  // 目標を全部外すと低くする
+  goals.set([]);
+  assert.equal(hasBand(view), false);
+  view.destroy();
+});
+
+test('所持パル画面: 行の高さが切り替わったとき、一覧の先頭が固定の部分の下に隠れていれば、見ていた行を同じ位置に保つ（D25）', async (t) => {
+  const { body, windowEvents } = installDom(t);
+  const scrolls = [];
+  // スクロールすると一覧が上へ動く
+  let listTop = 100;
+  windowEvents.scrollBy = (x, y) => { scrolls.push(y); listTop -= y; };
+  const goals = goalsStore(rareGoals(1));
+  const view = ownedView({ ...memoryApp(fakeOwned(holderData())), ideals: goals.ideals }, parseHash('#/owned'));
+  body.append(view.element);
+  const list = view.element.querySelector('.owned-list');
+  // 行は一覧の上端から、行の高さ（下の段があれば 80px・なければ 64px）ずつ並ぶ。固定の部分の下端はパネル 252＋列見出し 52 = 304
+  const rowHeight = () => (list.className.split(' ').includes('has-band') ? 80 : 64);
+  list.getBoundingClientRect = () => ({ top: listTop, bottom: listTop + list.children.length * rowHeight(), left: 0, width: 900 });
+  t.mock.method(FakeElement.prototype, 'getBoundingClientRect', function rect() {
+    if (this.parentElement !== list) return { left: 100, top: 200, bottom: 252, width: 220 };
+    const top = listTop + list.children.indexOf(this) * rowHeight();
+    return { left: 0, top, bottom: top + rowHeight(), width: 900 };
+  });
+  const check = view.element.querySelector('.owned-marks-toggle').querySelector('input');
+  // 見ていた行は 3 行目（上端 260）。80px → 64px で 228 に上がるので、その分だけ戻す（一覧の上端は 132 になる）
+  check.checked = false;
+  await check.dispatch('change');
+  assert.deepEqual(scrolls, [-32]);
+  // 戻すと 3 行目（上端 260）が 292 に下がるので、その分だけ戻す
+  check.checked = true;
+  await check.dispatch('change');
+  assert.deepEqual(scrolls, [-32, 32]);
+  // 一覧の先頭が見えているときは動かさない（上の行の高さは変わっても、見ている行より上に動く行はない）
+  listTop = 400;
+  check.checked = false;
+  await check.dispatch('change');
+  assert.deepEqual(scrolls, [-32, 32]);
+  view.destroy();
+});
+
+test('所持パル画面: 2,000 行を超えて見えている範囲だけ描くときも、行の高さを切り替えたら覚えた高さを捨てて見積もりを変える（D25）', (t) => {
+  installDom(t);
+  const goals = goalsStore([]);
+  const view = ownedView({ ...memoryApp(fakeOwned(manyData(2100))), ideals: goals.ideals }, parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  assert.ok(list.className.split(' ').includes('is-virtual'));
+  // 上下の余白の合計 = 描いていない行の数 × 見積もり（偽の DOM の行には高さがないので、どの行も見積もりのまま）
+  const spaces = () => list.children.filter((node) => node.className === 'virtual-spacer')
+    .reduce((sum, node) => sum + Number.parseFloat(node.style.getPropertyValue('--space')), 0);
+  const unpainted = () => 2100 - list.children[1].children.length;
+  assert.equal(spaces(), unpainted() * 64);
+  // 目標を保存したら、全部の行を 80px で見積もる
+  goals.set(rareGoals(1));
+  assert.equal(hasBand(view), true);
+  assert.equal(spaces(), unpainted() * 80);
+  goals.set([]);
+  assert.equal(spaces(), unpainted() * 64);
   view.destroy();
 });

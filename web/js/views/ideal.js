@@ -217,7 +217,8 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, far
   // ♂♀ の行（列見出しはないので、個体値の 4 セルは CSS で小さな見出しを付ける）。「+N」の説明の部品も hints に入れる。
   // 行の部品の目印（data-focus。名前のリンク pal・「+N」）から data-focus-key を作る（「+N」がなくなったら同じ行の名前のリンクへ）
   const rows = [[pair.male, 'M'], [pair.female, 'F']].map(([pal, sex]) => {
-    const row = ownedRow(pal, { highlight, marks: marks(pal), hints });
+    // 「別の配合牧場で使用中」は名前の下のバッジの 1 行に（所持パルの一覧の目標の印の下の段〔D25〕は使わず、カードの行は 64px のまま）
+    const row = ownedRow(pal, { highlight, badges: marks(pal), hints });
     for (const node of row.querySelectorAll('[data-focus]')) {
       const focus = node.getAttribute('data-focus');
       node.setAttribute('data-focus-key', `pair:${key}:${sex}:${focus}`);

@@ -178,8 +178,10 @@ const FIRST_ROWS = 200;
 // 描き直し 1 回で、すぐ中身を書き換える既にある行の数（先頭から）。残りは区切って書き換える（キーワードを打つと多くの行の一致の理由が
 // 変わり、2,000 行で 200 行ずつすぐ書き換えると入力が 100ms 以上止まったため。窓に入る行〔約 10 行〕より十分多い）
 const FILL_NOW = 60;
-// 行の高さ（px。CSS の .owned-row の高さと同じ。見えている範囲だけ描く一覧の、まだ測っていない行の見積もり）
-const ROW_ESTIMATE = 80;
+// 行の高さ（px。CSS の --owned-row-h・--owned-row-band-h と同じ。見えている範囲だけ描く一覧の、まだ測っていない行の見積もり）。
+// 下の段（目標の印・キーワードに一致した理由）を取るときは全部の行が ROW_ESTIMATE_BAND、取らないときは ROW_ESTIMATE（D25）
+const ROW_ESTIMATE = 64;
+const ROW_ESTIMATE_BAND = 80;
 const VIRTUAL_OVER = 2000;
 // 残りの行を足す 1 回の区切り（16ms 以内）。前の区切りの速さで、足す行数を 25〜400 の間で増減する
 const SLICE_MS = 16;
@@ -269,39 +271,64 @@ function palCellTile(pal) {
   return unknown;
 }
 
-// 行の中に出す目標の印の数。残りは「+N」（押すと板に一覧。板の中身は開いたときに作る）。目標が多いと 1 行に印が 100 個並び、
-// 2,000 行で DOM の予算〔80,000〕を超えたため。キーワードで印を探すのは DOM と別（filterOwned の extraTexts）で、すべての印を見る。
-// 1 個にしたのは、パルの列（1100px で約 170px）に印が 2 個入らず、2 個だとどちらも「完成品: …」に縮んで読めなかったため
-const MARK_SLOTS = 1;
+// 行の下の段に並べる目標の印の数（D25）。5 つ目からは「+N」（押すと板に一覧。板の中身は開いたときに作る）。目標が多いと 1 行に印が
+// 100 個並び、2,000 行で DOM の予算〔80,000〕を超えたため（B2）。キーワードで印を探すのは DOM と別（filterOwned の extraTexts）で、
+// すべての印を見る。前は名前の下に 1 個だった（パルの列〔1100px で約 170px〕に 2 個入らなかった）のを、行の幅いっぱいの下の段に移して 4 個にした
+const MARK_SLOTS = 4;
 
-// 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）。1 行（入り切らない分は隠し、title に全部）。バッジがなければ null。
-// 印が MARK_SLOTS を超えたら「+N」のボタン（data-focus="marks-more"）を足し、説明の部品を hints に入れる
-function palCellBadges(pal, marks, hints) {
+// 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファと、理想個体のカードの「別の配合牧場で使用中」など badges の文）。
+// 1 行（入り切らない分は隠し、title に全部）。バッジがなければ null
+function palCellBadges(pal, badges) {
   const fixed = [];
   if (pal.nickname) fixed.push(['owned-badge badge-nickname', `「${pal.nickname}」`]);
   if (pal.egg) fixed.push(['owned-badge badge-egg', 'タマゴ']);
   if (pal.lucky) fixed.push(['owned-badge badge-lucky', 'ラッキー']);
   if (pal.alpha) fixed.push(['owned-badge badge-alpha', 'アルファ']);
-  if (!fixed.length && !marks.length) return null;
-  const shown = marks.slice(0, MARK_SLOTS);
+  for (const text of badges) fixed.push(['owned-badge badge-mark', text]);
+  if (!fixed.length) return null;
   const line = el('span', 'owned-badges');
-  line.append(...[...fixed, ...shown.map((mark) => ['owned-badge badge-mark', mark])].map(([className, text]) => el('span', className, text)));
-  line.title = [...fixed.map(([, text]) => text), ...marks].join('\n');
-  const rest = marks.slice(shown.length);
-  if (rest.length) {
-    const more = button(`+${rest.length}`, null, 'owned-badge mark-more');
-    // 読み上げの名前にも見えている「+N」を入れる（見えている文で呼びかけても押せるように）
-    more.setAttribute('aria-label', `+${rest.length}（ほかの目標の印 ${rest.length} 個）`);
-    more.setAttribute('data-focus', 'marks-more');
-    more.title = rest.join('\n');
-    line.append(more);
-    hints.push(hint({ label: 'ほかの目標の印', trigger: more, content: () => {
-      const list = el('div', 'mark-list');
-      list.append(...rest.map((mark) => el('span', 'owned-badge badge-mark', mark)));
-      return [list];
-    } }));
-  }
+  line.append(...fixed.map(([className, text]) => el('span', className, text)));
+  line.title = fixed.map(([, text]) => text).join('\n');
   return line;
+}
+
+// 「+N」の説明の板（ui/hint.js）は、初めて押したときに作って、その 1 回で開く（作った部品は hints に入れる）。2,000 行ぶんの板の部品
+//（popover の要素・リスナー）を最初から作らないため。目標の印の「+N」はほとんどの行に付きうり、全部の行に作ると、キーワードを消して
+// 2,000 行を足し直すたびに捨てる部品が増え、GC で 150〜390ms 止まった（D25 の計測）
+function laterHint(trigger, label, content, hints) {
+  trigger.classList.add('hint-trigger');
+  trigger.setAttribute('aria-expanded', 'false');
+  let made = null;
+  // 作った後の開閉は hint の部品が受ける（押している最中に足したリスナーは、その 1 回には呼ばれない）
+  trigger.addEventListener('click', () => {
+    if (made) return;
+    made = hint({ label, trigger, content });
+    hints.push(made);
+    made.open();
+  });
+}
+
+// 行の下の段の印（4 つまで。省略されても読めるよう、それぞれ title に全文）と、5 つ目からの「+N」のボタン（data-focus="marks-more"）。
+// 「+N」の説明の部品は、押したときに作って hints に入れる
+function markNodes(marks, hints) {
+  const nodes = marks.slice(0, MARK_SLOTS).map((mark) => {
+    const node = el('span', 'owned-badge badge-mark', mark);
+    node.title = mark;
+    return node;
+  });
+  const rest = marks.slice(nodes.length);
+  if (!rest.length) return nodes;
+  const more = button(`+${rest.length}`, null, 'owned-badge mark-more');
+  // 読み上げの名前にも見えている「+N」を入れる（見えている文で呼びかけても押せるように）
+  more.setAttribute('aria-label', `+${rest.length}（ほかの目標の印 ${rest.length} 個）`);
+  more.setAttribute('data-focus', 'marks-more');
+  more.title = rest.join('\n');
+  laterHint(more, 'ほかの目標の印', () => {
+    const list = el('div', 'mark-list');
+    list.append(...rest.map((mark) => el('span', 'owned-badge badge-mark', mark)));
+    return [list];
+  }, hints);
+  return [...nodes, more];
 }
 
 // 行の中でフォーカスのある部品の目印（data-focus。部品から先祖へたどる）。フォーカスが行の外・目印のない部品なら null
@@ -332,9 +359,8 @@ function fillLevelCell(cell, pal) {
 }
 
 // パッシブの並び（行の中だけランクの高い順。同じランクは保存の順）を 2×2 の固定の枠（セルそのものが grid）に。5 個以上なら 3 個と「+N」。
-// 欲しいパッシブ（wanted。1 つ以上のときだけ）があれば、欲しいものに ✓ を付け、それ以外を薄くする。パッシブなしは枠が空（文字は出さない）。
-// after は枠の後ろに残す要素（一致の理由の 1 行）
-function fillPassiveList(list, ids, wanted, hints, after) {
+// 欲しいパッシブ（wanted。1 つ以上のときだけ）があれば、欲しいものに ✓ を付け、それ以外を薄くする。パッシブなしは枠が空（文字は出さない）
+function fillPassiveList(list, ids, wanted, hints) {
   const ordered = ids.map((id, index) => ({ id, index, rank: passivesById.get(id)?.rank ?? 0 }))
     .sort((a, b) => b.rank - a.rank || a.index - b.index).map((item) => item.id);
   const shown = ordered.length > PASSIVE_SLOTS ? ordered.slice(0, PASSIVE_SLOTS - 1) : ordered;
@@ -355,21 +381,17 @@ function fillPassiveList(list, ids, wanted, hints, after) {
   });
   list.replaceChildren(...chips);
   const rest = ordered.slice(shown.length);
-  if (!rest.length) {
-    if (after) list.append(after);
-    return;
-  }
+  if (!rest.length) return;
   const more = button(`+${rest.length}`, null, 'passive-more');
   // 読み上げの名前にも見えている「+N」を入れる（見えている文で呼びかけても押せるように）
   more.setAttribute('aria-label', `+${rest.length}（ほかのパッシブ ${rest.length} 個）`);
   more.setAttribute('data-focus', 'passive-more');
   more.title = rest.map((id) => passivesById.get(id)?.ja ?? id).join('\n');
   list.append(more);
-  if (after) list.append(after);
-  hints.push(hint({ label: 'ほかのパッシブ', trigger: more, content: () => [passiveList(rest)] }));
+  laterHint(more, 'ほかのパッシブ', () => [passiveList(rest)], hints);
 }
 
-// キーワードに一致した、一覧に出していない項目（スキル・説明）。1 行に横に並べ（入り切らない分は省略）、title に全文
+// キーワードに一致した、一覧に出していない項目（スキル・説明）。行の下の段の印の後ろに 1 行で横に並べ（入り切らない分は省略）、title に全文
 function fillHits(line, notes) {
   line.replaceChildren(...notes.map((note) => {
     const hit = el('span', 'owned-hit');
@@ -436,12 +458,14 @@ function fillWhereCell(cell, pal) {
 }
 
 /**
- * 所持パルの 1 行の部品。options: { notes, highlight, marks, actions, hints }。
+ * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, actions, hints }。
  * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値の目標との差を見せる
- * （{ wanted, targets }）、marks は名前の下の印（span.owned-badge.badge-mark）、actions は行の操作を出せる行か（所持パルの画面だけ。
- * 操作の要素は showActions で、初めて触れた行にだけ作る）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。省くと行が持つ）。
+ * （{ wanted, targets }）、marks は目標の印（行の下の段 div.owned-band に MARK_SLOTS 個までと「+N」。D25）、badges は名前の下のバッジの
+ * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、actions は行の操作を出せる行か（所持パルの画面だけ。操作の要素は showActions で、
+ * 触れた行にだけ作る）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。省くと行が持つ）。
+ * 下の段は印か一致の理由があるときだけ作る（行の高さは一覧の has-band が決める。全部の行が同じ高さ）。
  * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）。書き換えたセルにフォーカスがあったら、同じ役目の部品
- * （data-focus。名前のリンク pal・「+N」passive-more／marks-more・行の操作 action-<key>）へ戻す。印は MARK_SLOTS 個までと「+N」
+ * （data-focus。名前のリンク pal・「+N」passive-more／marks-more・行の操作 action-<key>）へ戻す
  * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, showActions(): boolean,
  *   hideActions(next?: Element): boolean, destroy(): void }}
  */
@@ -452,15 +476,31 @@ export function ownedRowItem(pal, options) {
     talent: el('div', 'owned-talent'), where: el('div', 'owned-where'),
   };
   cells.talent.setAttribute('role', 'img');
-  let hitsLine = null;
   element.append(cells.pal, cells.level, cells.passives, cells.talent, cells.where);
   const shown = {};
   let ownHints = [];
-  let badgeHints = [];
-  // パルのセルの中: 名前のリンク（絵と名前）とバッジの 1 行。印だけが変わったときに名前のリンクを作り直さない（フォーカスが落ちる）
+  let markHints = [];
+  // パルのセルの中: 名前のリンク（絵と名前）とバッジの 1 行。バッジだけが変わったときに名前のリンクを作り直さない（フォーカスが落ちる）
   let tileNode = null;
   let badgeLine = null;
   let actions = null;
+  // 行の下の段（D25）: 目標の印（と「+N」）と、キーワードに一致した理由の 1 行。どちらもなければ段ごと外す
+  let band = null;
+  let marked = [];
+  let hitsLine = null;
+  const ensureBand = () => {
+    if (!band) {
+      band = el('div', 'owned-band');
+      // 行の操作（触れた行の右端に重ねる）より前に置く（Tab の順を、名前・パッシブ・下の段・操作にする）
+      element.insertBefore(band, actions);
+    }
+    return band;
+  };
+  const dropEmptyBand = () => {
+    if (!band || marked.length || hitsLine) return;
+    band.remove();
+    band = null;
+  };
   let eligible = false;
   let current = pal;
   // セルごとの値の署名。変わったセルだけを作り直す
@@ -484,7 +524,7 @@ export function ownedRowItem(pal, options) {
   const item = {
     element,
     get pal() { return current; },
-    update(next, { notes = [], highlight, marks = [], actions: withActions = false, hints } = {}) {
+    update(next, { notes = [], highlight, marks = [], badges = [], actions: withActions = false, hints } = {}) {
       current = next;
       // 書き換えるセルにフォーカスがあったら、書き換えた後に同じ役目の部品（data-focus）へ戻す
       const focused = focusMark(element);
@@ -498,10 +538,8 @@ export function ownedRowItem(pal, options) {
         tileNode?.remove();
         tileNode = tile;
       }) || changed;
-      changed = write('badges', [next.nickname, next.egg, next.lucky, next.alpha, marks.join('\u0001')].join('\u0002'), () => {
-        for (const old of badgeHints) old.destroy();
-        badgeHints = [];
-        const line = palCellBadges(next, marks, hints ?? badgeHints);
+      changed = write('badges', [next.nickname, next.egg, next.lucky, next.alpha, badges.join('\u0001')].join('\u0002'), () => {
+        const line = palCellBadges(next, badges);
         if (line) cells.pal.insertBefore(line, badgeLine);
         badgeLine?.remove();
         badgeLine = line;
@@ -510,17 +548,30 @@ export function ownedRowItem(pal, options) {
       changed = write('passives', `${next.passives.join(',')}\u0002${highlight?.wanted?.join(',') ?? ''}`, () => {
         for (const old of ownHints) old.destroy();
         ownHints = [];
-        fillPassiveList(cells.passives, next.passives, highlight?.wanted, hints ?? ownHints, hitsLine);
+        fillPassiveList(cells.passives, next.passives, highlight?.wanted, hints ?? ownHints);
+      }) || changed;
+      // 下の段: 印（印の後ろに一致の理由）。印だけ・理由だけが変わったときは、変わった方だけを入れ直す
+      changed = write('marks', marks.join('\u0001'), () => {
+        for (const old of markHints) old.destroy();
+        markHints = [];
+        for (const node of marked) node.remove();
+        marked = marks.length ? markNodes(marks, hints ?? markHints) : [];
+        if (marked.length) {
+          const host = ensureBand();
+          for (const node of marked) host.insertBefore(node, hitsLine);
+        }
+        dropEmptyBand();
       }) || changed;
       changed = write('hits', notesSignature(notes), () => {
         if (!notes.length) {
           hitsLine?.remove();
           hitsLine = null;
+          dropEmptyBand();
           return;
         }
         if (!hitsLine) {
           hitsLine = el('p', 'owned-hits');
-          cells.passives.append(hitsLine);
+          ensureBand().append(hitsLine);
         }
         fillHits(hitsLine, notes);
       }) || changed;
@@ -560,9 +611,9 @@ export function ownedRowItem(pal, options) {
       return true;
     },
     destroy() {
-      for (const old of [...ownHints, ...badgeHints]) old.destroy();
+      for (const old of [...ownHints, ...markHints]) old.destroy();
       ownHints = [];
-      badgeHints = [];
+      markHints = [];
     },
   };
   item.update(pal, options);
@@ -618,7 +669,7 @@ export function ownedView(context, route) {
   // ---- 絞り込みの部品（作るのは 1 回だけ。条件・データが変わったら update・値の書き換えで合わせる） ----
   // 利用者が条件を変えた: 一覧・件数・効いている条件を描き直し、一覧の先頭がパネルの下に隠れていれば先頭を見せる（O-05）
   function changed() {
-    renderResults();
+    renderResults({ reveal: true });
     revealResults();
   }
   const query = el('input');
@@ -1391,6 +1442,8 @@ export function ownedView(context, route) {
   // ---- 一覧（行は個体の ID で使い回す。中身が同じ行は触らない） ----
   let terms = [];
   let termsKey = '';
+  // 行の下の段（目標の印・キーワードに一致した理由）の場所を取っているか（一覧の has-band。全部の行の高さが変わる。D25）
+  let bandShown = false;
   // 1 回の描き直しで、すぐ書き換える既にある行の数（先頭から。FILL_NOW）。残りの書き換えは区切って行う（キーワードで一致の理由が多くの行で
   // 変わるときに止まらないように）。作ったばかりの行はいつもすぐ中身を入れる
   let fillBudget = FILL_NOW;
@@ -1522,8 +1575,9 @@ export function ownedView(context, route) {
     virtual.destroy();
     virtual = null;
   };
-  // keepPosition: データの更新のとき（条件の変更では戻さない）、見ていた行を同じ位置に戻す
-  function renderResults({ keepPosition = false } = {}) {
+  // keepPosition: データの更新のとき（条件の変更では戻さない）、見ていた行を同じ位置に戻す。
+  // reveal: 利用者が条件を変えた（この後で一覧の先頭を見せる〔revealResults〕ので、行の高さが変わっても見ていた行は戻さない）
+  function renderResults({ keepPosition = false, reveal = false } = {}) {
     // 閉じた後に遅れて呼ばれたとき（並べ替えの動きの後など）は描かない
     if (destroyed) return;
     const job = ++jobSeq;
@@ -1556,6 +1610,10 @@ export function ownedView(context, route) {
     const list = sortOwned(matched, filter.sort, filter.dir);
     terms = keywordTerms(filter.query);
     termsKey = terms.join(' ');
+    // 行の下の段を取るのは「目標の印を出していて、保存した目標が 1 つ以上ある」か「キーワードがある」とき（D25）。どちらも利用者の操作でだけ
+    // 変わるので、データの読み直し（10 秒ごとなど）では行の高さが変わらない。印のない行も同じ高さにする
+    const band = Boolean(shownMarks) || terms.length > 0;
+    const bandChanged = band !== bandShown;
     // 空の表示だけのときは帯を敷かない（CSS の .owned-list.is-empty。:has() は行の出し入れのたびに全体を計算し直させるので使わない）
     results.classList.toggle('is-empty', !list.length);
     head.hidden = !list.length;
@@ -1564,13 +1622,23 @@ export function ownedView(context, route) {
       ? '自分のプレイヤーが分からないため、自分の個体で絞れません（所持者を「すべて」にすると全員の個体が出ます）。'
       : '条件に合うパルはいません。';
     shownCount = list.length;
-    const anchor = keepPosition ? anchorOf(virtual ? virtual.rows : results, fixedBottom()) : null;
+    // 見ていた行を同じ位置に戻す: データの更新のときと、行の高さが変わる（下の段の出し入れ）のに一覧の先頭が固定の部分の下に隠れているとき
+    //（上の行の高さが変わって、見ていた行が動く。条件を変えたときは、この後で一覧の先頭を見せるので戻さない）。高さを変える前に覚える
+    const holdRow = keepPosition || (bandChanged && !reveal && scrolledTop() !== null);
+    const anchor = holdRow ? anchorOf(virtual ? virtual.rows : results, fixedBottom()) : null;
+    if (bandChanged) {
+      bandShown = band;
+      results.classList.toggle('has-band', band);
+    }
+    const estimate = band ? ROW_ESTIMATE_BAND : ROW_ESTIMATE;
     // 2,000 行を超えたら、見えている範囲だけを描く
     if (list.length > VIRTUAL_OVER) {
       if (!virtual) {
         clearList(results);
-        virtual = virtualRows(results, { key: rowOptions.key, create: listRow, estimate: ROW_ESTIMATE, topOffset: fixedBottom });
+        virtual = virtualRows(results, { key: rowOptions.key, create: listRow, estimate, topOffset: fixedBottom });
       }
+      // 行の高さが変わったら、測って覚えた高さを捨てて見積もりを変える（全部の行が同じ高さ）
+      virtual.setEstimate(estimate);
       // 見ていた行の位置で先に描く（今の位置より前に多数の行が増えても戻せる）。測った高さとのずれは restoreAnchor で直す
       virtual.render(list, { anchor });
       restoreAnchor(virtual.rows, anchor);

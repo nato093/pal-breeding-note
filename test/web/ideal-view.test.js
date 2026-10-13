@@ -1546,6 +1546,9 @@ test('理想個体画面: 別の配合牧場に入っている親に「別の配
   const [male, female] = first.querySelectorAll('.owned-row');
   assert.deepEqual(texts(male.querySelectorAll('.badge-mark')), ['別の配合牧場で使用中（拠点の牧場 B）']);
   assert.deepEqual(texts(female.querySelectorAll('.badge-mark')), []);
+  // カードの行の印は今までどおり名前の下（バッジの 1 行）。所持パルの一覧の下の段（D25）は作らない（カードの行は 64px のまま）
+  assert.deepEqual(texts(male.querySelector('.owned-badges').querySelectorAll('.badge-mark')), ['別の配合牧場で使用中（拠点の牧場 B）']);
+  assert.equal(male.querySelector('.owned-band'), null);
   // 牧場 A は m3 を外して m1 を入れる。入れる m1 にも印。自分（Alice）の個体の行は太字（is-mine）
   const moves = view.element.querySelectorAll('.ideal-farm-move');
   assert.deepEqual(moves.map((move) => [move.className, texts(move.querySelectorAll('.badge-mark'))]), [
