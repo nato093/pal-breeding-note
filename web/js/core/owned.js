@@ -6,6 +6,7 @@ import { isObject, int, text, idText, list, cleanSharedPlayers, cleanSharedBases
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
+import passiveList from '../../data/passives.js';
 import { ACTIVE_SKILLS, PARTNER_SKILLS, ACTIVE_SKILL_DESCS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
@@ -44,6 +45,30 @@ export function palboxPosition(slotIndex) {
   if (!Number.isInteger(index) || index < 0) return null;
   const inPage = index % PALBOX_PAGE_SIZE;
   return { page: Math.floor(index / PALBOX_PAGE_SIZE) + 1, row: Math.floor(inPage / PALBOX_COLUMNS) + 1, column: (inPage % PALBOX_COLUMNS) + 1 };
+}
+
+/**
+ * パルボックスの位置の文字（placeLabel。共有の列にもこのまま載る）。書式を変えると、共有から位置（parseBoxLabel）が読めなくなるので変えない
+ * （古い画面から共有された行も同じ書式で読む）
+ */
+export function palboxLabel({ page, row, column }) {
+  return `${PLACE_LABELS.palbox} ${page} ページ・${row} 行 ${column} 列`;
+}
+
+const BOX_LABEL = /^パルボックス (\d{1,4}) ページ・(\d) 行 (\d) 列$/;
+const BOX_ROWS = PALBOX_PAGE_SIZE / PALBOX_COLUMNS;
+/**
+ * placeLabel（palboxLabel の書式）からパルボックスの位置を読む（共有のデータには位置の列がないので、文字から読み戻す）。
+ * 書式が違う・範囲の外なら null（古い共有の「パルボックス」など。画面は文字だけを出す）
+ * @returns {{ page: number, row: number, column: number } | null}
+ */
+export function parseBoxLabel(label) {
+  if (typeof label !== 'string') return null;
+  const match = BOX_LABEL.exec(label);
+  if (!match) return null;
+  const [page, row, column] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (page < 1 || row < 1 || row > BOX_ROWS || column < 1 || column > PALBOX_COLUMNS) return null;
+  return { page, row, column };
 }
 
 /**
@@ -188,7 +213,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     let placeDetail = PLACE_LABELS[kind];
     // パルボックスはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
     const boxAt = kind === 'palbox' ? palboxPosition(location.slotIndex) : null;
-    if (boxAt) placeDetail = `${PLACE_LABELS.palbox} ${boxAt.page} ページ・${boxAt.row} 行 ${boxAt.column} 列`;
+    if (boxAt) placeDetail = palboxLabel(boxAt);
     else if (kind === 'base') placeDetail = baseLabel(location.baseId);
     else if (egg && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
     const passiveIds = cleanPassives(source.passives);
@@ -221,6 +246,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       place: kind,
       placeGroup: placeGroup(kind),
       placeLabel: text(placeDetail, 200),
+      // パルボックスの位置（ページ・行・列。ボックス順の並べ替えと行の小さな図）。パルボックス以外・位置が分からなければ null
+      box: boxAt,
       holderUid,
       holder: text(holder, 60),
       lastOwnerUid: source.lastOwnerUid ?? '',
@@ -326,10 +353,13 @@ export function keywordTerms(query) {
   return queryTerms(query);
 }
 
-/** 語がすべて、いずれかの項目に含まれるか。 */
-export function matchesKeywords(pal, terms) {
+/**
+ * 語がすべて、いずれかの項目に含まれるか。extra は個体の固定の文字ではない、画面が足す文字（目標の印など。keywordCache には入れない）
+ */
+export function matchesKeywords(pal, terms, extra) {
   const texts = keywordTexts(pal);
-  return terms.every((term) => texts.some((entry) => entry.text.includes(term)));
+  const added = extra?.length ? extra.map(normalizedText) : null;
+  return terms.every((term) => texts.some((entry) => entry.text.includes(term)) || (added !== null && added.some((text) => text.includes(term))));
 }
 
 // 一覧に出していない項目のうち、一致したら行に出すもの（見出し・名前の項目・説明の項目）
@@ -372,10 +402,11 @@ export function keywordNotes(pal, terms) {
  *   places は場所のグループ（placeGroup の値。null は絞らない、[] は何も出さない）。bases は拠点の ID（空でなければ、その拠点の個体と
  *   その拠点に置いたタマゴ〔baseId が入っている個体〕だけ）。elements は属性（マスターの ID〔Fire など〕。どれかを持つ個体）。
  *   passiveMode は include＝選んだパッシブを全部持つ、only＝全部持ち、ほかを持たない、none＝パッシブが 0 個（選んだパッシブは見ない）。
- *   stars はパル濃縮（★の数）の下限、talent は個体値の下限
+ *   stars はパル濃縮（★の数）の下限、talent は個体値の下限。extraTexts は個体 ID ごとに、キーワードで一緒に探す文字（目標の印など）
  */
 export function filterOwned(pals, {
   ids = null, places = null, bases = [], elements = [], palId = '', passives = [], passiveMode = 'include', query = '', stars = 0, talent = {},
+  extraTexts = null,
 } = {}) {
   const terms = keywordTerms(query);
   const minStars = Number(stars) || 0;
@@ -397,38 +428,89 @@ export function filterOwned(pals, {
     if (palId && pal.palId !== palId) return false;
     if (none ? pal.passives.length > 0 : wanted.length && !hasPassives(pal, wanted)) return false;
     if (only && pal.passives.length !== wanted.length) return false;
-    if (terms.length && !matchesKeywords(pal, terms)) return false;
+    if (terms.length && !matchesKeywords(pal, terms, extraTexts?.get(pal.id))) return false;
     return true;
   });
 }
 
 const compareText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
+/**
+ * 一覧の並べ替え: [キー, 既定の向きの名前, 既定の向き, 反対の向きの名前]。列見出しを押すとそのキー（既定の向き）、もう一度で反対の向き。
+ * HP・攻撃・防御は 1 つの個体値（O-21）、passives は良いパッシブ順（ランクの合計。O-24）、place はボックス順（O-22）
+ */
 export const OWNED_SORTS = Object.freeze([
-  ['dex', '図鑑番号順'],
-  ['passives', 'パッシブの数が多い順'],
-  ['level', 'レベルの高い順'],
-  ['stars', 'パル濃縮（★）の多い順'],
-  ['talent', '個体値の合計が高い順'],
-  // 個体値の目標は「以上」だけなので、低い個体はこの並べ替えで探す（X-30）
-  ['talent-low', '個体値の合計が低い順'],
-  ['place', '場所順'],
-]);
+  ['dex', '図鑑番号順', 'asc', '図鑑番号の大きい順'],
+  ['passives', '良いパッシブ順', 'desc', 'パッシブのランクが低い順'],
+  ['level', 'レベルの高い順', 'desc', 'レベルの低い順'],
+  ['stars', 'パル濃縮（★）の多い順', 'desc', 'パル濃縮（★）の少ない順'],
+  ['talent', '個体値の合計が高い順', 'desc', '個体値の合計が低い順'],
+  ['hp', 'HP の個体値が高い順', 'desc', 'HP の個体値が低い順'],
+  ['shot', '攻撃の個体値が高い順', 'desc', '攻撃の個体値が低い順'],
+  ['defense', '防御の個体値が高い順', 'desc', '防御の個体値が低い順'],
+  ['place', 'ボックス順', 'asc', 'ボックスの逆順'],
+].map((entry) => Object.freeze(entry)));
+const SORT_BY_KEY = new Map(OWNED_SORTS.map((entry) => [entry[0], entry]));
+// 前の並べ替えの値（talent-target の「個体値の合計が低い順」）。viewState・URL に残っていたら、キーと向きに読み替える
+const LEGACY_SORTS = { 'talent-low': { key: 'talent', dir: 'asc' } };
 
-export function sortOwned(pals, key = 'dex') {
+/**
+ * 並べ替えの値（キー。前の値 talent-low も受ける）と向きを、使えるキーと向きにする。知らないキーは図鑑番号順、知らない向きはそのキーの既定
+ * @returns {{ key: string, dir: 'asc' | 'desc' }}
+ */
+export function sortKey(value, dir) {
+  if (Object.hasOwn(LEGACY_SORTS, value)) return { ...LEGACY_SORTS[value] };
+  const entry = SORT_BY_KEY.get(value) ?? SORT_BY_KEY.get('dex');
+  return { key: entry[0], dir: dir === 'asc' || dir === 'desc' ? dir : entry[2] };
+}
+
+/** 並べ替えの名前（向きつき。「HP の個体値が低い順」など） */
+export function sortLabel(value, dir) {
+  const { key, dir: resolved } = sortKey(value, dir);
+  const entry = SORT_BY_KEY.get(key);
+  return resolved === entry[2] ? entry[1] : entry[3];
+}
+
+// パッシブのランク（マスターにないものは 0。負のパッシブは負のランク）
+const passiveRanks = new Map(passiveList.map((passive) => [passive.id, Number(passive.rank) || 0]));
+const rankSum = (pal) => {
+  let sum = 0;
+  for (const id of pal.passives) sum += passiveRanks.get(id) ?? 0;
+  return sum;
+};
+// ボックスの位置（パルボックスの外・位置の分からない個体は、同じ所持者・場所のグループの最後）
+const boxIndex = (pal) => (pal.box ? (pal.box.page * 100 + pal.box.row) * 100 + pal.box.column : Infinity);
+
+/**
+ * 一覧を並べる（元の配列は変えない）。key は OWNED_SORTS のキー（前の値 talent-low も受ける）、dir は向き（省くとそのキーの既定）。
+ * 向きは最初の比較（そのキーの比べ方）だけを反転し、同じ値の比べ方（図鑑番号など）はそのまま。最後は必ず個体 ID の順（同じ入力なら同じ並び）
+ */
+export function sortOwned(pals, key = 'dex', dir) {
+  const sort = sortKey(key, dir);
   const dex = (a, b) => a.no - b.no || Number(a.variant) - Number(b.variant) || compareText(a.characterId, b.characterId);
   const talent = (pal) => pal.talent.hp + pal.talent.shot + pal.talent.defense;
   const placeRank = (pal) => PLACE_ORDER.indexOf(pal.placeGroup);
+  // [最初の比較（既定の向き）, 同じ値のときの比べ方]
   const comparators = {
-    dex: (a, b) => dex(a, b) || b.level - a.level,
-    passives: (a, b) => b.passives.length - a.passives.length || dex(a, b),
-    level: (a, b) => b.level - a.level || dex(a, b),
-    stars: (a, b) => b.stars - a.stars || b.level - a.level || dex(a, b),
-    talent: (a, b) => talent(b) - talent(a) || dex(a, b),
-    'talent-low': (a, b) => talent(a) - talent(b) || dex(a, b),
-    place: (a, b) => placeRank(a) - placeRank(b) || compareText(a.holder, b.holder) || dex(a, b),
+    dex: [dex, (a, b) => b.level - a.level],
+    passives: [(a, b) => rankSum(b) - rankSum(a), (a, b) => b.passives.length - a.passives.length || dex(a, b)],
+    level: [(a, b) => b.level - a.level, dex],
+    stars: [(a, b) => b.stars - a.stars, (a, b) => b.level - a.level || dex(a, b)],
+    talent: [(a, b) => talent(b) - talent(a), dex],
+    hp: [(a, b) => b.talent.hp - a.talent.hp, dex],
+    shot: [(a, b) => b.talent.shot - a.talent.shot, dex],
+    defense: [(a, b) => b.talent.defense - a.talent.defense, dex],
+    place: [(a, b) => compareText(a.holder, b.holder) || placeRank(a) - placeRank(b) || boxIndex(a) - boxIndex(b), dex],
   };
-  return [...pals].sort(comparators[key] ?? comparators.dex);
+  const [first, rest] = comparators[sort.key];
+  const sign = sort.dir === SORT_BY_KEY.get(sort.key)[2] ? 1 : -1;
+  // 良いパッシブ順は個体ごとのランクの合計を先に求める（比べるたびに数えない）
+  const list = sort.key === 'passives' ? pals.map((pal) => ({ pal, sum: rankSum(pal) })) : null;
+  if (list) {
+    list.sort((a, b) => sign * (b.sum - a.sum) || rest(a.pal, b.pal) || compareText(a.pal.id, b.pal.id));
+    return list.map((item) => item.pal);
+  }
+  return [...pals].sort((a, b) => sign * first(a, b) || rest(a, b) || compareText(a.id, b.id));
 }
 
 /** 種類（パル ID）ごとの所持個体。マスター外（人間など）は含めない。 */
@@ -616,6 +698,7 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     const human = pal ? null : resolveHuman(characterId);
     const gender = get(GENDER);
     const skillText = get(SKILL_IDS);
+    const placeLabel = text(get(PLACE_LABEL), 200) || PLACE_LABELS[kind];
     entries.push({
       id, palId, characterId, human,
       name: text(pal?.ja ?? (human?.ja || get(PAL_NAME) || characterId), 50),
@@ -630,7 +713,9 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       // skillIds は後から足した列。スキルを送らない古い画面から共有されたときは空
       ...skillInfo(skillText ? skillText.split('|') : []),
       talent: talentOf(get(HP), get(SHOT), get(DEFENSE)),
-      lucky: get(LUCKY) === '1', place: kind, placeGroup: placeGroup(kind), placeLabel: text(get(PLACE_LABEL), 200) || PLACE_LABELS[kind],
+      lucky: get(LUCKY) === '1', place: kind, placeGroup: placeGroup(kind), placeLabel,
+      // 共有には位置の列がないので、placeLabel の文字から読む（書式の違う古い共有は null で、文字だけを出す）
+      box: kind === 'palbox' ? parseBoxLabel(placeLabel) : null,
       holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
     });
   }

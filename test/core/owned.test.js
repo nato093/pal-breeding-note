@@ -7,7 +7,7 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
-  keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS,
+  keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 
@@ -123,8 +123,14 @@ test('所持パル: 許す個体（所持者）・場所のグループ・拠点
   assert.deepEqual(ids({ palId: 'SheepBall' }), ['a', 'b', 'c']);
   assert.deepEqual(ids({ passives: ['CraftSpeed_up2', 'Rare'] }), ['a']);
   assert.deepEqual(ids({ query: '職人' }), ['a', 'b', 'd']);
+  // 画面が足す文字（目標の印など）もキーワードで一緒に探す（個体の固定の文字とは別に渡す）
+  const marks = new Map([['b', ['完成品: モコロンの目標']], ['c', ['モコロンの目標の欲しいパッシブ']]]);
+  assert.deepEqual(ids({ query: '完成品', extraTexts: marks }), ['b']);
+  assert.deepEqual(ids({ query: 'もころん 目標', extraTexts: marks }), ['b', 'c']);
+  assert.deepEqual(ids({ query: '完成品' }), []);
   assert.deepEqual(ids({ places: ['party', 'palbox', 'base', 'dps', 'unknown'], passives: ['CraftSpeed_up2'] }), ['a', 'b']);
-  assert.deepEqual(sortOwned(owned.pals, 'passives').slice(0, 1).map((p) => p.id), ['a']);
+  // 良いパッシブ順（ランクの合計）: a は職人気質 3＋希少 4、b・d は職人気質 3（同じ合計は図鑑番号順）
+  assert.deepEqual(sortOwned(owned.pals, 'passives').slice(0, 3).map((p) => p.id), ['a', 'b', 'd']);
   // パル濃縮（★の数）と個体値は下限で絞り込む
   assert.deepEqual(ids({ stars: 2 }), ['a']);
   assert.deepEqual(ids({ stars: 3 }), []);
@@ -157,19 +163,92 @@ test('所持パル: 属性はどれかを持つ個体（OR）で絞り込み、�
   assert.deepEqual(ids(['Dragon']), []);
 });
 
-test('所持パル: 個体値の合計が高い順・低い順に並べ（同じ合計は図鑑番号順）、低い順は高い順の次の選択肢', () => {
+test('所持パル: 個体値の合計が高い順・低い順に並べ（同じ合計は図鑑番号順）。前の「低い順」の値 talent-low は（talent・asc）に読み替える', () => {
   const list = normalizeOwned({ ...snapshot, pals: [
     pal('mid', 'PinkCat', {}, { talent: { hp: 50, shot: 50, defense: 50 } }),
     pal('top', 'SheepBall', {}, { talent: { hp: 100, shot: 100, defense: 100 } }),
     pal('lo', 'PinkCat', {}, { talent: { hp: 0, shot: 10, defense: 0 } }),
     pal('same', 'SheepBall', {}, { talent: { hp: 60, shot: 40, defense: 50 } }),
   ] }, { pals, passives }).pals;
-  // 合計 150 の 2 体は図鑑番号順（モコロン No.1 → ツッパニャン No.2）
+  // 合計 150 の 2 体は図鑑番号順（モコロン No.1 → ツッパニャン No.2）。向きを変えても、反転するのは最初の比較（合計）だけ
   assert.deepEqual(sortOwned(list, 'talent').map((p) => p.id), ['top', 'same', 'mid', 'lo']);
+  assert.deepEqual(sortOwned(list, 'talent', 'asc').map((p) => p.id), ['lo', 'same', 'mid', 'top']);
   assert.deepEqual(sortOwned(list, 'talent-low').map((p) => p.id), ['lo', 'same', 'mid', 'top']);
-  const keys = OWNED_SORTS.map(([key]) => key);
-  assert.equal(keys[keys.indexOf('talent') + 1], 'talent-low');
-  assert.deepEqual(OWNED_SORTS.find(([key]) => key === 'talent-low'), ['talent-low', '個体値の合計が低い順']);
+  assert.deepEqual(sortKey('talent-low'), { key: 'talent', dir: 'asc' });
+  assert.deepEqual(sortKey('talent'), { key: 'talent', dir: 'desc' });
+  assert.deepEqual(sortKey('hp', 'asc'), { key: 'hp', dir: 'asc' });
+  // 知らない値・向きは既定（図鑑番号順・その並べ替えの既定の向き）
+  assert.deepEqual(sortKey('passives-count', 'up'), { key: 'dex', dir: 'asc' });
+  assert.deepEqual(sortKey('level', 'up'), { key: 'level', dir: 'desc' });
+  // 並べ替えは [キー, 既定の向きの名前, 既定の向き, 反対の向きの名前]
+  assert.deepEqual(OWNED_SORTS.find(([key]) => key === 'talent'), ['talent', '個体値の合計が高い順', 'desc', '個体値の合計が低い順']);
+  assert.deepEqual(OWNED_SORTS.map(([key]) => key), ['dex', 'passives', 'level', 'stars', 'talent', 'hp', 'shot', 'defense', 'place']);
+  assert.equal(sortLabel('talent', 'asc'), '個体値の合計が低い順');
+  assert.equal(sortLabel('hp', 'desc'), 'HP の個体値が高い順');
+});
+
+test('所持パル: HP・攻撃・防御の個体値の順、良いパッシブ順（ランクの合計。負のパッシブは引き、マスターにないものは 0）、向きの反転、同じ値なら個体 ID の順', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('p3', 'PinkCat', {}, { talent: { hp: 80, shot: 10, defense: 50 }, passives: ['CraftSpeed_up2'] }),
+    pal('p1', 'SheepBall', {}, { talent: { hp: 20, shot: 90, defense: 50 }, passives: ['Rare', 'CraftSpeed_down1'] }),
+    pal('p2', 'SheepBall', {}, { talent: { hp: 50, shot: 50, defense: 90 }, passives: ['NotInMaster', 'Rare'] }),
+    pal('p0', 'SheepBall', {}, { talent: { hp: 50, shot: 50, defense: 50 }, passives: [] }),
+  ] }, { pals, passives }).pals;
+  const order = (key, dir) => sortOwned(list, key, dir).map((p) => p.id);
+  assert.deepEqual(order('hp'), ['p3', 'p0', 'p2', 'p1']);
+  assert.deepEqual(order('hp', 'asc'), ['p1', 'p0', 'p2', 'p3']);
+  assert.deepEqual(order('shot'), ['p1', 'p0', 'p2', 'p3']);
+  assert.deepEqual(order('defense'), ['p2', 'p0', 'p1', 'p3']);
+  // 希少 4・職人気質 3・不器用 −1。p2 は 4＋0（マスターにない）＝4、p1 は 4−1＝3、p3 は 3（p1 と同じ合計はパッシブの多い p1 が先）
+  assert.deepEqual(order('passives'), ['p2', 'p1', 'p3', 'p0']);
+  // 反対の向きは最初の比較（ランクの合計）だけを反転し、同じ合計のパッシブの数・図鑑番号の比べ方はそのまま
+  assert.deepEqual(order('passives', 'asc'), ['p0', 'p1', 'p3', 'p2']);
+  // 同じ値なら最後は個体 ID の順（入力の並びが違っても同じ並び）
+  const same = normalizeOwned({ ...snapshot, pals: [pal('z', 'SheepBall', {}), pal('x', 'SheepBall', {}), pal('y', 'SheepBall', {})] }, { pals, passives }).pals;
+  for (const [key] of OWNED_SORTS) {
+    assert.deepEqual(sortOwned(same, key).map((p) => p.id), ['x', 'y', 'z'], key);
+    assert.deepEqual(sortOwned([...same].reverse(), key, 'asc').map((p) => p.id), ['x', 'y', 'z'], key);
+  }
+});
+
+test('所持パル: ボックス順は所持者 → 場所のグループ → ボックスの位置（ページ・行・列）→ 図鑑番号', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('b-box-2', 'SheepBall', { kind: 'palbox', playerUid: P2, slotIndex: 31 }),
+    pal('a-box-p2', 'SheepBall', { kind: 'palbox', playerUid: P1, slotIndex: 30 }),
+    pal('a-party', 'PinkCat', { kind: 'party', playerUid: P1 }),
+    pal('a-box-p1-r2', 'PinkCat', { kind: 'palbox', playerUid: P1, slotIndex: 6 }),
+    pal('a-box-p1-c2', 'PinkCat', { kind: 'palbox', playerUid: P1, slotIndex: 1 }),
+    pal('b-box-1', 'SheepBall', { kind: 'palbox', playerUid: P2, slotIndex: 0 }),
+  ] }, { pals, passives }).pals;
+  assert.deepEqual(sortOwned(list, 'place').map((p) => p.id), ['a-party', 'a-box-p1-c2', 'a-box-p1-r2', 'a-box-p2', 'b-box-1', 'b-box-2']);
+  assert.deepEqual(sortOwned(list, 'place', 'desc').map((p) => p.id), ['b-box-2', 'b-box-1', 'a-box-p2', 'a-box-p1-r2', 'a-box-p1-c2', 'a-party']);
+});
+
+test('所持パル: パルボックスの位置（box）はセーブの通し番号と共有の placeLabel で同じになり、placeLabel の書式と parseBoxLabel が往復する', () => {
+  const local = normalizeOwned({ ...snapshot, pals: [
+    pal('p0', 'SheepBall', { kind: 'palbox', slotIndex: 0 }),
+    pal('p36', 'SheepBall', { kind: 'palbox', slotIndex: 36 }),
+    pal('party', 'SheepBall', { kind: 'party', slotIndex: 3 }),
+    pal('base', 'SheepBall', { kind: 'base', playerUid: '', baseId: BASE }),
+    pal('nobox', 'SheepBall', { kind: 'palbox', slotIndex: undefined }),
+  ] }, { pals, passives });
+  assert.deepEqual(local.pals.map((item) => item.box), [{ page: 1, row: 1, column: 1 }, { page: 2, row: 2, column: 1 }, null, null, null]);
+  const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...sharedUpload(local) }, { pals, passives });
+  assert.deepEqual(shared.pals.map((item) => item.box), local.pals.map((item) => item.box));
+  // 書式（palboxLabel）と読み取り（parseBoxLabel）は往復する。書式を変えると共有から位置が読めなくなる
+  for (const index of [0, 5, 29, 30, 959]) {
+    const position = palboxPosition(index);
+    assert.equal(palboxLabel(position), `パルボックス ${position.page} ページ・${position.row} 行 ${position.column} 列`);
+    assert.deepEqual(parseBoxLabel(palboxLabel(position)), position);
+  }
+  // 古い共有（位置のない「パルボックス」）・形の違う文字・範囲の外の値は null（文字だけを出す）
+  for (const label of ['パルボックス', 'パルボックス 2 ページ', 'パルボックス 0 ページ・1 行 1 列', 'パルボックス 1 ページ・6 行 1 列', 'パルボックス 1 ページ・1 行 7 列', ' パルボックス 1 ページ・1 行 1 列', null, 3]) {
+    assert.equal(parseBoxLabel(label), null, String(label));
+  }
+  const old = ownedFromShared({ world: { worldName: 'テスト' }, columns: OWNED_FIELDS, rows: [
+    OWNED_FIELDS.map((field) => ({ instanceId: 'old', palId: 'SheepBall', place: 'palbox', placeLabel: 'パルボックス' })[field] ?? ''),
+  ] }, { pals, passives });
+  assert.deepEqual([old.pals[0].box, old.pals[0].placeLabel], [null, 'パルボックス']);
 });
 
 test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（レベル・★・個体値は含めない）', () => {

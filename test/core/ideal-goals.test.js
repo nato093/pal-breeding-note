@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanGoal, parseGoals, goalKey, goalMatches, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
+import { cleanGoal, parseGoals, goalKey, goalMatches, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const talent = (hp = 0, shot = 0, defense = 0) => ({ hp, shot, defense });
@@ -127,4 +127,38 @@ test('理想個体の所持者: 拠点に置かれたタマゴは誰の個体に
   assert.deepEqual(ids(['p2']), []);
   // 名前の空のプレイヤーが、持ち主の分からない拠点のパルを拾わない
   assert.deepEqual(ids(['p4']), []);
+});
+
+test('目標の印: 登録した目標から、個体ごとに「完成品: 目標名」と「目標名の欲しいパッシブ」を作る（種族ごとに判定。タマゴは数えない）', () => {
+  const goals = [
+    goal({ id: 'g1', name: 'エックスの理想', passives: ['P1', 'P2'], targets: { hp: 90, shot: 0, defense: 0 } }),
+    goal({ id: 'g2', name: 'Lv100', palId: 'X', passives: ['P3'], targets: { hp: 0, shot: 0, defense: 0 } }),
+    goal({ id: 'g3', name: 'ワイの理想', palId: 'Y', passives: ['P1'], mode: 'only', targets: { hp: 0, shot: 0, defense: 0 } }),
+  ];
+  const pals = [
+    pal('done', 'X', 'M', ['P1', 'P2'], talent(95, 0, 0)),
+    // 個体値が足りない完成していない個体は、欲しいパッシブを持つ印だけ
+    pal('low', 'X', 'F', ['P1', 'P2'], talent(50, 0, 0)),
+    pal('half', 'X', 'F', ['P2', 'P9'], talent(100, 100, 100)),
+    pal('none', 'X', 'F', ['P9']),
+    pal('egg', 'X', 'M', ['P1', 'P2'], talent(100, 100, 100), { egg: true }),
+    // ほかの種族は、その種族の目標だけで見る（だけ: ほかのパッシブを持つと完成品ではない）
+    pal('y-only', 'Y', 'M', ['P1']),
+    pal('y-more', 'Y', 'M', ['P1', 'P3']),
+    pal('z', 'Z', 'M', ['P1']),
+  ];
+  const marks = goalMarks(goals, pals);
+  assert.deepEqual(Object.fromEntries(marks), {
+    done: ['完成品: エックスの理想'],
+    low: ['エックスの理想の欲しいパッシブ'],
+    half: ['エックスの理想の欲しいパッシブ'],
+    'y-only': ['完成品: ワイの理想'],
+    'y-more': ['ワイの理想の欲しいパッシブ'],
+  });
+  // 英数字で終わる名前の後だけ空ける。欲しいパッシブのない目標は、完成品の印だけ
+  const more = goalMarks([...goals, goal({ id: 'g4', name: 'Lv100', palId: 'X', passives: [], targets: { hp: 90, shot: 0, defense: 0 } })], pals);
+  assert.deepEqual(more.get('done'), ['完成品: エックスの理想', '完成品: Lv100']);
+  assert.deepEqual(more.get('none'), undefined);
+  assert.equal(goalMarks([goal({ id: 'g5', name: 'Lv100', passives: ['P9'], targets: { hp: 100, shot: 100, defense: 100 } })], pals).get('none')[0], 'Lv100 の欲しいパッシブ');
+  assert.equal(goalMarks([], pals).size, 0);
 });

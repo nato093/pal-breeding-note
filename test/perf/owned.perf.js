@@ -111,3 +111,99 @@ test('性能: 所持パル 20,000 行（同じ種族が 6 割）で、キーワ�
     assert.ok(elapsed < 100, `2,000 行の${label}が 100ms を超えました: ${elapsed.toFixed(2)} ms`);
   }
 });
+
+// owned-rows: 列見出しの並べ替え（HP・攻撃・防御・良いパッシブ順・ボックス順と向きの反転）・目標の印・行の部品の生成。
+// 2,000 行・20,000 行（同じ種族が 6 割の偏った分布）でも、入力 1 回（絞り込み＋並べ替え）が 100ms 以内
+async function biasedOwned(count, seed) {
+  const { normalizeOwned } = await import('../../web/js/core/owned.js');
+  let state = seed;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const pick = (items) => items[Math.floor(random() * items.length)];
+  const palIds = pals.map((pal) => pal.id);
+  const passiveIds = passives.map((passive) => passive.id);
+  const uid = '00000000-0000-0000-0000-000000000001';
+  const base = 'b1b1b1b1-1111-4111-8111-111111111111';
+  const kinds = ['palbox', 'palbox', 'palbox', 'party', 'base', 'dps', 'global', 'egg-incubator'];
+  return normalizeOwned({
+    version: 1, world: { name: 'World9', hostName: 'Alice' }, players: [{ uid, name: 'Alice', level: 50 }], bases: [{ id: base, number: 1 }], stats: {},
+    pals: Array.from({ length: count }, (_, i) => {
+      const kind = pick(kinds);
+      return {
+        instanceId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`,
+        characterId: random() < 0.6 ? 'SheepBall' : pick(palIds), gender: pick(['Male', 'Female']), level: 1 + Math.floor(random() * 60),
+        rank: 1 + Math.floor(random() * 5), nickname: random() < 0.1 ? `ニックネーム${i}` : '',
+        passives: Array.from({ length: Math.floor(random() * 5) }, () => pick(passiveIds)), skills: ['AirCanon', 'FireBall'],
+        talent: { hp: Math.floor(random() * 101), shot: Math.floor(random() * 101), defense: Math.floor(random() * 101) },
+        lastOwnerUid: uid, location: { kind, playerUid: uid, baseId: kind === 'base' || kind === 'egg-incubator' ? base : '', slotIndex: i % 960 },
+      };
+    }),
+  }, { pals, passives });
+}
+
+test('性能: 所持パル 2,000 行・20,000 行（同じ種族が 6 割）で、どの並べ替え（向きの反転を含む）も絞り込みと合わせて 100ms 以内', async () => {
+  const { filterOwned, sortOwned, OWNED_SORTS } = await import('../../web/js/core/owned.js');
+  for (const count of [2000, OWNED_MAX_ROWS]) {
+    const owned = await biasedOwned(count, 0x534f5254);
+    const times = [];
+    for (const [key, , dir] of OWNED_SORTS) {
+      for (const direction of [dir, dir === 'asc' ? 'desc' : 'asc']) {
+        const start = performance.now();
+        const list = sortOwned(filterOwned(owned.pals, { places: ['party', 'palbox', 'base', 'dps', 'egg'] }), key, direction);
+        const elapsed = performance.now() - start;
+        times.push(elapsed);
+        assert.ok(list.length > 0);
+        assert.ok(elapsed < 100, `${count} 行の並べ替え（${key}・${direction}）が 100ms を超えました: ${elapsed.toFixed(2)} ms`);
+      }
+    }
+    console.log(`並べ替え（絞り込みと合わせて）・${count} 行: 最大 ${Math.max(...times).toFixed(2)} ms（${times.length} 通り）`);
+  }
+});
+
+test('性能: 目標 100 件 × 所持パル 20,000 行の目標の印（goalMarks）と、印の文字を含むキーワードの絞り込みが 100ms 以内', async () => {
+  const { goalMarks, cleanGoal } = await import('../../web/js/core/ideal-goals.js');
+  const { filterOwned, prepareKeywords } = await import('../../web/js/core/owned.js');
+  const owned = await biasedOwned(OWNED_MAX_ROWS, 0x4d41524b);
+  for (const pal of owned.pals) prepareKeywords(pal);
+  const species = ['SheepBall', ...pals.slice(0, 99).map((pal) => pal.id)];
+  const goals = species.map((palId, i) => cleanGoal({
+    // 半分は欲しいパッシブなし（個体値だけの目標。完成品が多い）、半分はパッシブ 2 つ
+    id: `g${i}`, name: `目標${i}`, palId, passives: i % 2 ? [] : passives.slice(i % 50, (i % 50) + 2).map((passive) => passive.id), mode: 'include',
+    targets: { hp: 50, shot: 0, defense: 0 }, cake: 'none', order: 'next', addedAt: '', worlds: {},
+  }));
+  let start = performance.now();
+  const marks = goalMarks(goals, owned.pals);
+  const marking = performance.now() - start;
+  console.log(`目標の印（目標 100 件・20,000 行）: ${marking.toFixed(2)} ms（印のある個体 ${marks.size}）`);
+  assert.ok(marking < 100, `目標の印が 100ms を超えました: ${marking.toFixed(2)} ms`);
+  start = performance.now();
+  const found = filterOwned(owned.pals, { query: '完成品', extraTexts: marks });
+  const searching = performance.now() - start;
+  console.log(`印の文字を含むキーワード「完成品」・20,000 行: ${searching.toFixed(2)} ms（${found.length} 行）`);
+  assert.ok(searching < 100, `印の文字のキーワードが 100ms を超えました: ${searching.toFixed(2)} ms`);
+});
+
+test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るのが 100ms 以内・2,000 行が 1 秒以内で、1 行の要素は 35 個以下（2,000 行で 80,000 以下）', async (t) => {
+  const { installDom, descendants } = await import('../helpers/dom.js');
+  installDom(t);
+  const { ownedRowItem } = await import('../../web/js/views/owned.js');
+  const owned = await biasedOwned(2000, 0x524f5753);
+  // パッシブ 4 個・バッジなしの行（ふだんのいちばん要素の多い行）
+  const four = owned.pals.find((pal) => pal.passives.length === 4 && !pal.nickname && !pal.egg && !pal.lucky && !pal.alpha && pal.known);
+  const elements = descendants(ownedRowItem(four, { actions: true }).element).length;
+  console.log(`1 行の要素（パッシブ 4 個・バッジなし）: ${elements} 個`);
+  assert.ok(elements <= 35, `1 行の要素が 35 個を超えました: ${elements}`);
+  let start = performance.now();
+  const first = owned.pals.slice(0, 200).map((pal) => ownedRowItem(pal, { actions: true }));
+  const firstMs = performance.now() - start;
+  start = performance.now();
+  const rest = owned.pals.slice(200).map((pal) => ownedRowItem(pal, { actions: true }));
+  const allMs = firstMs + performance.now() - start;
+  const total = [...first, ...rest].reduce((sum, row) => sum + descendants(row.element).length, 0);
+  console.log(`行の部品の生成（テスト用の DOM）: 先頭 200 行 ${firstMs.toFixed(2)} ms・2,000 行 ${allMs.toFixed(2)} ms・要素 ${total} 個`);
+  assert.ok(firstMs < 100, `200 行の生成が 100ms を超えました: ${firstMs.toFixed(2)} ms`);
+  assert.ok(allMs < 1000, `2,000 行の生成が 1 秒を超えました: ${allMs.toFixed(2)} ms`);
+  assert.ok(total <= 80000, `2,000 行の要素が 80,000 を超えました: ${total}`);
+});
