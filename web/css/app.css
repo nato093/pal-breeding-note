@@ -1140,16 +1140,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .passive-selector { position: relative; }
 .passive-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; }
 .passive-chips { display: contents; }
-/* 理想個体・所持パルのある継承ルート（.route-query。横に半分の幅）は 3 個目のチップが 2 行目に回るので、空でも 2 行分
-   （1 行目の追加欄 40px ＋ 行の間 6px ＋ 2 行目のチップ 32px）を取り、何個足しても下の欄を動かさない。
-   幅 1100px 以下（狭い窓・拡大を含む）は下の @media で 3 行分。行は上に詰める（余った高さで 1 行目が真ん中へ下がらないように）。
-   所持パル・所持パルのない継承ルート（全幅。ふつうは 4 個とも 1 行に収まる）は 1 行分のまま */
-.route-query .passive-row { min-height: 78px; align-content: flex-start; }
-/* 幅 1100px 以下では、名前の長いパッシブの 3・4 個目が 3 行目に回るので、空でも 3 行分
-   （2 行分 ＋ 行の間 6px ＋ 3 行目のチップ 32px）を取る（2026-10-13 のユーザーの判断。空のときの余白は広くなる） */
-@media (width <= 1100px) {
-  .route-query .passive-row { min-height: 116px; }
-}
+/* 空のときは 1 行分。チップが増えて改行が要るときだけ行が増え、下の欄が下がる（2026-10-13 のユーザーの判断。
+   空の余白を取るより、自分の操作で 1 行増えるときだけ動く方がよい。追加欄そのものは 1 行目の先頭から動かない） */
 .passive-add {
   position: relative;
   flex: none;
