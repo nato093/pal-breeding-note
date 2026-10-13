@@ -90,13 +90,17 @@ function palCell(pal) {
   return cell;
 }
 
-/** @param {{ notes?: { label: string, name: string, desc: string }[] }} [options] notes は一致した理由（core/owned.js の keywordNotes） */
+/**
+ * @param {{ notes?: { label: string, name: string, desc: string }[], highlight?: { wanted: string[], targets: { hp: number, shot: number, defense: number } } }} [options]
+ *   notes は一致した理由（core/owned.js の keywordNotes）。highlight は理想個体の組の親で、欲しいパッシブと個体値の目標との差を見せる
+ *   （無いとき〔所持パルの画面〕の行の中身・textContent は今までと同じ）
+ */
 export function ownedRow(pal, options) {
   return fillOwnedRow(el('article', 'owned-row'), pal, options);
 }
 
-/** 行の要素の中身を pal の内容で入れ直す（一覧で同じ個体の要素を使い回すとき）。 */
-export function fillOwnedRow(row, pal, { notes = [] } = {}) {
+/** 行の要素の中身を pal の内容で入れ直す（一覧で同じ個体の要素を使い回すとき）。オプションは ownedRow と同じ */
+export function fillOwnedRow(row, pal, { notes = [], highlight } = {}) {
   row.setAttribute('aria-label', `${pal.name}${pal.nickname ? `（${pal.nickname}）` : ''}`);
   const level = el('div', 'owned-level');
   level.append(el('strong', '', pal.egg ? '孵化前' : `Lv ${pal.level}`), el('small', 'owned-stars', pal.stars ? '★'.repeat(pal.stars) : '☆なし'));
@@ -104,9 +108,61 @@ export function fillOwnedRow(row, pal, { notes = [] } = {}) {
   where.append(el('strong', '', pal.holder), el('small', 'muted', pal.placeLabel));
   if (pal.place === 'base' && pal.lastOwner) where.append(el('small', 'muted', `預けた人 ${pal.lastOwner}`));
   const passives = el('div', 'owned-passives');
-  passives.append(pal.passives.length ? passiveList(pal.passives) : el('span', 'muted', 'パッシブなし'), ...noteLines(notes));
-  row.replaceChildren(palCell(pal), level, passives, el('div', 'owned-talent', talentText(pal.talent)), where);
+  passives.append(passiveCell(pal.passives, highlight?.wanted), ...noteLines(notes));
+  row.replaceChildren(palCell(pal), level, passives, talentCell(pal.talent, highlight?.targets), where);
   return row;
+}
+
+// パッシブの並び。欲しいパッシブ（wanted。1 つ以上のときだけ）があれば、欲しいものに ✓ を付け、それ以外を薄くする
+function passiveCell(ids, wanted) {
+  if (!ids.length) return el('span', 'muted', 'パッシブなし');
+  const list = passiveList(ids);
+  if (!wanted?.length) return list;
+  const set = new Set(wanted);
+  [...list.children].forEach((chip, index) => {
+    if (!set.has(ids[index])) {
+      chip.classList.add('is-extra');
+      return;
+    }
+    chip.classList.add('is-wanted');
+    const check = el('span', 'passive-check', '✓');
+    check.setAttribute('role', 'img');
+    check.setAttribute('aria-label', '欲しいパッシブ');
+    chip.insertBefore(check, chip.children[0] ?? null);
+  });
+  return list;
+}
+
+const TALENT_SHORT = { hp: 'HP', shot: '攻', defense: '防' };
+// 個体値の欄。目標（targets）があれば、ステータスごとのセル（span.talent-cell[data-key]）にして、
+// 目標以上は .met、目標未満は .short と差（−N）を見せる（目標 0 は条件なしなので何もしない）。
+// 目標がなければ今までどおり 1 つの文（所持パルの画面。行の数を増やさない）。owned-rows で 4 セルにする
+function talentCell(talent, targets) {
+  if (!targets) return el('div', 'owned-talent', talentText(talent));
+  const cell = el('div', 'owned-talent');
+  TALENT_FILTERS.forEach(([key, name], index) => {
+    // 区切りは見た目だけ（テストの DOM に文字のノードがないので span にする）
+    if (index) {
+      const separator = el('span', 'talent-sep', ' / ');
+      separator.setAttribute('aria-hidden', 'true');
+      cell.append(separator);
+    }
+    const value = talent[key];
+    const target = targets[key] ?? 0;
+    const item = el('span', 'talent-cell', `${TALENT_SHORT[key]} ${value}`);
+    item.setAttribute('data-key', key);
+    item.setAttribute('role', 'img');
+    if (target > 0 && value >= target) {
+      item.classList.add('met');
+      item.setAttribute('aria-label', `${name} ${value}（目標 ${target} 以上）`);
+    } else if (target > 0) {
+      item.classList.add('short');
+      item.append(el('span', 'talent-diff', `−${target - value}`));
+      item.setAttribute('aria-label', `${name} ${value}（目標 ${target} まで あと ${target - value}）`);
+    } else item.setAttribute('aria-label', `${name} ${value}`);
+    cell.append(item);
+  });
+  return cell;
 }
 
 // 一致した理由の行（パッシブの欄の下）

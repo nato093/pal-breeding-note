@@ -8,6 +8,9 @@ import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
 import { idealView, percent, eggsText } from '../../web/js/views/ideal.js';
+import { ownedRow } from '../../web/js/views/owned.js';
+import { formatTime } from '../../web/js/ui/dom.js';
+import { dateTime } from '../../web/js/ui/owned-status.js';
 import { createIdealStore } from '../../web/js/ideals.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
@@ -108,21 +111,21 @@ test('理想個体画面: URL の目標とパッシブで、配合牧場に置�
   assert.match(list[0].textContent, /完全体作成組/);
   assert.match(list[0].textContent, /1 個のタマゴで 16\.8%/);
   assert.doesNotMatch(list[0].textContent, /タマゴ ·|孵化/);
-  // 両親合わせて欲しいパッシブがそろう同じ種族の組なので、子を入れ替えながら作るときの平均も出す
-  assert.match(list[0].textContent, /世代を重ねて 平均 約 6 個この 2 体のままなら 約 6 個に 1 個/);
+  // 両親合わせて欲しいパッシブがそろう同じ種族の組なので、子を入れ替えながら作るときの平均も出す（量はどれも「完成まで 平均 約 N 個」の形）
+  assert.match(list[0].textContent, /完成まで 平均 約 6 個子と入れ替えながら · この 2 体のままなら 約 6 個 · 1 個のタマゴで 16\.8%/);
   assert.match(list[0].textContent, /同じ種族どうし/);
-  assert.equal(view.element.querySelector('.result-note').textContent, '2 組のうち、別々の個体で作れる上位 1 組 · 候補 3 体 · 同じ種族どうし · 性別不明の 1 体は除外 · 20 秒ごとに確認');
+  assert.equal(view.element.querySelector('.ideal-summary-text').textContent, '上位 1 組（全 2 組・候補 3 体） · 同じ種族どうし');
   // 並べ方の切り替えはない
   assert.ok(!view.element.querySelectorAll('select').some((node) => [...node.children].some((option) => option.value === 'generations')));
-  // 計算のしくみは結果の下に置かず、見出しの「?」からダイアログで開く
+  // 計算のしくみは結果の下に置かず、見出しの「?」からダイアログで開く（4 つの見出し）
   assert.equal(view.element.querySelector('.ideal-help'), null);
   const help = view.element.querySelector('.view-heading').querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '計算のしくみの説明');
   help.dispatch('click');
   const dialog = document.body.querySelectorAll('dialog').find((node) => node.className.split(' ').includes('ideal-help-dialog'));
   assert.equal(dialog.open, true);
   assert.equal(dialog.querySelector('h2').textContent, '計算のしくみ');
-  assert.equal(dialog.querySelector('.ideal-help').children.length, 14);
-  assert.match(dialog.textContent, /並び: 理想個体を作るのにおすすめの組を/);
+  assert.deepEqual(dialog.querySelector('.ideal-help').querySelectorAll('h3').map((node) => node.textContent), ['並び方と組の種類', '数字の意味', 'ケーキ', '配合牧場と「変更あり」']);
+  assert.match(dialog.textContent, /配合牧場に上から置く順に、別々の個体で最大 20 組を並べます。/);
   // 選んだパッシブは選択欄に出る
   assert.deepEqual(view.element.querySelectorAll('.passive-selector')[0].querySelectorAll('.passive-name').map((node) => node.textContent), ['職人気質', '希少']);
   // 選択欄は条件のパネル（.ideal-panel）の 1 段目に、目標と並べて置く
@@ -140,7 +143,7 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
   const children = view.element.children;
   // 並び: 見出し → パネル → 要約 → 足りないパッシブ → 牧場 → 結果（登録の行・登録した一覧の折りたたみはない）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'result-note ideal-note', 'ideal-missing-note', 'ideal-farms', 'ideal-results']);
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'result-note ideal-summary', 'ideal-missing-note', 'ideal-farms', 'ideal-results']);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
   assert.equal(view.element.querySelector('.ideal-register'), null);
   const panel = view.element.querySelector('.ideal-panel');
@@ -215,9 +218,10 @@ test('理想個体画面: 個体値の目標とケーキを変えると結果だ
   const view = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
   const attack = input(view, '攻撃の目標');
   assert.equal(attack.value, '100');
-  // 3 つとも 100 が目標なら、1 回では作れないが、子を入れ替えながら完全体を作れる。100 を 2 つ持つ m1 と組む方が完成に近い（♀ は 1 体なので 1 組）
-  assert.deepEqual(cards(view).map(talentsOf), ['HP 100 / 攻 0 / 防 100 × HP 90 / 攻 90 / 防 90']);
-  assert.match(cards(view)[0].textContent, /完全体作成組.*世代を重ねて 平均/);
+  // 3 つとも 100 が目標なら、1 回では作れないが、子を入れ替えながら完全体を作れる。100 を 2 つ持つ m1 と組む方が完成に近い（♀ は 1 体なので 1 組）。
+  // 目標に届かない個体値には差（−N）が付く
+  assert.deepEqual(cards(view).map(talentsOf), ['HP 100 / 攻 0−100 / 防 100 × HP 90−10 / 攻 90−10 / 防 90−10']);
+  assert.match(cards(view)[0].textContent, /完全体作成組.*完成まで 平均/);
   // 目標を 90 にすると、90 どうしなら 1 回で作れて、確率も高い
   for (const label of ['HPの目標', '攻撃の目標', '防御の目標']) {
     const node = input(view, label);
@@ -297,7 +301,7 @@ test('理想個体画面: 登録済みの異種の配合の親も出し、別の
   assert.match(same.textContent, /同じ種族どうし/);
   assert.equal(same.querySelector('.ideal-warning'), null);
   // 同じ種族どうしのレコードは数えない
-  assert.match(view.element.querySelector('.result-note').textContent, /同じ種族どうしと登録済みの配合 1 件/);
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · 登録済みの配合 1 件$/);
 });
 
 test('理想個体画面: 所持パル・目標がないときと、欲しいパッシブがそろわないときの案内', (t) => {
@@ -306,15 +310,15 @@ test('理想個体画面: 所持パル・目標がないときと、欲しいパ
   assert.match(none.element.textContent, /所持パルのデータがありません/);
   const noTarget = idealView(context(fakeOwned()), parseHash('#/ideal'));
   assert.match(noTarget.element.textContent, /目標のパルを選んでください/);
-  // 候補のだれも持たないパッシブは配合では作れないので、個体値厳選組だけを並べ、そのパッシブを運ぶ経路へも案内する
+  // 候補のだれも持たないパッシブは配合では作れないので、個体値厳選組だけを並べ、そのパッシブを運ぶ継承ルートへも案内する
   const missing = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Legend'));
-  assert.match(missing.element.querySelector('.ideal-missing-note').textContent, /伝説 を持つ個体が候補にいないため、配合では作れません。個体値厳選組を並べています/);
+  assert.equal(missing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning').textContent, '伝説 を持つ親の候補がいません。いまは個体値厳選組だけを出しています。');
   assert.ok(cards(missing).length && cards(missing).every((card) => /個体値厳選組/.test(card.textContent)));
-  const action = missing.element.querySelectorAll('a').find((node) => /伝説を運ぶ経路/.test(node.textContent));
+  const action = missing.element.querySelectorAll('a').find((node) => /伝説を運ぶ継承ルート/.test(node.textContent));
   assert.equal(action.href, '#/route?to=SheepBall&p=Legend');
-  // 組が 1 つもないときは「個体値厳選組を並べています」とは言わない
+  // 組が 1 つもないときは「個体値厳選組だけを出しています」とは言わない（「別に手に入れて」も言わない）
   const nothing = idealView(context(fakeOwned([])), parseHash('#/ideal?to=SheepBall&p=Legend'));
-  assert.match(nothing.element.querySelector('.ideal-missing-note').textContent, /配合では作れません。足りないパッシブは別に手に入れてください/);
+  assert.equal(nothing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning').textContent, '伝説 を持つ親の候補がいません。');
   // 足りないパッシブがなければ案内は出さない
   assert.equal(idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare')).element.querySelector('.ideal-missing-note').textContent, '');
 });
@@ -349,10 +353,10 @@ test('理想個体: URL とタブの往復、確率とタマゴの数の表示',
   assert.equal(percent(0), '0%');
   assert.equal(eggsText(0), 'この組では届きません');
   assert.equal(eggsText(0.99), 'ほぼ毎回');
-  assert.equal(eggsText(0.7), '平均 約 1.4 個に 1 個');
-  assert.equal(eggsText(0.168), '平均 約 6 個に 1 個');
-  assert.equal(eggsText(0.0044004), '平均 約 227 個に 1 個');
-  assert.equal(eggsText(1e-7), '平均 100 万個以上に 1 個');
+  assert.equal(eggsText(0.7), '平均 約 1.4 個');
+  assert.equal(eggsText(0.168), '平均 約 6 個');
+  assert.equal(eggsText(0.0044004), '平均 約 227 個');
+  assert.equal(eggsText(1e-7), '平均 100 万個以上');
 });
 
 test('理想個体画面: パッシブの所持数はグローバルボックスとタマゴを数えず、切り替えも出さない', async (t) => {
@@ -399,12 +403,12 @@ test('理想個体画面: 完全体作成組・パッシブ厳選組・個体値
   const list = cards(view);
   assert.deepEqual(list.map((card) => card.querySelector('.ideal-tier').textContent), ['完全体作成組', 'パッシブ厳選組', '個体値厳選組']);
   // 完全体作成組: 子を入れ替えながら完全体が産まれるまでの平均
-  assert.match(list[0].textContent, /世代を重ねて 平均 約 [\d,.]+ 個/);
-  // パッシブ厳選組: 欲しいパッシブが全部そろう確率（個体値は見ない）
-  assert.match(list[1].textContent, /欲しいパッシブが全部そろう確率 60%.*個体値は見ていません/);
+  assert.match(list[0].textContent, /完成まで 平均 約 [\d,.]+ 個/);
+  // パッシブ厳選組: 欲しいパッシブが全部そろうまでの平均（個体値は見ない）
+  assert.match(list[1].textContent, /欲しいパッシブが全部そろうまで 平均 約 1\.7 個1 個のタマゴで 60% · 個体値は見ていません/);
   // 個体値厳選組: 個体値がそろうまでの平均（パッシブは見ない）
   assert.match(list[2].textContent, /個体値がそろうまで 平均 約 [\d,.]+ 個.*パッシブは見ていません/);
-  // キノコケーキでは、世代の組は目安で並べ、離れているときは上限を「多くても」で添える
+  // キノコケーキでは、世代の組は目安で並べ、離れているときは「平均の上限」を添える
   chooseRadio(view, 'ケーキ', 'talent');
   assert.match(cards(view)[0].textContent, /キノコケーキは目安/);
   view.destroy();
@@ -465,12 +469,12 @@ test('理想個体画面: 産まれたタマゴは候補にせず、孵化を読
   ];
   const owned = fakeOwned(list);
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
-  assert.equal(talentsOf(cards(view)[0]), 'HP 100 / 攻 100 / 防 100 × HP 0 / 攻 0 / 防 0');
+  assert.equal(talentsOf(cards(view)[0]), 'HP 100 / 攻 100 / 防 100 × HP 0−100 / 攻 0−100 / 防 0−100');
   // 配合牧場に、3 つとも 100 のメスのタマゴが産まれた。孵化するまで牧場に置けないので、候補にしない
   const egg = palworldPal('e1', 'SheepBall', 'Female', [], { hp: 100, shot: 100, defense: 100 }, { kind: 'egg-ground', playerUid: P1 });
   owned.state.owned = fakeOwned([...list, egg]).state.owned;
   owned.emit();
-  assert.deepEqual(cards(view).map(talentsOf), ['HP 100 / 攻 100 / 防 100 × HP 0 / 攻 0 / 防 0']);
+  assert.deepEqual(cards(view).map(talentsOf), ['HP 100 / 攻 100 / 防 100 × HP 0−100 / 攻 0−100 / 防 0−100']);
   // 孵化すると、同じ個体がパルボックスのパルとして、3 つとも 100 の ♂ との組で出る
   owned.state.owned = fakeOwned([...list, { ...egg, location: { kind: 'palbox', playerUid: P1, slotIndex: 0 } }]).state.owned;
   owned.emit();
@@ -514,7 +518,7 @@ test('理想個体画面: 所持者（すべて／自分の個体／各プレイ
     assert.ok(counts.includes('希少（2）'));
     assert.ok(!counts.some((text) => /^伝説（|^脳筋（/.test(text)));
   }
-  assert.match(view.element.querySelector('.result-note').textContent, /所持者: 自分の個体/);
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · 自分の個体$/);
   // Bob の個体は、Bob のパルボックスと Bob が預けた拠点のパル
   holder.value = `player:${P2}`;
   holder.dispatch('change');
@@ -909,7 +913,7 @@ test('理想個体画面: 余計なパッシブ・配合では作れないパッ
   const warning = missing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning');
   assert.match(warning.querySelector('.passive-chip').className, /compact/);
   const action = missing.element.querySelector('.ideal-carry');
-  assert.equal(action.textContent, '伝説を運ぶ経路');
+  assert.equal(action.textContent, '伝説を運ぶ継承ルート');
   assert.match(action.querySelector('.passive-chip').className, /compact/);
   // チップの title と重ならないよう、ボタンには title を付けない
   assert.equal(action.title, undefined);
@@ -956,7 +960,7 @@ test('理想個体画面: パッシブの条件を満たす子が産まれない
   chooseRadio(view, 'パッシブの条件', 'only');
   chooseRadio(view, 'ケーキ', 'special');
   assert.equal(cards(view).length, 0);
-  assert.match(view.element.querySelector('.ideal-results').textContent, /スペシャルケーキは空いた枠をランダムなパッシブで埋めるので/);
+  assert.match(view.element.querySelector('.ideal-results').textContent, /スペシャルケーキでは、欲しいパッシブが 4 個未満だと「欲しいものだけ」の子は産まれません。/);
   view.destroy();
   // 欲しいパッシブなしで「欲しいものだけ」（パッシブなし）は、パッシブを持つ親からは産まれない
   const none = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
@@ -1034,8 +1038,8 @@ test('理想個体画面: 両親合わせて欲しいパッシブがそろう組
   owned.state.owned.farms = [{ id: 'F4', baseId: '', parents: ['A', 'B'] }];
   const view = idealView(context(owned), parseHash(`#/ideal?to=KabukiMan&p=${wanted.join(',')}`));
   // 1 番は ♂A×♀D（♀D は冷静沈着だけだが、A と合わせて 4 つそろい、HP 100 がある）
-  assert.equal(talentsOf(cards(view)[0]), 'HP 97 / 攻 99 / 防 96 × HP 100 / 攻 14 / 防 96');
-  assert.match(cards(view)[0].textContent, /完全体作成組世代を重ねて 平均 約 3,592 個/);
+  assert.equal(talentsOf(cards(view)[0]), 'HP 97−3 / 攻 99−1 / 防 96−4 × HP 100 / 攻 14−86 / 防 96−4');
+  assert.match(cards(view)[0].textContent, /完全体作成組完成まで 平均 約 3,592 個/);
   const row = view.element.querySelector('.ideal-farm');
   assert.match(row.textContent, /交換推奨 → おすすめ 1 番/);
   assert.match(row.textContent, /外す: ゴウカブキ♀（HP 97・攻 99・防 96） \/ 入れる: ゴウカブキ♀（HP 100・攻 14・防 96）（Alice · パルボックス）/);
@@ -1447,4 +1451,262 @@ test('理想個体画面: 計算に効かない値（レベル・ニックネー
   assert.ok(busy(view));
   await finish(view);
   view.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// ideal-results: 要約・数値・説明・組の親の強調
+// ---------------------------------------------------------------------------
+const hintBoards = () => document.body.querySelectorAll('.hint-popover');
+
+test('理想個体画面: 要約は「上位 N 組（全 M 組・候補 K 体） · …」の 1 行で、除外は「除外 N」のボタンから内訳を開く。条件を変えても要約の子は作り直さない', async (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned();
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  body.append(view.element);
+  const summary = view.element.querySelector('.ideal-summary');
+  const [text, excluded, checked] = summary.children;
+  assert.deepEqual(summary.children.map((node) => node.className.split(' ')[0]), ['ideal-summary-text', 'ideal-excluded', 'ideal-checked']);
+  assert.equal(text.textContent, '上位 1 組（全 2 組・候補 3 体） · 同じ種族どうし');
+  // 省略されても title で全文を読める
+  assert.equal(text.title, text.textContent);
+  // 除外（性別不明の u1）は 1 項目にまとめ、押すと内訳
+  assert.equal(excluded.tagName, 'button');
+  assert.equal(excluded.textContent, '除外 1');
+  assert.equal(excluded.disabled, false);
+  assert.ok(!excluded.className.split(' ').includes('is-placeholder'));
+  await excluded.dispatch('click');
+  assert.equal(excluded.getAttribute('aria-expanded'), 'true');
+  assert.equal(hintBoards()[0].textContent, '性別不明の 1 体');
+  await excluded.dispatch('click');
+  assert.equal(hintBoards().length, 0);
+  // 条件を変えても、要約の 3 つの子は同じ要素のまま（文字だけ書き換える）
+  chooseRadio(view, 'ケーキ', 'talent');
+  assert.deepEqual(view.element.querySelector('.ideal-summary').children, [text, excluded, checked]);
+  // 除外がないときは見えないまま幅を残す（hidden にしない）。開いていた内訳は閉じる
+  await excluded.dispatch('click');
+  owned.state.owned = fakeOwned(basePals.filter((pal) => pal.instanceId !== 'u1')).state.owned;
+  owned.emit();
+  assert.equal(excluded.textContent, '除外 0');
+  assert.ok(excluded.className.split(' ').includes('is-placeholder'));
+  assert.equal(excluded.disabled, true);
+  assert.equal(excluded.hidden, false);
+  assert.equal(hintBoards().length, 0);
+  // パッシブの条件を満たせない組も、除外の内訳に出す
+  chooseRadio(view, 'パッシブの条件', 'only');
+  chooseRadio(view, 'ケーキ', 'special');
+  assert.match(excluded.textContent, /^除外 [1-9]\d*$/);
+  await excluded.dispatch('click');
+  assert.match(hintBoards()[0].textContent, /^パッシブの条件を満たせない \d+ 組$/);
+  view.destroy();
+  // 画面を閉じたら板も閉じる
+  assert.equal(hintBoards().length, 0);
+});
+
+test('理想個体画面: 所持者で絞っているときは要約の最後に「Alice の個体」（自分の個体は「自分の個体」）', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall'));
+  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  holder.value = `player:${P1}`;
+  holder.dispatch('change');
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Alice の個体$/);
+  holder.value = 'mine';
+  holder.dispatch('change');
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · 自分の個体$/);
+  view.destroy();
+});
+
+test('理想個体画面: 20 秒ごとの確認を終えたら「最終確認」の時刻（とセーブの時刻）だけを書き換え、カードも要約の文も作り直さない。確認に失敗したときは時刻を変えない', async (t) => {
+  installDom(t);
+  const start = new Date(2026, 9, 13, 12, 34, 50).getTime();
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: start });
+  const owned = fakeOwned();
+  const saved = new Date(2026, 9, 13, 12, 30).toISOString();
+  owned.state.meta = { saveUpdatedAt: saved };
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const checked = view.element.querySelector('.ideal-checked');
+  // 最初の読み込みが終わって確かめるまでは「—」
+  assert.equal(checked.textContent, `最終確認 — · セーブ ${dateTime(saved)}`);
+  await settle();
+  assert.equal(checked.textContent, `最終確認 ${formatTime(start)} · セーブ ${dateTime(saved)}`);
+  const [card] = cards(view);
+  const text = view.element.querySelector('.ideal-summary-text');
+  const before = text.textContent;
+  // 20 秒の確認を 2 回またぐ（41 秒後。分が変わる）
+  t.mock.timers.tick(20 * 1000 + 500);
+  await settle();
+  t.mock.timers.tick(20 * 1000 + 500);
+  await settle();
+  assert.notEqual(formatTime(start + 41 * 1000), formatTime(start));
+  assert.equal(checked.textContent, `最終確認 ${formatTime(start + 41 * 1000)} · セーブ ${dateTime(saved)}`);
+  assert.equal(cards(view)[0], card);
+  assert.equal(view.element.querySelector('.ideal-summary-text'), text);
+  assert.equal(text.textContent, before);
+  // 読めなかった確認では時刻を変えない
+  owned.autoRefresh = () => Promise.resolve('error');
+  t.mock.timers.tick(3 * (20 * 1000 + 500));
+  await settle();
+  assert.equal(checked.textContent, `最終確認 ${formatTime(start + 41 * 1000)} · セーブ ${dateTime(saved)}`);
+  view.destroy();
+});
+
+test('理想個体画面: 見込みが同じ個体値厳選組の 2 組目以降を「同じ見込みの組」に畳み、並びの先頭と牧場の判定が指す組は外に残す（番号は振り直さない）', (t) => {
+  install(t);
+  const same = { hp: 100, shot: 50, defense: 100 };
+  const zero = { hp: 0, shot: 0, defense: 0 };
+  const list = [
+    ...['1', '2', '3'].flatMap((n) => [palworldPal(`m${n}`, 'SheepBall', 'Male', [], same), palworldPal(`f${n}`, 'SheepBall', 'Female', [], same)]),
+    palworldPal('m4', 'SheepBall', 'Male', [], zero), palworldPal('f4', 'SheepBall', 'Female', [], zero),
+  ];
+  const numbers = (nodes) => nodes.map((node) => node.querySelector('.step-number').textContent);
+  // 欲しいパッシブ（伝説）を候補のだれも持たないので、全部が個体値厳選組。攻撃 100 以上の親がいないので、上の 3 組は同じ見込み
+  const states = new Map();
+  const plain = idealView(context(fakeOwned(list), [], states), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  const results = plain.element.querySelector('.ideal-results');
+  assert.deepEqual(results.children.map((node) => node.tagName), ['article', 'details', 'article']);
+  const details = results.querySelector('.ideal-same');
+  assert.equal(details.querySelector('.ideal-same-title').textContent, '同じ見込みの組 ほか 2 組');
+  assert.equal(details.querySelector('.ideal-same-reason').textContent, '攻撃 100 以上の親が候補にいないため、どの組も同じ見込みです。');
+  assert.deepEqual(numbers(details.querySelectorAll('.ideal-pair')), ['2', '3']);
+  // 畳んだカードも DOM に残る（番号は振り直さない）
+  assert.deepEqual(numbers(cards(plain)), ['1', '2', '3', '4']);
+  assert.equal(details.open, false);
+  // 開閉は viewState に残す（タブを切り替えて戻っても開いたまま）
+  details.open = true;
+  details.dispatch('toggle');
+  plain.destroy();
+  const again = idealView(context(fakeOwned(list), [], states), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  assert.equal(again.element.querySelector('.ideal-same').open, true);
+  // キノコケーキでは目標の 5 下から届くので、理由は「攻撃 95 以上」
+  chooseRadio(again, 'ケーキ', 'talent');
+  assert.equal(again.element.querySelector('.ideal-same-reason').textContent, '攻撃 95 以上の親が候補にいないため、どの組も同じ見込みです。');
+  again.destroy();
+  // 牧場 A に 1 番（そのまま）、牧場 B に 0 の組。B は 2 番への交換推奨なので、2 番は畳まずに外に残し、3 番だけを畳む
+  const owned = fakeOwned(list);
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }, { id: 'B', baseId: '', parents: ['m4', 'f4'] }];
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  const rows = view.element.querySelectorAll('.ideal-farm');
+  assert.match(rows[0].textContent, /そのまま（おすすめ 1 番）/);
+  assert.match(rows[1].textContent, /交換推奨 → おすすめ 2 番/);
+  const shown = view.element.querySelector('.ideal-results').children;
+  assert.deepEqual(shown.map((node) => node.tagName), ['article', 'article', 'details', 'article']);
+  assert.deepEqual(numbers(shown[2].querySelectorAll('.ideal-pair')), ['3']);
+  assert.equal(shown[2].querySelector('.ideal-same-title').textContent, '同じ見込みの組 ほか 1 組');
+  view.destroy();
+  // 見込みが違えば畳まない（個体値がばらばらの組）
+  const varied = idealView(context(fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 100, shot: 90, defense: 100 }), palworldPal('f1', 'SheepBall', 'Female', [], same),
+    palworldPal('m2', 'SheepBall', 'Male', [], zero), palworldPal('f2', 'SheepBall', 'Female', [], same),
+  ])), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  assert.equal(varied.element.querySelector('.ideal-same'), null);
+  varied.destroy();
+});
+
+test('理想個体画面: 組の ♂♀ 行で、欲しいパッシブに ✓・それ以外は薄く、目標未満の個体値に差（−N）を出す。所持パルの画面の行（highlight なし）は変えない', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', ['CraftSpeed_up2', 'Noukin'], { hp: 100, shot: 80, defense: 100 }),
+    palworldPal('f1', 'SheepBall', 'Female', ['Rare'], { hp: 100, shot: 100, defense: 0 }),
+  ]);
+  // 防御は条件なし（0）
+  const states = new Map([['ideal', { conditions: { holder: '', mode: 'include', targets: { hp: 100, shot: 100, defense: 0 }, cake: 'none' } }]]);
+  const view = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const [male, female] = cards(view)[0].querySelectorAll('.owned-row');
+  // パッシブ: 欲しいものは先頭に ✓、それ以外は薄く
+  const chips = male.querySelectorAll('.passive-chip');
+  assert.deepEqual(chips.map((chip) => chip.className.split(' ').filter((name) => /^is-/.test(name)).join(' ')), ['is-wanted', 'is-extra']);
+  const check = chips[0].children[0];
+  assert.equal(check.className, 'passive-check');
+  assert.equal(check.textContent, '✓');
+  assert.equal(check.getAttribute('aria-label'), '欲しいパッシブ');
+  assert.ok(female.querySelector('.passive-chip').className.split(' ').includes('is-wanted'));
+  // 個体値: ステータスごとのセル。目標以上は met、未満は short と差、目標 0（条件なし）は何もしない
+  const cells = male.querySelector('.owned-talent').querySelectorAll('.talent-cell');
+  assert.deepEqual(cells.map((cell) => [cell.getAttribute('data-key'), cell.className, cell.textContent, cell.getAttribute('aria-label')]), [
+    ['hp', 'talent-cell met', 'HP 100', 'HP 100（目標 100 以上）'],
+    ['shot', 'talent-cell short', '攻 80−20', '攻撃 80（目標 100 まで あと 20）'],
+    ['defense', 'talent-cell', '防 100', '防御 100'],
+  ]);
+  assert.equal(male.querySelector('.talent-diff').textContent, '−20');
+  assert.equal(male.querySelector('.owned-talent').textContent, 'HP 100 / 攻 80−20 / 防 100');
+  view.destroy();
+  // 欲しいパッシブを選んでいないときは、パッシブを薄くしない
+  const none = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
+  assert.equal(cards(none)[0].querySelectorAll('.passive-chip').filter((chip) => /is-(wanted|extra)/.test(chip.className)).length, 0);
+  none.destroy();
+  // 所持パルの画面の行（highlight なし）は、個体値は 1 つの文のまま、パッシブに印を付けない
+  const row = ownedRow(owned.state.owned.pals.find((pal) => pal.id === 'm1'));
+  assert.equal(row.querySelector('.owned-talent').children.length, 0);
+  assert.equal(row.querySelector('.owned-talent').textContent, 'HP 100 / 攻 80 / 防 100');
+  assert.equal(row.querySelector('.passive-check'), null);
+  assert.ok(row.querySelectorAll('.passive-chip').every((chip) => !/is-(wanted|extra)/.test(chip.className)));
+});
+
+test('理想個体画面: 組の札（組の目的・変更あり・配置中）は押すと説明が開くボタン（組の目的は SVG のアイコンつき）。カードを作り直すと開いていた板は閉じる', async (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned([palworldPal('m1', 'SheepBall', 'Male', [], full), palworldPal('f1', 'SheepBall', 'Female', [], full)]);
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }];
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
+  body.append(view.element);
+  const [card] = cards(view);
+  const tier = card.querySelector('.ideal-tier');
+  assert.equal(tier.tagName, 'button');
+  assert.equal(tier.textContent, '完全体作成組');
+  const icon = tier.querySelector('svg');
+  assert.equal(icon.namespaceURI, 'http://www.w3.org/2000/svg');
+  assert.equal(icon.getAttribute('aria-hidden'), 'true');
+  await tier.dispatch('click');
+  assert.match(hintBoards()[0].textContent, /^この 2 体（子と入れ替えながらを含む）で、欲しいパッシブと個体値の目標を全部満たす子を狙える組です。/);
+  // 配置中の札（1 度に開く板は 1 つ）
+  const placed = card.querySelector('.ideal-placed');
+  assert.equal(placed.tagName, 'button');
+  await placed.dispatch('click');
+  assert.deepEqual(hintBoards().map((node) => node.textContent), ['セーブで、この組がその牧場に入っていると分かった組です。']);
+  // 条件を変えてカードを作り直すと、開いていた板は閉じる
+  chooseRadio(view, 'ケーキ', 'talent');
+  assert.notEqual(cards(view)[0], card);
+  assert.equal(hintBoards().length, 0);
+  // 個体値厳選組の札にもアイコンと説明
+  const talentOnly = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  const talentTier = cards(talentOnly)[0].querySelector('.ideal-tier');
+  assert.ok(talentTier.querySelector('svg'));
+  await talentTier.dispatch('click');
+  assert.equal(hintBoards()[0].textContent, 'パッシブは見ずに、個体値の目標をそろえる組です。');
+  talentOnly.destroy();
+  assert.equal(hintBoards().length, 0);
+  view.destroy();
+});
+
+test('理想個体画面: 計算のしくみのダイアログに、INV-2 の例外の一文・交換の決め方・「変更あり」の消える条件を残し、組の数値の言い方はそろえる', (t) => {
+  install(t);
+  const view = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  view.element.querySelector('.view-help-button').dispatch('click');
+  const dialog = document.body.querySelectorAll('dialog').find((node) => node.className.split(' ').includes('ideal-help-dialog'));
+  const text = dialog.textContent;
+  assert.match(text, /異種の親は登録済みの配合だけを使います。/);
+  assert.match(text, /条件のある各ステータスに目標以上の親がいて/);
+  assert.match(text, /入れ替えると、牧場全体の完成の速さの目安（.*）が上がるときだけ交換を勧めます。/);
+  assert.match(text, /同じ組み合わせで別の子も登録されている組が関わる牧場は/);
+  assert.match(text, /牧場の親を入れ替えたとセーブから分かると消えます。/);
+  assert.match(text, /「平均の上限」/);
+  assert.doesNotMatch(text, /世代を重ねて|に 1 個|多くても|目標のある各ステータス/);
+  view.destroy();
+  // 組の数値に「世代を重ねて」「に 1 個」「多くても」を出さない（キノコケーキで上限を添えるときも）
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', ['CraftSpeed_up2', 'Rare'], { hp: 80, shot: 60, defense: 40 }),
+    palworldPal('f1', 'SheepBall', 'Female', ['CraftSpeed_up2'], { hp: 30, shot: 90, defense: 70 }),
+    palworldPal('m2', 'PinkCat', 'Male', ['CraftSpeed_up2'], { hp: 50, shot: 50, defense: 50 }),
+    palworldPal('f2', 'ChickenPal', 'Female', ['Rare'], { hp: 40, shot: 40, defense: 40 }),
+  ]);
+  const records = [{ id: 'r1', parent1Id: 'PinkCat', parent2Id: 'ChickenPal', childId: 'SheepBall', parent1Gender: '', parent2Gender: '' }];
+  const shown = idealView(context(owned, records), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  for (const cake of ['none', 'talent']) {
+    chooseRadio(shown, 'ケーキ', cake);
+    assert.ok(cards(shown).length);
+    for (const card of cards(shown)) {
+      assert.match(card.querySelector('.ideal-chance').querySelector('strong').textContent, /まで (平均 約 [\d,.]+ 個|平均 100 万個以上|ほぼ毎回)/);
+      assert.doesNotMatch(card.textContent, /世代を重ねて|に 1 個|多くても/);
+    }
+  }
+  shown.destroy();
 });

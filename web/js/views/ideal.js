@@ -1,7 +1,9 @@
-import { el, empty, link, button, syncList, clearList, trackHeight } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, formatTime } from '../ui/dom.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
 import { createPopover } from '../ui/popover.js';
+import { hint } from '../ui/hint.js';
+import { dateTime } from '../ui/owned-status.js';
 import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile } from '../ui/pal-icon.js';
@@ -41,7 +43,6 @@ export const IDEAL_MEMORY = {
 // 開いている間、孵化させて受け取ったパルを取り込むためにセーブ（参加している人は共有）を確かめる間隔。
 // 所持パルの自動の読み込みは 20 秒以上空ける（owned.js の AUTO_INTERVAL）ので、タイマーのずれで読み飛ばさないよう少し足す
 const REFRESH_INTERVAL = 20 * 1000 + 500;
-const REFRESH_NOTE = '20 秒ごとに確認';
 // 区切った計算の 1 回の区切り（ms）。最初の区切りで終われば同期で描く（stable-render の D18: 1 区切り 50ms 以内）
 const SLICE_BUDGET = 30;
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
@@ -78,24 +79,26 @@ export function percent(rate) {
   return `${Number(value.toPrecision(2))}%`;
 }
 
-/** 1 個のタマゴの成功率から、成功するまでに産ませるタマゴの平均の目安。 */
+// タマゴの数（10 個未満は丸めると差が消えるので、小数 1 桁まで出す）
+const countText = (eggs) => (eggs >= 1e6 ? '100 万個以上'
+  : `約 ${eggs < 10 ? Number(eggs.toFixed(1)) : Math.round(eggs).toLocaleString('ja-JP')} 個`);
+
+/** 1 個のタマゴの成功率から、成功するまでに産ませるタマゴの平均の目安（「平均 約 N 個」）。 */
 export function eggsText(rate) {
   if (rate <= 0) return 'この組では届きません';
   const eggs = 1 / rate;
   if (eggs < 1.05) return 'ほぼ毎回';
-  if (eggs >= 1e6) return '平均 100 万個以上に 1 個';
-  // 10 個未満は丸めると差が消えるので、小数 1 桁まで出す
-  return `平均 約 ${eggs < 10 ? Number(eggs.toFixed(1)) : Math.round(eggs).toLocaleString('ja-JP')} 個に 1 個`;
+  return `平均 ${countText(eggs)}`;
 }
 
-const countText = (eggs) => (eggs >= 1e6 ? '100 万個以上'
-  : `約 ${eggs < 10 ? Number(eggs.toFixed(1)) : Math.round(eggs).toLocaleString('ja-JP')} 個`);
-
-/** 世代を重ねたときの、完成品が産まれるまでのタマゴの平均。upper は上限（キノコケーキで目安と離れるときだけ添える）。 */
-export function generationsText(eggs, upper = eggs) {
+/**
+ * 子と入れ替えながら続けたときの、完成品が産まれるまでのタマゴの平均（「完成まで 平均 約 N 個」）。
+ * upper は平均の上限（キノコケーキで目安と離れるときだけ添える）。lead は何がそろうまでか（個体値厳選組は「個体値がそろうまで」）
+ */
+export function generationsText(eggs, upper = eggs, lead = '完成まで') {
   if (!Number.isFinite(eggs)) return 'この条件では届きません';
-  const text = `世代を重ねて 平均 ${countText(eggs)}`;
-  return Number.isFinite(upper) && upper > eggs * 1.05 ? `${text}（多くても${countText(upper)}）` : text;
+  const text = `${lead} 平均 ${countText(eggs)}`;
+  return Number.isFinite(upper) && upper > eggs * 1.05 ? `${text}（平均の上限 ${countText(upper)}）` : text;
 }
 
 const palName = (id) => palsById.get(id)?.ja ?? id;
@@ -108,37 +111,77 @@ function sourceText(pair) {
 
 // 配合の計画の組の目的（core/ideal.js の PLAN_GROUPS）
 const GROUP_LABELS = { complete: '完全体作成組', passive: 'パッシブ厳選組', talent: '個体値厳選組' };
+// 組のカードの札（組の目的・変更あり・配置中）を押すと開く説明（ui/hint.js）
+const TAG_HINTS = {
+  complete: 'この 2 体（子と入れ替えながらを含む）で、欲しいパッシブと個体値の目標を全部満たす子を狙える組です。同じ種族なら、両親合わせて欲しいパッシブがそろえば入ります。',
+  passive: '完全体作成組に当たらず、両親を合わせると欲しいパッシブが片親より多く集まる組です。個体値は見ません。',
+  talent: 'パッシブは見ずに、個体値の目標をそろえる組です。',
+  changed: '交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組です。',
+  placed: 'セーブで、この組がその牧場に入っていると分かった組です。',
+};
 
-// 組の目的ごとの見出し（太字）と内訳（小さい字）
+// 組の目的のアイコン（12px の SVG。王冠＝完全体作成組、つながった 2 つの輪＝パッシブ厳選組、3 本のバー＝個体値厳選組）。
+// フェーズ 1d の visual-parts で ui/icons.js に移す
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const GROUP_SHAPES = {
+  complete: [['path', { d: 'M1.5 9.8 1 3.4l2.8 2.2L6 1.8l2.2 3.8L11 3.4l-.5 6.4z', fill: 'currentColor' }]],
+  passive: [['circle', { cx: 4.2, cy: 6, r: 2.8 }], ['circle', { cx: 7.8, cy: 6, r: 2.8 }]].map(([tag, shape]) => [tag, { ...shape, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4 }]),
+  talent: [[1, 7, 4], [4.8, 4, 7], [8.6, 1, 10]].map(([x, y, height]) => ['rect', { x, y, width: 2.4, height, rx: 0.5, fill: 'currentColor' }]),
+};
+function svgNode(tag, attributes) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+  return node;
+}
+function groupIcon(group) {
+  const icon = svgNode('svg', { viewBox: '0 0 12 12', width: 12, height: 12, 'aria-hidden': 'true', focusable: 'false', class: 'ideal-tier-icon' });
+  for (const [tag, attributes] of GROUP_SHAPES[group] ?? []) icon.append(svgNode(tag, attributes));
+  return icon;
+}
+
+// 組の目的ごとの見出し（太字）と内訳（小さい字）。量はどれも「…まで 平均 約 N 個」の形にそろえる
 function pairMeasure(pair, cake) {
   const estimate = cake === 'talent' ? 'キノコケーキは目安' : '';
+  const join = (parts) => parts.filter(Boolean).join(' · ');
   if (pair.group === 'passive') {
     const what = pair.gathered === pair.gatherTotal ? '欲しいパッシブが全部そろう' : `欲しいパッシブ ${pair.gatherTotal} 個のうち ${pair.gathered} 個がそろう`;
-    return [`${what}確率 ${percent(pair.gatherChance)}`, `${eggsText(pair.gatherChance)} · 個体値は見ていません`];
+    return [`${what}まで ${eggsText(pair.gatherChance)}`, join([`1 個のタマゴで ${percent(pair.gatherChance)}`, '個体値は見ていません'])];
   }
   if (pair.group === 'talent') {
-    const head = Number.isFinite(pair.talentGenerations)
-      ? generationsText(pair.talentGenerations, pair.talentGenerationsUpper).replace(/^世代を重ねて/, '個体値がそろうまで')
-      : `個体値がそろう確率 ${percent(pair.talentChance)}`;
-    return [head, [`1 個のタマゴで ${percent(pair.talentChance)}`, 'パッシブは見ていません', Number.isFinite(pair.talentGenerations) ? estimate : ''].filter(Boolean).join(' · ')];
+    const generations = Number.isFinite(pair.talentGenerations);
+    const head = generations ? generationsText(pair.talentGenerations, pair.talentGenerationsUpper, '個体値がそろうまで')
+      : `個体値がそろうまで ${eggsText(pair.talentChance)}`;
+    return [head, join([`1 個のタマゴで ${percent(pair.talentChance)}`, 'パッシブは見ていません', generations ? estimate : ''])];
   }
   if (Number.isFinite(pair.generations)) {
     // 子を同じ性別の親と入れ替えながら続けたときの平均と、この 2 体のまま続けたときの平均を並べる
-    const same = pair.chance > 0 ? `この 2 体のままなら${eggsText(pair.chance).replace(/^平均/, '')}` : 'この 2 体のままでは届きません';
-    return [generationsText(pair.generations, pair.generationsUpper), [same, `1 個のタマゴで ${percent(pair.chance)}`, estimate].filter(Boolean).join(' · ')];
+    const same = pair.chance > 0 ? `この 2 体のままなら ${eggsText(pair.chance).replace(/^平均 /, '')}` : 'この 2 体のままでは届きません';
+    return [generationsText(pair.generations, pair.generationsUpper), join(['子と入れ替えながら', same, `1 個のタマゴで ${percent(pair.chance)}`, estimate])];
   }
-  return [`1 個のタマゴで ${percent(pair.chance)}`, `${eggsText(pair.chance)} · パッシブ ${percent(pair.passiveChance)} × 個体値 ${percent(pair.talentChance)}`];
+  return [`完成まで ${eggsText(pair.chance)}`, join([`1 個のタマゴで ${percent(pair.chance)}`, `パッシブ ${percent(pair.passiveChance)} × 個体値 ${percent(pair.talentChance)}`])];
 }
 
-function pairCard(pair, rank, { cake = 'none', placed = '', changed = false } = {}) {
+/**
+ * 組のカード。札（組の目的・変更あり・配置中）は押すと説明が開くボタンで、作った説明の部品は hints に入れる
+ *（カードを作り直すときに、呼んだ側が destroy して開いている板を閉じる）。
+ * highlight（{ wanted, targets }）は ♂♀ の行で欲しいパッシブと個体値の目標との差を見せる（views/owned.js の ownedRow）
+ */
+function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, highlight, hints = [] } = {}) {
   const card = el('article', `ideal-pair group-${pair.group}`);
   card.setAttribute('aria-label', `${rank + 1} 番目の組`);
   const head = el('div', 'ideal-pair-head');
   const chance = el('div', 'ideal-chance');
   const tags = el('div', 'ideal-tags');
-  tags.append(el('span', `ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? ''));
-  if (changed) tags.append(el('span', 'ideal-changed', '変更あり'));
-  if (placed) tags.append(el('span', 'ideal-placed', `${placed}に配置中`));
+  const tag = (className, text, help, icon) => {
+    const node = button('', null, className);
+    if (icon) node.append(icon);
+    node.append(el('span', '', text));
+    hints.push(hint({ label: text, trigger: node, content: help }));
+    return node;
+  };
+  tags.append(tag(`ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? '', TAG_HINTS[pair.group] ?? '', groupIcon(pair.group)));
+  if (changed) tags.append(tag('ideal-changed', '変更あり', TAG_HINTS.changed));
+  if (placed) tags.append(tag('ideal-placed', `${placed}に配置中`, TAG_HINTS.placed));
   const [strong, small] = pairMeasure(pair, cake);
   chance.append(tags, el('strong', '', strong), el('small', 'muted', small));
   head.append(el('span', 'step-number', String(rank + 1)), chance, el('span', 'ideal-source', sourceText(pair)));
@@ -154,10 +197,17 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false } = 
   if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
-  card.append(head, ownedRow(pair.male), ownedRow(pair.female));
+  card.append(head, ownedRow(pair.male, { highlight }), ownedRow(pair.female, { highlight }));
   if (notes.children.length) card.append(notes);
   return card;
 }
+
+// 同じ見込みの個体値厳選組を畳むときの比べ方（見込みは世代の平均があればそれ、なければ 1 個のタマゴの確率。
+// 解く順番で末尾の桁がずれる値を同じとみなすため、有効数字 12 桁で比べる。core/ideal.js の compareRounded と同じ考え方）
+const prospect = (pair) => (Number.isFinite(pair.talentGenerations) ? pair.talentGenerations : pair.talentChance);
+const sameNumber = (a, b) => a === b || (Number.isFinite(a) && Number.isFinite(b) && a.toPrecision(12) === b.toPrecision(12));
+const sameProspect = (a, b) => a.group === 'talent' && b.group === 'talent'
+  && Number.isFinite(a.talentGenerations) === Number.isFinite(b.talentGenerations) && sameNumber(prospect(a), prospect(b));
 
 const choiceLabel = (choices, value) => choices.find(([key]) => key === value)?.[1] ?? value;
 const goalHash = (goal) => buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id });
@@ -182,26 +232,38 @@ function goalStatus(goal, pals) {
   return { done: true, text: `完成済み: ${where}${found.length > 1 ? ` ほか ${found.length - 1} 体` : ''}` };
 }
 
-// 計算のしくみ（見出しの「?」のダイアログに出す。4 つの見出しに分けて短くするのは ideal-results）
-function explanation() {
-  const list = el('ul', 'ideal-help');
-  for (const text of [
-    'パッシブ: 両親のパッシブを合わせて重複を除いた中から、1〜4 個（40/30/20/10%）を同じ確率で選んで継ぎます。どちらの親が持っていても同じで、欲しいもの以外のパッシブが少ないほど、欲しいものがそろいやすくなります。',
-    'ランダムに付くパッシブで偶然そろう分は数えていないため、実際より少し低めの値です。',
-    '個体値: ステータスごとに、どちらかの親の値をそのまま写すか、0〜100 の乱数になります（親の値の中間にはなりません）。親から写る確率は HP が 2/3、攻撃と防御が 5/9 です。',
-    'キノコケーキ・豪華野菜ケーキは、個体値にステータスごとに +1〜5 します。スペシャルケーキは、継ぐ数を抽選せず、両親のパッシブから 4 個まで継ぎます（足りない枠はランダムで埋まります）。',
-    '並び: 理想個体を作るのにおすすめの組を、配合牧場に上から置く順に、別々の個体で並べます（上の組から順に、まだ使っていない個体どうしの組を選びます）。配合牧場の判定で交換を勧めた組を置いてください（上から K 組が、いつも最終の配置とは限りません）。タマゴは孵化するまで牧場に置けないので、親の候補にしません。',
-    '「完全体作成組」（いちばん上）: 欲しいパッシブと個体値の目標を全部満たす子（完全体）を作れる組です。2 体で欲しいパッシブがそろい、目標のある各ステータスに目標以上（キノコケーキでは目標の 5 下以上）の親がいる組（1 回で作れる）と、同じ種族で、両親合わせて欲しいパッシブがそろう組（どちらの親が持っていても同じ。欲しい以外のパッシブが少ないほど早い。産まれた子を同じ性別の親と入れ替えながら作る）です。完全体が産まれるまでのタマゴの平均の少ない順です（入れ替えは最も早くなるように選び、この 2 体のまま続けるのより多くはなりません。子の性別は半々、ランダムに足されるパッシブは新しいものとして計算しています）。',
-    '「パッシブ厳選組」: 完全体作成組に当たらず、欲しいパッシブが候補全体にそろっていて、両親を合わせると片親だけより多く集まる組です（途中まで集める組や、異なる種族の組も含みます）。個体値は見ません。集まる数の多い順、全部継ぐ確率の高い順です。',
-    '「個体値厳選組」: それ以外の組です。欲しいパッシブを候補のだれも持っていない（配合では作れない）ときは、全部この組になります。パッシブは後から手に入れる前提で見ずに、個体値の目標がそろう子が産まれるまでのタマゴの平均（同じ種族なら子を入れ替えながら）の少ない順です。',
-    'パッシブの条件を満たす子が産まれない組（スペシャルケーキで 4 個未満の「欲しいものだけ」など）は出しません。',
-    '配合牧場: 今この目標の組を置いている牧場（K か所）を、おすすめの上から K 組と比べ、入れ替えると、牧場全体の完成の速さの目安（各牧場の 1÷完成までの平均 の合計。完全体作成組以外は 1 個のタマゴで完成する確率）が上がるときだけ交換を勧めます（親の片方が同じ組を優先し、1 体の入れ替えで済むようにします）。上がらなければ「そのまま」です。入れ替えに関わる牧場がどれもまだ完成できない（準備の組だけの）ときは、それらの牧場がどれも悪くならず、1 か所以上が良くなるときだけ勧めます。同じ組み合わせで別の子も登録されている組が関わる牧場は、どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順のとおりにします。空いている牧場に何を置くかは、おすすめの順を見て決めてください。',
-    '「変更あり」: 交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組に付きます。交換を勧めていない組や、この目標の組を置いた牧場がないときは付きません。牧場の親を入れ替えたことがセーブから分かると消えます。',
-    'キノコケーキ・豪華野菜ケーキでは、目標より下の値が +1〜5 で段階的に上がるため、厳密には計算できません。目標の 6 下までは届くとみなした目安で並べ、目標の 1 下までしか届かないとみなした上限（実際はこれより少ない）を「多くても」として添えます。目安は、目標の少し下の親どうしでは実際に近く、ずっと下の親では多めに出ます。',
-    '開いている間は 20 秒ごとにセーブを確かめ、孵化させて受け取ったパルも候補に入れて並べ直します（参加している人は、ホストが共有した内容で並べ直します。牧場の中身もホストの共有から分かります）。',
-    '突然変異やアルファの子は数えていません。Palworld v1.0.5 のゲームの仕組みで計算しています。',
-  ]) list.append(el('li', '', text));
-  return list;
+// 計算のしくみ（見出しの「?」のダイアログ）。4 つの見出しに、各 1〜3 文。
+// 「異種の親は登録済みの配合だけを使います」は INV-2 の例外 (b)（理想個体の確率計算だけ遺伝の仕組みを使う）の説明なので必ず残す
+const HELP_SECTIONS = [
+  ['並び方と組の種類', [
+    '配合牧場に上から置く順に、別々の個体で最大 20 組を並べます。同じ個体は 2 回使いません。牧場には、配合牧場の判定で交換を勧めた組を置いてください（上から K 組が、いつも最終の配置とは限りません）。',
+    '「完全体作成組」は欲しいパッシブと個体値の目標を全部満たす子を作れる組です。2 体で欲しいパッシブがそろい、条件のある各ステータスに目標以上の親がいて 1 回で作れる組（種族は問わない）と、同じ種族で両親合わせて欲しいパッシブがそろい、産まれた子と入れ替えながら作る組（どちらの親が持っていても同じ。欲しい以外のパッシブが少ないほど早い）です。「パッシブ厳選組」は完全体作成組に当たらず、両親を合わせると片親だけより多く欲しいパッシブが集まる組（途中まで集める組や、異なる種族の組も含む）、「個体値厳選組」はパッシブを見ずに個体値をそろえる組です。',
+    '異種の親は登録済みの配合だけを使います。タマゴとグローバルパルボックスの個体は親にしません。',
+  ]],
+  ['数字の意味', [
+    '「完成まで 平均 約 N 個」は、完成品が産まれるまでに産ませるタマゴの平均です。同じ種族の組は、産まれた子を親と入れ替えながら続けた場合の平均です。',
+    'ランダムに付くパッシブで偶然そろう分は数えないので、実際より少し多めに出ます。突然変異とアルファの子は数えません。',
+    'Palworld v1.0.5 のゲームの仕組み（パッシブは両親の分から 1〜4 個、個体値は親から写るか 0〜100 の乱数）で計算しています。',
+  ]],
+  ['ケーキ', [
+    'キノコケーキ・豪華野菜ケーキは個体値に +1〜5 するため目安で並べ、目安と離れるときは「平均の上限」を添えます。',
+    'スペシャルケーキは両親のパッシブから 4 個まで継ぎ、足りない枠はランダムで埋まります。そのため欲しいパッシブが 4 個未満の「欲しいものだけ」は作れません。',
+  ]],
+  ['配合牧場と「変更あり」', [
+    // 交換の決め方は ideal-calc で直した文（入れ替えに関わる牧場・D19 の一文）のまま
+    '入れ替えると、牧場全体の完成の速さの目安（各牧場の 1÷完成までの平均 の合計。完全体作成組以外は 1 個のタマゴで完成する確率）が上がるときだけ交換を勧めます。上がらなければ「そのまま」です。入れ替えに関わる牧場がどれもまだ完成できない（準備の組だけの）ときは、それらの牧場がどれも悪くならず、1 か所以上が良くなるときだけ勧めます。親の片方が同じ組を優先し、1 体の入れ替えで済むようにします。同じ組み合わせで別の子も登録されている組が関わる牧場は、どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順のとおりにします。',
+    '「変更あり」は、交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組に付き、牧場の親を入れ替えたとセーブから分かると消えます。',
+    '開いている間はセーブ（参加している人はホストの共有）を確かめ直し、受け取ったパルも入れて並べ直します。',
+  ]],
+];
+function helpSections() {
+  const help = el('div', 'ideal-help');
+  for (const [title, texts] of HELP_SECTIONS) {
+    const section = el('section', 'ideal-help-section');
+    section.append(el('h3', '', title), ...texts.map((text) => el('p', '', text)));
+    help.append(section);
+  }
+  return help;
 }
 
 export function idealView(context, route) {
@@ -406,8 +468,19 @@ export function idealView(context, route) {
   panel.append(panelMain, panelSub);
   const stopTracking = trackHeight(panel, element);
 
-  // 要約の行（1 行に固定し、入り切らない分は省略して title に全文）
-  const note = el('p', 'result-note ideal-note');
+  // 要約の行（1 行に固定。中は固定の 3 つの子: 件数などの文〔入り切らない分は省略して title に全文〕・除外の内訳を開くボタン・最終確認の時刻）。
+  // 子は作り直さず、文字だけ書き換える（条件を変えても行の高さと位置が変わらない）
+  const summary = el('div', 'result-note ideal-summary');
+  const summaryText = el('span', 'ideal-summary-text');
+  // 除外がないときは見えないまま幅を残す（hidden にしない）
+  const excludedButton = button('除外 0', null, 'ideal-excluded is-placeholder');
+  excludedButton.disabled = true;
+  let excludedLines = [];
+  const excludedHint = hint({ label: '除外', trigger: excludedButton, content: () => excludedLines });
+  const checked = el('span', 'ideal-checked');
+  summary.append(summaryText, excludedButton, checked);
+  // 最後にセーブ（参加している人は共有）を確かめ終えた時刻（20 秒ごとの確認。まだなら 0）
+  let lastChecked = 0;
   // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定
   const missingBox = el('div', 'ideal-missing-note');
   const farmBox = el('section', 'ideal-farms');
@@ -434,7 +507,7 @@ export function idealView(context, route) {
   function openHelp() {
     if (helpModal) return;
     helpModal = openDialog('計算のしくみ', { className: 'ideal-help-dialog', onClose: () => { helpModal = null; } });
-    helpModal.body.append(explanation());
+    helpModal.body.append(helpSections());
     helpModal.footer.append(button('閉じる', helpModal.close, 'button secondary'));
   }
 
@@ -505,7 +578,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, note, missingBox, farmBox, results);
+  element.append(heading, panel, summary, missingBox, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -534,31 +607,30 @@ export function idealView(context, route) {
     const lines = [];
     if (conditions.holder === 'mine' && ideals?.mine() === null) {
       lines.push('セーブのどのプレイヤーが自分か分かりません。設定タブの「登録者の対応」で選ぶか、所持者を「すべて」にしてください。');
-    } else if (!result.candidates) lines.push(`${palName(to)}（と登録済みの配合の親）を、オスとメスで所持していません。`);
+    } else if (!result.candidates) lines.push(`${palName(to)}の ♂ と ♀（または登録済みの配合で${palName(to)}が産まれる親の組）を所持していません。`);
     else if (result.blocked) {
       lines.push(conditions.cake === 'special' && conditions.mode === 'only' && passives.length < 4
-        ? 'スペシャルケーキは空いた枠をランダムなパッシブで埋めるので、欲しいパッシブが 4 個未満では「欲しいものだけ」の子は産まれません。ケーキかパッシブの条件を変えてください。'
+        ? 'スペシャルケーキでは、欲しいパッシブが 4 個未満だと「欲しいものだけ」の子は産まれません。'
         : 'パッシブを持つ親からは、パッシブのない子は産まれません。パッシブを持たない ♂ と ♀ の組がありません。');
-    } else lines.push('オスとメスの組を作れる個体がいません。');
+    } else lines.push('♂ と ♀ の組を作れる個体がいません。');
     if (holderName()) lines.push(`（所持者を「${holderName()}」に絞っています）`);
     return empty(lines.join(''));
   }
 
-  // 欲しいパッシブを候補のだれも持たないときは、配合では作れないので、個体値厳選組だけを並べていることを知らせる。
-  // そのパッシブを持つ所持パル（別の種族など）から目標へ運ぶ経路も探せる
+  // 欲しいパッシブを候補のだれも持たないときは、個体値厳選組だけを並べていることを知らせる。
+  // そのパッシブを持つ所持パル（別の種族など）から目標へ運ぶ継承ルートも探せる
   function renderMissing(result) {
     missingBox.replaceChildren();
     if (!result?.missing.length) return;
-    const listed = result.total ? '個体値厳選組を並べています。' : '';
+    const listed = result.total ? 'いまは個体値厳選組だけを出しています。' : '';
     const warning = el('p', 'ideal-warning');
-    warning.append(el('span', '', '欲しいパッシブのうち、'), passiveList(result.missing, { compact: true }),
-      el('span', '', ` を持つ個体が候補にいないため、配合では作れません。${listed}足りないパッシブは別に手に入れてください。`));
+    warning.append(passiveList(result.missing, { compact: true }), el('span', '', ` を持つ親の候補がいません。${listed}`));
     missingBox.append(warning);
     const actions = el('div', 'ideal-missing');
     // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）
     for (const id of result.missing) {
       const action = link('', buildHash('route', { to, p: id }), 'button secondary ideal-carry');
-      action.append(passiveChip(id, { compact: true }), el('span', '', 'を運ぶ経路'));
+      action.append(passiveChip(id, { compact: true }), el('span', '', 'を運ぶ継承ルート'));
       actions.append(action);
     }
     missingBox.append(actions);
@@ -612,21 +684,88 @@ export function idealView(context, route) {
   }
 
   const holderName = () => (conditions.holder ? [...holderSelect.children].find((node) => node.value === conditions.holder)?.textContent ?? '' : '');
-  function summaryText(result) {
-    const holderNote = holderName() ? `所持者: ${holderName()}` : '';
+  // 要約の文:「上位 N 組（全 M 組・候補 K 体） · 登録済みの配合 n 件（なければ 同じ種族どうし） · Alice の個体」
+  function summaryLine(result) {
     // 同じ種族どうしのレコードは規則と重なるので、異種の配合だけを数える
     const records = new Set(result.layouts.filter((layout) => layout.male !== to || layout.female !== to)
       .flatMap((layout) => layout.sources.map((source) => source.record.id)));
+    const holder = holderName();
     return [
-      `${result.total} 組のうち、別々の個体で作れる上位 ${result.pairs.length} 組`,
-      `候補 ${result.candidates} 体`,
-      holderNote,
-      records.size ? `同じ種族どうしと登録済みの配合 ${records.size} 件` : '同じ種族どうし',
-      result.unknownGender ? `性別不明の ${result.unknownGender} 体は除外` : '',
-      result.tooMany ? `パッシブが 5 個以上の ${result.tooMany} 体は世代の計算から除外` : '',
-      result.blocked ? `パッシブの条件を満たせない ${result.blocked} 組は除外` : '',
-      REFRESH_NOTE,
+      `上位 ${result.pairs.length} 組（全 ${result.total} 組・候補 ${result.candidates} 体）`,
+      records.size ? `登録済みの配合 ${records.size} 件` : '同じ種族どうし',
+      !holder ? '' : conditions.holder === 'mine' ? holder : `${holder} の個体`,
     ].filter(Boolean).join(' · ');
+  }
+  // 要約の行の文と除外のボタン（結果がないときは空。子は作り直さない）
+  function renderSummary(result) {
+    const text = result ? summaryLine(result) : '';
+    if (summaryText.textContent !== text) summaryText.textContent = text;
+    summaryText.title = text;
+    excludedLines = result ? [
+      result.unknownGender ? `性別不明の ${result.unknownGender} 体` : '',
+      result.tooMany ? `パッシブが 5 個以上の ${result.tooMany} 体（入れ替えの計算から除外）` : '',
+      result.blocked ? `パッシブの条件を満たせない ${result.blocked} 組` : '',
+    ].filter(Boolean) : [];
+    const count = result ? result.unknownGender + result.tooMany + result.blocked : 0;
+    const label = `除外 ${count}`;
+    if (excludedButton.textContent !== label) excludedButton.textContent = label;
+    excludedButton.classList.toggle('is-placeholder', !count);
+    excludedButton.disabled = !count;
+    if (!count) excludedHint.close();
+  }
+  // 最終確認の時刻とセーブの時刻（文字だけ書き換える。20 秒ごとの確認で結果は作り直さない）
+  function renderChecked() {
+    const saved = owned?.state?.meta?.saveUpdatedAt;
+    const text = owned ? [`最終確認 ${lastChecked ? formatTime(lastChecked) : '—'}`, saved ? `セーブ ${dateTime(saved)}` : ''].filter(Boolean).join(' · ') : '';
+    if (checked.textContent !== text) checked.textContent = text;
+  }
+
+  // 結果の欄を入れ替える。前のカードの札の説明（開いている板）は閉じて片づける
+  let cardHints = [];
+  function showResults(nodes, hints = []) {
+    for (const item of cardHints) item.destroy();
+    cardHints = hints;
+    results.replaceChildren(...nodes);
+  }
+
+  // 同じ見込みの組を畳んだまとまり（開閉は viewState に残す。タブを切り替えても残り、読み込み直すと閉じる）
+  const sameState = memory ?? {};
+  function sameGroup(short) {
+    const details = el('details', 'ideal-same');
+    details.open = Boolean(sameState.sameOpen);
+    details.addEventListener('toggle', () => { sameState.sameOpen = details.open; });
+    const head = el('summary', 'ideal-same-summary');
+    const title = el('span', 'ideal-same-title');
+    head.append(title, el('small', 'ideal-same-reason', short.length
+      ? `${short.join('・')}の親が候補にいないため、どの組も同じ見込みです。` : 'どの組も見込みが同じです。'));
+    details.append(head);
+    let count = 0;
+    return {
+      element: details,
+      add(card) {
+        details.append(card);
+        title.textContent = `同じ見込みの組 ほか ${++count} 組`;
+      },
+    };
+  }
+  // 個体値厳選組が続き、見込みが前の組と同じ組を畳む（I-37）。並びの先頭の 1 組と、牧場の判定が指している組（pointed）は畳まない。
+  // 番号は振り直さず、並びも変えない（畳まない組が間に入ったら、まとまりを分ける）。畳んだカードも DOM に残す
+  function foldSame(pairs, nodes, pointed, short) {
+    const shown = [];
+    let group = null;
+    pairs.forEach((pair, rank) => {
+      if (!(rank > 0 && sameProspect(pairs[rank - 1], pair) && !pointed.has(rank))) {
+        group = null;
+        shown.push(nodes[rank]);
+        return;
+      }
+      if (!group) {
+        group = sameGroup(short);
+        shown.push(group.element);
+      }
+      group.add(nodes[rank]);
+    });
+    return shown;
   }
 
   // 計算中の仕事（区切った計算）と、いま表示している計算の署名（同じなら計算も DOM も触らない）
@@ -647,15 +786,10 @@ export function idealView(context, route) {
     shownKey = '';
     shown = null;
     setComputing(false);
-    showNote('');
+    renderSummary(null);
     renderHolding(null);
     missingBox.replaceChildren();
     farmBox.replaceChildren();
-  }
-  // 要約の行（1 行に固定。省略されても title で全文を読める）
-  function showNote(text) {
-    note.textContent = text;
-    note.title = text;
   }
 
   function renderResults() {
@@ -667,12 +801,12 @@ export function idealView(context, route) {
     const pals = owned?.state?.owned?.pals ?? null;
     if (!pals) {
       clearPlan();
-      results.replaceChildren(empty(owned && !owned.state.ready ? '読み込み中…'
-        : '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、理想個体の親を探せます。'));
+      showResults([empty(owned && !owned.state.ready ? '読み込み中…'
+        : '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、理想個体の親を探せます。')]);
       return;
     }
-    if (!to) { clearPlan(); results.replaceChildren(empty('目標のパルを選んでください。')); return; }
-    if (!state.env) { clearPlan(); dataPending(results, state); return; }
+    if (!to) { clearPlan(); showResults([empty('目標のパルを選んでください。')]); return; }
+    if (!state.env) { clearPlan(); showResults([]); dataPending(results, state); return; }
     const candidates = ofHolder(pals);
     // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）。
     // 今の牧場の組を計画で優先・見張るので、計画より先に求める
@@ -705,7 +839,16 @@ export function idealView(context, route) {
     }
     job?.cancel();
     job = null;
-    const plan = { placedFarms, signature, memoryId, baseline, farms, cake: conditions.cake, data: owned.state.owned };
+    // 組の ♂♀ 行で見せる欲しいパッシブと個体値の目標（計算したときの条件。描くのが後になっても同じ条件で見せる）と、
+    // 候補のだれも届かないステータス（同じ見込みの組を畳むときの理由。キノコケーキでは目標の 5 下から届く）
+    const reach = (key) => Math.max(0, conditions.targets[key] - (conditions.cake === 'talent' ? 5 : 0));
+    const parents = candidates.filter((pal) => species.has(pal.palId) && isParentCandidate(pal) && (pal.gender === 'M' || pal.gender === 'F'));
+    const short = TALENT_KEYS.filter((name) => conditions.targets[name] > 0 && !parents.some((pal) => pal.talent[name] >= reach(name)))
+      .map((name) => `${TALENT_LABELS[name]} ${reach(name)} 以上`);
+    const plan = {
+      placedFarms, signature, memoryId, baseline, farms, cake: conditions.cake, data: owned.state.owned,
+      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short,
+    };
     const steps = idealPlanSteps({
       pals: candidates, index: state.index, target: to, passives: [...passives],
       mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys,
@@ -722,11 +865,11 @@ export function idealView(context, route) {
     const current = { key, cancel: run.cancel };
     job = current;
     if (!shownKey) {
-      showNote('');
+      renderSummary(null);
       renderHolding(null);
       missingBox.replaceChildren();
       farmBox.replaceChildren();
-      results.replaceChildren(empty('計算中…'));
+      showResults([empty('計算中…')]);
     }
     setComputing(true);
     finishPlan(current, run.promise, plan);
@@ -798,8 +941,8 @@ export function idealView(context, route) {
   }
 
   // 要約・所持の状況・足りないパッシブ・配合牧場の判定・組のカードを描く
-  function drawPlan(result, { placedFarms, cake }, changed) {
-    showNote(summaryText(result));
+  function drawPlan(result, { placedFarms, cake, highlight, short = [] }, changed) {
+    renderSummary(result);
     renderHolding(result);
     renderMissing(result);
     const { measureOf, advice } = farmAdviceOf(result, placedFarms);
@@ -807,15 +950,20 @@ export function idealView(context, route) {
       measureOf(planPairKey(item.farm.male, item.farm.female))?.ambiguous ? '牧場の組' : '',
       item.status === 'swap' && result.pairs[item.to].ambiguous ? '交換先の組' : '',
     ].filter(Boolean));
-    if (!result.total) { results.replaceChildren(noPairs(result)); return; }
+    if (!result.total) { showResults([noPairs(result)]); return; }
     const placed = new Map(placedFarms.map((farm) => [planPairKey(farm.male, farm.female), farmName(farm.baseId)]));
-    results.replaceChildren(...result.pairs.map((pair, rank) => {
+    // 牧場の判定が指している組（そのままの組・交換先の組）は畳まない
+    const pointed = new Set(advice.flatMap((item) => (item.status === 'swap' ? [item.to] : item.rank >= 0 ? [item.rank] : [])));
+    const hints = [];
+    const nodes = result.pairs.map((pair, rank) => {
       const key = planPairKey(pair.male, pair.female);
-      return pairCard(pair, rank, { cake, placed: placed.get(key) ?? '', changed: changed.has(key) });
-    }));
+      return pairCard(pair, rank, { cake, placed: placed.get(key) ?? '', changed: changed.has(key), highlight, hints });
+    });
+    showResults(foldSame(result.pairs, nodes, pointed, short), hints);
   }
 
   function update() {
+    renderChecked();
     renderHolders();
     // 候補を開いたまま所持パルが変わったら、所持数だけ描き直す（閉じない）
     toPicker.update();
@@ -852,6 +1000,8 @@ export function idealView(context, route) {
       modeChoice.destroy();
       cakeChoice.destroy();
       saveBoard.destroy();
+      excludedHint.destroy();
+      for (const item of cardHints) item.destroy();
       stopTracking();
       // ダイアログは画面の遷移で閉じないので、画面を閉じるときに閉じる
       goalsModal?.close();
@@ -871,10 +1021,19 @@ export function idealView(context, route) {
     update();
   });
   // 開いている間は 20 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる。閉じた後と、タブが裏にある間は読まない
-  // （裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直しに任せる。destroyed は区切った計算と同じ印）
-  const refresh = () => {
+  // （裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直しに任せる。destroyed は区切った計算と同じ印）。
+  // 確かめ終えたら（読めなかったときは除く）、要約の行の「最終確認」の時刻だけを書き換える（結果は作り直さない）
+  const refresh = async () => {
     if (destroyed || globalThis.document?.visibilityState === 'hidden') return;
-    owned.autoRefresh().catch(() => {});
+    let outcome;
+    try {
+      outcome = await owned.autoRefresh();
+    } catch {
+      return;
+    }
+    if (destroyed || outcome === 'error') return;
+    lastChecked = Date.now();
+    renderChecked();
   };
   owned.load().then(refresh).catch(() => {});
   const timer = setInterval(refresh, REFRESH_INTERVAL);
