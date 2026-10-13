@@ -2113,3 +2113,137 @@ test('理想個体画面: 計算のしくみのダイアログに、INV-2 の例
   }
   shown.destroy();
 });
+
+// フェーズ 1b・1c の終わりのレビューの直し（理想個体）
+// 牧場 A に 1 番（そのまま）、牧場 B に 0 の組（2 番への交換推奨）、E は空き（3 番を案内）。伝説はだれも持たないので全部が個体値厳選組で、3 番は畳まれる
+const reviewPals = () => {
+  const same = { hp: 100, shot: 50, defense: 100 };
+  const zero = { hp: 0, shot: 0, defense: 0 };
+  return [
+    ...['1', '2', '3'].flatMap((n) => [palworldPal(`m${n}`, 'SheepBall', 'Male', [], same), palworldPal(`f${n}`, 'SheepBall', 'Female', [], same)]),
+    palworldPal('m4', 'SheepBall', 'Male', [], zero), palworldPal('f4', 'SheepBall', 'Female', [], zero),
+  ];
+};
+const reviewFarms = () => [ok('A', 'b1', ['m1', 'f1']), ok('B', 'b1', ['m4', 'f4']), ok('E', 'b1', [])];
+// 計算に効かない値（レベル）だけが変わった読み直し（20 秒ごとの確認）。組の行の値が変わるので、帯・詳細・カードを作り直す
+function bumpLevels(owned) {
+  owned.state.owned = { ...owned.state.owned, pals: owned.state.owned.pals.map((pal) => ({ ...pal, level: pal.level + 1 })) };
+  owned.emit();
+}
+
+test('理想個体画面: 描き直しで帯のセル・詳細の行・空き牧場の番号・カードの札と行の部品・同じ見込みの組の見出し・継承ルートのボタンを作り直しても、フォーカスは同じ役目の部品へ戻す（開いていた札の説明の板は閉じる）', async (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned(reviewPals());
+  owned.state.owned.bases = [{ id: 'b1', label: '拠点 1' }];
+  owned.state.owned.farms = reviewFarms();
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  body.append(view.element);
+  const strip = () => view.element.querySelector('.ideal-farm-strip');
+  const parts = {
+    'farm-cell:B': () => strip().querySelectorAll('.ideal-farm-cell')[1],
+    'farm-row:A': () => view.element.querySelectorAll('.ideal-farm-main')[0],
+    'farm-pick:m3|f3': () => view.element.querySelector('.ideal-farm-pick'),
+    'tag:m1|f1:group': () => cards(view)[0].querySelector('.ideal-tier'),
+    'tag:m1|f1:placed': () => cards(view)[0].querySelector('.ideal-placed'),
+    'tag:m2|f2:farmTo': () => cards(view)[1].querySelector('.ideal-farm-to'),
+    'pair:m1|f1:F:pal': () => cards(view)[0].querySelectorAll('.owned-row')[1].querySelector('[data-focus="pal"]'),
+    'same:m3|f3': () => view.element.querySelector('.ideal-same-summary'),
+    'carry:Legend': () => view.element.querySelector('.ideal-carry'),
+  };
+  for (const [key, find] of Object.entries(parts)) {
+    const before = find();
+    assert.ok(before, key);
+    before.focus();
+    bumpLevels(owned);
+    const after = find();
+    // 部品は作り直している（同じ要素を使い回していない）が、フォーカスは同じ役目の新しい部品にある
+    assert.notEqual(after, before, key);
+    assert.equal(document.activeElement, after, key);
+    assert.equal(after.getAttribute('data-focus-key'), key);
+  }
+  // 札の説明の板を開いたまま作り直すと、板は閉じ、フォーカスは同じ組の同じ札へ
+  const placed = parts['tag:m1|f1:placed']();
+  placed.focus();
+  await placed.dispatch('click');
+  assert.equal(hintBoards().length, 1);
+  bumpLevels(owned);
+  assert.equal(hintBoards().length, 0);
+  assert.equal(document.activeElement, parts['tag:m1|f1:placed']());
+  // 計算し直したとき（受け取った個体が増えた）も同じ
+  const tier = parts['tag:m1|f1:group']();
+  tier.focus();
+  owned.state.owned = fakeOwned([...reviewPals(), palworldPal('m5', 'SheepBall', 'Male', [], { hp: 0, shot: 0, defense: 0 })]).state.owned;
+  owned.state.owned.bases = [{ id: 'b1', label: '拠点 1' }];
+  owned.state.owned.farms = reviewFarms();
+  owned.emit();
+  assert.notEqual(parts['tag:m1|f1:group'](), tier);
+  assert.equal(document.activeElement, parts['tag:m1|f1:group']());
+  // 札がなくなったら（組から配置中の札が消えた）、同じ組の目的の札へ
+  parts['tag:m1|f1:placed']().focus();
+  owned.state.owned = { ...owned.state.owned, farms: [ok('B', 'b1', ['m4', 'f4']), ok('E', 'b1', [])] };
+  owned.emit();
+  assert.equal(cards(view)[0].querySelector('.ideal-placed'), null);
+  assert.equal(document.activeElement, parts['tag:m1|f1:group']());
+  view.destroy();
+});
+
+test('理想個体画面: 牧場の判定を保留している間に計算し直しても、読めるようになったら「変更あり」を出す（開き直さなくても）', (t) => {
+  install(t);
+  const list = [
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 90, shot: 90, defense: 90 }),
+    palworldPal('f1', 'SheepBall', 'Female', [], { hp: 90, shot: 90, defense: 90 }),
+  ];
+  const owned = fakeOwned(list);
+  const farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }];
+  owned.state.owned.farms = farms;
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  // 3 つとも 100 の ♀ を受け取ったのと同じ読み直しで、ほかの牧場が読めなくなった（判定を保留したまま計算し直す）
+  const hatched = palworldPal('f9', 'SheepBall', 'Female', [], { hp: 100, shot: 100, defense: 100 });
+  owned.state.owned = fakeOwned([...list, hatched]).state.owned;
+  owned.state.owned.farms = [...farms, { id: 'U', baseId: '', parents: [], status: 'uncertain' }];
+  owned.emit();
+  assert.equal(view.element.querySelector('.ideal-farm-strip').textContent, '牧場の判定を保留（読めない牧場が 1 か所あります）');
+  assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
+  // 読めるようになった（この目標の牧場は同じなので計算はし直さない）。交換推奨の行き先に「変更あり」
+  owned.state.owned = { ...owned.state.owned, farms };
+  owned.emit();
+  assert.match(view.element.querySelector('.ideal-farm').textContent, /交換推奨 → おすすめ 1 番/);
+  assert.equal(view.element.querySelectorAll('.ideal-changed').length, 1);
+  assert.match(cards(view)[0].textContent, /変更あり/);
+  assert.match(view.element.querySelector('.ideal-farms').textContent, /新しく入った組が 1 組/);
+  view.destroy();
+});
+
+test('理想個体画面: 帯・詳細の行・空き牧場の番号から組へ移ったら、動かした後にカードへフォーカスを移す（スクロールはしない focus）。作り直してもカードに戻す', (t) => {
+  const { body } = install(t);
+  const scrolled = t.mock.method(FakeElement.prototype, 'scrollIntoView');
+  const focused = t.mock.method(FakeElement.prototype, 'focus');
+  const owned = fakeOwned(reviewPals());
+  owned.state.owned.bases = [{ id: 'b1', label: '拠点 1' }];
+  owned.state.owned.farms = reviewFarms();
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  body.append(view.element);
+  const cell = view.element.querySelectorAll('.ideal-farm-cell')[1];
+  cell.focus();
+  cell.dispatch('click');
+  const card = cards(view)[1];
+  assert.equal(scrolled.mock.calls.at(-1).this, card);
+  // ページ内リンクの作法: カードを tabIndex -1 にして、動かした後に preventScroll の focus
+  assert.equal(document.activeElement, card);
+  assert.equal(card.tabIndex, -1);
+  assert.equal(focused.mock.calls.at(-1).this, card);
+  assert.deepEqual(focused.mock.calls.at(-1).arguments, [{ preventScroll: true }]);
+  // 読み直しでカードを作り直しても、移った先のカードにフォーカスを戻す
+  bumpLevels(owned);
+  assert.notEqual(cards(view)[1], card);
+  assert.equal(document.activeElement, cards(view)[1]);
+  assert.equal(cards(view)[1].tabIndex, -1);
+  // 空き牧場の番号から畳まれた組へ移っても、開いてからカードへ
+  view.element.querySelector('.ideal-farm-pick').dispatch('click');
+  assert.equal(view.element.querySelector('.ideal-same').open, true);
+  assert.equal(document.activeElement, cards(view)[2]);
+  // 詳細の行からも
+  view.element.querySelectorAll('.ideal-farm-main')[0].dispatch('click');
+  assert.equal(document.activeElement, cards(view)[0]);
+  view.destroy();
+});

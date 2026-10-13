@@ -1,4 +1,5 @@
 import { el, empty, link, button, syncList, clearList, trackHeight } from '../ui/dom.js';
+import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
 import { createPopover } from '../ui/popover.js';
@@ -172,30 +173,37 @@ function pairMeasure(pair, cake) {
  *（カードを作り直すときに、呼んだ側が destroy して開いている板を閉じる）。
  * highlight（{ wanted, targets }）は ♂♀ の行で欲しいパッシブと個体値の目標との差を見せる（views/owned.js の ownedRow）。
  * placed はこの組が入っている牧場の名前、farmTo は交換推奨でこの組を置く牧場の名前、marks(pal) は親の行の印（別の配合牧場で使用中）。
- * data-key（♂と♀の個体 ID）で、牧場の判定から押したときにこのカードを探す
+ * data-key（♂と♀の個体 ID）で、牧場の判定から押したときにこのカードを探す。
+ * 押せる部品には data-focus-key（カード card:<key>・札 tag:<key>:<種類>・♂♀ の行の部品 pair:<key>:<M|F>:<data-focus>）を付け、
+ * 描き直しでカードを作り直しても、フォーカスを同じ役目の部品へ戻す（drawPlan の captureFocus・restoreFocus）
  */
 function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, farmTo = '', highlight, hints = [], marks = () => [] } = {}) {
+  const key = planPairKey(pair.male, pair.female);
   const card = el('article', `ideal-pair group-${pair.group}`);
   card.setAttribute('aria-label', `${rank + 1} 番目の組`);
-  card.setAttribute('data-key', planPairKey(pair.male, pair.female));
+  card.setAttribute('data-key', key);
+  card.setAttribute('data-focus-key', `card:${key}`);
   const head = el('div', 'ideal-pair-head');
   const chance = el('div', 'ideal-chance');
   const tags = el('div', 'ideal-tags');
-  const tag = (className, text, help, icon) => {
+  const tag = (kind, className, text, help, icon) => {
     const node = button('', null, className);
+    node.setAttribute('data-focus-key', `tag:${key}:${kind}`);
+    // 札がなくなったら（「変更あり」が消えたなど）、同じ組の目的の札へ
+    if (kind !== 'group') node.setAttribute('data-focus-fallback', `tag:${key}:group`);
     if (icon) node.append(icon);
     node.append(el('span', '', text));
     hints.push(hint({ label: text, trigger: node, content: help }));
     return node;
   };
-  tags.append(tag(`ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? '', TAG_HINTS[pair.group] ?? '', groupIcon(pair.group)));
-  if (changed) tags.append(tag('ideal-changed', '変更あり', TAG_HINTS.changed));
-  if (placed) tags.append(tag('ideal-placed', joinName(placed, 'に配置中'), TAG_HINTS.placed));
-  if (farmTo) tags.append(tag('ideal-farm-to', `→ ${joinName(farmTo, 'へ')}`, TAG_HINTS.farmTo));
+  tags.append(tag('group', `ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? '', TAG_HINTS[pair.group] ?? '', groupIcon(pair.group)));
+  if (changed) tags.append(tag('changed', 'ideal-changed', '変更あり', TAG_HINTS.changed));
+  if (placed) tags.append(tag('placed', 'ideal-placed', joinName(placed, 'に配置中'), TAG_HINTS.placed));
+  if (farmTo) tags.append(tag('farmTo', 'ideal-farm-to', `→ ${joinName(farmTo, 'へ')}`, TAG_HINTS.farmTo));
   // 2 体の持ち主が違う組（X-28。だれと相談して置くか）。どちらかが分からなければ出さない
   const owners = [ownerOf(pair.male), ownerOf(pair.female)];
   if (owners.every(Boolean) && owners[0] !== owners[1]) {
-    tags.append(tag('ideal-owners', `${owners.join('・')} の個体`, `♂ は ${owners[0]}、♀ は ${owners[1]} の個体です（拠点のパルは預けた人）。`));
+    tags.append(tag('owners', 'ideal-owners', `${owners.join('・')} の個体`, `♂ は ${owners[0]}、♀ は ${owners[1]} の個体です（拠点のパルは預けた人）。`));
   }
   const [strong, small] = pairMeasure(pair, cake);
   chance.append(tags, el('strong', '', strong), el('small', 'muted', small));
@@ -212,8 +220,18 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, far
   if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
-  // ♂♀ の行（列見出しはないので、個体値の 4 セルは CSS で小さな見出しを付ける）。「+N」の説明の部品も hints に入れる
-  card.append(head, ownedRow(pair.male, { highlight, marks: marks(pair.male), hints }), ownedRow(pair.female, { highlight, marks: marks(pair.female), hints }));
+  // ♂♀ の行（列見出しはないので、個体値の 4 セルは CSS で小さな見出しを付ける）。「+N」の説明の部品も hints に入れる。
+  // 行の部品の目印（data-focus。名前のリンク pal・「+N」）から data-focus-key を作る（「+N」がなくなったら同じ行の名前のリンクへ）
+  const rows = [[pair.male, 'M'], [pair.female, 'F']].map(([pal, sex]) => {
+    const row = ownedRow(pal, { highlight, marks: marks(pal), hints });
+    for (const node of row.querySelectorAll('[data-focus]')) {
+      const focus = node.getAttribute('data-focus');
+      node.setAttribute('data-focus-key', `pair:${key}:${sex}:${focus}`);
+      if (focus !== 'pal') node.setAttribute('data-focus-fallback', `pair:${key}:${sex}:pal`);
+    }
+    return row;
+  });
+  card.append(head, ...rows);
   if (notes.children.length) card.append(notes);
   return card;
 }
@@ -516,6 +534,7 @@ export function idealView(context, route) {
   farmFold.open = Boolean(memory?.farmsOpen);
   farmFold.addEventListener('toggle', () => { if (memory) memory.farmsOpen = farmFold.open; });
   const farmHead = el('summary', 'ideal-farms-summary');
+  farmHead.setAttribute('data-focus-key', 'farm-fold');
   const farmTitle = el('h3');
   farmHead.append(farmTitle);
   const farmBody = el('div', 'ideal-farms-body');
@@ -670,6 +689,7 @@ export function idealView(context, route) {
     // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）
     for (const id of result.missing) {
       const action = link('', buildHash('route', { to, p: id }), 'button secondary ideal-carry');
+      action.setAttribute('data-focus-key', `carry:${id}`);
       action.append(passiveChip(id, { compact: true }), el('span', '', 'を運ぶ継承ルート'));
       actions.append(action);
     }
@@ -757,6 +777,7 @@ export function idealView(context, route) {
   // 帯の 1 か所: [牧場の名前][♂の絵]×[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）
   function stripCell({ item, name, state, key }) {
     const cell = key ? button('', () => jumpTo(key), `ideal-farm-cell ${item.status}`) : el('div', `ideal-farm-cell ${item.status} is-static`);
+    if (key) cell.setAttribute('data-focus-key', `farm-cell:${item.farm.id}`);
     const pals = el('span', 'ideal-farm-cell-pals');
     [item.farm.male, item.farm.female].forEach((pal, index) => {
       if (index) pals.append(el('span', 'ideal-farm-cell-x', '×'));
@@ -787,10 +808,12 @@ export function idealView(context, route) {
     farmStrip.append(...rows.slice(0, STRIP_FARMS).map(stripCell));
     if (rows.length > STRIP_FARMS) {
       // 残りの牧場は詳細にあるので、閉じていれば開いてから移る
-      farmStrip.append(button(`ほか ${rows.length - STRIP_FARMS} か所`, () => {
+      const more = button(`ほか ${rows.length - STRIP_FARMS} か所`, () => {
         openFarms();
         farmBox.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
-      }, 'ideal-farm-more'));
+      }, 'ideal-farm-more');
+      more.setAttribute('data-focus-key', 'farm-more');
+      farmStrip.append(more);
     }
   }
 
@@ -842,6 +865,7 @@ export function idealView(context, route) {
     const status = pending ? 'pending' : item.status;
     const row = el('li', `ideal-farm ${status}`);
     const main = key && !pending ? button('', () => jumpTo(key), 'ideal-farm-main') : el('div', 'ideal-farm-main');
+    if (key && !pending) main.setAttribute('data-focus-key', `farm-row:${item.farm.id}`);
     const pair = el('span', 'ideal-farm-pair');
     pair.append(farmPal(item.farm.male, { passives: true }), el('span', 'ideal-farm-x', '×'), farmPal(item.farm.female, { passives: true }));
     main.append(el('strong', 'ideal-farm-name', name), pair, el('span', `ideal-farm-status ${status}`, pending ? '判定を保留' : state.chip));
@@ -876,8 +900,11 @@ export function idealView(context, route) {
     note.append(el('span', '', '空いた牧場に置くなら おすすめ '));
     picks.forEach((rank, index) => {
       if (index) note.append(el('span', '', '・'));
-      const pick = button(`${rank + 1} 番`, () => jumpTo(planPairKey(pairs[rank].male, pairs[rank].female)), 'ideal-farm-pick');
+      const key = planPairKey(pairs[rank].male, pairs[rank].female);
+      const pick = button(`${rank + 1} 番`, () => jumpTo(key), 'ideal-farm-pick');
       pick.setAttribute('aria-label', `おすすめ ${rank + 1} 番の組へ移る`);
+      // 描き直しで番号が変わっても、同じ組へ移る番号へフォーカスを戻す
+      pick.setAttribute('data-focus-key', `farm-pick:${key}`);
       note.append(pick);
     });
     return note;
@@ -910,7 +937,9 @@ export function idealView(context, route) {
   }
 
   // 牧場の判定から組へ移る（I-30）。畳まれた組なら開いてから、カードを画面の中ほどへ動かし、1 秒光らせる（動きを減らす設定では色だけ）。
-  // 光らせている組は data-key で覚え、その間に結果を作り直しても付け直す（drawPlan）
+  // 光らせている組は data-key で覚え、その間に結果を作り直しても付け直す（drawPlan）。
+  // 動かした後にカードへフォーカスを移す（ページ内リンクの作法。読み上げでもキーボードでも移った先が分かり、Tab はカードの中から続く。
+  // ideal-farms では押したボタンに残していたのを、フェーズ 1b・1c の終わりのレビューで変えた）
   const reducedMotion = () => Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
   const cardOf = (key) => [...results.querySelectorAll('.ideal-pair')].find((card) => card.getAttribute('data-key') === key) ?? null;
   let flash = null;
@@ -923,6 +952,9 @@ export function idealView(context, route) {
       sameState.sameOpen = true;
     }
     card.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    // 動かすのは scrollIntoView に任せる（focus でも動かすと、なめらかな動きを止めて別の位置へ動かしうる）
+    card.tabIndex = -1;
+    card.focus({ preventScroll: true });
     if (flash) {
       clearTimeout(flash.timer);
       cardOf(flash.key)?.classList.toggle('is-flash', false);
@@ -976,11 +1008,13 @@ export function idealView(context, route) {
 
   // 同じ見込みの組を畳んだまとまり（開閉は viewState に残す。タブを切り替えても残り、読み込み直すと閉じる）
   const sameState = memory ?? {};
-  function sameGroup(short) {
+  function sameGroup(short, firstKey) {
     const details = el('details', 'ideal-same');
     details.open = Boolean(sameState.sameOpen);
     details.addEventListener('toggle', () => { sameState.sameOpen = details.open; });
     const head = el('summary', 'ideal-same-summary');
+    // 描き直しで作り直しても、同じ組から始まるまとまりの見出しへフォーカスを戻す
+    head.setAttribute('data-focus-key', `same:${firstKey}`);
     const title = el('span', 'ideal-same-title');
     head.append(title, el('small', 'ideal-same-reason', short.length
       ? `${short.join('・')}の親が候補にいないため、どの組も同じ見込みです。` : 'どの組も見込みが同じです。'));
@@ -1006,7 +1040,7 @@ export function idealView(context, route) {
         return;
       }
       if (!group) {
-        group = sameGroup(short);
+        group = sameGroup(short, planPairKey(pair.male, pair.female));
         shown.push(group.element);
       }
       group.add(nodes[rank]);
@@ -1166,20 +1200,16 @@ export function idealView(context, route) {
     if (display !== current.display) drawPlan(latest.result, latest.plan, current.changed);
   }
 
-  // 計算の結果を描く。「変更あり」の基準（planMemory）もここで更新する
+  // 計算の結果を描く。「変更あり」の基準（planMemory）もここで更新する。
+  // changed は基準になかった組（交換推奨の行き先で絞る前）。絞るのは drawPlan（判定を保留している間に計算しても、計算し直さずに
+  // 読めるようになったとき〔drawLatest〕に絞り直せるように。前は絞った後の空の集合を残し、開き直すまで「変更あり」が戻らなかった）
   function showPlan(result, plan) {
     const { placedFarms, signature, memoryId, baseline, farms } = plan;
     let changed = new Set();
     if (Array.isArray(farms)) {
       const next = planChanges(baseline, signature, result.pairs, placedFarms.length);
       if (next.reset) planMemory.set(memoryId, next.baseline);
-      // 「変更あり」は、採った交換推奨の行き先の組だけ（交換推奨と同じ考え方）。読めない牧場があって判定を保留している間は、
-      // 交換推奨がないので付けない（D13。基準は今どおり planChanges で更新する）
-      if (farmCompleteness(farms).complete) {
-        const swapTargets = new Set(farmAdviceOf(result, placedFarms).advice.filter((item) => item.status === 'swap')
-          .map((item) => planPairKey(result.pairs[item.to].male, result.pairs[item.to].female)));
-        changed = new Set([...next.changed].filter((key) => swapTargets.has(key)));
-      }
+      changed = next.changed;
     }
     shown = { result, plan, changed, display: displayKey({ result, plan }) };
     drawPlan(result, plan, changed);
@@ -1197,8 +1227,15 @@ export function idealView(context, route) {
 
   // 要約・所持の状況・足りないパッシブ・配合牧場の判定（帯と詳細）・組のカードを描く。牧場の名前・完全性・使用中・空きは、
   // 描くときのデータ（plan.data。計算の後に読み直したデータ）から求める。読めない牧場があれば判定を保留し、交換推奨・空き牧場・使用中・
-  //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）
+  //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）。
+  // 作り直す部品（帯のセル・詳細の行・空き牧場の番号・カードと札・行の部品・畳みの見出し）にあったフォーカスは、描いた後に同じ役目の部品
+  //（data-focus-key）へ戻す。20 秒ごとの読み直しや再計算で、キーボードの位置を body に落とさない（開いていた札の説明の板は閉じる）
   function drawPlan(result, plan, changed) {
+    const focus = captureFocus(element);
+    paintPlan(result, plan, changed, focus);
+    restoreFocus(element, focus);
+  }
+  function paintPlan(result, plan, changed, focus) {
     const { placedFarms, cake, highlight, short = [] } = plan;
     renderSummary(result);
     renderHolding(result);
@@ -1219,7 +1256,10 @@ export function idealView(context, route) {
     // 空き牧場は、判定がそろっていて、所持者が「すべて」のときだけ（仲間の拠点の牧場も含む）
     const empties = judged && !plan.holder ? farm.empties : [];
     const marks = (pal) => (farm?.inUse.has(pal.id) ? [`別の配合牧場で使用中（${nameOf(farm.inUse.get(pal.id))}）`] : []);
-    const shownChanged = judged ? changed : new Set();
+    // 交換推奨の行き先の組に「→ ◯◯へ」の札（D14。境目の線の代わりに、置く組を札で示す）
+    const farmTo = new Map(advice.filter((item) => item.status === 'swap').map((item) => [keyOf(result.pairs[item.to]), nameOf(item.farm.id)]));
+    // 「変更あり」は、採った交換推奨の行き先の組だけ（D10）。判定を保留している間は交換推奨がないので付けない（D13）
+    const shownChanged = judged ? new Set([...changed].filter((key) => farmTo.has(key))) : new Set();
     const view = {
       farm, rows, pending, empties, changed: shownChanged.size, pairs: result.pairs, wanted: highlight.wanted.length, marks,
       measureOf: judged?.measureOf ?? (() => undefined), picks: judged ? emptyPicks(judged.advice, result.pairs, empties.length) : [],
@@ -1233,8 +1273,6 @@ export function idealView(context, route) {
     renderFarmBox(view);
     if (!result.total) { showResults([noPairs(result)]); return; }
     const placed = new Map(placedFarms.map((item) => [keyOf(item), nameOf(item.id)]));
-    // 交換推奨の行き先の組に「→ ◯◯へ」の札（D14。境目の線の代わりに、置く組を札で示す）
-    const farmTo = new Map(advice.filter((item) => item.status === 'swap').map((item) => [keyOf(result.pairs[item.to]), nameOf(item.farm.id)]));
     // 牧場の判定が指している組（そのままの組・交換先の組。保留中は牧場に入っている組）は畳まない
     const pointed = new Set(advice.flatMap((item) => (item.status === 'swap' ? [item.to] : item.rank >= 0 ? [item.rank] : [])));
     const hints = [];
@@ -1245,6 +1283,8 @@ export function idealView(context, route) {
       });
       // 光らせている途中に作り直したら、新しいカードにも付け直す
       if (flash?.key === key) card.classList.add('is-flash');
+      // 組へ移ってカードにフォーカスがあったときは、作り直したカードもフォーカスを受けられるようにする（restoreFocus が戻す）
+      if (focus?.key === `card:${key}`) card.tabIndex = -1;
       return card;
     });
     showResults(foldSame(result.pairs, nodes, pointed, short), hints);
