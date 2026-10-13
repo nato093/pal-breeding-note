@@ -1,9 +1,9 @@
-import { el, empty, link, button, syncList, clearList, trackHeight, formatTime } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight } from '../ui/dom.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
 import { createPopover } from '../ui/popover.js';
 import { hint } from '../ui/hint.js';
-import { dateTime } from '../ui/owned-status.js';
+import { ownedSourceLine } from '../ui/owned-status.js';
 import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile, palIcon } from '../ui/pal-icon.js';
@@ -17,7 +17,7 @@ import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, 
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing } from './shared.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
@@ -40,9 +40,6 @@ export const IDEAL_MEMORY = {
   targets: (value) => cleanSaved(value, Object.fromEntries(TALENT_KEYS.map((key) => [key, targetValue]))),
   cake: (value) => oneOf(value, CAKES.map(([key]) => key), 'none'),
 };
-// 開いている間、孵化させて受け取ったパルを取り込むためにセーブ（参加している人は共有）を確かめる間隔。
-// 所持パルの自動の読み込みは 20 秒以上空ける（owned.js の AUTO_INTERVAL）ので、タイマーのずれで読み飛ばさないよう少し足す
-const REFRESH_INTERVAL = 20 * 1000 + 500;
 // 区切った計算の 1 回の区切り（ms）。最初の区切りで終われば同期で描く（stable-render の D18: 1 区切り 50ms 以内）
 const SLICE_BUDGET = 30;
 // 配合牧場の帯（高さ固定の 1 行）に並べる牧場の数。入り切らない分は「ほか n か所」（押すと下の詳細へ）
@@ -486,8 +483,14 @@ export function idealView(context, route) {
   panel.append(panelMain, panelSub);
   const stopTracking = trackHeight(panel, element);
 
-  // 要約の行（1 行に固定。中は固定の 3 つの子: 件数などの文〔入り切らない分は省略して title に全文〕・除外の内訳を開くボタン・最終確認の時刻）。
-  // 子は作り直さず、文字だけ書き換える（条件を変えても行の高さと位置が変わらない）
+  // データ元の 1 行（どのワールドの・どこから・いつのデータか。右端の状態のスロットに「確認中…」「最終確認 13:42」）。
+  // 所持パルの状態が変わったら、この行の文だけを書き換える（結果は描き直さない）
+  const sourceLine = owned ? ownedSourceLine({
+    actions: { grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) } },
+  }) : null;
+  sourceLine?.update(owned.state);
+  // 要約の行（1 行に固定。中は固定の 2 つの子: 件数などの文〔入り切らない分は省略して title に全文〕・除外の内訳を開くボタン）。
+  // 子は作り直さず、文字だけ書き換える（条件を変えても行の高さと位置が変わらない）。最終確認の時刻はデータ元の 1 行に出す
   const summary = el('div', 'result-note ideal-summary');
   const summaryText = el('span', 'ideal-summary-text');
   // 除外がないときは見えないまま幅を残す（hidden にしない）
@@ -495,10 +498,7 @@ export function idealView(context, route) {
   excludedButton.disabled = true;
   let excludedLines = [];
   const excludedHint = hint({ label: '除外', trigger: excludedButton, content: () => excludedLines });
-  const checked = el('span', 'ideal-checked');
-  summary.append(summaryText, excludedButton, checked);
-  // 最後にセーブ（参加している人は共有）を確かめ終えた時刻（20 秒ごとの確認。まだなら 0）
-  let lastChecked = 0;
+  summary.append(summaryText, excludedButton);
   // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定（sticky の帯と、その下の詳細）。
   // 帯は高さが固定で、目標を選んでいて牧場の情報があるときは、中身がなくても場所を残す（判定が変わっても帯の高さは変わらない）
   const missingBox = el('div', 'ideal-missing-note');
@@ -601,7 +601,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, summary, missingBox, farmStrip, farmBox, results);
+  element.append(heading, panel, ...(sourceLine ? [sourceLine.element] : []), summary, missingBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -939,13 +939,6 @@ export function idealView(context, route) {
     excludedButton.disabled = !count;
     if (!count) excludedHint.close();
   }
-  // 最終確認の時刻とセーブの時刻（文字だけ書き換える。20 秒ごとの確認で結果は作り直さない）
-  function renderChecked() {
-    const saved = owned?.state?.meta?.saveUpdatedAt;
-    const text = owned ? [`最終確認 ${lastChecked ? formatTime(lastChecked) : '—'}`, saved ? `セーブ ${dateTime(saved)}` : ''].filter(Boolean).join(' · ') : '';
-    if (checked.textContent !== text) checked.textContent = text;
-  }
-
   // 結果の欄を入れ替える。前のカードの札の説明（開いている板）は閉じて片づける
   let cardHints = [];
   function showResults(nodes, hints = []) {
@@ -1230,7 +1223,6 @@ export function idealView(context, route) {
   }
 
   function update() {
-    renderChecked();
     renderHolders();
     // 候補を開いたまま所持パルが変わったら、所持数だけ描き直す（閉じない）
     toPicker.update();
@@ -1283,27 +1275,20 @@ export function idealView(context, route) {
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
+    sourceLine.update(ownedState);
     if (ownedState.owned === lastOwned && ownedState.ready === lastReady) return;
     lastOwned = ownedState.owned;
     lastReady = ownedState.ready;
     update();
   });
-  // 開いている間は 20 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる。閉じた後と、タブが裏にある間は読まない
-  // （裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直しに任せる。destroyed は区切った計算と同じ印）。
-  // 確かめ終えたら（読めなかったときは除く）、要約の行の「最終確認」の時刻だけを書き換える（結果は作り直さない）
-  const refresh = async () => {
-    if (destroyed || globalThis.document?.visibilityState === 'hidden') return;
-    let outcome;
-    try {
-      outcome = await owned.autoRefresh();
-    } catch {
-      return;
-    }
-    if (destroyed || outcome === 'error') return;
-    lastChecked = Date.now();
-    renderChecked();
+  // 開いている間は 20 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
+  // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）。確かめ終えた時刻は、データ元の 1 行が出す
+  owned.load().then(() => {
+    if (!destroyed && globalThis.document?.visibilityState !== 'hidden') return owned.autoRefresh();
+  }).catch(() => {});
+  const stopRefreshing = keepRefreshing(owned);
+  return {
+    element, update, applyRoute, flushInputs,
+    destroy() { destroyed = true; stopRefreshing(); sourceLine.destroy(); unsubscribe(); unsubscribeGoals(); view.destroy(); },
   };
-  owned.load().then(refresh).catch(() => {});
-  const timer = setInterval(refresh, REFRESH_INTERVAL);
-  return { element, update, applyRoute, flushInputs, destroy() { destroyed = true; clearInterval(timer); unsubscribe(); unsubscribeGoals(); view.destroy(); } };
 }

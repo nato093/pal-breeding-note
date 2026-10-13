@@ -251,7 +251,7 @@ test('所持パル: 旧版でセーブ連携ツールを使っていた人には
   const { store } = setup({ storage });
   assert.equal(store.state.auto.worldId, WORLD_A);
   assert.equal(await store.autoRefresh(), 'empty');
-  assert.match(store.state.auto.error, /登録されていません.*＋ ワールドを登録/);
+  assert.match(store.state.auto.error, /設定でワールドを登録してください/);
 });
 
 test('所持パル: 読み込みの途中でワールドを選び直しても、後の選択の結果が残る', async () => {
@@ -575,4 +575,120 @@ test('所持パル（読み戻しの検証）: セーブ連携の設定の表示
     const { store } = setup({ storage });
     assert.equal(store.state.viewWorldId, expected);
   }
+});
+
+// ---------------------------------------------------------------------------
+// owned-status: 画面用の読み込みの状態（activity）と最後に確かめた時刻（checkedAt）。busy は自動登録が見るので変えない
+// ---------------------------------------------------------------------------
+// emit のたびの状態を記録する
+function record(store, pick) {
+  const seen = [];
+  store.subscribe((state) => seen.push(pick(state)));
+  return seen;
+}
+// 同じ値が続く記録を 1 つにまとめる
+const steps = (values) => values.filter((value, i) => i === 0 || JSON.stringify(value) !== JSON.stringify(values[i - 1]));
+
+test('所持パル（owned-status）: 変わっていないセーブの確認では activity が checking から空に戻り、busy の動きは今までと同じ', async () => {
+  const { store, advance, register } = setup();
+  await register(WORLD_A, hostFiles());
+  assert.equal(store.state.activity, '');
+  advance(25000);
+  const seen = record(store, (state) => [state.busy, state.activity]);
+  assert.equal(await store.autoRefresh(), 'unchanged');
+  // busy: 読み直すか決める前に true、終わったら false（自動登録はこれを見る）
+  assert.deepEqual(steps(seen.map(([busy]) => busy)), [true, false]);
+  assert.deepEqual(steps(seen.map(([, activity]) => activity)), ['', 'checking', '']);
+  assert.deepEqual([store.state.busy, store.state.progress, store.state.activity], [false, '', '']);
+});
+
+test('所持パル（owned-status）: 読み込みの間は activity が reading、共有の送信の間は sharing。読み込みが先に終わっても共有の間は sharing のまま', async () => {
+  const shared = sharedServer();
+  let release = null;
+  const gated = {
+    ...shared.server,
+    async request(action, input) {
+      if (action === 'ownedUpload' && release === null) await new Promise((resolve) => { release = resolve; });
+      return shared.server.request(action, input);
+    },
+  };
+  const { store, advance, register } = setup({ server: gated });
+  const seen = record(store, (state) => state.activity);
+  // 登録の確認（ドロップしたファイルを読む）も reading
+  const preview = await store.previewRegistration({ worldId: WORLD_A, steamId: '7656', files: asDropped(hostFiles()) });
+  assert.ok(seen.includes('reading'));
+  assert.equal(store.state.activity, '');
+  seen.length = 0;
+  await store.commitRegistration(preview);
+  // （順番待ちの間は空のまま）確認 → 読み込み → 終わり（共有はこの後に送る）
+  assert.deepEqual(steps(seen).slice(0, 4), ['', 'checking', 'reading', '']);
+  // 共有を送っている間
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(store.state.upload.status, 'sending');
+  assert.equal(store.state.activity, 'sharing');
+  // 送っている間に別の確認が終わっても、共有中のまま
+  advance(25000);
+  assert.equal(await store.pollAuto(), 'unchanged');
+  assert.equal(store.state.busy, false);
+  assert.equal(store.state.activity, 'sharing');
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(store.state.upload.status, 'done');
+  assert.equal(store.state.activity, '');
+});
+
+test('所持パル（owned-status）: 確認の始めには auto.error を消さず（設定のエラーの行が点滅しない）、結果が出たら入れ直す', async () => {
+  const { store, advance, register } = setup();
+  const files = hostFiles();
+  await register(WORLD_A, files);
+  for (const handle of Object.values(files)) handle.permission = 'prompt';
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'permission');
+  const message = store.state.auto.error;
+  assert.match(message, /許可が必要です/);
+  // 許可が戻ったセーブを確かめる途中（checking）も、前のエラーを残す
+  for (const handle of Object.values(files)) handle.permission = 'granted';
+  advance(25000);
+  const seen = record(store, (state) => [state.auto.status, state.auto.error]);
+  assert.equal(await store.autoRefresh(), 'unchanged');
+  assert.deepEqual(seen.find(([status]) => status === 'checking'), ['checking', message]);
+  assert.deepEqual([store.state.auto.status, store.state.auto.error], ['ready', '']);
+});
+
+test('所持パル（owned-status）: 登録がない（empty）ときの文は短くし、設定でワールドを登録するよう案内する', async () => {
+  const storage = memoryStorage();
+  storage.map.set('pal-note.test.owned.bridge', JSON.stringify({ enabled: true, worldId: '', viewWorldId: '' }));
+  const { store } = setup({ storage });
+  assert.equal(await store.autoRefresh(), 'empty');
+  assert.equal(store.state.auto.error, '自分のセーブを読むには、設定でワールドを登録してください');
+});
+
+test('所持パル（owned-status）: 確かめ終えた時刻（checkedAt）は、セーブの確認の結果が出たときと共有を読めたときに入れ、読めなかったときは進めない', async () => {
+  const { store, advance, register } = setup();
+  const files = hostFiles();
+  assert.equal(store.state.checkedAt, '');
+  await register(WORLD_A, files);
+  const first = store.state.checkedAt;
+  assert.ok(first);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'unchanged');
+  const checked = store.state.checkedAt;
+  assert.ok(Date.parse(checked) > Date.parse(first));
+  // 許可がなくて読めなかった確認では進めない
+  for (const handle of Object.values(files)) handle.permission = 'prompt';
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'permission');
+  assert.equal(store.state.checkedAt, checked);
+  // 参加している側（共有だけを見る）は、共有を読めたときに入れる
+  const shared = sharedServer();
+  const guest = setup({ server: shared.server });
+  assert.equal(await guest.store.fetchShared(), 'fetched');
+  const fetched = guest.store.state.checkedAt;
+  assert.ok(fetched);
+  guest.advance(31000);
+  shared.setScope('prod');
+  shared.server.request = async () => { throw new Error('BUSY'); };
+  assert.equal(await guest.store.fetchShared(), 'error');
+  assert.equal(guest.store.state.checkedAt, fetched);
 });

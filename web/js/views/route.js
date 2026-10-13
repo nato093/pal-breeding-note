@@ -8,6 +8,8 @@ import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiv
 import { buildHash } from '../router.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, ownedSpeciesNotes, routeDistanceNotes, passivePresets } from './shared.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
+import { ownedSourceLine } from '../ui/owned-status.js';
+import { toast } from '../ui/toast.js';
 import { internalName } from '../core/boundary.js';
 
 function holderSummary(carriers) {
@@ -72,6 +74,11 @@ export function inheritanceView(context, route) {
   startFilter.append(el('span', 'field-label', '開始'), startChips);
   const explanation = el('p', 'route-explanation', 'この経路はスキルを運ぶ個体の流れです。相手親は別途用意します');
   const ownedSection = el('section', 'route-owned');
+  // 所持パルの欄の先頭に置くデータ元の 1 行（所持パルのデータがあるときだけ）。所持パルの状態が変わったら、この行だけを書き換える
+  const sourceLine = owned ? ownedSourceLine({
+    actions: { grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) } },
+  }) : null;
+  sourceLine?.update(owned.state);
   const results = el('div');
 
   const setPassives = (ids) => {
@@ -156,6 +163,8 @@ export function inheritanceView(context, route) {
       if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
       return;
     }
+    // 同じ要素を付け直す（作り直さない）
+    ownedSection.append(sourceLine.element);
     const bySpecies = ownedBySpecies(pals);
     if (from && passives.length) {
       const carriers = (bySpecies.get(from) ?? []).filter((pal) => hasPassives(pal, passives));
@@ -250,10 +259,11 @@ export function inheritanceView(context, route) {
   if (!owned) return { ...view, applyRoute };
   let lastData = owned.state.data;
   const unsubscribe = owned.subscribe((ownedState) => {
+    sourceLine.update(ownedState);
     if (ownedState.data === lastData) return;
     lastData = ownedState.data;
     update(context.store.state);
   });
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
-  return { element, update, applyRoute, destroy() { unsubscribe(); view.destroy(); } };
+  return { element, update, applyRoute, destroy() { unsubscribe(); sourceLine.destroy(); view.destroy(); } };
 }

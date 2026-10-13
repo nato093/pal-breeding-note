@@ -12,6 +12,7 @@ import { cleanSaved } from '../../web/js/core/boundary.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
 import { inheritanceView } from '../../web/js/views/route.js';
+import { dateTime } from '../../web/js/ui/owned-status.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const snapshot = {
@@ -70,8 +71,11 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.match(first.textContent, /Alice.*パルボックス 2 ページ・1 行 2 列/);
   assert.match(first.textContent, /★★/);
   assert.match(rows.find((row) => /タマゴ/.test(row.textContent)).textContent, /孵化前/);
-  assert.equal(view.element.querySelector('.owned-world').textContent, '「テスト」（ホスト Alice） · 4 体');
-  assert.match(view.element.querySelector('.owned-times').textContent, /セーブの更新: .*共有: .*（ホスト）/);
+  // どのワールドの・どこから・いつのデータかは 1 行に（共有した人・この PC で読み込んだ時刻は title に）
+  const source = view.element.querySelector('.owned-source-text');
+  assert.equal(source.textContent, `「テスト」（ホスト Alice） · この PC · 4 体 · セーブ ${dateTime('2026-10-05T00:00:00.000Z')}`);
+  assert.match(source.title, /\nセーブの更新: .*\n共有: .*（ホスト）\nこの PC で読み込み: /);
+  assert.equal(view.element.querySelector('.owned-world'), null);
   assert.equal(view.element.querySelector('.result-note').textContent, '3 体');
   assert.doesNotMatch(view.element.textContent, /セーブのファイルを登録|フォルダを選んで読み込む|データを消す/);
   const labels = view.element.querySelectorAll('.owned-toggle').map((node) => [node.textContent, node.children[0].checked]);
@@ -293,16 +297,139 @@ test('所持パル画面: 人間のキャラクターはゲームの名前とア
   view.destroy();
 });
 
-test('所持パル画面: 連携が設定されていなければ、その旨だけを出す', (t) => {
+test('所持パル画面: 所持パルのデータがなく自動の読み込みもオフなら、設定でワールドを登録する案内と「セーブ連携を開く」を出す（前は所持パルの画面から設定へ行くボタンを出さなかった）', async (t) => {
   installDom(t);
-  const view = ownedView(context(fakeOwned(null)), parseHash('#/owned'));
-  assert.match(view.element.querySelector('.owned-notices').textContent, /セーブのファイルが登録されていません。.*設定タブ/);
+  const app = context(fakeOwned(null));
+  const view = ownedView(app, parseHash('#/owned'));
+  const notices = view.element.querySelector('.owned-notices');
+  assert.equal(notices.textContent, '自分のセーブを読むには、設定でワールドを登録してください。セーブ連携を開く');
+  const open = notices.querySelectorAll('button');
+  assert.deepEqual(open.map((node) => node.textContent), ['セーブ連携を開く']);
+  await open[0].dispatch('click');
+  assert.deepEqual(app.navigations, ['#/settings']);
   assert.equal(view.element.querySelectorAll('.owned-row').length, 0);
-  assert.equal(view.element.querySelectorAll('button').filter((node) => /読み込む|連携/.test(node.textContent)).length, 0);
+  // 設定の操作（読み込み・登録）はこの画面に出さない
+  assert.equal(view.element.querySelectorAll('button').filter((node) => /今すぐ読み込む|ワールドを登録/.test(node.textContent)).length, 0);
   view.destroy();
   const guest = ownedView(context(fakeOwned(null, { role: 'guest', folder: { id: 'W', role: 'guest' }, linkedWorldId: 'W' })), parseHash('#/owned'));
   assert.match(guest.element.querySelector('.owned-notices').textContent, /ホストがまだこのワールドの所持パルを共有していません/);
   guest.destroy();
+});
+
+test('所持パル画面: 自動の読み込みがオフでも、共有された所持パルなどを表示できているときは「設定でワールドを登録」の帯を出さない', (t) => {
+  installDom(t);
+  const owned = fakeOwned(undefined, { auto: { enabled: false, status: 'off', worlds: [], worldId: '', error: '' }, role: '' });
+  owned.state.meta = { ...owned.state.meta, source: 'shared' };
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const notices = view.element.querySelector('.owned-notices');
+  assert.equal(notices.hidden, true);
+  assert.equal(notices.children.length, 0);
+  assert.match(view.element.querySelector('.owned-source-text').textContent, / · 共有 · 4 体 · /);
+  view.destroy();
+});
+
+test('所持パル画面: 確認・読み込みの間（busy）も案内の帯は出入りせず（許可の案内も残す）、状態は 1 行の右端のスロットだけに出す', (t) => {
+  installDom(t);
+  const permission = { enabled: true, status: 'permission', worlds: [{ id: 'W', status: 'permission' }], worldId: '', error: 'セーブを読むには許可が必要です' };
+  const owned = fakeOwned(undefined, { auto: permission, activity: '', checkedAt: '' });
+  owned.state.data.snapshot = { ...owned.state.data.snapshot, files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] } };
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const notices = view.element.querySelector('.owned-notices');
+  const shown = () => notices.children.map((node) => node.textContent);
+  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  const item = notices.children[0];
+  const parts = view.element.children;
+  const filters = view.element.querySelector('.owned-filters');
+  const rows = view.element.querySelectorAll('.owned-row');
+  const label = view.element.querySelector('.owned-activity-text');
+  // 1 分ごとの確認（busy → checking）
+  Object.assign(owned.state, { busy: true, activity: 'checking', auto: { ...permission, status: 'checking' } });
+  owned.emit();
+  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.equal(notices.children[0], item);
+  assert.equal(label.textContent, '確認中…');
+  // 読み込みの途中（progress は帯ではなくスロットに）
+  Object.assign(owned.state, { activity: 'reading', progress: 'Level.sav を読み込み中…' });
+  owned.emit();
+  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.equal(label.textContent, 'Level.sav を読み込み中…');
+  // 終わったら結果で描き直す（同じ結果なら帯は同じ）
+  Object.assign(owned.state, { busy: false, activity: '', progress: '', checkedAt: new Date().toISOString(), auto: permission });
+  owned.emit();
+  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.match(label.textContent, /^最終確認 \d\d:\d\d$/);
+  assert.deepEqual(view.element.children, parts);
+  assert.equal(view.element.querySelector('.owned-filters'), filters);
+  assert.deepEqual(view.element.querySelectorAll('.owned-row'), rows);
+  // 許可が戻ったら案内は消える
+  Object.assign(owned.state, { auto: { ...permission, status: 'ready', error: '' } });
+  owned.emit();
+  assert.deepEqual(shown(), []);
+  view.destroy();
+});
+
+test('所持パル画面: この PC で読んだセーブに場所の分からないパルがいれば知らせ、「見る」で場所「不明」に絞る', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  owned.state.data.snapshot = { ...owned.state.data.snapshot, stats: { unknownLocation: 2 }, files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] } };
+  const app = context(owned);
+  const view = ownedView(app, parseHash('#/owned'));
+  const notices = view.element.querySelector('.owned-notices');
+  assert.equal(notices.children.length, 1);
+  assert.match(notices.textContent, /^場所が分からないパルが 2 体います見る$/);
+  await notices.querySelector('button').dispatch('click');
+  assert.deepEqual(app.navigations, ['#/owned?place=unknown']);
+  view.destroy();
+});
+
+test('所持パル画面: 開いている間は 20 秒ごとに読み直し（タブが裏にある間は読まない）、閉じたら止める', async (t) => {
+  installDom(t);
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const owned = fakeOwned();
+  let refreshes = 0;
+  owned.autoRefresh = () => { refreshes++; return Promise.resolve('skipped'); };
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  // 開いたときの 1 回
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(refreshes, 1);
+  t.mock.timers.tick(20 * 1000 + 500);
+  t.mock.timers.tick(20 * 1000 + 500);
+  assert.equal(refreshes, 3);
+  document.visibilityState = 'hidden';
+  t.mock.timers.tick(20 * 1000 + 500);
+  assert.equal(refreshes, 3);
+  document.visibilityState = 'visible';
+  t.mock.timers.tick(20 * 1000 + 500);
+  assert.equal(refreshes, 4);
+  view.destroy();
+  t.mock.timers.tick(60 * 1000);
+  assert.equal(refreshes, 4);
+});
+
+test('継承ルート: 所持パルのデータがあるときは、所持パルの欄の先頭にデータ元の 1 行を出し、読み込みの状態が変わってもその行だけを書き換える', (t) => {
+  installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const owned = fakeOwned(undefined, { activity: '', checkedAt: '' });
+  const view = inheritanceView(context(owned, records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  const section = view.element.querySelector('.route-owned');
+  const line = section.children[0];
+  assert.equal(line.className, 'owned-source');
+  assert.equal(line.querySelector('.owned-source-text').textContent, `「テスト」（ホスト Alice） · この PC · 4 体 · セーブ ${dateTime('2026-10-05T00:00:00.000Z')}`);
+  const box = section.querySelector('.route-owned-box');
+  const label = line.querySelector('.owned-activity-text');
+  assert.equal(label.textContent, '最終確認 —');
+  Object.assign(owned.state, { busy: true, activity: 'checking' });
+  owned.emit();
+  assert.equal(label.textContent, '確認中…');
+  assert.equal(section.children[0], line);
+  assert.equal(section.querySelector('.route-owned-box'), box);
+  view.destroy();
+  // 所持パルのデータがないときは出さない
+  const none = inheritanceView(context(fakeOwned(null), records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  assert.equal(none.element.querySelector('.owned-source'), null);
+  none.destroy();
 });
 
 test('設定画面: セーブ連携の状態・登録したワールド・使うワールドを出す', async (t) => {
@@ -887,6 +1014,31 @@ test('設定画面: 読み込み中（busy）になっても登録したワー�
   assert.equal(card.element.querySelector('.owned-registered-item'), item);
   assert.ok(buttons().every((node) => !node.disabled));
   assert.equal(select.disabled, false);
+  card.destroy();
+});
+
+test('設定画面: セーブ連携の確認の途中（checking）もエラーの行を消さず、エラーがなくなっても 1 行分の場所を残す（点滅しない）', (t) => {
+  installDom(t);
+  const message = '「テスト」を読めません（壊れています）。ファイルを登録し直してください';
+  const owned = fakeOwned();
+  const ready = owned.state.auto;
+  owned.state.auto = { ...ready, status: 'error', error: message };
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  const error = card.element.querySelector('.owned-auto-error');
+  const state = card.element.querySelector('.owned-auto-state');
+  const placeholder = () => error.className.split(' ').includes('is-empty');
+  assert.deepEqual([error.textContent, error.hidden, placeholder()], [message, false, false]);
+  // 確かめている途中（ストアはエラーを結果が出るまで残す）
+  Object.assign(owned.state, { busy: true, auto: { ...ready, status: 'checking', error: message } });
+  owned.emit();
+  assert.equal(card.element.querySelector('.owned-auto-error'), error);
+  assert.deepEqual([error.textContent, error.hidden, placeholder()], [message, false, false]);
+  assert.equal(state.textContent, '確認中…');
+  // 読めた（エラーなし）: 文は消すが、見えないまま場所は残す
+  Object.assign(owned.state, { busy: false, auto: { ...ready, status: 'ready', error: '' } });
+  owned.emit();
+  assert.deepEqual([error.textContent, error.hidden, placeholder()], ['', false, true]);
+  assert.equal(state.textContent, '読み込み済み');
   card.destroy();
 });
 

@@ -189,6 +189,9 @@ export function createOwnedStore({
   const savedWorldId = String(saved.worldId ?? saved.worldDir ?? '').split('/').pop();
   const state = {
     ready: false, busy: false, progress: '', error: '',
+    // 画面に出す読み込みの状態（'' | 'checking' | 'reading' | 'sharing'）と、最後に確かめ終えた時刻（ISO。まだなら ''）。
+    // 画面だけが読む（自動登録は busy を見るので、busy の意味とタイミングは変えない）
+    activity: '', checkedAt: '',
     // 登録したファイルからの自動の読み込み。worldId が空なら、最後に遊んだワールドを読む
     auto: { enabled: saved.enabled === true, status: 'off', worlds: [], worldId: WORLD_ID.test(savedWorldId) ? savedWorldId.toUpperCase() : '', error: '' },
     // この PC での、連携しているワールドの役割（'host' | 'guest' | ''）と ID
@@ -296,7 +299,12 @@ export function createOwnedStore({
     emit();
     const result = chain.then(task, task).finally(() => {
       pending--;
-      if (!pending) { state.busy = false; state.progress = ''; }
+      if (!pending) {
+        state.busy = false;
+        state.progress = '';
+        // 共有の送信が続いていれば、画面には共有中と出し続ける
+        state.activity = state.upload.status === 'sending' ? 'sharing' : '';
+      }
       update();
     });
     chain = result.catch(() => {});
@@ -334,6 +342,7 @@ export function createOwnedStore({
           if (JSON.stringify(world) !== JSON.stringify(current.world)) state.shared.current = { ...current, world };
         }
         state.shared.fetchedAt = new Date(now()).toISOString();
+        state.checkedAt = state.shared.fetchedAt;
         await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
         return 'fetched';
       } catch (error) {
@@ -360,6 +369,7 @@ export function createOwnedStore({
     }
     lastUpload = now();
     state.upload = { status: 'sending', at: state.upload.at, error: '', worldId: local.world.id };
+    state.activity = 'sharing';
     emit();
     const owned = normalizeOwned(local.snapshot, { pals, passives });
     const payload = sharedUpload(owned);
@@ -385,6 +395,8 @@ export function createOwnedStore({
       state.upload = { status: 'error', at: '', error: error.message, worldId: local.world.id };
       return 'error';
     } finally {
+      // 読み込みの途中なら、その終わり（serial）が activity を決める
+      if (!state.busy) state.activity = '';
       update();
     }
   }
@@ -395,6 +407,7 @@ export function createOwnedStore({
   async function runImportTask(files, { source: from, world, skipped = [], snapshot: parsed = null, epoch = linkEpoch }) {
     state.error = '';
     state.progress = 'セーブを読み込み中…';
+    state.activity = 'reading';
     emit();
     try {
       const result = parsed ?? await runImport(files, (message) => { state.progress = message; emit(); });
@@ -429,6 +442,11 @@ export function createOwnedStore({
     return result;
   }
 
+  // セーブを確かめ終えた（読めた・変わっていなかった・参加している側と分かった）時刻。読めなかったとき（stop・読み込みの失敗）は進めない
+  function checked() {
+    state.checkedAt = new Date(now()).toISOString();
+  }
+
   // 自動の読み込みを止める。auto でないとき（ボタンなど）は、理由をエラーで返す
   function stop(status, message, auto) {
     state.auto.status = status;
@@ -446,8 +464,9 @@ export function createOwnedStore({
   async function autoTask({ auto, preview = null, epoch = linkEpoch }) {
     if (!state.auto.enabled) return 'skipped';
     await load();
+    // 前のエラーは結果が出るまで残す（確かめるたびにエラーの行が消えてまた出ないように）
     state.auto.status = 'checking';
-    state.auto.error = '';
+    state.activity = 'checking';
     emit();
     let worlds;
     try {
@@ -456,7 +475,7 @@ export function createOwnedStore({
       return stop('error', error.message, auto);
     }
     state.auto.worlds = worlds;
-    if (!worlds.length) return stop('empty', 'セーブのファイルが登録されていません。設定タブの「セーブ連携」の「＋ ワールドを登録」で登録してください', auto);
+    if (!worlds.length) return stop('empty', '自分のセーブを読むには、設定でワールドを登録してください', auto);
     // 許可のないワールドがあると、どれを最後に遊んだか分からないので、黙って別のワールドを選ばない
     if (worlds.some((world) => world.status === 'permission')) {
       return stop('permission', 'セーブを読むには許可が必要です。「読み込みを許可」を押してください（拒否した場合は、Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください）', auto);
@@ -472,11 +491,13 @@ export function createOwnedStore({
       return stop('error', `${worldLabel(world)}を読めません（${world.error || '不明なエラー'}）。ファイルを登録し直してください`, auto);
     }
     state.auto.status = 'ready';
+    state.auto.error = '';
     if (state.auto.worldId && !chosen) state.auto.error = '選んだワールドの登録がないため、最後に遊んだワールドを読みます';
     else if (broken.length) state.auto.error = `${broken.map(worldLabel).join('・')}を読めないため、読めるワールドのうち最後に遊んだワールドを読みます`;
     if (world.role === 'guest') {
       state.role = 'guest';
       blockUpload();
+      checked();
       return 'guest';
     }
     state.role = 'host';
@@ -484,6 +505,7 @@ export function createOwnedStore({
     // このページで読み込んだときから変わっていなければ読まない（開き直した直後は、保存済みのデータがあっても一度読む）
     if (auto && current?.source === 'handles' && current.world.id === world.id && current.world.signature === world.signature && verifiedSignature === world.signature) {
       state.uploadReady = epoch === linkEpoch;
+      checked();
       return 'unchanged';
     }
     blockUpload();
@@ -511,6 +533,7 @@ export function createOwnedStore({
       readingWorldId = '';
     }
     source.rename(world.id, { name: state.local.world.name, hostName: state.local.world.hostName }).catch(() => {});
+    checked();
     return 'imported';
   }
 
@@ -546,6 +569,7 @@ export function createOwnedStore({
     };
     if (kind === 'host') {
       state.progress = 'セーブを読み込み中…';
+      state.activity = 'reading';
       emit();
       const read = await readFiles(merged, inspected.files, REQUIRED_FILES[kind]);
       const skipped = [...inspected.missing.map((path) => ({ path, reason: 'ファイルが見つかりません' })), ...read.skipped];

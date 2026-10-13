@@ -38,6 +38,20 @@ export function navigateSelection(context, route, key, value) {
   changeRoute(context, buildHash(route.view, params, route.id));
 }
 
+/**
+ * 開いている間、interval ごとに owned.autoRefresh() を呼ぶ（タブが裏にある間は呼ばない）。戻り値で止める（画面の destroy で呼ぶ）。
+ * 孵化させて受け取ったパル・ホストが共有し直した所持パルを、開いたままの画面に入れるため。所持パルの自動の読み込みは
+ * 20 秒以上空ける（owned.js の AUTO_INTERVAL）ので、タイマーのずれで読み飛ばさないよう少し足した間隔にしている。
+ * 共有の読み直しは owned.js の 30 秒の制限（SHARED_INTERVAL）で抑えられる。裏にある間のセーブの読み直しは、全画面共通の 1 分ごとの読み直し（app.js）に任せる
+ */
+export function keepRefreshing(owned, { interval = 20500 } = {}) {
+  const timer = setInterval(() => {
+    if (globalThis.document?.visibilityState === 'hidden') return;
+    owned.autoRefresh().catch(() => {});
+  }, interval);
+  return () => clearInterval(timer);
+}
+
 /** パル選択の値が違うときだけ合わせる（同じ値では描き直さない）。 */
 export function syncPicker(picker, value) {
   if (picker && picker.getValue() !== value) picker.setValue(value);
