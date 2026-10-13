@@ -1428,10 +1428,10 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 .ideal-placed { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .ideal-farm-to { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 /* 配合牧場の判定 */
-.ideal-farms:empty, .ideal-missing-note:empty { display: none; }
+.ideal-missing-note:empty { display: none; }
 /* 牧場の帯（2 段目の固定。条件のパネルの下に重なる）。高さは固定で、牧場の数・判定・保留で変わらない（下の詳細と結果を動かさない）。
-   入り切らない牧場は「ほか n か所」、狭い幅では牧場の名前を省略する */
-.ideal-view { --farm-strip-h: 44px; }
+   入り切らない牧場は「ほか n か所」、狭い幅では牧場の名前を省略する。--farm-fold-h は帯の下の詳細の閉じた 1 行の高さ（summary の最小の高さ 44px と同じ） */
+.ideal-view { --farm-strip-h: 44px; --farm-fold-h: 44px; }
 .ideal-farm-strip {
   position: sticky;
   top: calc(var(--header-h) + var(--panel-h, 0px));
@@ -1497,9 +1497,19 @@ button.ideal-farm-cell:hover { background: color-mix(in srgb, var(--md-sys-color
 .ideal-view:has(> .ideal-farm-strip:not([hidden])) > .ideal-farm-strip ~ * * {
   scroll-margin-top: calc(var(--header-h) + var(--panel-h, 0px) + var(--farm-strip-h) + 8px);
 }
-/* 牧場の詳細（帯の下の通常の流れ）。牧場ごとに [名前][今の 2 体][状態]、交換推奨は 2×2 の小表と入れる・外す個体 */
-.ideal-farms { margin: 0 0 10px; padding: 10px 18px; border-radius: 16px; background: var(--md-sys-color-surface-container-low); }
-.ideal-farms h3 { margin: 0 0 6px; font-size: 14px; }
+/* 牧場の詳細（帯の下の通常の流れ）。牧場ごとに [名前][今の 2 体][状態]、交換推奨は 2×2 の小表と入れる・外す個体。
+   既定は閉じた 1 行（見出しだけ。D22）で、見出しの文が変わっても高さは変わらない（省略記号で 1 行）。
+   出すものがないときも、帯が出ている間はこの 1 行の場所を残す（結果の位置を動かさない） */
+.ideal-farms { margin: 0 0 10px; border-radius: 16px; background: var(--md-sys-color-surface-container-low); }
+.ideal-farms:empty { height: var(--farm-fold-h); visibility: hidden; }
+.ideal-farms-summary { display: flex; align-items: center; gap: 6px; height: var(--farm-fold-h); padding: 0 18px; border-radius: 16px; list-style: none; cursor: pointer; }
+.ideal-farms-summary::-webkit-details-marker { display: none; }
+/* 同じ見込みの組の畳みと同じ ▸（開くと下向き） */
+.ideal-farms-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); transition: transform .15s ease; }
+.ideal-farms-fold[open] > .ideal-farms-summary::before { transform: rotate(90deg); }
+.ideal-farms-summary:hover { background: var(--state-hover); }
+.ideal-farms-summary h3 { min-width: 0; margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.ideal-farms-body { padding: 0 18px 10px; }
 .ideal-changed-note { margin: 0 0 6px; font-size: 12px; color: var(--md-sys-color-error); }
 .ideal-farm-pending { margin: 0 0 6px; font-size: 12px; color: var(--warning); }
 .ideal-farm-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
