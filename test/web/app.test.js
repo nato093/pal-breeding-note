@@ -949,7 +949,9 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   assert.equal(selectHaving('passives').value, 'dex');
   assert.equal(selectHaving('4').value, '2');
   assert.deepEqual(['HPの個体値（以上）', '攻撃の個体値（以上）', '防御の個体値（以上）'].map((label) => inputLabeled(label).value), ['', '40', '']);
-  const checks = descendants(document.getElementById('main')).filter((node) => node.type === 'checkbox').map((node) => node.checked);
+  // 個体値は 40 の攻撃だけがチェックつき。表示の切り替え（タマゴ・グローバルボックス）は保存のまま
+  assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => inputLabeled(label).checked), [false, true, false]);
+  const checks = descendants(document.getElementById('main')).filter((node) => node.className === 'owned-toggle').map((node) => node.children[0].checked);
   assert.deepEqual(checks, [false, true]);
   assert.ok(find((node) => node.getAttribute('aria-label') === 'パル: No.1 モコロン'));
   // パッシブは文字列の ID だけ

@@ -1,8 +1,9 @@
-import { el, field, empty, link, button, debounce } from '../ui/dom.js';
+import { el, field, empty, link, button } from '../ui/dom.js';
 import { startSliced } from '../ui/slice.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile } from '../ui/pal-icon.js';
 import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/passive-picker.js';
+import { talentInput } from '../ui/talent-input.js';
 import { actionIcon, icons } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
@@ -169,9 +170,9 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false } = 
 const choiceLabel = (choices, value) => choices.find(([key]) => key === value)?.[1] ?? value;
 const goalHash = (goal) => buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id });
 
-/** 登録した条件の要約（個体値の目標・パッシブの条件・ケーキ）。 */
+/** 登録した条件の要約（個体値の目標・パッシブの条件・ケーキ）。個体値は「HP —・攻撃 100 以上」（保存の 0 は条件なし） */
 function goalSummary(goal) {
-  const targets = GOAL_STATS.map((key) => `${TALENT_LABELS[key]} ${goal.targets[key] || '気にしない'}`).join('・');
+  const targets = GOAL_STATS.map((key) => `${TALENT_LABELS[key]} ${goal.targets[key] ? `${goal.targets[key]} 以上` : '—'}`).join('・');
   return [targets, choiceLabel(PASSIVE_MODES, goal.mode), choiceLabel(CAKES, goal.cake).replace(/（.*）$/, '')].join(' · ');
 }
 
@@ -224,8 +225,6 @@ export function idealView(context, route) {
   const ideals = context.ideals;
   // 入力の間引きの待ち時間（テストの context は 0 にして同期で確かめる）
   const inputDelay = context.inputDelay ?? 150;
-  // 間引いて待っている入力（画面を閉じるときに取り消し、移る前の保存の前に flushInputs で当てる）
-  const pendingInputs = [];
   // 区切った計算の 1 回の区切り（テストの context は Infinity にして、計算を同期で確かめる）
   const sliceBudget = context.sliceBudget ?? SLICE_BUDGET;
   let current = route;
@@ -260,31 +259,15 @@ export function idealView(context, route) {
   const query = el('div', 'selection-panel route-query');
   query.append(toPicker.element, passiveSlot);
 
-  const targets = el('div', 'owned-talent-filter');
-  const targetInputs = new Map();
-  for (const key of TALENT_KEYS) {
-    const input = el('input');
-    targetInputs.set(key, input);
-    input.type = 'number';
-    input.min = '0';
-    input.max = '100';
-    input.step = '1';
-    input.inputMode = 'numeric';
-    input.placeholder = '0';
-    input.value = String(conditions.targets[key]);
-    input.setAttribute('aria-label', `${TALENT_LABELS[key]}の目標`);
-    // 入力を間引き（打っている途中の値で重い計算を回さない）、確定（change）ですぐ計算する
-    const apply = debounce(() => {
-      conditions.targets[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
-      renderResults();
-    }, inputDelay);
-    pendingInputs.push(apply);
-    input.addEventListener('input', apply);
-    input.addEventListener('change', () => apply.flush());
-    const wrapper = el('label');
-    wrapper.append(el('span', '', TALENT_LABELS[key]), input);
-    targets.append(wrapper);
-  }
+  // 個体値の目標（☑ HP [100] 以上。チェックを外すか空欄で条件なし＝保存は 0）。数字の入力は間引き（打っている途中の値で重い計算を回さない）、
+  // 確定（change）・チェック・「すべて 100」ですぐ計算する。間引いて待っている入力は、閉じるときに取り消し、移る前の保存の前に flushInputs で当てる
+  const talent = talentInput({
+    keys: TALENT_KEYS, labels: TALENT_LABELS, value: conditions.targets,
+    ariaLabel: (key) => `${TALENT_LABELS[key]}の目標`,
+    presets: [{ label: 'すべて 100', value: { hp: 100, shot: 100, defense: 100 } }],
+    debounce: inputDelay,
+    onChange: (value) => { conditions.targets = { ...value }; renderResults(); },
+  });
   // 複数の入力をまとめた欄（label で包むと最初の入力にしか結びつかないため div にする）
   const group = (label, control) => {
     const wrapper = el('div', 'owned-filter-group');
@@ -338,7 +321,7 @@ export function idealView(context, route) {
   const cakeSelect = select(CAKES, conditions.cake, (value) => { conditions.cake = value; renderResults(); });
   // 同じ画面のまま登録した理想個体を呼び出したとき（g）、入れた条件を入力欄にも出す
   function showConditions() {
-    for (const [key, input] of targetInputs) input.value = String(conditions.targets[key]);
+    talent.update(conditions.targets);
     modeSelect.value = conditions.mode;
     cakeSelect.value = conditions.cake;
   }
@@ -346,7 +329,7 @@ export function idealView(context, route) {
   panel.append(
     field('所持者', holderSelect),
     field('パッシブの条件', modeSelect),
-    group('個体値の目標（0 は気にしない）', targets),
+    group('個体値の目標（以上）', talent.element),
     field('ケーキ', cakeSelect));
 
   const note = el('p', 'result-note');
@@ -775,11 +758,11 @@ export function idealView(context, route) {
   }
 
   // 間引いて待っている個体値の入力をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
-  const flushInputs = () => { for (const input of pendingInputs) input.flush(); };
+  const flushInputs = () => talent.flush();
   const pickers = {
     destroy() {
       destroyed = true;
-      for (const input of pendingInputs) input.cancel();
+      talent.destroy();
       job?.cancel();
       job = null;
       toPicker.destroy();

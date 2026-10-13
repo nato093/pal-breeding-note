@@ -1,7 +1,8 @@
-import { el, field, empty, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput } from '../ui/dom.js';
+import { el, field, empty, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput } from '../ui/dom.js';
 import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveList, passiveSelector } from '../ui/passive-picker.js';
+import { talentInput } from '../ui/talent-input.js';
 import { worldName, timeLines, ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
@@ -23,6 +24,7 @@ function talentText(talent) {
 
 const STAR_FILTERS = [['', 'すべて'], ['1', '★1 以上'], ['2', '★2 以上'], ['3', '★3 以上'], ['4', '★4']];
 const TALENT_FILTERS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御']];
+const TALENT_LABELS = Object.fromEntries(TALENT_FILTERS);
 
 const talentAtLeast = (value) => intIn(value, { min: 0, max: 100, fallback: 0 });
 /**
@@ -196,31 +198,17 @@ export function ownedView(context, route) {
   for (const [value, label] of STAR_FILTERS) stars.append(option(value, label));
   stars.value = filter.stars ? String(filter.stars) : '';
   stars.addEventListener('change', () => { filter.stars = Number(stars.value) || 0; renderResults(); });
-  const talents = el('div', 'owned-talent-filter');
-  const talentInputs = new Map();
-  for (const [key, label] of TALENT_FILTERS) {
-    const input = el('input');
-    talentInputs.set(key, input);
-    input.type = 'number';
-    input.min = '0';
-    input.max = '100';
-    input.step = '1';
-    input.inputMode = 'numeric';
-    input.placeholder = '0';
-    if (filter.talent[key]) input.value = String(filter.talent[key]);
-    input.setAttribute('aria-label', `${label}の個体値（以上）`);
-    // 入力を間引き、確定（change）ですぐ絞る
-    const apply = debounce(() => {
-      filter.talent[key] = Math.max(0, Math.min(100, Math.trunc(Number(input.value)) || 0));
-      renderResults();
-    }, inputDelay);
-    pendingInputs.push(apply);
-    input.addEventListener('input', apply);
-    input.addEventListener('change', () => apply.flush());
-    const wrapper = el('label');
-    wrapper.append(el('span', '', label), input);
-    talents.append(wrapper);
-  }
+  // 個体値の下限（☑ HP [90] 以上。チェックを外すか空欄で条件なし＝0）。数字の入力は間引き、確定（change）・チェック・「すべて …」ですぐ絞る
+  const talents = talentInput({
+    keys: TALENT_FILTERS.map(([key]) => key), labels: TALENT_LABELS, value: filter.talent,
+    ariaLabel: (key) => `${TALENT_LABELS[key]}の個体値（以上）`,
+    presets: [
+      { label: 'すべて 90 以上', value: { hp: 90, shot: 90, defense: 90 } },
+      { label: 'すべて 100', value: { hp: 100, shot: 100, defense: 100 } },
+    ],
+    debounce: inputDelay,
+    onChange: (value) => { filter.talent = { ...value }; renderResults(); },
+  });
   // 所持している種族を先に「♂3 ♀2」つきで出す
   const picker = palPicker({ label: 'パル', value: filter.palId, describe: () => ownedSpeciesNotes(owned.state.owned),
     onChange: (id) => { filter.palId = id; renderResults(); } });
@@ -237,7 +225,7 @@ export function ownedView(context, route) {
   const passiveSlot = el('div', 'owned-passive-slot');
   passiveSlot.append(passive.element);
   filters.append(field('所持者', holder), field('場所', place), picker.element, field('キーワード', query), field('並べ替え', sort),
-    field('パル濃縮（★）', stars), group('個体値（以上）', talents), group('表示', toggles), passiveSlot);
+    field('パル濃縮（★）', stars), group('個体値（以上）', talents.element), group('表示', toggles), passiveSlot);
   const count = el('p', 'result-note');
   const results = el('div', 'owned-list');
   element.append(summary, filters, count, results);
@@ -246,7 +234,7 @@ export function ownedView(context, route) {
   function showFilter() {
     query.value = filter.query;
     stars.value = filter.stars ? String(filter.stars) : '';
-    for (const [key, input] of talentInputs) input.value = filter.talent[key] ? String(filter.talent[key]) : '';
+    talents.update(filter.talent);
     for (const [key, input] of toggleInputs) input.checked = filter[key];
   }
 
@@ -503,11 +491,13 @@ export function ownedView(context, route) {
     // 間引いて待っている入力（キーワード・個体値）をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
     flushInputs() {
       for (const input of pendingInputs) input.flush();
+      talents.flush();
     },
     destroy() {
       destroyed = true;
       inputs.abort();
       for (const input of pendingInputs) input.cancel();
+      talents.destroy();
       jobSeq++;
       warmSeq++;
       unsubscribe();

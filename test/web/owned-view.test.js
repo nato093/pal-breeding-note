@@ -223,6 +223,56 @@ test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体
   view.destroy();
 });
 
+test('所持パル画面: 個体値はチェックつきの入力。「すべて 90 以上」「すべて 100」は 3 つとも入れて 1 回だけ絞り込み、チェックを外すと条件なし', async (t) => {
+  installDom(t);
+  const sheep = (instanceId, talent) => ({ instanceId, characterId: 'SheepBall', gender: 'Male', level: 5, passives: [], talent, location: { kind: 'palbox', playerUid: P1 } });
+  const owned = fakeOwned(manyData(0, [sheep('lo', { hp: 10, shot: 20, defense: 30 }), sheep('mid', { hp: 95, shot: 92, defense: 90 }), sheep('top', { hp: 100, shot: 100, defense: 100 })]));
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const rows = () => view.element.querySelectorAll('.owned-row').length;
+  const inputLabeled = (label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label);
+  const values = () => ['HP', '攻撃', '防御'].map((label) => [inputLabeled(`${label}を条件にする`).checked, inputLabeled(`${label}の個体値（以上）`).value]);
+  assert.ok(view.element.querySelectorAll('.field-label').some((node) => node.textContent === '個体値（以上）'));
+  // 既定は条件なし（チェックなし・空欄）
+  assert.deepEqual(values(), [[false, ''], [false, ''], [false, '']]);
+  assert.equal(rows(), 3);
+  // 絞り込み（filterOwned が所持パルの全員を filter する）の回数を数える
+  let filtered = 0;
+  const all = owned.state.owned.pals;
+  all.filter = (...args) => { filtered++; return Array.prototype.filter.apply(all, args); };
+  const button = (label) => view.element.querySelectorAll('button').find((node) => node.textContent === label);
+  await button('すべて 90 以上').dispatch('click');
+  assert.deepEqual(values(), [[true, '90'], [true, '90'], [true, '90']]);
+  assert.equal(filtered, 1);
+  assert.equal(rows(), 2);
+  await button('すべて 100').dispatch('click');
+  assert.deepEqual(values(), [[true, '100'], [true, '100'], [true, '100']]);
+  assert.equal(filtered, 2);
+  assert.equal(rows(), 1);
+  // チェックを外すと、そのステータスは条件なし（数字は残す）
+  for (const label of ['HP', '攻撃', '防御']) {
+    const check = inputLabeled(`${label}を条件にする`);
+    check.checked = false;
+    await check.dispatch('change');
+  }
+  assert.deepEqual(values(), [[false, '100'], [false, '100'], [false, '100']]);
+  assert.equal(rows(), 3);
+  view.destroy();
+});
+
+test('所持パル画面: 並べ替えに「個体値の合計が低い順」があり、合計の低い個体から並べる', async (t) => {
+  installDom(t);
+  const sheep = (instanceId, talent) => ({ instanceId, characterId: 'SheepBall', gender: 'Male', level: 5, passives: [], talent, location: { kind: 'palbox', playerUid: P1 } });
+  const owned = fakeOwned(manyData(0, [sheep('mid', { hp: 50, shot: 50, defense: 50 }), sheep('top', { hp: 100, shot: 100, defense: 100 }), sheep('lo', { hp: 0, shot: 10, defense: 0 })]));
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const sort = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent'));
+  const labels = [...sort.children].map((option) => option.textContent);
+  assert.equal(labels[labels.indexOf('個体値の合計が高い順') + 1], '個体値の合計が低い順');
+  sort.value = 'talent-low';
+  await sort.dispatch('change');
+  assert.deepEqual(view.element.querySelectorAll('.owned-talent').map((node) => node.textContent), ['HP 0 / 攻 10 / 防 0', 'HP 50 / 攻 50 / 防 50', 'HP 100 / 攻 100 / 防 100']);
+  view.destroy();
+});
+
 test('所持パル画面: 人間のキャラクターはゲームの名前とアイコンで出し、件数が多くても全部出す', (t) => {
   installDom(t);
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -963,7 +1013,9 @@ test('所持パル画面: 戻る・進むで条件を入れ直したとき（res
   const inputs = () => view.element.querySelectorAll('input');
   const keyword = inputs().find((node) => node.type === 'search');
   const hp = inputs().find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
-  const checks = () => inputs().filter((node) => node.type === 'checkbox').map((node) => node.checked);
+  // 表示の切り替え（タマゴ・グローバルボックス）のチェック。個体値のチェックは別に見る
+  const checks = () => view.element.querySelectorAll('.owned-toggle').map((node) => node.children[0].checked);
+  const hpCheck = inputs().find((node) => node.getAttribute('aria-label') === 'HPを条件にする');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
   // app.js が履歴のエントリの条件を filter に入れ直す
   Object.assign(states.get('owned').filter, { query: 'もこ', talent: { hp: 5, shot: 0, defense: 0 }, eggs: false, sort: 'level' });
@@ -972,6 +1024,7 @@ test('所持パル画面: 戻る・進むで条件を入れ直したとき（res
   view.applyRoute(parseHash('#/owned'), { reason: 'history', restored: true });
   assert.equal(keyword.value, 'もこ');
   assert.equal(hp.value, '5');
+  assert.equal(hpCheck.checked, true);
   assert.deepEqual(checks(), [false, false]);
   assert.equal(view.element.querySelectorAll('select').find((node) => node.children.some((option) => option.value === 'passives')).value, 'level');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);

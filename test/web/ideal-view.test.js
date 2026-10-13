@@ -143,6 +143,40 @@ test('理想個体画面: 個体値の目標とケーキを変えると結果だ
   assert.equal(again.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'talent')).value, 'talent');
 });
 
+test('理想個体画面: 個体値の目標はチェックつきの入力。チェックを外すと HP 0 と同じ結果になり、登録の要約は「HP —」。「すべて 100」で全部 100 に戻す', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 10, shot: 100, defense: 100 }),
+    palworldPal('f1', 'SheepBall', 'Female', [], { hp: 20, shot: 100, defense: 100 }),
+  ]);
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  assert.ok(view.element.querySelectorAll('.field-label').some((node) => node.textContent === '個体値の目標（以上）'));
+  const full100 = cards(view)[0].textContent;
+  // HP のチェックを外す（数字は薄く残す）
+  const hp = input(view, 'HPを条件にする');
+  hp.checked = false;
+  hp.dispatch('change');
+  assert.equal(input(view, 'HPの目標').value, '100');
+  const unchecked = cards(view)[0].textContent;
+  assert.notEqual(unchecked, full100);
+  // 目標を HP 0 にして開いた画面と同じ結果
+  const zero = idealView(context(owned, [], new Map([['ideal', { conditions: { holder: '', mode: 'include', targets: { hp: 0, shot: 100, defense: 100 }, cake: 'none' } }]])),
+    parseHash('#/ideal?to=SheepBall'));
+  assert.equal(cards(zero)[0].textContent, unchecked);
+  zero.destroy();
+  // 登録すると保存は 0（条件なし）のまま、一覧の要約は「HP —」
+  byLabel(view, 'この条件を登録').dispatch('click');
+  assert.deepEqual(ctx.ideals.list()[0].targets, { hp: 0, shot: 100, defense: 100 });
+  assert.match(view.element.querySelector('.ideal-goal').textContent, /HP —・攻撃 100 以上・防御 100 以上/);
+  // 「すべて 100」で全部 100 に戻す
+  byLabel(view, 'すべて 100').dispatch('click');
+  assert.equal(input(view, 'HPの目標').value, '100');
+  assert.equal(input(view, 'HPを条件にする').checked, true);
+  assert.equal(cards(view)[0].textContent, full100);
+  view.destroy();
+});
+
 test('理想個体画面: 登録済みの異種の配合の親も出し、別の子も登録されている組は注記する', (t) => {
   install(t);
   const owned = fakeOwned([
@@ -234,7 +268,9 @@ test('理想個体画面: パッシブの所持数はグローバルボックス
   assert.ok(options.includes('職人気質（2）'), options.slice(0, 5).join(','));
   assert.ok(options.includes('希少（3）'));
   assert.ok(!options.some((text) => /^伝説（/.test(text)));
-  assert.equal(view.element.querySelectorAll('input').filter((node) => node.type === 'checkbox').length, 0);
+  // チェックボックスは個体値の目標の 3 つだけ（切り替えのチェックはない）
+  assert.deepEqual(view.element.querySelectorAll('input').filter((node) => node.type === 'checkbox').map((node) => node.getAttribute('aria-label')),
+    ['HPを条件にする', '攻撃を条件にする', '防御を条件にする']);
   assert.doesNotMatch(view.element.textContent, /グローバルボックスの個体も使う/);
 });
 
@@ -453,7 +489,9 @@ test('理想個体画面: 一覧や通知から開くと（g）、登録した�
   const [goal] = ctx.ideals.list();
   const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`));
   const value = (label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label).value;
-  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['0', '100', '90']);
+  // 保存の 0（条件なし）は、チェックなし・空欄で出す
+  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['', '100', '90']);
+  assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
   const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
   assert.deepEqual([selectHaving('only').value, selectHaving('talent').value], ['only', 'talent']);
   assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
@@ -502,7 +540,9 @@ test('理想個体画面: 同じ画面のまま g つきの URL が来ると、�
   view.applyRoute(parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`), { reason: 'history' });
   assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
   const value = (label) => input(view, label).value;
-  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['0', '100', '90']);
+  // 保存の 0（条件なし）は、チェックなし・空欄で出す（前に出ていた HP 100 も消す）
+  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['', '100', '90']);
+  assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
   const selectHaving = (key) => view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === key));
   assert.deepEqual([selectHaving('only').value, selectHaving('talent').value], ['only', 'talent']);
   assert.equal(byLabel(view, '登録済み').disabled, true);

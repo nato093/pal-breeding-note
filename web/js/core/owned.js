@@ -395,6 +395,8 @@ export const OWNED_SORTS = Object.freeze([
   ['level', 'レベルの高い順'],
   ['stars', 'パル濃縮（★）の多い順'],
   ['talent', '個体値の合計が高い順'],
+  // 個体値の目標は「以上」だけなので、低い個体はこの並べ替えで探す（X-30）
+  ['talent-low', '個体値の合計が低い順'],
   ['place', '場所順'],
 ]);
 
@@ -408,6 +410,7 @@ export function sortOwned(pals, key = 'dex') {
     level: (a, b) => b.level - a.level || dex(a, b),
     stars: (a, b) => b.stars - a.stars || b.level - a.level || dex(a, b),
     talent: (a, b) => talent(b) - talent(a) || dex(a, b),
+    'talent-low': (a, b) => talent(a) - talent(b) || dex(a, b),
     place: (a, b) => placeRank(a) - placeRank(b) || compareText(a.holder, b.holder) || dex(a, b),
   };
   return [...pals].sort(comparators[key] ?? comparators.dex);
