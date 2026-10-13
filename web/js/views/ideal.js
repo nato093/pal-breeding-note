@@ -506,7 +506,23 @@ export function idealView(context, route) {
   farmStrip.setAttribute('role', 'group');
   farmStrip.setAttribute('aria-label', '配合牧場の判定');
   farmStrip.hidden = true;
+  // 詳細は既定で閉じた 1 行（見出しだけ。D22）で、押すと開く。開閉は viewState に残す（同じ見込みの組の畳みと同じ。タブを切り替えても残り、
+  // 読み込み直すと閉じる）。details は作り直さず見出しの文と中身だけを書き換えるので、再計算や判定が変わっても開閉は変わらない。
+  // 出すものがないときは details を外し、帯が出ている間は 1 行の場所を残す（結果の位置を動かさない）
   const farmBox = el('section', 'ideal-farms');
+  farmBox.hidden = true;
+  const farmFold = el('details', 'ideal-farms-fold');
+  farmFold.open = Boolean(memory?.farmsOpen);
+  farmFold.addEventListener('toggle', () => { if (memory) memory.farmsOpen = farmFold.open; });
+  const farmHead = el('summary', 'ideal-farms-summary');
+  const farmTitle = el('h3');
+  farmHead.append(farmTitle);
+  const farmBody = el('div', 'ideal-farms-body');
+  farmFold.append(farmHead, farmBody);
+  const openFarms = () => {
+    farmFold.open = true;
+    if (memory) memory.farmsOpen = true;
+  };
   const results = el('div', 'ideal-results');
   // 配合牧場の中身が最後に変わったときのおすすめ（「変更あり」の基準）。アプリでは端末に残し、テストなどでは画面の中で覚える
   const planMemory = context.planMemory ?? (() => {
@@ -769,7 +785,9 @@ export function idealView(context, route) {
     }
     farmStrip.append(...rows.slice(0, STRIP_FARMS).map(stripCell));
     if (rows.length > STRIP_FARMS) {
+      // 残りの牧場は詳細にあるので、閉じていれば開いてから移る
       farmStrip.append(button(`ほか ${rows.length - STRIP_FARMS} か所`, () => {
+        openFarms();
         farmBox.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
       }, 'ideal-farm-more'));
     }
@@ -863,23 +881,31 @@ export function idealView(context, route) {
     });
     return note;
   }
-  // 牧場の詳細（帯の下の通常の流れ）。見出し・「変更あり」の件数・保留の理由・牧場の行・空き牧場の案内
+  // 牧場の詳細（帯の下の通常の流れ。閉じた 1 行の summary が見出し）。中身は「変更あり」の件数・保留の理由・牧場の行・空き牧場の案内。
+  // 出すものがなければ details を外す（開閉はそのまま覚えておく）
   function renderFarmBox(view) {
     const { farm, rows, pending, empties, changed } = view;
-    farmBox.replaceChildren();
-    if (!farm || (!rows.length && !empties.length)) return;
+    farmBody.replaceChildren();
+    if (!farm || (!rows.length && !empties.length)) {
+      farmBox.replaceChildren();
+      return;
+    }
     const counts = [`この目標の組を置いている ${rows.length} か所`];
     if (!pending) counts.push(`交換推奨 ${rows.filter((row) => row.item.status === 'swap').length} か所`);
     if (empties.length) counts.push(`空き ${empties.length} か所`);
-    farmBox.append(el('h3', '', `配合牧場（${counts.join(' · ')}）`));
-    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
-    if (pending) farmBox.append(el('p', 'ideal-farm-pending', `読めない牧場が ${farm.uncertain} か所あるため、交換推奨・空き牧場・使用中の判定を保留しています`));
+    const title = `配合牧場（${counts.join(' · ')}）`;
+    if (farmTitle.textContent !== title) farmTitle.textContent = title;
+    // 狭い幅では見出しを省略記号で 1 行に収めるので、全文は title に
+    farmHead.title = title;
+    if (changed) farmBody.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
+    if (pending) farmBody.append(el('p', 'ideal-farm-pending', `読めない牧場が ${farm.uncertain} か所あるため、交換推奨・空き牧場・使用中の判定を保留しています`));
     if (rows.length) {
       const list = el('ul', 'ideal-farm-list');
       list.append(...rows.map((row) => farmRow(row, view)));
-      farmBox.append(list);
+      farmBody.append(list);
     }
-    if (empties.length) farmBox.append(emptyNote(view));
+    if (empties.length) farmBody.append(emptyNote(view));
+    if (farmFold.parentElement !== farmBox) farmBox.append(farmFold);
   }
 
   // 牧場の判定から組へ移る（I-30）。畳まれた組なら開いてから、カードを画面の中ほどへ動かし、1 秒光らせる（動きを減らす設定では色だけ）。
@@ -1019,8 +1045,9 @@ export function idealView(context, route) {
     renderSave();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
-    // 牧場の帯の場所（目標を選んでいて、牧場の情報があるとき。計算の前から場所を取る）
+    // 牧場の帯と詳細の 1 行の場所（目標を選んでいて、牧場の情報があるとき。計算の前から場所を取る）
     farmStrip.hidden = !(to && Array.isArray(owned?.state?.owned?.farms));
+    farmBox.hidden = farmStrip.hidden;
     if (!pals) {
       clearPlan();
       showResults([empty(owned && !owned.state.ready ? '読み込み中…'

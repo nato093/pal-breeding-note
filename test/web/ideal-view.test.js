@@ -1306,10 +1306,80 @@ test('理想個体画面: 牧場の帯は目標を選んでいて牧場の情報
   assert.equal(strip4.querySelectorAll('.ideal-farm-cell').length, 3);
   const more = strip4.querySelector('.ideal-farm-more');
   assert.equal(more.textContent, 'ほか 1 か所');
+  // 詳細は既定で閉じているので、「ほか n か所」は詳細を開いてから移る（D22）
+  assert.equal(full4.element.querySelector('.ideal-farms-fold').open, false);
   more.dispatch('click');
   assert.equal(scrolled.mock.calls.at(-1).this, full4.element.querySelector('.ideal-farms'));
   assert.equal(full4.element.querySelector('.ideal-farms').querySelectorAll('.ideal-farm').length, 4);
+  assert.equal(full4.element.querySelector('.ideal-farms-fold').open, true);
   full4.destroy();
+});
+
+test('理想個体画面: 配合牧場の詳細は既定で閉じた 1 行（見出しだけ）で出し、開閉を viewState に残す。再計算や判定が変わっても閉じず、出すものがないときも場所を残す（D22）', (t) => {
+  install(t);
+  const owned = fakeOwned(farmPals());
+  owned.state.owned.farms = [ok('A', '', ['m1', 'f1']), ok('B', '', ['m3', 'f2'])];
+  const states = new Map();
+  const view = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
+  const box = view.element.querySelector('.ideal-farms');
+  const fold = box.querySelector('.ideal-farms-fold');
+  // 詳細は details で、既定は閉じる。summary は見出しの文だけ（中身は閉じていても DOM にある）
+  assert.equal(fold.tagName, 'details');
+  assert.equal(fold.open, false);
+  const head = fold.children[0];
+  assert.equal(head.tagName, 'summary');
+  assert.equal(head.textContent, '配合牧場（この目標の組を置いている 2 か所 · 交換推奨 1 か所）');
+  assert.equal(head.querySelector('h3').textContent, head.textContent);
+  assert.equal(head.querySelectorAll('.ideal-farm').length, 0);
+  assert.equal(fold.querySelectorAll('.ideal-farm').length, 2);
+  // 帯から組へ移るときは、詳細を開かない
+  view.element.querySelector('.ideal-farm-strip').querySelectorAll('.ideal-farm-cell')[1].dispatch('click');
+  assert.equal(fold.open, false);
+  assert.equal(states.get('ideal').farmsOpen, undefined);
+  // 開くと viewState に残す
+  fold.open = true;
+  fold.dispatch('toggle');
+  assert.equal(states.get('ideal').farmsOpen, true);
+  // 計算に効かない値だけが変わった読み直し（描き直し）でも、同じ要素のまま開いている
+  owned.state.owned = { ...owned.state.owned, pals: owned.state.owned.pals.map((pal) => ({ ...pal, level: pal.level + 1 })) };
+  owned.emit();
+  assert.equal(box.querySelector('.ideal-farms-fold'), fold);
+  assert.equal(fold.open, true);
+  // 判定が変わっても（牧場 B に 2 番の組を置いた → 交換推奨 0）、閉じない
+  owned.state.owned = { ...owned.state.owned, farms: [ok('A', '', ['m1', 'f1']), ok('B', '', ['m2', 'f2'])] };
+  owned.emit();
+  assert.equal(box.querySelector('.ideal-farms-fold'), fold);
+  assert.equal(fold.open, true);
+  assert.equal(fold.children[0].textContent, '配合牧場（この目標の組を置いている 2 か所 · 交換推奨 0 か所）');
+  // この目標の組を置いた牧場も空き牧場もなくなったら、詳細は出さないが場所は残す（帯と同じく、結果の位置を動かさない）。戻れば開いたまま
+  owned.state.owned = { ...owned.state.owned, farms: [ok('C', '', ['cm', 'cf'])] };
+  owned.emit();
+  assert.equal(box.hidden, false);
+  assert.equal(box.children.length, 0);
+  assert.equal(box.textContent, '');
+  owned.state.owned = { ...owned.state.owned, farms: [ok('A', '', ['m1', 'f1']), ok('B', '', ['m3', 'f2'])] };
+  owned.emit();
+  assert.equal(box.querySelector('.ideal-farms-fold'), fold);
+  assert.equal(fold.open, true);
+  view.destroy();
+  // タブを切り替えて戻っても開いたまま。閉じれば、次も閉じている
+  const again = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
+  const reopened = again.element.querySelector('.ideal-farms-fold');
+  assert.equal(reopened.open, true);
+  reopened.open = false;
+  reopened.dispatch('toggle');
+  assert.equal(states.get('ideal').farmsOpen, false);
+  again.destroy();
+  const closed = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
+  assert.equal(closed.element.querySelector('.ideal-farms-fold').open, false);
+  // 目標を選んでいない・牧場の情報がないときは、場所も取らない
+  closed.applyRoute(parseHash('#/ideal'));
+  assert.equal(closed.element.querySelector('.ideal-farms').hidden, true);
+  closed.destroy();
+  owned.state.owned = { ...owned.state.owned, farms: null };
+  const plain = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  assert.equal(plain.element.querySelector('.ideal-farms').hidden, true);
+  plain.destroy();
 });
 
 test('理想個体画面: 読めない牧場が 1 つでもあれば、交換推奨・空き牧場・使用中の判定を保留して理由を出す（配置中の札は出す）', (t) => {
