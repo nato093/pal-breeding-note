@@ -1908,25 +1908,25 @@ const rareGoals = (count) => Array.from({ length: count }, (_, i) => ({
   id: `g${i}`, name: `目標${i + 1}`, palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: { hp: i % 2 ? 0 : 50, shot: 0, defense: 0 },
 }));
 
-test('所持パル画面: 目標の印は行に 2 個までと「+N」（押すと残りを板に一覧）。キーワードはすべての印で探せる（B2: 目標の数だけ印の要素が増えていた）', async (t) => {
+test('所持パル画面: 目標の印は行に 1 個と「+N」（押すと残りを板に一覧）。キーワードはすべての印で探せる（B2: 目標の数だけ印の要素が増えていた）', async (t) => {
   const { body } = installDom(t);
   const goals = goalsStore(rareGoals(100));
   const view = ownedView({ ...memoryApp(fakeOwned(holderData())), ideals: goals.ideals }, parseHash('#/owned'));
   body.append(view.element);
   const row = () => view.element.querySelectorAll('.owned-row').find((node) => /モコロン/.test(node.getAttribute('aria-label')));
-  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2']);
+  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1']);
   const more = row().querySelector('.mark-more');
-  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+98', '+98（ほかの目標の印 98 個）']);
-  assert.equal(more.title.split('\n').length, 98);
+  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+99', '+99（ほかの目標の印 99 個）']);
+  assert.equal(more.title.split('\n').length, 99);
   // バッジの行の title にはすべての印
   assert.equal(row().querySelector('.owned-badges').title.split('\n').length, 100);
-  // 行の要素は目標の数で増えない（印 2 個と「+N」だけ）
+  // 行の要素は目標の数で増えない（印 1 個と「+N」だけ）
   assert.ok(descendants(row()).length < 45, `行の要素が多すぎます: ${descendants(row()).length}`);
-  // 板は開いたときに作る（残りの 98 個）
+  // 板は開いたときに作る（残りの 99 個）
   assert.equal(body.querySelector('.mark-list'), null);
   await more.dispatch('click');
-  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark').length, 98);
-  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark')[97].textContent, '完成品: 目標100');
+  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark').length, 99);
+  assert.equal(body.querySelector('.mark-list').querySelectorAll('.badge-mark')[98].textContent, '完成品: 目標100');
   // 行に出ていない 100 番目の目標の印でも、キーワードで探せる
   keywordOf(view).value = '目標100';
   await keywordOf(view).dispatch('input');
@@ -1945,14 +1945,15 @@ test('所持パル画面: 目標の印だけが変わったときは名前のリ
   link.focus();
   // 目標を足す（印だけが変わる）。前は名前のリンクごと作り直して、フォーカスが body に落ちた
   goals.set(rareGoals(2));
-  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2']);
+  assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1']);
+  assert.equal(row().querySelector('.mark-more').textContent, '+1');
   assert.equal(row().querySelector('[data-focus="pal"]'), link);
   assert.equal(document.activeElement, link);
   // 「+N」にフォーカスがあるまま数が変わったら、新しい「+N」へ
   goals.set(rareGoals(4));
   row().querySelector('.mark-more').focus();
   goals.set(rareGoals(5));
-  assert.equal(row().querySelector('.mark-more').textContent, '+3');
+  assert.equal(row().querySelector('.mark-more').textContent, '+4');
   assert.equal(document.activeElement, row().querySelector('.mark-more'));
   view.destroy();
 });

@@ -250,7 +250,8 @@ const canAct = (pal) => pal.known && !pal.egg && Boolean(pal.palId);
 function palCellTile(pal) {
   if (pal.known) {
     const tile = palTile(pal.palId, { gender: pal.gender, genderFirst: true });
-    if (tile.tagName === 'a') tile.setAttribute('data-focus', 'pal');
+    // リンク（パルのマスターにある種族）のときだけ。ブラウザの tagName は大文字
+    if (tile.tagName?.toLowerCase() === 'a') tile.setAttribute('data-focus', 'pal');
     return tile;
   }
   // 人間のキャラクターなど、パルのマスターにないもの。ゲームから取り出した名前とアイコンがあれば出す
@@ -268,8 +269,9 @@ function palCellTile(pal) {
 }
 
 // 行の中に出す目標の印の数。残りは「+N」（押すと板に一覧。板の中身は開いたときに作る）。目標が多いと 1 行に印が 100 個並び、
-// 2,000 行で DOM の予算〔80,000〕を超えたため。キーワードで印を探すのは DOM と別（filterOwned の extraTexts）で、すべての印を見る
-const MARK_SLOTS = 2;
+// 2,000 行で DOM の予算〔80,000〕を超えたため。キーワードで印を探すのは DOM と別（filterOwned の extraTexts）で、すべての印を見る。
+// 1 個にしたのは、パルの列（1100px で約 170px）に印が 2 個入らず、2 個だとどちらも「完成品: …」に縮んで読めなかったため
+const MARK_SLOTS = 1;
 
 // 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）。1 行（入り切らない分は隠し、title に全部）。バッジがなければ null。
 // 印が MARK_SLOTS を超えたら「+N」のボタン（data-focus="marks-more"）を足し、説明の部品を hints に入れる
