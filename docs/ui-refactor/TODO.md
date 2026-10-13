@@ -398,6 +398,8 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 - [x] 2,000 行・20,000 行で予算を測り、超えたら直す
 - [x] release-notes に 1 件足す
 
+直し: `fix/phase-1bc-review-owned`（フェーズ 1b・1c の終わりのレビューの B1〜B14〔所持パル〕: 同じ種族の目標の印の計算・行の印を 1 個と「+N」・コピーの返事・変換中の入力・フォーカスと一覧の位置・条件のチップの「+n」・古い保存。中身は phase-1b-1c の owned-toolbar・owned-rows の「実装の記録」17）
+
 ### フェーズ 1b・1c の終わり
 
 - [ ] `npm test`・`npm run test:perf`（新しい `test/perf/owned.perf.js` を含む。2,000 行の予算）が通る
