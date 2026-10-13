@@ -1496,6 +1496,8 @@ test('所持パル画面: パッシブの条件「なし」はパッシブが 0 
   installDom(t);
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
   document.body.append(view.element);
+  // 押しボタンの名前は理想個体の「全部持つ／だけ」とそろえる（A9。1100px でパネルの 2 段目は折り返さない）
+  assert.deepEqual(['include', 'only', 'none'].map((value) => radio(view, 'パッシブの条件', value).textContent), ['全部持つ', 'だけ', 'なし']);
   await pickPassive(view, 'CraftSpeed_up2');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 2);
   await radio(view, 'パッシブの条件', 'none').dispatch('click');

@@ -44,7 +44,7 @@ const SORT_DIRS = new Map(OWNED_SORTS.map(([key, , dir]) => [key, dir]));
 const sortValue = (key, dir) => (dir === SORT_DIRS.get(key) ? key : `${key}:${dir}`);
 // パッシブの条件（押しボタン。値は core/owned.js の filterOwned の passiveMode）
 const PASSIVE_MODES = [
-  ['include', '全部', '選んだパッシブを全部持つ個体'],
+  ['include', '全部持つ', '選んだパッシブを全部持つ個体'],
   ['only', 'だけ', '選んだパッシブを全部持ち、ほかのパッシブを持たない個体'],
   ['none', 'なし', 'パッシブを 1 つも持たない個体（選んだパッシブは使いません）'],
 ];
