@@ -130,6 +130,7 @@
 5. **タブとリンクを移す**
    - `app.js:103` の `tabs` から `reverse`・`list` を外し、`search` のラベルを「配合を探す」に。`app.js:26,28,208` の import と対応を消し、`views/reverse.js`・`views/list.js` を削除。`ui/nav-icons.js:4,6` の `reverse`・`list` のアイコンを消す。レールのグループの区切りの CSS（`data-view` の margin。G-34 の根拠 `app.css:1230-1232` 付近）を新しい並びに合わせる。
    - keep-state の「最後のタブは許可した画面名だけ localStorage に」の許可リストから `reverse`・`list` を外す（古い値が残っていても `search` に落ちる）。sessionStorage・history.state に残った旧画面の条件は、版が合わないものとして捨てる。（追記 2026-10-13、keep-state の実装: 許可リストは app.js の `tabs` から作るので、タブを外せば外れる。一覧の条件は app.js の `CONDITIONS.list` と views/list.js の `LIST_MEMORY` で保存しているので、一緒に消す。旧画面のエントリは画面名と URL が合わないので読み戻されない）
+   - 追記（2026-10-13、D28）: 所持パルの行の操作は「親にして検索」（`views/owned.js` の `ownedRowLinks`。行き先 `buildHash('search', { p1 })`）の 1 つだけになった（2026-10-13 のユーザーのフィードバックで所持パルの行の「目標に」「ここから継承ルート」はなくした）。タブの名前を「配合を探す」にするときは、ボタンの文字（`text`）と title の「配合検索」も合わせて直す（例「親にして探す」）。
    - リンクを新しい形に: `views/route.js:196` → `buildHash('search', { c: to })`、文言「目標の配合を見る」。`wishlist.js:184`・`views/wishlist.js:52` → `buildHash('search', { c })`（通知の id は変わらないので既読は保たれる。goals-merge でこのファイルごとなくなる）。`auto-register.js:221`（食い違いの通知）→ `buildHash('search', { p1: candidate.record.parent1Id, p2: candidate.record.parent2Id })`（D-03 の前倒し。フェーズ 1 の inv2-notice・autoreg-success で関数が書き換わっているので、`conflictNotice` を探して直す）。保存済みの古い通知の `'#/list'` は手順 1 の読み替えで開ける。
 6. **後片づけ**: `.list-filters` などの使わなくなった CSS を消す。`docs/OPERATIONS.md:99` の「一覧（所持パル・みんなの配合ノート）…最初から全部出す」は「所持パル・配合を探すの全件表示」に言い換える（全部出す方針は変えない）。`README.md:19` の「検索（配合検索・逆引き・継承ルート）」を「配合を探す・継承ルート」に。
 

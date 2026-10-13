@@ -23,9 +23,28 @@ test('静的検査: パッシブの欄は空のとき 1 行分で、行の数を
     return value;
   };
   // 1 行分 = 追加欄の高さ。理想個体・継承ルート（.route-query）も含め、2 行分・3 行分を取る規則はない（2026-10-13 のユーザーの判断）
-  assert.equal(px('.passive-row', 'min-height'), px('.passive-add', 'min-height'));
-  assert.match(rule('.passive-row'), /flex-wrap: wrap/);
+  assert.equal(px('.passive-chips', 'min-height'), px('.passive-add', 'min-height'));
   assert.deepEqual(css.match(/^[^{}\n]*\.passive-row[^{}\n]*(?=\{)/gm).map((selector) => selector.trim()), ['.passive-row']);
+  // 改行するときは、チップをプルダウン（追加欄）の右にそろえて左詰めで並べる（D28）。追加欄とチップの領域を横に並べ（.passive-row は
+  // 折り返さない）、チップの領域（.passive-chips。前は display: contents で、2 行目が追加欄の下から始まった）の中で折り返す
+  assert.doesNotMatch(rule('.passive-row'), /flex-wrap: wrap/);
+  assert.match(rule('.passive-chips'), /(?:^|[;\s])display: flex[;\s]/);
+  assert.match(rule('.passive-chips'), /flex-wrap: wrap/);
+  assert.match(rule('.passive-chips'), /min-width: 0[;\s]/);
+  assert.doesNotMatch(css, /\.passive-chips[^{}]*\{[^}]*display: contents/);
+  // チップの 1 行目は追加欄と同じ高さの真ん中（上の余白 × 2 ＋ チップの高さ ＝ 追加欄の高さ）
+  const padTop = Number(rule('.passive-chips').match(/(?:^|[;\s])padding: (\d+)px 0[;\s]/)?.[1]);
+  assert.equal(padTop * 2 + px('.passive-chip', 'min-height'), px('.passive-add', 'min-height'));
+});
+
+test('静的検査: 所持パルの場所のチップ（押して切り替える）はオンに ✓ を付け、状態の行の条件のチップ（× で外す）とは地の色で分ける（D28）', async () => {
+  const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
+  const escape = (text) => text.replace(/[[\]().:"]/g, '\\$&');
+  const rule = (selector) => css.match(new RegExp(String.raw`^${escape(selector)} \{([^}]*)\}`, 'm'))?.[1] ?? '';
+  assert.match(rule('.place-chip[aria-pressed="true"]::before'), /content: '✓'/);
+  // 条件のチップは枠と明るい地のタグ（場所のチップのオンと同じ secondary-container の地にしない）
+  assert.match(rule('.filter-chip'), /border: 1px solid/);
+  assert.doesNotMatch(rule('.filter-chip'), /secondary-container/);
 });
 
 test('静的検査: scroll-margin-top にヘッダーの高さを足さない（html の scroll-padding-top がヘッダーと 8px を受け持つ。足すと着地点がヘッダーの分だけ下がる）', async () => {

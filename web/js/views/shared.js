@@ -76,6 +76,40 @@ export function holderChoices(data, ideals) {
 }
 
 // ---------------------------------------------------------------------------
+// 固定の条件のパネル（理想個体・所持パル）の部品。2 つのパネルで同じ形・同じ CSS の決まりにする（D28）:
+//   1 段目の欄は見出しを入力の上に置き、見出しの行（div.field-head）に、その欄の条件（パッシブの条件）やリンクを添える。
+//   2 段目は行（div.panel-line）ごとに欄（.panel-item。見出しを入力の左）を並べ、欄の間に縦の区切り線（CSS）を引く
+// ---------------------------------------------------------------------------
+/**
+ * 欄（パル選択・パッシブ選択など、最初の子が見出し span.field-label の要素）の見出しを、見出しの行 div.field-head に入れ、
+ * extras（押しボタン・リンクなど）を見出しの後ろに並べる。見出しの行の要素を返す
+ */
+export function fieldHead(field, ...extras) {
+  const label = field.children[0];
+  const head = el('div', 'field-head');
+  field.insertBefore(head, label);
+  head.append(label, ...extras);
+  return head;
+}
+/**
+ * 2 段目の欄（見出しを入力の左に置く）。押しボタンの見出しは radiogroup の名前と重ねて読まれないよう隠す（hidden）。
+ * select などの 1 つの入力なら tag: 'label' にして見出しで入力を選べるようにする
+ */
+export function panelItem(caption, control, { tag = 'div', hidden = false, className = '' } = {}) {
+  const node = el(tag, `panel-item ${className}`.trim());
+  const label = el('span', 'field-label', caption);
+  if (hidden) label.setAttribute('aria-hidden', 'true');
+  node.append(label, control);
+  return node;
+}
+/** 2 段目の 1 行（欄を左から並べる。区切り線は CSS が欄の間に引く） */
+export function panelLine(...items) {
+  const line = el('div', 'panel-line');
+  line.append(...items);
+  return line;
+}
+
+// ---------------------------------------------------------------------------
 // パル選択の注記（ui/pal-picker.js の describe が返すもの）。データ（所持パル・記録の index・graph）が
 // 新しくなったときだけ数え、開くたびには Map を引くだけにする
 // ---------------------------------------------------------------------------

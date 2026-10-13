@@ -139,7 +139,7 @@ test('理想個体画面: URL の目標とパッシブで、配合牧場に置�
   assert.equal(dialog.open, false);
 });
 
-test('理想個体画面: 条件を sticky のパネルにまとめる（1 段目: 目標・欲しいパッシブ・保存、2 段目: 所持者・パッシブの条件・個体値・ケーキ・所持の状況）', (t) => {
+test('理想個体画面: 条件を sticky のパネルにまとめる（1 段目: 目標・欲しいパッシブ〔見出しの行にパッシブの条件〕・保存、2 段目: 所持者・個体値・ケーキ・所持の状況）', (t) => {
   install(t);
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
@@ -154,10 +154,19 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const [main, sub] = panel.children;
   assert.deepEqual(main.children.map((node) => node.className.split(' ')[0]), ['picker', 'field', 'ideal-save-slot']);
   assert.ok(main.children[1].className.includes('passive-selector'));
-  // 2 段目は見出しを入力の左に置いた欄と、右端の所持の状況
-  assert.deepEqual(sub.children.map((node) => (node.tagName === 'a' ? node.textContent : node.children[0].textContent)), ['所持者', '条件', '個体値（以上）', 'ケーキ', '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2']);
-  assert.equal(sub.children[0].tagName, 'label');
-  assert.equal(sub.children[0].querySelector('select').value, '');
+  // パッシブの条件は欲しいパッシブの見出しの行に置く（D28。所持パルのパネルと同じ部品。前は 2 段目の「条件」）
+  const passiveHead = main.children[1].children[0];
+  assert.equal(passiveHead.className, 'field-head');
+  assert.equal(passiveHead.querySelector('.field-label').textContent, '欲しいパッシブ');
+  assert.equal(passiveHead.querySelector('[role="radiogroup"]').getAttribute('aria-label'), 'パッシブの条件');
+  // 2 段目は 2 行（所持者・個体値 ／ ケーキ・右端の所持の状況）。見出しは入力の左
+  assert.deepEqual(sub.children.map((line) => line.className), ['panel-line', 'panel-line']);
+  assert.deepEqual(sub.children.map((line) => line.children.map((node) => (node.tagName === 'a' ? node.textContent : node.children[0].textContent))),
+    [['所持者', '個体値（以上）'], ['ケーキ', '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2']]);
+  assert.equal(panel.querySelectorAll('.field-label').some((node) => node.textContent === '条件'), false);
+  const holderItem = sub.children[0].children[0];
+  assert.equal(holderItem.tagName, 'label');
+  assert.equal(holderItem.querySelector('select').value, '');
   // パッシブの条件・ケーキは押しボタン（短いラベル、長い説明は title）
   assert.deepEqual(radioGroup(view, 'パッシブの条件').children.map((node) => [node.textContent, node.title]),
     [['全部持つ', '欲しいものを全部持つ（他も可）'], ['だけ', '欲しいものだけを持つ']]);

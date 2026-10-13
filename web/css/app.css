@@ -45,6 +45,8 @@
   --condense: #2b67c9;
   --talent-bar: color-mix(in srgb, var(--md-sys-color-primary) 60%, transparent);
   --talent-track: var(--md-sys-color-outline-variant);
+  /* 固定の条件のパネルの結果の行の地（所持パル。条件の欄と分ける薄い primary。ダークは同じ式でダークの primary・surface から作る） */
+  --result-bar: color-mix(in srgb, var(--md-sys-color-primary) 8%, var(--md-sys-color-surface));
   /* 所持パルの行と列見出しの列（[パル][Lv・★][パッシブ][個体値 HP・攻・防・計][所持者・場所]）。理想個体の組の ♂♀ 行も同じ */
   --owned-cols: minmax(170px, 1.3fr) 72px minmax(0, 2fr) 184px minmax(0, 1fr);
   /* 所持パルの行の高さ（中身はパッシブ 2 段・バッジ 1 行・場所 2 行に固定）。下の段（目標の印・キーワードに一致した理由。--owned-band-h）を取る
@@ -1102,10 +1104,13 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-folder-worlds { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .owned-folder-worlds p { margin: 0; width: 100%; font-size: 13px; }
 /* 所持パル: 絞り込みは sticky のパネル（owned-panel）。ヘッダーの下に固定し、高さは JS が画面の section の --panel-h に書く
-   （owned-rows の列見出しの top・scroll-margin-top が使う）。理想個体のパネル（ideal-panel）と同じ組み方:
-   1 段目: [パル 200px][パッシブ 1fr][キーワード 200px]（見出しは入力の上）。パッシブのチップが 1 行に入りきらないときは改行してパネルが伸びる（D20）。
-   2 段目: 見出しを入力の左に置いた [所持者][場所のチップ][パッシブの条件][個体値（以上）][★][属性 ▾]（幅に応じて折り返す）。
-   状態の行（28px）: [件数][効いている条件のチップ（1 行。入り切らない分は +n）][すべて解除][リンクをコピー][並べ替え][理想個体へ][継承ルートへ] */
+   （owned-rows の列見出しの top・scroll-margin-top が使う）。理想個体のパネル（ideal-panel）と同じ組み方・同じ見出しと区切りの決まり
+   （下の「固定の条件のパネルの共通の決まり」。D28）:
+   1 段目: [パル 200px][パッシブ 1fr][キーワード 200px]（見出しは入力の上。パルの見出しの行に「理想個体 →」、パッシブの見出しの行に
+   パッシブの条件と「継承ルート →」）。パッシブのチップが 1 行に入りきらないときは改行してパネルが伸びる（D20）。
+   2 段目: 1 行目 [所持者][個体値（以上）][★][属性 ▾]、2 行目 [場所のチップ]（見出しは入力の左、欄の間に縦の区切り線）。
+   結果の行（状態の行。30px・地の色で 2 段目と分ける）: [件数][効いている条件のチップ（1 行。入り切らない分は +n）] … [目標の印][すべて解除]
+   [リンクをコピー][並べ替え] */
 .owned-panel {
   position: sticky;
   top: var(--header-h);
@@ -1117,21 +1122,19 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   background: var(--md-sys-color-surface);
   border-bottom: 1px solid var(--line);
 }
-.owned-panel .field-label { margin: 0; line-height: 1.2; white-space: nowrap; }
-.owned-panel-main { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px; grid-template-rows: auto auto; gap: 2px 12px; align-items: start; }
+.owned-panel-main { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px; grid-template-rows: auto auto; gap: 3px 12px; align-items: start; }
 /* 見出しの行と入力の行を 3 つの欄でそろえる（パッシブが改行しても、パルとキーワードは 1 行目の高さのまま） */
 .owned-panel-main > .picker, .owned-panel-main > .passive-selector, .owned-panel-main > .owned-keyword { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; gap: 0; margin: 0; }
 .owned-panel-main > .picker > .picker-control, .owned-panel-main > .owned-keyword > input { align-self: start; }
-.owned-panel-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; }
-.owned-panel-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-width: 0; }
 .owned-panel-sub select { width: auto; min-height: 32px; padding: 3px 10px; }
 .owned-panel .search-select select, .owned-panel .search-select-trigger { width: 150px; min-height: 32px; }
-/* 幅が狭いとき（幅 920px など）は ★・属性を所持者の横へ寄せる（場所のチップが 1 行を使うので、2 段目が 4 行から 3 行になる） */
+/* 幅が狭いとき（幅 920px など）は、2 段目の 1 行目を [所持者][★][属性 ▾] と [個体値（以上）] の 2 行にする（★・属性を所持者の横へ寄せる。
+   個体値は行の頭に来るので区切り線を付けない） */
 @media (max-width: 1080px) {
-  .owned-panel-sub > .owned-holder-item { order: -2; }
-  .owned-panel-sub > .owned-stars-item, .owned-panel-sub > .owned-element-slot { order: -1; }
+  .owned-panel .panel-line > .owned-talent-item.panel-item { order: 1; margin-left: 0; padding-left: 0; background: none; }
 }
-/* 場所のチップ（aria-pressed で複数選択。件数は絞り込む前の数）。選んでいるものは押しボタンの選択と同じ secondary-container の地 */
+/* 場所のチップ（aria-pressed で複数選択。件数は絞り込む前の数）。押して切り替えるチップなので、オンは secondary-container の地と ✓、
+   オフは枠だけ（D28。結果の行の条件のチップ〔× で外すタグ〕と見分けられるように） */
 .place-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .place-chip, .place-chip-more {
   display: inline-flex;
@@ -1149,6 +1152,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 }
 .place-chip:hover:not([aria-pressed="true"]), .place-chip-more:hover { background: var(--state-hover); }
 .place-chip[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: var(--md-sys-color-secondary-container); }
+.place-chip[aria-pressed="true"]::before { content: '✓'; margin-right: -1px; font-size: 12px; line-height: 1; }
 .place-chip-count { font-weight: 400; font-variant-numeric: tabular-nums; }
 .place-bases-slot { position: relative; display: inline-flex; margin-left: -2px; }
 .place-chip-more { padding: 3px 7px; }
@@ -1195,30 +1199,46 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .element-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
 .element-toggle { min-height: 28px; border: 1px solid var(--element, var(--Neutral)); background: transparent; color: var(--element, var(--Neutral)); }
 .element-toggle[aria-pressed="true"] { background: var(--element, var(--Neutral)); color: #fff; }
-/* 状態の行（高さ 28px・1 行）。効いている条件のチップは 1 行分の高さで、入り切らない分は隠して「+n」（名前は title） */
-.owned-status-row { display: flex; align-items: center; gap: 8px; height: 28px; min-width: 0; font-size: 12px; white-space: nowrap; }
+/* 結果の行（状態の行。高さ 30px・1 行）。パネルの条件の欄と分けるため、薄い primary の地の帯にする（D28）。左から件数（出ている数を太く）、
+   効いている条件のチップ（1 行分の高さで、入り切らない分は隠して「+n」。名前は title）、右に目標の印・すべて解除・リンクをコピー・並べ替え */
+.owned-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  min-width: 0;
+  padding: 0 4px 0 10px;
+  border-radius: 8px;
+  background: var(--result-bar);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .owned-status-row .result-note { flex: none; margin: 0; min-height: 0; font-variant-numeric: tabular-nums; }
+.owned-count-shown { font-size: 13px; font-weight: 800; color: var(--md-sys-color-on-surface); }
+.owned-count > span:first-of-type { color: var(--md-sys-color-on-surface); }
 .filter-chips { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 4px; height: 24px; min-width: 0; overflow: hidden; }
 .filter-chip-item { display: inline-flex; max-width: 100%; }
+/* 効いている条件のチップ（× で外すタグ）。枠と明るい地で、場所のチップ（押して切り替える。オンは secondary-container の地と ✓）と分ける */
 .filter-chip {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   max-width: 100%;
   height: 24px;
-  padding: 0 4px 0 10px;
-  border: 0;
+  padding: 0 3px 0 9px;
+  border: 1px solid var(--md-sys-color-outline);
   border-radius: 12px;
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
   font-size: 12px;
   font-weight: 700;
 }
-.filter-chip:hover { background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 10%, var(--md-sys-color-secondary-container)); }
+.filter-chip:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, var(--md-sys-color-surface-container-low)); }
 /* チップの入れ物は 1 行分の高さで、はみ出しを隠すので、フォーカスの枠はチップの内側に描く（外側だと上下が切れる） */
 .filter-chip:focus-visible { outline-offset: -2px; }
 .filter-chip-text { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
-.filter-chip-x { padding: 0 4px; font-size: 14px; line-height: 1; }
+.filter-chip-x { padding: 0 4px; font-size: 14px; line-height: 1; color: var(--md-sys-color-on-surface-variant); }
+.filter-chip:hover .filter-chip-x { color: var(--md-sys-color-on-surface); }
 /* 1 行に入り切らずに隠れたチップの「+n」（押すと隠れたチップの板）。隠れたチップがないときも場所を残す（状態の行の並びを動かさない） */
 .filter-more-slot { position: relative; flex: none; display: inline-flex; }
 .filter-more {
@@ -1242,8 +1262,11 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-link-field { left: auto; right: 0; width: 380px; display: grid; gap: 6px; padding: 10px; white-space: normal; }
 .owned-link-note { margin: 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .owned-link-field input { min-height: 32px; font-size: 12px; }
-.owned-sort { flex: none; width: 12.5em; min-height: 26px; height: 26px; padding: 0 8px; font-size: 12px; }
-.owned-panel-link { flex: none; }
+/* 並べ替え（見出しつき。結果の行の右端） */
+.owned-sort-field { flex: none; display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.owned-sort { flex: none; width: 12.5em; min-height: 24px; height: 24px; padding: 0 8px; font-size: 12px; }
+/* 理想個体・継承ルートへのリンク（パル・パッシブの見出しの行の右端） */
+.owned-panel-link { flex: none; margin-left: auto; font-size: 12px; font-weight: 700; white-space: nowrap; }
 /* 固定のパネルと列見出しの下に、条件を変えたときの一覧の先頭（O-05）・フォーカスの先が隠れない（html の scroll-padding-top がヘッダーの分） */
 .owned-view { --owned-head-h: 32px; }
 .owned-list, .owned-list .owned-row { scroll-margin-top: calc(var(--panel-h, 0px) + var(--owned-head-h)); }
@@ -1424,25 +1447,36 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     linear-gradient(var(--talent-track), var(--talent-track)) left bottom / 100% 3px no-repeat;
 }
 .talent-cell[data-key="total"] { color: var(--md-sys-color-on-surface-variant); }
-/* 行の操作（目標に・ここから継承ルート・親1 にして配合を探す）。触れた行にだけ作り、行の右端に重ねる（列は足さない） */
+/* 行の操作（親にして検索。D28 で 1 つにした）。触れた行にだけ作り、行の右端（上の段の真ん中）に重ねる（列は足さず、行の高さも変えない）。
+   操作が 1 つなので、絵だけの小さなボタンの浮き板ではなく、文字のラベルつきの 1 つのボタン（枠と影で行の上に浮かせる） */
 .owned-row-actions {
   position: absolute;
-  top: 50%;
-  right: 8px;
+  top: calc(var(--owned-row-h) / 2);
+  right: 10px;
   display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--md-sys-color-surface-container-high);
-  box-shadow: var(--elevation-2);
+  gap: 4px;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
 }
 .owned-row:hover .owned-row-actions, .owned-row:focus-within .owned-row-actions { opacity: 1; pointer-events: auto; }
-.owned-row-action { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: var(--md-sys-color-on-surface-variant); }
-.owned-row-action:hover { background: var(--state-hover); color: var(--md-sys-color-primary); text-decoration: none; }
-.owned-row-action .tab-icon { width: 18px; height: 18px; }
+.owned-row-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px 0 9px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 15px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: var(--elevation-2);
+}
+.owned-row-action:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-low)); border-color: var(--md-sys-color-primary); text-decoration: none; }
+.owned-row-action .tab-icon { flex: none; width: 16px; height: 16px; }
 /* 幅が狭いとき（窓 1000px 以下。幅 920px で本文 約 760px）は、Lv・個体値の列と間を詰めてパッシブの列を広げる（X-02 の直しの一部。
    右のドロワー〔D3〕は本文に重ねるので本文の幅は窓で決まる。container query は先祖の固定配置の基準を変えるので使わない） */
 @media (max-width: 1000px) {
@@ -1489,12 +1523,14 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-head-arrow { display: inline-block; width: 10px; font-size: 9px; text-align: center; }
 .owned-list-head:not([hidden]) + .owned-list, .owned-list-head:not([hidden]) + .owned-list > :first-child,
 .owned-list-head:not([hidden]) + .owned-list.is-virtual .virtual-rows > :first-child { border-top-left-radius: 0; border-top-right-radius: 0; }
-/* パッシブの選択欄: [パッシブを追加… ▾] と選んだチップを 1 行に並べる（1 個目を選んでも下の欄が下がらない） */
+/* パッシブの選択欄: 左に [パッシブを追加… ▾]、その右にチップの領域（1 個目を選んでも下の欄が下がらない）。
+   空のときは 1 行分。チップが増えて改行が要るときだけ行が増え、下の欄が下がる（2026-10-13 のユーザーの判断。
+   空の余白を取るより、自分の操作で 1 行増えるときだけ動く方がよい。追加欄そのものは 1 行目の先頭から動かない）。
+   改行するときは、チップの領域の中で折り返し、2 行目もプルダウンの右の位置から左詰めで並べる（D28。前はチップの領域が display: contents で、
+   2 行目が追加欄の下から始まった）。チップの 1 行目は追加欄（40px）の真ん中（上下 4px ＋ チップ 32px） */
 .passive-selector { position: relative; }
-.passive-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; }
-.passive-chips { display: contents; }
-/* 空のときは 1 行分。チップが増えて改行が要るときだけ行が増え、下の欄が下がる（2026-10-13 のユーザーの判断。
-   空の余白を取るより、自分の操作で 1 行増えるときだけ動く方がよい。追加欄そのものは 1 行目の先頭から動かない） */
+.passive-row { display: flex; align-items: flex-start; gap: 6px; container-type: inline-size; }
+.passive-chips { display: flex; flex: 1 1 0; flex-wrap: wrap; align-content: flex-start; align-items: center; gap: 6px; min-width: 0; min-height: 40px; padding: 4px 0; }
 .passive-add {
   position: relative;
   flex: none;
@@ -1521,6 +1557,15 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 }
 .passive-add[aria-expanded="true"]::after { transform: rotate(225deg); }
 .passive-add:disabled::after { display: none; }
+/* 欄が狭いとき（行の幅 480px 以下＝チップの領域 約 340px 以下。幅 920px の 3 画面と幅 1100px の継承ルート）は、チップの幅をそろえず
+   （min-width をやめ）文字を 13px に、追加欄の余白も詰めて、1 行に入るチップを増やす（チップの領域はプルダウンの右だけなので、そろえた幅の
+   ままだと 1 行に 1 個しか入らず、行が増えてパネルが伸びる）。行（.passive-row）を container にする（中に固定配置の子はない。ポップオーバーは
+   部品の外側の要素に付く） */
+@container (max-width: 480px) {
+  .passive-chips .passive-chip { min-width: 0; gap: 6px; padding: 3px 7px 3px 11px; font-size: 13px; }
+  .passive-add { padding-left: 10px; padding-right: 26px; }
+  .passive-add::after { right: 10px; }
+}
 .passive-popover { width: min(560px, max(320px, 100%)); }
 .passive-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; min-height: 36px; }
 .passive-option-desc { font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1621,9 +1666,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .route-options > .route-owned-note + .breeding-equation { border-top: 1px dashed var(--line); }
 /* 理想個体: 組ごとに確率の見出しと、♂・♀の個体の行（所持パルの行と同じ形）を並べる */
 /* 理想個体: 条件は sticky の 2 段のパネル（ideal-panel）。ヘッダーの下に固定し、高さは JS が画面の section の --panel-h に書く。
-   1 段目: [目標 240px][欲しいパッシブ 1fr][☆ 目標として保存 auto]（見出しは入力の上）。欲しいパッシブのチップが 1 行に入りきらないときは
-   改行してパネルが 1 行分伸びる（2026-10-13 のユーザーの判断。横に省略しない）。
-   2 段目: 見出しを入力の左に置いた [所持者][パッシブの条件][個体値（以上）][ケーキ] と右端の所持の状況。幅に応じて折り返す */
+   1 段目: [目標 240px][欲しいパッシブ 1fr（見出しの行にパッシブの条件）][☆ 目標として保存 auto]（見出しは入力の上）。欲しいパッシブの
+   チップが 1 行に入りきらないときは改行してパネルが 1 行分伸びる（2026-10-13 のユーザーの判断。横に省略しない）。
+   2 段目: 1 行目 [所持者][個体値（以上）]、2 行目 [ケーキ] と右端の所持の状況（見出しは入力の左、欄の間に縦の区切り線）。
+   見出しと区切りは所持パルのパネルと同じ決まり（下の「固定の条件のパネルの共通の決まり」。D28） */
 .view-heading:has(> .view-heading-actions) { display: flex; align-items: center; gap: 12px; }
 .view-heading-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .view-help-button { font-size: 16px; font-weight: 700; border: 1px solid var(--md-sys-color-outline-variant); }
@@ -1639,8 +1685,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   background: var(--md-sys-color-surface);
   border-bottom: 1px solid var(--line);
 }
-.ideal-panel .field-label { margin: 0; line-height: 1.2; white-space: nowrap; }
-.ideal-panel-main { display: grid; grid-template-columns: 240px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 2px 12px; align-items: start; }
+.ideal-panel-main { display: grid; grid-template-columns: 240px minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 3px 12px; align-items: start; }
 /* 見出しの行と入力の行を 3 つの欄でそろえる（パッシブが改行しても、目標と保存は 1 行目の高さのまま） */
 .ideal-panel-main > .picker, .ideal-panel-main > .passive-selector { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; gap: 0; margin: 0; }
 /* パッシブの欄が改行して入力の行が高くなっても、目標の選択欄（と解除の ×）は 1 行目に置く */
@@ -1655,9 +1700,34 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .ideal-save-popover .field { margin: 0; }
 .ideal-save-note { margin: 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .ideal-save-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.ideal-panel-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 18px; }
-.ideal-panel-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
 .ideal-panel-sub select { width: 150px; min-height: 32px; padding: 3px 10px; }
+/* ---- 固定の条件のパネルの共通の決まり（理想個体・所持パル。D28: 2026-10-13 のユーザーのフィードバック「項目の区切りと、どれが何の設定か
+   ぱっと見で分かるように」）。部品は views/shared.js の fieldHead・panelItem・panelLine ----
+   見出し: どこでも同じ書き方（11px・太字・on-surface-variant・字間を少し空ける）。値（入力・押しボタン・チップの文字）より小さく色を落とし、
+     見出しと値が同じ重さで並ばないようにする。1 段目は入力の上（見出しの行 .field-head。その欄の条件やリンクを右に添える）、2 段目は入力の左。
+   区切り: 2 段目は行（.panel-line）ごとに欄（.panel-item）を並べ、欄の間に縦の短い線（背景の 1px × 18px。要素を足さない）と左右 9〜10px の間。
+     所持パルは下の結果の行を地の色の帯にして、条件の欄と結果を分ける */
+:is(.ideal-panel, .owned-panel) .field-label { margin: 0; font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .04em; white-space: nowrap; color: var(--md-sys-color-on-surface-variant); }
+:is(.ideal-panel-main, .owned-panel-main) > * > .field-label { align-self: center; }
+:is(.ideal-panel, .owned-panel) .field-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
+/* 見出しの行の押しボタン（パッシブの条件）は高さ 24px に詰める（見出しの行が高くならないように） */
+:is(.ideal-panel, .owned-panel) .field-head .segmented-option { min-height: 24px; padding-top: 0; padding-bottom: 0; font-size: 12px; }
+:is(.ideal-panel-sub, .owned-panel-sub) { display: grid; gap: 5px; min-width: 0; }
+:is(.ideal-panel, .owned-panel) .panel-line { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 0; min-width: 0; }
+:is(.ideal-panel, .owned-panel) .panel-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-width: 0; }
+:is(.ideal-panel, .owned-panel) .panel-line > :not(:first-child, .ideal-holding) {
+  margin-left: 9px;
+  padding-left: 10px;
+  background: linear-gradient(var(--md-sys-color-outline), var(--md-sys-color-outline)) 0 50% / 1px 18px no-repeat;
+}
+/* 2 段目の各行の先頭の見出し（所持者・場所・ケーキ）は同じ幅にして、入力の左端を行の間でそろえる */
+:is(.ideal-panel, .owned-panel) .panel-line > :first-child > .field-label { min-width: 3.3em; }
+/* 幅が狭いとき（窓 1080px 以下。幅 920px で本文 約 760px）は、場所のチップの文字と余白を詰めて 1 行に収める（2 段目が 4 行になって
+   パネルが伸びないように） */
+@media (max-width: 1080px) {
+  .owned-panel .place-chips { gap: 3px; }
+  .owned-panel :is(.place-chip, .place-chip-more) { padding-left: 7px; padding-right: 7px; font-size: 11px; gap: 4px; }
+}
 /* 個体値の部品を詰める（理想個体・所持パルの固定パネルで共通）: 各欄の「以上」は見出しに 1 回だけ、増減のボタンを隠して数値欄を狭める
    （↑↓ キーでは増減できる）。プリセットのボタンも高さ 32px */
 :is(.ideal-panel, .owned-panel) .talent-input { flex-wrap: nowrap; gap: 6px 10px; }
@@ -1696,9 +1766,11 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .talent-preset-menu { width: max-content; min-width: 0; display: grid; gap: 2px; padding: 6px; }
 .talent-preset-item { min-height: 32px; padding: 4px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--md-sys-color-on-surface); font-size: 13px; text-align: left; white-space: nowrap; }
 .talent-preset-item:hover, .talent-preset-item:focus-visible { background: var(--state-hover); }
-/* 所持の状況は右端に固定の幅（数が変わっても折り返しの位置が動かない）。目標がないときは「—」 */
-.ideal-holding { margin-left: auto; width: 17em; font-size: 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
-a.ideal-holding[href] { color: var(--md-sys-color-primary); }
+/* 所持の状況は 2 段目の 2 行目の右端（後ろに欄がないので、数が変わっても折り返しの位置は動かない。最大 17em で省略）。目標がないときは「—」。
+   数があるときは、所持パルのパネルの結果の行と同じ薄い primary の地（条件の欄ではなく結果だと分かるように。D28） */
+/* ケーキの行は右に余りが多いので、数が 3 桁でも「· 全部持つ ♂n ♀m」まで省略せずに出す（17em では「全部持つ ♂0…」で切れた） */
+.ideal-holding { margin-left: auto; max-width: 32em; padding: 0 10px; height: 26px; line-height: 26px; border-radius: 8px; font-size: 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
+a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; background: var(--result-bar); }
 /* 押しボタンの選択（ui/segmented.js）。選んでいるものは継承ルートの開始チップと同じ secondary-container の地 */
 .segmented { display: inline-flex; }
 .segmented-option {
