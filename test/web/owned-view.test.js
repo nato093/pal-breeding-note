@@ -382,7 +382,7 @@ test('継承ルート: 所持パルのデータがないときは、開始と目
   view.destroy();
 });
 
-test('パッシブの選択欄: 所持パルのある継承ルートは目標と横に並べる欄（.route-query。CSS で空でも 2 行分の高さ）に置き、所持パルのない継承ルート・所持パル画面は置かない', (t) => {
+test('パッシブの選択欄: 所持パルのある継承ルートは目標と横に並べる欄（.route-query）に置き、所持パルのない継承ルート・所持パル画面は置かない', (t) => {
   installDom(t);
   const records = [
     { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
