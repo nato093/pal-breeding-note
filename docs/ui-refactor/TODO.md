@@ -20,13 +20,13 @@
 | 1-0 | 1 | 17 | 1 |
 | 1a | 7 | 96 | 7 |
 | 1b | 4 | 45 | 4 |
-| 1c | 3 | 44 | 0 |
+| 1c | 3 | 44 | 1 |
 | 1d | 6 | 74 | 0 |
 | 2 | 10 | 119 | 0 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **12** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **13** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -311,7 +311,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 牧場の状態を残し、牧場の判定を絵と押せる行に
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-farms` ／ マージのコミット: （未）
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-farms` ／ マージのコミット: `551fdee`
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 - 文書と違う形にしたこと: 牧場の名前・完全性・使用中・空きは描くときのデータから求める（`farmContext`）。`farmCompleteness` の uncertain は判定に使えない牧場の数。帯は固定の 3 か所＋「ほか n か所」、置く組のない牧場は一覧にあれば「— N 番」で押せる。詳細の個体は palTile ではなく絵・名前・個体値・パッシブの小さな形。フォーカスは押したボタンに残す。帯の高さは固定だが、帯の下の詳細の高さは判定で変わる（結果の top はアヌビスで 806px。ユーザーに確かめる）（phase-1b-1c の ideal-farms の「実装の記録」）
 
@@ -338,20 +338,21 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 読み込みの状態を固定スロットに、データ元を 1 行に
 
-- 状態: 未着手 ／ ブランチ: `feature/owned-status` ／ マージのコミット: （未）
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/owned-status` ／ マージのコミット: （未）
+- 文書と違う形にしたこと: `checkedAt` は読めた確認（unchanged・guest・imported）と共有の成功だけで進める。`activityText` に `now` を足した。`'empty'` も「設定でワールドを登録」の案内とボタンにした。確かめている間（busy・checking）は案内を前のまま描かない。状態のスロットは輪の場所を残した左寄せ（右寄せは layout-shift が出た）。許可のボタンの場所は自動の読み込みを使うときだけ残す。理想個体の要約の「最終確認」は 1 行のスロットに移し、`span.ideal-checked` ごと外した。「見る」は `changeRoute`。`linkLabel` を消した。継承ルートのテストは owned-view.test.js に置いた。参加者の反映は最大 約 41 秒（ユーザーに確かめる）（phase-1b-1c の owned-status の「実装の記録」）
 
-- [ ] owned.js に `activity` と `checkedAt` を足し、各所で入れる（busy は変えない）
-- [ ] 確認の始めに `auto.error` を消さないようにし、'empty' の文を短くする
-- [ ] owned-store のテストを足す
-- [ ] `ownedNotices` から busy・確認中・共有中を外し、未登録の案内をデータがないときだけにする
-- [ ] 場所の分からないパル・読めなかった項目の 1 行と「見る」を足す
-- [ ] `activityText`・`sourceText`・`ownedSourceLine` を作る
-- [ ] 所持パルの要約を 1 行に置き換え、案内のボタン（設定・見る）を足す
-- [ ] 理想個体の要約の上と継承ルートの所持パルの欄に 1 行を置く
-- [ ] `keepRefreshing` を作り、理想個体と所持パルで使う
-- [ ] 設定の `autoError` と `.owned-auto-state` の幅を固定する
-- [ ] owned-view・ideal-view・route-view のテストを直し・足す
-- [ ] release-notes に 1 件足し、1 分以上開いたままで動かないことを確かめる
+- [x] owned.js に `activity` と `checkedAt` を足し、各所で入れる（busy は変えない）
+- [x] 確認の始めに `auto.error` を消さないようにし、'empty' の文を短くする
+- [x] owned-store のテストを足す
+- [x] `ownedNotices` から busy・確認中・共有中を外し、未登録の案内をデータがないときだけにする
+- [x] 場所の分からないパル・読めなかった項目の 1 行と「見る」を足す
+- [x] `activityText`・`sourceText`・`ownedSourceLine` を作る
+- [x] 所持パルの要約を 1 行に置き換え、案内のボタン（設定・見る）を足す
+- [x] 理想個体の要約の上と継承ルートの所持パルの欄に 1 行を置く
+- [x] `keepRefreshing` を作り、理想個体と所持パルで使う
+- [x] 設定の `autoError` と `.owned-auto-state` の幅を固定する
+- [x] owned-view・ideal-view・route-view のテストを直し・足す
+- [x] release-notes に 1 件足し、1 分以上開いたままで動かないことを確かめる
 
 ### 13. [owned-toolbar](phase-1b-1c-ideal-owned.md#owned-toolbar-所持パルの絞り込みを-sticky-のパネルに)（M）
 
