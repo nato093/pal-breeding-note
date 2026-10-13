@@ -17,8 +17,13 @@ test('静的検査: web の描画に HTML 文字列や禁止された style 属�
   for (const file of files.filter((url) => /\.(js|html)$/.test(url.pathname))) {
     const source = await readFile(file, 'utf8');
     assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML|document\s*\.\s*write\s*\(/, file.pathname);
-    assert.doesNotMatch(source, /\bstyle\s*=\s*['"]|setAttribute\s*\(\s*['"]style['"]/i, file.pathname);
+    // style 属性の文字列（引用符・バッククォート）、style.cssText、setAttributeNS（名前空間つきの style も）は使わない
+    assert.doesNotMatch(source, /\bstyle\s*=\s*['"`]|setAttribute\s*\(\s*['"`]style['"`]|\.cssText\b|\bsetAttributeNS\s*\(/i, file.pathname);
+    // 属性名が文字列でない setAttribute（変数・テンプレート文字列）は ui/dom.js の svgElement だけ（style と on* を投げる。test/web/dom.test.js）
+    if (!file.pathname.endsWith('/web/js/ui/dom.js')) assert.doesNotMatch(source, /\bsetAttribute\s*\(\s*(?!['"])/, file.pathname);
   }
+  const dom = await readFile(new URL('../../web/js/ui/dom.js', import.meta.url), 'utf8');
+  assert.equal([...dom.matchAll(/\bsetAttribute\s*\(\s*(?!['"])/g)].length, 1);
 });
 
 test('静的検査: index の CSP 接続先は自身（配信中の版の確認）と GAS の二つのオリジンだけ', async () => {

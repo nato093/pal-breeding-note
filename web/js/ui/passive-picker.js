@@ -12,7 +12,7 @@ const rankClass = (rank) => (rank > 0 ? `passive-rank-${Math.min(rank, 5)}` : ra
 
 /**
  * パッシブの表示（ランクで矢印と色が変わる）。マスターにないものは内部名で出す。
- * compact: 小さいチップ（文の中・候補の行・登録した組み合わせ）。
+ * compact: 小さいチップ（文の中・候補の行・保存した目標の組み合わせ）。
  * focusGroup: × のフォーカスの目印（ui/focus.js。'passive:<ラベル>'）。× が消えたら同じ名前の追加欄へ、追加欄が押せなければ残った × の最後へ。
  * × の key は 'passive-chip:<ラベル>:<id>'（部品ごとに分ける。作り直した後に、別の画面の同じパッシブの × へ移らないように）
  */
@@ -101,7 +101,7 @@ export function passiveMatches(id, terms) {
  * 呼び出し側は作り直さず update を呼ぶ（開いていれば、検索語・入力のフォーカス・矢印の位置を保って候補だけ描き直す）。
  * groups: 候補の群 [{ label, counts: Map<id, n> }]。無ければ counts から「countLabel」の群と「その他」。
  * negatives: 'last'（負のパッシブを最後の群「マイナスのパッシブ」に。理想個体・継承ルート）| 'inline'（所持パル）
- * presets: [{ label, passives }]（登録した組み合わせ。押すと選択をその組で置き換える）
+ * presets: [{ label, passives }]（保存した目標の組み合わせ。押すと選択をその組で置き換える）
  * update の disabled: 追加のボタンとチップの × を押せなくする（選んだチップは残す。所持パルのパッシブの条件「なし」のとき）
  */
 export function passiveSelector({ label, selected = [], counts = new Map(), countLabel = '所持パルが持っているもの', groups,
@@ -174,10 +174,32 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
     input.addEventListener('keydown', onKey);
     renderPresets();
     renderOptions();
+    fitList();
     input.focus();
   }
 
-  // 登録した組み合わせ（並びが変わったときだけ作り直す。押したボタンのフォーカスを失わないように）
+  // 候補の一覧の高さを、窓の下端までに収める（理想個体・所持パルの固定のパネルの中で開くと、ページを動かしても下が見えないため。
+  // 拡大 150% 相当〔853×600〕で、組み合わせの段のぶん窓の下へはみ出していた）。一覧の上端から窓の下端まで 12px 空ける。
+  // 狭すぎるときは 160px（固定でない画面では、ページを動かして見る）。CSS の --passive-options-max（上限は今までどおり min(60vh, 520px)）
+  function fitList() {
+    const top = listTop();
+    const height = globalThis.window?.innerHeight;
+    if (!Number.isFinite(top) || !Number.isFinite(height)) return;
+    view.list.style.setProperty('--passive-options-max', `${Math.max(160, Math.floor(height - top - 12))}px`);
+  }
+  // 一覧の上端（窓の中の位置）。開くときの動き（transform で縮めて出す）の途中でも同じ値になるよう、板と一覧の位置は offsetTop で測り、
+  // 板を置いている要素（動かない）の getBoundingClientRect に足す。offsetTop が無い環境（テストの DOM）は一覧の getBoundingClientRect
+  function listTop() {
+    const { list } = view;
+    const board = list.offsetParent;
+    const host = board?.offsetParent;
+    if (board === popover.element && host && Number.isFinite(board.offsetTop) && Number.isFinite(list.offsetTop)) {
+      return host.getBoundingClientRect().top + (host.clientTop || 0) + board.offsetTop + list.offsetTop;
+    }
+    return list.getBoundingClientRect?.().top;
+  }
+
+  // 保存した目標の組み合わせ（並びが変わったときだけ作り直す。押したボタンのフォーカスを失わないように）
   function renderPresets() {
     const key = JSON.stringify(state.presets.map((preset) => [preset.label, preset.passives]));
     if (key === view.presetKey) return;
@@ -189,13 +211,13 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
       const ids = preset.passives.slice(0, max);
       const names = ids.map((id) => passivesById.get(id)?.ja ?? id).join('、');
       const node = button('', () => onChange(ids), 'passive-preset');
-      node.setAttribute('aria-label', `登録した組み合わせ「${preset.label}」で選び直す: ${names}`);
+      node.setAttribute('aria-label', `保存した目標の組み合わせ「${preset.label}」で選び直す: ${names}`);
       node.title = preset.label;
       node.addEventListener('mousedown', (event) => event.preventDefault());
       node.append(passiveList(ids, { compact: true }));
       return node;
     });
-    presetBox.replaceChildren(el('p', 'passive-group-label', '登録した組み合わせ'), ...rows);
+    presetBox.replaceChildren(el('p', 'passive-group-label', '保存した目標の組み合わせ'), ...rows);
   }
 
   function renderOptions({ keep = null } = {}) {
@@ -271,7 +293,7 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
   return {
     element,
     /**
-     * 選んだパッシブ・所持数・群・登録した組み合わせを合わせ直す（同じ id のチップは使い回す）。開いていれば候補だけ描き直し、閉じない。
+     * 選んだパッシブ・所持数・群・保存した目標の組み合わせを合わせ直す（同じ id のチップは使い回す）。開いていれば候補だけ描き直し、閉じない。
      * max に達したら閉じて、最後のチップの × へフォーカスを移す（フォーカスがこの部品の中にあったときだけ）。
      * disabled（true/false）で押せなくし、開いていれば閉じる
      */
@@ -295,6 +317,8 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
       const keep = view.position >= 0 ? view.options[view.position]?.id ?? null : null;
       renderPresets();
       renderOptions({ keep });
+      // 組み合わせの段が変わると一覧の上端が動くので測り直す
+      fitList();
     },
     destroy() { popover.destroy(); },
   };

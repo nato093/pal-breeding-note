@@ -908,7 +908,7 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
   const holder = selectHaving('mine');
   holder.value = 'mine';
   await holder.dispatch('change');
-  await setTarget('HPの目標', '50');
+  await setTarget('HPの目標（以上）', '50');
   window.scrollY = 300;
   await clickLink(navTab('配合検索'));
   go(navTab('配合検索').href);
@@ -918,23 +918,23 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
   // 理想個体のタブで戻って条件 Y（HP 70）にする（新しいエントリ）
   await clickLink(navTab('理想個体'));
   go(navTab('理想個体').href);
-  await setTarget('HPの目標', '70');
-  assert.equal(inputLabeled('HPの目標').value, '70');
+  await setTarget('HPの目標（以上）', '70');
+  assert.equal(inputLabeled('HPの目標（以上）').value, '70');
   // 2 回戻ると、最初のエントリの条件 X と位置に戻る
   back('#/search', { palEntry: second });
   back('#/ideal?to=SheepBall', { palEntry: first });
   await frame();
-  assert.equal(inputLabeled('HPの目標').value, '50');
+  assert.equal(inputLabeled('HPの目標（以上）').value, '50');
   assert.equal(selectHaving('mine').value, 'mine');
   assert.equal(scrolls.at(-1), 300);
   // 別の利用者・別の環境・保存の形の版が違うエントリは使わない（画面には今の条件が残る。ワールドは次のテスト）
-  await setTarget('HPの目標', '80');
+  await setTarget('HPの目標（以上）', '80');
   for (const change of [{ user: '別の人' }, { env: 'prod' }, { v: 2 }]) {
     const entries = entriesOf(sessionValues).map((entry) => (entry.id === first ? { ...entry, ...change, cond: { ...entry.cond, targets: { hp: 10, shot: 100, defense: 100 } } } : entry));
     sessionValues.set('pal-note.entries', JSON.stringify(entries));
     back('#/search', { palEntry: second });
     back('#/ideal?to=SheepBall', { palEntry: first });
-    assert.equal(inputLabeled('HPの目標').value, '80', JSON.stringify(change));
+    assert.equal(inputLabeled('HPの目標（以上）').value, '80', JSON.stringify(change));
   }
 });
 
@@ -982,7 +982,7 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall');
   assert.equal(navTab('一覧').href, '#/list');
   go('#/ideal?to=SheepBall');
-  assert.deepEqual(['HPの目標', '攻撃の目標', '防御の目標'].map((label) => inputLabeled(label).value), ['90', '100', '80']);
+  assert.deepEqual(['HPの目標（以上）', '攻撃の目標（以上）', '防御の目標（以上）'].map((label) => inputLabeled(label).value), ['90', '100', '80']);
   assert.equal(radioChecked('パッシブの条件'), 'only');
   assert.equal(radioChecked('ケーキ'), 'talent');
   assert.equal(selectHaving('mine').value, 'mine');
@@ -1080,7 +1080,7 @@ test('画面: 同じ画面の中で戻る・進む（作り直さない）とき
   });
   const view = byClass('ideal-view');
   const first = history.state.palEntry;
-  const hp = () => inputLabeled('HPの目標');
+  const hp = () => inputLabeled('HPの目標（以上）');
   const setHp = async (value) => {
     hp().value = value;
     await hp().dispatch('input');
@@ -1188,7 +1188,7 @@ test('画面: 打ってから間引きの間（150ms）にタブを押しても�
 
 test('画面: 同じ URL のエントリどうし（理想個体の「呼び出す」で g を外す）を戻る・進むと、hashchange が来なくてもエントリの条件に戻す', async (t) => {
   const { go, back } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/ideal?to=SheepBall', session: {}, pushState: true });
-  const hp = () => inputLabeled('HPの目標');
+  const hp = () => inputLabeled('HPの目標（以上）');
   const setHp = async (value) => {
     hp().value = value;
     await hp().dispatch('input');

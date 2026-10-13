@@ -34,11 +34,29 @@ test('INV-2: 配合表を読むのは自動登録だけ', () => {
   assert.match(fs.readFileSync('web/js/views/owned-settings.js', 'utf8'), /import \{ mappedUser \} from '\.\.\/core\/auto-breeding\.js'/);
 });
 
+// 読み込むモジュールの指定（静的 import・export from・動的 import。' " ` のどれでも）を、file からの相対で解決した web/js/… の形にする。
+// ? と # の後ろは外す。${} を含むテンプレート文字列は解決できないので、その文字列のまま返す
+function importsIn(source, file) {
+  return [...source.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"`])([^'"`]+)\1/g)].map(([, , spec]) => {
+    if (spec.includes('${') || !spec.startsWith('.')) return spec;
+    return path.posix.normalize(path.posix.join(path.posix.dirname(file), spec.replace(/[?#].*$/, '')));
+  });
+}
+
+test('INV-2: import の検査は、バッククォートの動的 import・別の経路・クエリ付きも同じモジュールとして見る', () => {
+  const source = "import { a } from './x.js';\nconst m = await import(`../core/ideal.js?v=1`);\nimport * as b from \"../../js/core/ideal.js#top\";\nexport { c } from '../core/./ideal.js';\nimport(`./${name}.js`);";
+  assert.deepEqual(importsIn(source, 'web/js/views/sample.js'), [
+    'web/js/views/x.js', 'web/js/core/ideal.js', 'web/js/core/ideal.js', 'web/js/core/ideal.js', './${name}.js',
+  ]);
+});
+
 // INV-2 の例外: 遺伝の仕組み（core/ideal.js）は理想個体の提案にだけ使う。配合表は読まない
 test('INV-2: 遺伝の仕組みを使うのは理想個体の画面だけ', () => {
   const files = fs.readdirSync('web/js', { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join('web/js', f).replaceAll('\\', '/'));
-  const importing = (pattern) => files.filter((file) => pattern.test(fs.readFileSync(file, 'utf8'))).sort();
-  assert.deepEqual(importing(/(from |import\()["'](\.\.\/core\/|\.\/core\/|\.\/)ideal\.js["']/), ['web/js/views/ideal.js']);
+  const imports = new Map(files.map((file) => [file, importsIn(fs.readFileSync(file, 'utf8'), file)]));
+  assert.deepEqual(files.filter((file) => imports.get(file).includes('web/js/core/ideal.js')).sort(), ['web/js/views/ideal.js']);
+  // 解決できない動的 import（${} を含むテンプレート文字列）で ideal.js を読まない
+  for (const [file, specs] of imports) for (const spec of specs.filter((item) => item.includes('${'))) assert.doesNotMatch(spec, /ideal/, file);
   const ideal = fs.readFileSync('web/js/core/ideal.js', 'utf8');
   assert.deepEqual([...ideal.matchAll(/from '([^']+)'/g)].map((match) => match[1]), ['./index.js']);
 });

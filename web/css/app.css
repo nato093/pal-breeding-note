@@ -643,6 +643,8 @@ img, svg { max-width: 100%; }
 .picker-popover-floating .picker-search, .picker-popover-floating .picker-status { flex-shrink: 0; }
 .picker-popover-floating .picker-options { min-height: 0; }
 .picker-options { display: flex; flex-direction: column; max-height: min(60vh, 520px); overflow-y: auto; padding: 3px; }
+/* パッシブの候補は窓の下端まで（ui/passive-picker.js の fitList が --passive-options-max に書く） */
+.passive-options { max-height: min(60vh, 520px, var(--passive-options-max, 520px)); }
 .picker-option {
   display: flex;
   align-items: center;
@@ -1527,7 +1529,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   text-align: left;
 }
 .passive-preset:hover { background: var(--state-hover); }
-/* 小さいチップ（文の中・候補の行・登録した組み合わせ） */
+/* 小さいチップ（文の中・候補の行・保存した目標の組み合わせ） */
 .passive-list.compact { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
 .ideal-extras .passive-list.compact, .ideal-warning .passive-list.compact { margin: 1px 2px; }
 .ideal-carry { display: inline-flex; align-items: center; gap: 6px; }
@@ -1737,8 +1739,9 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 .hint-popover { display: grid; gap: 6px; padding: 10px 14px; overflow-y: auto; font-size: 13px; line-height: 1.6; white-space: normal; color: var(--md-sys-color-on-surface); }
 .picker-popover-floating.hint-popover { display: grid; }
 .hint-popover p { margin: 0; }
-/* 固定のパネルの下に、フォーカス・scrollIntoView の先が隠れない */
-.ideal-view > :not(.view-heading, .ideal-panel), .ideal-view > :not(.view-heading, .ideal-panel) * { scroll-margin-top: calc(var(--header-h) + var(--panel-h, 0px) + 8px); }
+/* 固定のパネルの下に、フォーカス・scrollIntoView の先が隠れない（html の scroll-padding-top がヘッダーと 8px を受け持つので、ここはパネルの分だけ。
+   ヘッダーの分も足すと、着地点がヘッダーの分〔約 64px〕余分に下がる。所持パルの .owned-list と同じ） */
+.ideal-view > :not(.view-heading, .ideal-panel), .ideal-view > :not(.view-heading, .ideal-panel) * { scroll-margin-top: var(--panel-h, 0px); }
 .ideal-results { display: grid; gap: 12px; position: relative; }
 /* 区切って計算している間（aria-busy）。前の結果を残したまま薄くし、上に「計算中…」を重ねる */
 .ideal-results.is-computing > * { opacity: .45; }
@@ -1790,7 +1793,7 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 /* 配合牧場の判定 */
 .ideal-missing-note:empty { display: none; }
 /* 牧場の帯（2 段目の固定。条件のパネルの下に重なる）。高さは固定で、牧場の数・判定・保留で変わらない（下の詳細と結果を動かさない）。
-   入り切らない牧場は「ほか n か所」、狭い幅では牧場の名前を省略する。--farm-fold-h は帯の下の詳細の閉じた 1 行の高さ（summary の最小の高さ 44px と同じ） */
+   入り切らない牧場は「ほか n か所」、狭い幅では牧場の名前を省略する。--farm-fold-h は帯の下の詳細の閉じた 1 行の高さ（押せる高さ 44px） */
 .ideal-view { --farm-strip-h: 44px; --farm-fold-h: 44px; }
 .ideal-farm-strip {
   position: sticky;
@@ -1807,6 +1810,8 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
   border-bottom: 1px solid var(--line);
 }
 .ideal-farm-strip[hidden] { display: none; }
+/* 帯は 1 行に固定してはみ出しを隠すので、フォーカスの枠は内側に描く（外側だと先頭のセルの左と上下が切れる。所持パルの .filter-chip と同じ） */
+.ideal-farm-strip :focus-visible { outline-offset: -2px; }
 .ideal-farm-cell {
   flex: 0 1 auto;
   min-width: 0;
@@ -1855,14 +1860,15 @@ button.ideal-farm-cell:hover { background: color-mix(in srgb, var(--md-sys-color
 /* 帯の下（詳細・結果）の scrollIntoView の着地点は、帯の高さも空ける */
 .ideal-view:has(> .ideal-farm-strip:not([hidden])) > .ideal-farm-strip ~ *,
 .ideal-view:has(> .ideal-farm-strip:not([hidden])) > .ideal-farm-strip ~ * * {
-  scroll-margin-top: calc(var(--header-h) + var(--panel-h, 0px) + var(--farm-strip-h) + 8px);
+  scroll-margin-top: calc(var(--panel-h, 0px) + var(--farm-strip-h));
 }
 /* 牧場の詳細（帯の下の通常の流れ）。牧場ごとに [名前][今の 2 体][状態]、交換推奨は 2×2 の小表と入れる・外す個体。
    既定は閉じた 1 行（見出しだけ。D22）で、見出しの文が変わっても高さは変わらない（省略記号で 1 行）。
    出すものがないときも、帯が出ている間はこの 1 行の場所を残す（結果の位置を動かさない） */
 .ideal-farms { margin: 0 0 10px; border-radius: 16px; background: var(--md-sys-color-surface-container-low); }
 .ideal-farms:empty { height: var(--farm-fold-h); visibility: hidden; }
-.ideal-farms-summary { display: flex; align-items: center; gap: 6px; height: var(--farm-fold-h); padding: 0 18px; border-radius: 16px; list-style: none; cursor: pointer; }
+/* 高さは --farm-fold-h だけで決める（全体の summary の min-height: 44px に引きずられない。test/static/styles.test.js） */
+.ideal-farms-summary { display: flex; align-items: center; gap: 6px; height: var(--farm-fold-h); min-height: 0; padding: 0 18px; border-radius: 16px; list-style: none; cursor: pointer; }
 .ideal-farms-summary::-webkit-details-marker { display: none; }
 /* 同じ見込みの組の畳みと同じ ▸（開くと下向き） */
 .ideal-farms-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); transition: transform .15s ease; }
@@ -1937,7 +1943,8 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-chance small { font-size: 12px; }
 .ideal-source { font-size: 12px; color: var(--muted); text-align: right; }
 /* 組の ♂♀ 行は所持パルの行と同じ列（--owned-cols）と高さ。列見出しがないので、個体値の 4 セルには小さな見出しを付ける */
-.ideal-pair .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; }
+/* 組の行は描画を後回しにせず、はみ出しを切らない（.owned-row の contain: strict の paint のまま左の余白 0 だと、パル名のリンクのフォーカスの枠の左が切れる） */
+.ideal-pair .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
 .ideal-pair .owned-row:hover { background: transparent; }
 .ideal-pair .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
 .ideal-pair .talent-cell[data-key="hp"]::before { content: 'HP'; }

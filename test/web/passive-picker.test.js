@@ -211,16 +211,16 @@ test('パッシブ選択: groups を渡すと、その群の順に分け（同�
   assert.equal(option('Unknown_Passive_X').querySelector('.passive-option-count').textContent, '3 体');
 });
 
-test('パッシブ選択: 登録した組み合わせを押すと、選択をその組で置き換える（1 回の onChange）', async (t) => {
+test('パッシブ選択: 保存した目標の組み合わせを押すと、選択をその組で置き換える（1 回の onChange）', async (t) => {
   const presets = [{ label: '作業用', passives: ['CraftSpeed_up2', 'Rare'] }, { label: '戦闘用', passives: ['Legend', 'PAL_ALLAttack_up3', 'Noukin', 'Rare', 'WorldTree_ATK'] }];
   const { add, changes, selector, search } = mount(t, { selected: ['Legend'], presets });
   await add.dispatch('click');
   const box = selector.element.querySelector('.passive-presets');
   assert.equal(box.hidden, false);
-  assert.match(box.textContent, /^登録した組み合わせ/);
+  assert.match(box.textContent, /^保存した目標の組み合わせ/);
   const buttons = box.querySelectorAll('.passive-preset');
   assert.equal(buttons.length, 2);
-  assert.equal(buttons[0].getAttribute('aria-label'), '登録した組み合わせ「作業用」で選び直す: 職人気質、希少');
+  assert.equal(buttons[0].getAttribute('aria-label'), '保存した目標の組み合わせ「作業用」で選び直す: 職人気質、希少');
   assert.equal(buttons[0].querySelectorAll('.passive-chip').length, 2);
   await buttons[0].dispatch('click');
   assert.deepEqual(changes, [['CraftSpeed_up2', 'Rare']]);
@@ -229,7 +229,7 @@ test('パッシブ選択: 登録した組み合わせを押すと、選択をそ
   await buttons[1].dispatch('click');
   assert.deepEqual(changes.at(-1), ['Legend', 'PAL_ALLAttack_up3', 'Noukin', 'Rare']);
   assert.equal(search(), null);
-  // 登録した組み合わせが無ければ欄ごと隠す
+  // 保存した目標の組み合わせが無ければ欄ごと隠す
   selector.update({ selected: [], presets: [] });
   await add.dispatch('click');
   assert.equal(selector.element.querySelector('.passive-presets').hidden, true);
@@ -295,4 +295,25 @@ test('パッシブ選択: update の disabled で追加のボタンと × を押
   assert.equal(add.disabled, false);
   assert.ok(!selector.element.className.split(' ').includes('is-disabled'));
   assert.deepEqual(selector.element.querySelectorAll('.passive-remove').map((node) => node.disabled), [false, false]);
+});
+
+test('パッシブ選択: 候補の一覧の高さを窓の下端までに収める（固定のパネルの中で開いても下がはみ出さない。狭すぎるときは 160px）。組み合わせの段が変われば測り直す', async (t) => {
+  const { add, selector, windowEvents } = mount(t, { presets: [{ label: '作業用', passives: ['CraftSpeed_up2', 'Rare'] }] });
+  const list = () => selector.element.querySelector('.passive-options');
+  // テストの DOM の一覧の上端は 200px。窓の高さ 600px なら、窓の下端から 12px 空けて 388px
+  windowEvents.innerHeight = 600;
+  await add.dispatch('click');
+  assert.equal(list().style.getPropertyValue('--passive-options-max'), '388px');
+  // 組み合わせの段が変わると一覧の上端が動くので測り直す（窓が低くなったときも、開き直さずに合う）
+  windowEvents.innerHeight = 300;
+  selector.update({ presets: [] });
+  assert.equal(list().style.getPropertyValue('--passive-options-max'), '160px');
+  // ブラウザでは、開くときの動き（transform で縮めて出す）の途中の getBoundingClientRect ではなく、板を置いた要素の位置＋板と一覧の offsetTop で測る
+  windowEvents.innerHeight = 600;
+  const board = list().parentElement;
+  const host = { getBoundingClientRect: () => ({ top: 50 }), clientTop: 1 };
+  Object.assign(list(), { offsetParent: board, offsetTop: 150 });
+  Object.assign(board, { offsetParent: host, offsetTop: 40 });
+  selector.update({ presets: [{ label: '作業用', passives: ['Rare'] }] });
+  assert.equal(list().style.getPropertyValue('--passive-options-max'), `${600 - (50 + 1 + 40 + 150) - 12}px`);
 });

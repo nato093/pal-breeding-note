@@ -11,11 +11,11 @@ import { createPopover } from '../ui/popover.js';
 import { ownedNotices, noticeList, ownedSourceLine } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute } from './shared.js';
+import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import {
-  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, shortUid,
+  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel,
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
 import { normalizeQuery, queryTerms } from '../core/kana.js';
@@ -44,7 +44,7 @@ const SORT_DIRS = new Map(OWNED_SORTS.map(([key, , dir]) => [key, dir]));
 const sortValue = (key, dir) => (dir === SORT_DIRS.get(key) ? key : `${key}:${dir}`);
 // パッシブの条件（押しボタン。値は core/owned.js の filterOwned の passiveMode）
 const PASSIVE_MODES = [
-  ['include', '全部', '選んだパッシブを全部持つ個体'],
+  ['include', '全部持つ', '選んだパッシブを全部持つ個体'],
   ['only', 'だけ', '選んだパッシブを全部持ち、ほかのパッシブを持たない個体'],
   ['none', 'なし', 'パッシブを 1 つも持たない個体（選んだパッシブは使いません）'],
 ];
@@ -192,18 +192,19 @@ const HEAD_COLUMNS = {
   dex: ['dex', 'パル', 'パル（図鑑番号）'],
   level: ['level', 'Lv', 'レベル'],
   stars: ['stars', '★', 'パル濃縮（★）'],
-  passives: ['passives', 'パッシブ', '良いパッシブ'],
+  passives: ['passives', 'パッシブ', 'パッシブのランク'],
   hp: ['hp', 'HP', 'HP の個体値'],
   shot: ['shot', '攻', '攻撃の個体値'],
   defense: ['defense', '防', '防御の個体値'],
   talent: ['talent', '計', '個体値の合計'],
   place: ['place', '所持者・場所', '所持者・場所'],
 };
-// 向きの言い方（列見出しの読み上げ。「HP の個体値で並べ替え（高い順）」）
+// 向きの言い方（列見出しの読み上げ。「HP の個体値で並べ替え（高い順）」）。並べ替えの選択の名前（core/owned.js の OWNED_SORTS
+//「HP の個体値が高い順」）と同じ言い方にそろえる
 const HIGH_LOW = { desc: '高い順', asc: '低い順' };
 const HEAD_WORDS = {
-  dex: { asc: '小さい順', desc: '大きい順' }, passives: { desc: '良い順', asc: '低い順' }, level: HIGH_LOW, stars: { desc: '多い順', asc: '少ない順' },
-  talent: HIGH_LOW, hp: HIGH_LOW, shot: HIGH_LOW, defense: HIGH_LOW, place: { asc: 'ボックスの順', desc: '逆の順' },
+  dex: { asc: '小さい順', desc: '大きい順' }, passives: HIGH_LOW, level: HIGH_LOW, stars: { desc: '多い順', asc: '少ない順' },
+  talent: HIGH_LOW, hp: HIGH_LOW, shot: HIGH_LOW, defense: HIGH_LOW, place: { asc: 'ボックス順', desc: 'ボックスの逆順' },
 };
 // 場所の検索欄を出す拠点の数
 const BASE_SEARCH_OVER = 12;
@@ -879,13 +880,13 @@ export function ownedView(context, route) {
   };
   const idealLink = panelLink('理想個体 →', 'この条件で理想個体を開く');
   // 目標の印（O-52）を出すか（既定はオン。画面の表示の好みなので絞り込みの条件には入れず、viewState にだけ覚える〔読み込み直すとオン〕）。
-  // 登録した目標がないときは隠す
+  // 保存した目標がないときは隠す
   const marksToggle = el('label', 'owned-marks-toggle');
   const marksCheck = el('input');
   marksCheck.type = 'checkbox';
   marksCheck.checked = memory?.showMarks !== false;
   marksToggle.append(marksCheck, el('span', '', '目標の印'));
-  marksToggle.title = '登録した目標の完成品と、目標の欲しいパッシブを持つ個体に印を付けます（印の文字もキーワードで探せます）';
+  marksToggle.title = '保存した目標の完成品と、目標の欲しいパッシブを持つ個体に印を付けます（印の文字もキーワードで探せます）';
   marksToggle.hidden = true;
   const routeLink = panelLink('継承ルート →', 'このパッシブを運ぶ継承ルートを開く');
 
@@ -1079,19 +1080,6 @@ export function ownedView(context, route) {
     holderIds = { data, holder: filter.holder, self, ids: new Set((pals ?? []).map((pal) => pal.id)), unknown };
     return holderIds;
   }
-  // 所持者の選択肢: すべて・自分の個体（ログイン中）・プレイヤー（自分を先頭に「（自分）」、同じ名前が 2 人以上なら UID の頭 8 字を添える）
-  function holderChoices(data) {
-    const players = data?.players ?? [];
-    const self = context.ideals?.selfUids?.() ?? new Set();
-    const names = new Map();
-    for (const player of players) names.set(player.name, (names.get(player.name) ?? 0) + 1);
-    const label = (player) => {
-      if (self.has(player.uid)) return `${player.name || '不明なプレイヤー'}（自分）`;
-      return !player.name || names.get(player.name) > 1 ? `${player.name || '不明なプレイヤー'}（${shortUid(player.uid)}）` : player.name;
-    };
-    const ordered = [...players.filter((player) => self.has(player.uid)), ...players.filter((player) => !self.has(player.uid))];
-    return [['', 'すべて'], ...(context.ideals ? [['mine', '自分の個体']] : []), ...ordered.map((player) => [`player:${player.uid}`, label(player)])];
-  }
 
   // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。
   // 選んでいる途中（フォーカス中）は作り直さず、離れてから作り直す。待っていた作り直し（blur の後）で選んでいた値を外したときは、
@@ -1099,7 +1087,8 @@ export function ownedView(context, route) {
   let syncingFilters = false;
   let holderOptions = [['', 'すべて']];
   function renderHolders(state) {
-    const choices = holderChoices(state.owned);
+    // 所持者の選択肢（理想個体と同じ名前。views/shared.js）
+    const choices = holderChoices(state.owned, context.ideals);
     holderOptions = choices;
     renderWhenIdle(holderSelect.element, () => {
       const valid = choices.some(([value]) => value === filter.holder);
@@ -1317,7 +1306,7 @@ export function ownedView(context, route) {
     routeLink.hidden = !carry;
     if (carry) routeLink.href = buildHash('route', { p: filter.passives.join(',') });
   }
-  // 件数の行: 「N / 全 M 体 · ♂a ♀b タマゴ c」。グローバルパルボックスを外していて数があれば title に。自分のプレイヤーが分からなければその旨
+  // 件数の行: 「N / M 体 · ♂a ♀b タマゴ c」。グローバルパルボックスを外していて数があれば title に。自分のプレイヤーが分からなければその旨
   function renderCount(state, shown, totals, holder) {
     if (!state.owned) {
       count.textContent = '';

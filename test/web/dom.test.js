@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom, installResizeObserver } from '../helpers/dom.js';
-import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight } from '../../web/js/ui/dom.js';
+import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight, svgElement } from '../../web/js/ui/dom.js';
 
 // 行の部品（{ element, update, destroy }）。作った数・更新・破棄を数える
 function rows() {
@@ -279,4 +279,13 @@ test('trackHeight: ResizeObserver が無い環境では 1 回だけ測って書�
   const stop = trackHeight(panel, host);
   assert.equal(host.style.getPropertyValue('--panel-h'), '52px');
   assert.doesNotThrow(stop);
+});
+
+test('svgElement: SVG の要素を名前空間つきで作り、属性を文字列にして付ける。style とイベントの属性（on*）は大文字小文字によらず投げる', (t) => {
+  installDom(t);
+  const node = svgElement('circle', { cx: 4, r: 2.5, 'aria-hidden': 'true' });
+  assert.equal(node.namespaceURI, 'http://www.w3.org/2000/svg');
+  assert.equal(node.tagName, 'circle');
+  assert.deepEqual([node.getAttribute('cx'), node.getAttribute('r'), node.getAttribute('aria-hidden')], ['4', '2.5', 'true']);
+  for (const name of ['style', 'STYLE', 'onload', 'OnClick']) assert.throws(() => svgElement('svg', { [name]: 'x' }), new RegExp(name), name);
 });
