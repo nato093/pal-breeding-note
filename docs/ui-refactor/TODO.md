@@ -400,12 +400,16 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 直し: `fix/phase-1bc-review-owned`（フェーズ 1b・1c の終わりのレビューの B1〜B14〔所持パル〕: 同じ種族の目標の印の計算・行の印を 1 個と「+N」・コピーの返事・変換中の入力・フォーカスと一覧の位置・条件のチップの「+n」・古い保存。中身は phase-1b-1c の owned-toolbar・owned-rows の「実装の記録」17）
 
+直し: `fix/phase-1bc-review-ideal`（フェーズ 1b・1c の終わりのレビューの A1〜A15〔理想個体と共通・文書〕: 描き直しのフォーカス・保留が解けた後の「変更あり」・組へ移ったらカードへフォーカス・着地点・帯のセルの読み上げ・フォーカスの枠・所持者の名前とリンク・個体値の欄の名前・用語の揺れ〔並べ替えの名前・「全部持つ」〕・お知らせ・OPERATIONS.md・JS と CSS の値・テストと静的検査・150% のパッシブの板。中身は phase-1b-1c の ideal-panel・ideal-results の「実装の記録」13、ideal-farms の 16、owned-toolbar・owned-rows の 18）
+
 ### フェーズ 1b・1c の終わり
 
-- [ ] `npm test`・`npm run test:perf`（新しい `test/perf/owned.perf.js` を含む。2,000 行の予算）が通る
-- [ ] 計測の取り直し（[phase-1b-1c の「フェーズの終わりにすること」](phase-1b-1c-ideal-owned.md#フェーズの終わりにすること)の表: 所持パルでパッシブを足す・結果が減る絞り込み・行の高さ・理想個体のパッシブ追加・読み直しの帯）
-- [ ] ブラウザでしか確かめられないこと（日本語変換中の入力・パッシブの板を開いたままの 20 秒の更新・幅 920px／1100px・拡大 125〜150%・ヘッダー／パネル／牧場の帯／列見出し／ポップオーバー／トースト／ダイアログの重なり）
-- [ ] 観点別のエージェント（安定性・INV-2・セキュリティ・性能・テスト）と Codex（読み取り専用。使う前に許可）で差分をレビューし、直した
+- 状態: 済（2026-10-13）。レビューの直しは `fix/phase-1bc-review-owned`（マージ `828814a`）と `fix/phase-1bc-review-ideal`（マージ （未））。指摘は Codex 6 件・観点別のエージェント 3 体（安定性 7 件・互換 3 件・操作性 15 件）・計測 3 件で、重なりを除いた 31 項目のうち 29 項目（所持パル B1〜B14・理想個体と共通 A1〜A15）を直した。直さなかった 2 項目: 足りないパッシブの案内が出入りすると帯・結果が動く（利用者が自分でパッシブを足し外ししたときだけ。D20 と同じ考え方）、モーダルのダイアログを開いたまま裏のページがホイールでスクロールする（前からあり・全ダイアログ共通。「次にやること」の気づいたことに書いた）。互換の「パルボックスが 10,000 ページを超えると図と文字が食い違う」は実際には起きないので項目から外した。計測は phase-1a-foundation.md の「計測の記録」の 2026-10-13 の「フェーズ 1b・1c の終わり」の行
+
+- [x] `npm test`・`npm run test:perf`（新しい `test/perf/owned.perf.js` を含む。2,000 行の予算）が通る
+- [x] 計測の取り直し（[phase-1b-1c の「フェーズの終わりにすること」](phase-1b-1c-ideal-owned.md#フェーズの終わりにすること)の表: 所持パルでパッシブを足す・結果が減る絞り込み・行の高さ・理想個体のパッシブ追加・読み直しの帯）
+- [x] ブラウザでしか確かめられないこと（日本語変換中の入力・パッシブの板を開いたままの 20 秒の更新・幅 920px／1100px・拡大 125〜150%・ヘッダー／パネル／牧場の帯／列見出し／ポップオーバー／トースト／ダイアログの重なり）（日本語変換中の入力は playwright で本物の IME を作れないので見ていない。変換中の矢印・Enter は B4 のテストで確かめた）
+- [x] 観点別のエージェント（安定性・INV-2・セキュリティ・性能・テスト）と Codex（読み取り専用。使う前に許可）で差分をレビューし、直した
 - [ ] フェーズの区切りの報告（変更したファイル・実行したコマンド・画面の確かめ方）
 
 ---
@@ -1024,8 +1028,9 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1b の 1 番目 talent-target から**（[phase-1b-1c-ideal-owned.md](phase-1b-1c-ideal-owned.md) の冒頭の「テーマの順番」「共通の決まり」「プランと違っていた点」を先に読む）。フェーズ 1a は 2026-10-13 に済ませ、報告した。下の「ユーザーの答え」は `fix/phase-1a-answers` で反映した。
+- **フェーズ 1d の 1 番目 participant-self から**（[phase-1d-small-fixes.md](phase-1d-small-fixes.md) の冒頭の「テーマの順番」「共通の決まり」「プランと違っていた点」を先に読む）。フェーズ 1b・1c（7 テーマとレビューの直し 2 本）は 2026-10-13 に済ませた。participant-self で「自分」を変えるときは、phase-1b-1c の owned-toolbar の「実装の記録」16 の申し送りと、所持者の選択肢の `holderChoices`（views/shared.js。所持パルと理想個体で同じ。owned-toolbar の 18）を見る。
 - ユーザーの答え（2026-10-13）: (1) 今の制約のまま (2) ログイン画面では隠す（fix/phase-1a-answers で直した） (3) Worker にしない (4) test:perf の余裕は、落ちたら測り直す（予算は変えない） (5) 2 行分の高さを最初から取る（fix/phase-1a-answers で直した）。その後、ユーザーの判断で固定をやめ、空のときは 1 行分・改行が要るときだけ行が増える形にした（fix/passive-row-natural。phase-1a の popovers の「実装の記録」）
-- 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D19・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
-- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。(7) 性能の予算の注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-rows-2000.js`・`inject-rows-20000.js`（inject.js の写し。画面に出る行がちょうどその数）。ログイン画面ではヘッダーの同期状況のボタンにもエラーの文が出るので、playwright で「新規登録」を押すときは `exact: true` にする。JS ヒープは CDP の `HeapProfiler.collectGarbage` の後に `Runtime.getHeapUsage` で測った。
-- 最終更新: 2026-10-13（セッション `300704ce`。フェーズ 0・フェーズ 1-0（ideal-calc）・フェーズ 1a（7 テーマとレビューの直し）を済ませた。ideal-calc のレビューで D19 を足した）
+- 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D24・3-3・3-7 の既定の扱い）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
+- ユーザーに確かめたい点（フェーズ 1b・1c のレビューの直し。理想個体側）: (a) 所持パルの並べ替えの名前を「〈何〉が〈向き〉」にそろえ、「良いパッシブ順」を「パッシブのランクが高い順」にした（owned-rows の 18） (b) 理想個体で自分のプレイヤーを所持者に選ぶと、要約が「Alice（自分） の個体」になる（ideal-panel の 13） (c) 所持の状況のリンクは所持者を渡すが、場所は所持パルの既定（タマゴも出る。所持の状況の数はタマゴを除く） (d) 所持パルの「全部持つ」は 1100px で 2 段目の残りが 6px（owned-toolbar の 18）
+- 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。(7) 性能の予算の注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-rows-2000.js`・`inject-rows-20000.js`（inject.js の写し。画面に出る行がちょうどその数）。ログイン画面ではヘッダーの同期状況のボタンにもエラーの文が出るので、playwright で「新規登録」を押すときは `exact: true` にする。JS ヒープは CDP の `HeapProfiler.collectGarbage` の後に `Runtime.getHeapUsage` で測った。(8) playwright-cli は各コマンドの後にアクセシビリティのツリーを作るので、行の多い画面の Long Task は同じコマンドの中で画面を開き直して測る（`Claude outputs/ui-audit-2026-10/shots/owned/owned-rows/longtask3.js`）。(9) ブラウザの tagName は大文字（テストの偽 DOM は小文字）。比べるときは `toLowerCase()`。(10) 先祖の要素（body・#app・一覧の入れ物）に `:has()` を足さない（行を出し入れするたびに body から下のスタイルを計算し直させ、2,000 行のキーワードの入力が止まった。phase-1b-1c の owned-rows の「実装の記録」12）。(11) モーダルのダイアログを開いたまま、裏のページがホイールでスクロールする（前からあり、全ダイアログ共通。未対応）。(12) この PC は Palworld などの負荷（CPU 56〜60%）で test:perf が 2〜4 倍揺れる。落ちたら測り直し、前後は同じ node のプロセスで交互に測る（予算は変えない）。(13) ポップオーバーは開くときに `@starting-style` の scaleY(.9) で縮めて出すので、開いた直後の getBoundingClientRect は板の中の位置がずれる。板の中の位置は offsetTop で測る（ui/passive-picker.js の `listTop`）。フォーカスの枠も入るときに 6px → 2px へ動く（focus-in）ので、枠を測るのは終わってから。(14) 画面の確認の playwright のスクリプトは、Bash の heredoc にバッククォートや `${}` を含めると失敗することがあるので、Write でファイルにしてから `run-code --filename` で流す。
+- 最終更新: 2026-10-13（セッション `96293c69`。フェーズ 1b・1c〔talent-target・ideal-panel・ideal-results・ideal-farms・owned-status・owned-toolbar・owned-rows〕と、そのレビューの直し 2 本〔所持パル・理想個体と共通〕を済ませた）
