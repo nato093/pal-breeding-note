@@ -423,27 +423,52 @@ ideal-panel（要約の行の場所・見出しの「?」の置き場）、popov
 - body: 「要約と数値の言い方をそろえ、説明は「?」から開きます。組の親で欲しいパッシブと個体値の差を示します。」（50 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] 要約が 1 行に収まり、条件を変えても要約の行の高さが変わらない（下の牧場・結果が動かない）。
-- [ ] 「計算のしくみ」が結果の下から消え、「?」から 4 見出しのダイアログで読める。INV-2 の例外の一文と「変更あり」の消える条件・交換の決め方が残っている。
-- [ ] 組の数値がすべて「…まで 平均 約 N 個」の形で、「世代を重ねて」「に 1 個」「多くても」が画面に出ない。
-- [ ] 組の ♂♀ 行で、欲しいパッシブに ✓、余計なパッシブが薄く、目標未満の個体値に差（−N）が出る。
-- [ ] 45 秒開いたままでも（20 秒の確認を 2 回またいでも）、カードの DOM が作り直されず、最終確認の時刻だけが変わる（MutationObserver で確かめる）。
-- [ ] 説明の板を開いても、周りの要素の位置が変わらない。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 計算のしくみのダイアログに例外 (b) の一文が残り、数値は idealPlan の結果だけ。`ui/hint.js` は `core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `ui/hint.js` は HTML の文字列を受けず textContent だけで作る（`test/static/security.test.js`）。性能 — 20 秒ごとの確認でカードを作り直さない（上の MutationObserver の確認）。互換 — 保存するデータは増えていない。
+- [x] `npm test` が通る。（1,290 件・exit 0）
+- [x] 要約が 1 行に収まり、条件を変えても要約の行の高さが変わらない（下の牧場・結果が動かない）。（1100px で高さ 18.6px・top 272.4 のまま。920px でも 1 行。牧場の欄は判定の中身で伸び縮みする〔ideal-farms〕。「実装の記録」10）
+- [x] 「計算のしくみ」が結果の下から消え、「?」から 4 見出しのダイアログで読める。INV-2 の例外の一文と「変更あり」の消える条件・交換の決め方が残っている。
+- [x] 組の数値がすべて「…まで 平均 約 N 個」の形で、「世代を重ねて」「に 1 個」「多くても」が画面に出ない。
+- [x] 組の ♂♀ 行で、欲しいパッシブに ✓、余計なパッシブが薄く、目標未満の個体値に差（−N）が出る。（差は値の下に小さく出す。「実装の記録」9）
+- [x] 45 秒開いたままでも（20 秒の確認を 2 回またいでも）、カードの DOM が作り直されず、最終確認の時刻だけが変わる（MutationObserver で確かめる）。
+- [x] 説明の板を開いても、周りの要素の位置が変わらない。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 計算のしくみのダイアログに例外 (b) の一文が残り、数値は idealPlan の結果だけ。`ui/hint.js` は `core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `ui/hint.js` は HTML の文字列を受けず textContent だけで作る（`test/static/security.test.js`）。性能 — 20 秒ごとの確認でカードを作り直さない（上の MutationObserver の確認）。互換 — 保存するデータは増えていない。（同じ見込みの組の開閉は viewState の中だけで、IDEAL_MEMORY・localStorage には足していない）
 
 ### TODO
-- [ ] `ui/hint.js` とテストを作る（popover.js の上に、開閉・Esc・1 度に 1 つ）
-- [ ] 要約を `.ideal-summary`（文・除外ボタン・最終確認）に組み直す
-- [ ] `refresh` で確認した時刻を覚え、時刻の文字だけを書き換える
-- [ ] `eggsText`・`generationsText`・`pairMeasure` の言い方をそろえる
-- [ ] `explanation()` を消し、「?」→ 4 見出しのダイアログにする
-- [ ] タグを説明つきのボタンにし、色とアイコンを付ける
-- [ ] 同じ見込みの個体値厳選組を畳む（判定が指す組・先頭は残す）
-- [ ] `renderMissing` と `noPairs` の文言を直す（:374 は触らない）
-- [ ] `ownedRow` に `highlight` を足し、`pairCard` から渡す
-- [ ] ideal-view.test.js の文言の期待値を直し、新しいテストを足す
-- [ ] release-notes に 1 件足し、モックで確かめる
+- [x] `ui/hint.js` とテストを作る（popover.js の上に、開閉・Esc・1 度に 1 つ）
+- [x] 要約を `.ideal-summary`（文・除外ボタン・最終確認）に組み直す
+- [x] `refresh` で確認した時刻を覚え、時刻の文字だけを書き換える
+- [x] `eggsText`・`generationsText`・`pairMeasure` の言い方をそろえる
+- [x] `explanation()` を消し、「?」→ 4 見出しのダイアログにする
+- [x] タグを説明つきのボタンにし、色とアイコンを付ける
+- [x] 同じ見込みの個体値厳選組を畳む（判定が指す組・先頭は残す）
+- [x] `renderMissing` と `noPairs` の文言を直す（:374 は触らない）
+- [x] `ownedRow` に `highlight` を足し、`pairCard` から渡す
+- [x] ideal-view.test.js の文言の期待値を直し、新しいテストを足す
+- [x] release-notes に 1 件足し、モックで確かめる
+
+### 実装の記録（2026-10-13、ブランチ `feature/ideal-results`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ ideal-farms・owned-status・owned-rows はこちらを正とする）。
+
+1. **説明部品 `ui/hint.js`（手順 1）**: `hint({ label, content, trigger })` → `{ element, close(), destroy() }`。文書の形に **`close()`** を足した（呼び出し側から開いている板を閉じる。除外が 0 になったときに使う）。板は `createPopover({ anchor: ボタン, wrapper: ボタン, host: document.body, className: 'picker-popover hint-popover', place: { minWidth: 280, maxHeight: 320 } })`（`picker-popover-floating` の固定配置。ボタンの下、下に 200px 足りず上が広ければ上）で、`role="status"`（開いてから中身を入れるので読み上げられる）。content は文字列（`p.hint-text` にする）・要素・その配列、またはそれを返す関数（開くたびに呼ぶ）。trigger を渡すと、その要素に `.hint-trigger` を付けて開くボタンにし、**aria-label は付けない**（見えている文が名前。「除外 3」の数を名前から消さないため）。渡さないと `button.hint-button`「?」（aria-label「〈label〉の説明」）。板は 1 度に 1 つ（開いている部品をモジュールの中で覚え、ほかが開いたら閉じる）。Esc で閉じてボタンへフォーカスを戻す。**外側を押して閉じたときは戻さない**（文書は「Esc と外側のクリックで閉じてボタンにフォーカスを戻す」。ui/popover.js の決まり〔外側の pointerdown では押した先に任せる〕に合わせた。押した先が入力欄などのときにフォーカスを奪わないため）。浮かせた板なので、外でのホイール・タッチのスクロールと窓の大きさの変更でも閉じる（popover.js のまま）。CSS は `.hint-button`（16px の丸）・`.hint-popover`。
+2. **要約の行（手順 2）**: `p.result-note.ideal-note` を **`div.result-note.ideal-summary`** にし、1 行に固定する CSS は `.ideal-summary` に移した（flex・`height: 1lh`。`.ideal-note` は消した）。中は固定の 3 つの子で、作り直さず文字だけ書き換える:
+   - `span.ideal-summary-text`: `summaryLine(result)`「上位 N 組（全 M 組・候補 K 体） · 登録済みの配合 n 件（異種の配合がなければ 同じ種族どうし） · Alice の個体」。省略記号で、title に全文。所持者の部分は文書の「` · ${holderName()} の個体`」だと自分の個体のとき「自分の個体 の個体」になるので、**自分の個体は「 · 自分の個体」** にした。結果がないとき（目標なし・データなし・初めての計算中）は空、組が 0 のときも「上位 0 組（全 0 組・候補 N 体）」のまま出す（理由は結果の欄の文）。
+   - `button.ideal-excluded`（`hint` の trigger）: 「除外 N」（N＝unknownGender＋tooMany＋blocked）。押すと内訳（「性別不明の n 体」「パッシブが 5 個以上の n 体（入れ替えの計算から除外）」「パッシブの条件を満たせない n 組」の 0 でないもの）。0 のときは `.is-placeholder`（visibility: hidden）と disabled で幅を残し、開いていた板は閉じる。
+   - `span.ideal-checked`（右端・11px）: 下の 3。
+   - 書き換えは `renderSummary(result)`（null で空にする）と `renderChecked()`。ideal-panel の `showNote` はなくした。
+3. **最終確認（手順 3）**: `refresh` を async にし、`await owned.autoRefresh()` の結果が `'error'`（読めなかった）でなければ `lastChecked = Date.now()` → **`renderChecked()`**（文書の `.then(…)` から、読めなかった確認では時刻を進めない形にした）。文は「最終確認 時:分（`formatTime`） · セーブ 月/日 時:分（`dateTime(owned.state.meta.saveUpdatedAt)`）」。確かめる前は「最終確認 —」、セーブの時刻がなければ前半だけ、`context.owned` のない画面では空。`update()`（所持パルのデータが変わったとき）でも呼ぶ（セーブの時刻を追う）。時:分なので、同じ分の中の確認では文字は変わらず書き換えもしない。**owned-status で「セーブ …」を外すときは renderChecked の 2 つ目の部分を消し、「最終確認」をスロットに任せるなら `span.ideal-checked` ごと外してよい**（要約の行の子は 2 つになる）。`REFRESH_NOTE` は消した。
+4. **数値の言い方（手順 4）**: 文書のとおり。`generationsText(eggs, upper, lead = '完成まで')` に lead を足し、個体値厳選組は「個体値がそろうまで」を渡す（前の文字の置き換えをやめた）。「この 2 体のままなら 約 M 個」は eggsText から「平均 」を外した形（「ほぼ毎回」「100 万個以上」もそのまま続く）。
+5. **計算のしくみ（手順 5）**: `HELP_SECTIONS`（4 見出し・各 2〜3 文）と `helpSections()` → `div.ideal-help > section.ideal-help-section > h3＋p`。ダイアログは ideal-panel の `openHelp()`（`openDialog('計算のしくみ', { className: 'ideal-help-dialog' })`。幅を 640px にした）のまま。文は文書の案に次を足し引きした: (a)「目標のある各ステータス」→「条件のある各ステータス」（talent-target で docs/OPERATIONS.md を直したのに合わせた）、(b) 配合牧場の 1 つ目の段落は ideal-calc の「実装の記録」5 の文（「入れ替えに関わる牧場がどれもまだ完成できない（準備の組だけの）ときは、それらの牧場がどれも悪くならず…」）と D19 の一文を使った、(c) 今の説明の「空いている牧場に何を置くかは、おすすめの順を見て決めてください。」は文書の案になかったので外した（ideal-farms の空き牧場の案内〔D16〕で出す）。説明の文字数は 1,684 → 1,187 字（textContent）。
+6. **組の札（手順 6）**: `pairCard(pair, rank, { cake, placed, changed, highlight, hints })`。札は `button`（`.ideal-tier.group-<目的>`・`.ideal-changed`・`.ideal-placed`）で、中は（組の目的だけ）`svg.ideal-tier-icon` と文の `span`。説明の文は `TAG_HINTS`（文書の文のまま）。札は pairCard の中の **`tag(className, text, help, icon)`** で作り、作った hint は `hints` に入れる。drawPlan は `showResults(nodes, hints)` で、前のカードの hint を destroy してから結果の欄を入れ替える（作り直すと開いていた板も閉じる。画面の destroy でも閉じる）。**ideal-farms で足す札（「→ ◯◯へ」・持ち主が違う組）は `tag(…)` で足せば、説明つきのボタンになる**。アイコンは views/ideal.js の `groupIcon(group)`（`GROUP_SHAPES`・`svgNode`。createElementNS。visual-parts で ui/icons.js に移す）。個体値厳選組の色は secondary-container。「変更あり」は出たときに一度だけ 1.18 倍になって戻る（`changed-pop`。`prefers-reduced-motion: no-preference` の中）。
+7. **同じ見込みの組（手順 7）**: drawPlan の **`foldSame(pairs, nodes, pointed, short)`** と `sameGroup(short)`。見込みの比べ方は `sameProspect`（どちらも個体値厳選組で、世代の平均の有無が同じで、`talentGenerations`〔なければ `talentChance`〕が有効数字 12 桁で同じ）。**`pointed`**（畳まない組）は drawPlan の `advice` から作る（swap は `to`、keep・none は `rank` ≥ 0）。**畳まない組が同じ見込みの並びの間に入ったら、まとまりを分ける**（並びを変えないため。文書は分け方を決めていなかった）。形は **`details.ideal-same > summary.ideal-same-summary`（`span.ideal-same-title`「同じ見込みの組 ほか n 組」＋`small.ideal-same-reason`）＋畳んだ `.ideal-pair`**。**理由は summary の中**に置いた（閉じていても読める。文書の「summary の下に理由を 1 行」）。理由の判定は計算のときの `plan.short`（候補〔目標の配合の種族・親になれる・性別が分かる個体〕のだれも届かないステータス。キノコケーキは目標−5）で、複数あれば「HP 100 以上・攻撃 100 以上の親が候補にいないため、…」。開閉は `memory.sameOpen`（viewState。IDEAL_MEMORY には入れないので、タブの切り替えでは残り、読み込み直すと閉じる）。開く印は ▸（所持パルの登録したワールドの折りたたみと同じ形）。文書のテスト (3) の括弧「上から K 組でも、判定が指していなければ畳まれる」は、テストのデータで作れなかった（同じ見込みの組が上から K 組に並ぶと、交換推奨か「そのまま」がその組を指すため）ので、「先頭と判定が指す組は外に残り、その次の同じ見込みの組は畳まれる」で確かめた。**ideal-farms で判定が指す組を変えるときは `pointed` を直す**。
+8. **文言（手順 8・9）**: 文書のとおり。欲しいパッシブがないときは「[小さなチップ] を持つ親の候補がいません。」＋（組があれば）「いまは個体値厳選組だけを出しています。」、ボタンは「[チップ]を運ぶ継承ルート」。noPairs の登録者の対応の文（:374）は触っていない。
+9. **組の ♂♀ 行の強調（手順 10）**: **`ownedRow(pal, { notes, highlight })`・`fillOwnedRow(row, pal, { notes = [], highlight } = {})`**（オプションは 1 つの object。ideal-farms の `marks`・owned-rows の 4 セルもここに足す）。中は views/owned.js の `passiveCell(ids, wanted)` と `talentCell(talent, targets)` に分けた。
+   - パッシブ: wanted が 1 個以上のときだけ、欲しいチップに `.is-wanted` と先頭の `span.passive-check`「✓」（role=img・aria-label「欲しいパッシブ」）、それ以外に `.is-extra`（opacity .55）。**欲しいパッシブを選んでいないときは何も付けない**（全部が薄くなるのを避けた。文書は決めていなかった）。
+   - 個体値: **targets があるときだけ** `.owned-talent` の中を `span.talent-cell[data-key][role=img]` ×3 と `span.talent-sep`「 / 」（aria-hidden）にする。文書の「区切りは文字のノードで」は、テストの偽 DOM に文字のノード（createTextNode・文字列の append）がないので span にした。**targets がないとき（所持パルの画面）は今までどおり 1 つの文**（行ごとに 5〜8 個の要素を増やさない。DOM も textContent も変わらない）。目標 > 0 で値 ≥ 目標は `.met`（primary・太字）と aria-label「攻撃 100（目標 100 以上）」、未満は `.short`（細字・on-surface-variant）と `span.talent-diff`「−20」と aria-label「攻撃 80（目標 100 まで あと 20）」、目標 0 は aria-label「防御 100」だけ。
+   - **差は値の右ではなく、値の下に小さく出す**（CSS で `.talent-cell` を縦並びの inline-flex に）。右に並べると 3 つで約 230px あり、理想個体のカードの個体値の列 190px では 2 行に折り返した（アヌビス＋伝説で 18 行中 17 行）。下に出すと値の並びは 1 行のまま（折り返し 0 行）で、差のある欄の高さは 20 → 33px（行の高さはパッシブの 2 段やパルの絵で決まり、変わらない）。owned-rows で 4 セル・バーにするときに、この形も作り直す。
+   - テストの `talentsOf`（`.owned-talent` の textContent）は、差の付いた分の期待値を直した（例「HP 90−10 / 攻 90−10 / 防 90−10」）。owned-rows で aria-label で比べる形にする。
+10. **画面の確認（phase-1a の「計測の記録」の ideal-results の行）**: 要約の行は 1 行（1100px で 18.6px）で、個体値・キノコ等・だけ・スペシャル（除外 90）・所持者 Bob・すべて 100 と変えても top 272.4・高さとも同じ。札の説明を開いても、パネル・要約・牧場・全カードの位置と scrollY は同じ（板は札の 4px 下、body の中）。45 秒開いたまま（20 秒の確認を 2 回またぎ、分が変わる）で、`.ideal-view` の中の変化は `.ideal-checked` の文字の 1 回だけ（11:50 → 11:51）、カード 9 枚は同じ要素。ライトとダーク。
+11. **テスト**: test/web/hint.test.js（5 件。部品を作る前にモジュールがなくて落ちることを確かめた）。ideal-view.test.js に 7 件（要約の 3 つの子と除外の内訳・除外 0 で幅を残す・条件を変えても子は同じ／所持者の文／20 秒の確認で最終確認だけ変わる〔`t.mock.timers` で Date も進める。読めなかった確認では変えない〕／同じ見込みの組を畳む〔先頭・判定が指す組・理由・キノコケーキの理由・viewState の開閉〕／♂♀ 行の強調と所持パルの行が変わらない／札の説明と作り直しで板が閉じる／計算のしくみの INV-2 の一文と数値の言い方）。どれも変える前のコードで落ちることを確かめた（views/ideal.js・views/owned.js だけを戻して実行）。期待値を直したもの: 要約の文と `.ideal-summary` の形、組の数値の言い方、eggsText の 4 件、計算のしくみの 4 見出し、欲しいパッシブがないとき・候補がないときの文、「〇〇を運ぶ継承ルート」、差の付いた個体値（talentsOf の 4 か所）。
+12. **そのほか**: docs/OPERATIONS.md の理想個体の節（数値の言い方・札・畳み・強調・要約・最終確認・計算のしくみ）を新しい画面に合わせた（触るファイルの一覧にはなかった）。CSS は `.ideal-note` と前の `.ideal-help` を消し、`.ideal-summary`・`.ideal-excluded`・`.ideal-checked`・`.hint-button`・`.hint-popover`・札のボタン・`.ideal-tier.group-talent`・`.ideal-tier-icon`・強調（`.is-extra`・`.passive-check`・`.talent-cell`・`.talent-diff`）・`.ideal-same`・新しい `.ideal-help` を足した。計算（core/ideal.js）は変えていない。モックでは、世代の平均が出る組で「この 2 体のままでは届きません · 1 個のタマゴで 0%」と出る組がある（前から。この 2 体のまま 1 個で完成する確率が 0 の組）。
 
 ---
 
@@ -463,7 +488,7 @@ ideal-panel（要約の行の場所・見出しの「?」の置き場）、popov
   - **D16**: 空き牧場には、牧場に残す組・交換先の組に使う個体を除いた、おすすめの上位の組を案内する（I-29 の「おすすめ K+1〜K+m 番」は、上から K 組が牧場に置く組とは限らないので使わない）。
 
 ### 依存
-ideal-results（カードの札・説明部品・畳み）、ideal-panel（`--panel-h`）、stable-render（カードの `data-key`）、ideal-calc（`farmAdvice` の `measureOf`・`idealPlan` の `measures`・「変更あり」の絞り込み）。（追記 2026-10-13: `--panel-h` は ideal-panel が `trackHeight` で画面の section に書き、パネルが伸びる〔D20〕と変わる。今は牧場の欄の中身〔「そのまま」→「交換推奨」の詳細の行〕が変わると下の結果が動く〔アヌビスで +39px〕。ideal-panel の「実装の記録」3・10）
+ideal-results（カードの札・説明部品・畳み）、ideal-panel（`--panel-h`）、stable-render（カードの `data-key`）、ideal-calc（`farmAdvice` の `measureOf`・`idealPlan` の `measures`・「変更あり」の絞り込み）。（追記 2026-10-13: `--panel-h` は ideal-panel が `trackHeight` で画面の section に書き、パネルが伸びる〔D20〕と変わる。今は牧場の欄の中身〔「そのまま」→「交換推奨」の詳細の行〕が変わると下の結果が動く〔アヌビスで +39px〕。ideal-panel の「実装の記録」3・10）（追記 2026-10-13、ideal-results の実装の後: カードの札は pairCard の中の `tag(className, text, help, icon)`〔説明つきの button。作った `hint` は drawPlan の `hints` に入れ、`showResults` が作り直すときに閉じる〕。同じ見込みの組の畳みは drawPlan の `foldSame` で、判定が指す組〔畳まない組〕は `pointed`〔swap の to・keep と none の rank〕。要約の行は `div.result-note.ideal-summary`。ideal-results の「実装の記録」2・6・7）
 
 追記（2026-10-12、ideal-calc の実装）: `farmAdvice` は、今の組か交換先の組が「同じ組み合わせで別の子も登録されている組」（`ambiguous`）のまとまりを比べず、おすすめの順のとおりにする（D19）。今の牧場の行には、その旨の注記（`small.ideal-warning`「⚠ 牧場の組（交換先の組）は、…どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。」）がある。行を絵と押せる行に作り直すときも、この注記は残す（phase-1-0-ideal-calc.md の「実装の記録」）。
 
@@ -636,7 +661,7 @@ header-frame（ヘッダーの状態表示。文言の作り方をそろえる�
    - `element` は `div.owned-source`（1 行・高さ固定・ellipsis・title に全文）＝ `span.owned-source-text` ＋ `span.owned-activity`（幅 11em 固定。`kind: 'busy'` のときは小さな回る SVG＋文。`prefers-reduced-motion` では回さない）＋ 許可のボタン（`state.auto.status === 'permission'` のときだけ。`visibility` で場所を残す）＋ `a.owned-source-settings`「設定 →」（`#/settings`）。
    - `aria-live` は付けない（1 分ごとに読み上げない。エラーは案内の帯で知らせる）。
 6. **所持パルの要約**（views/owned.js:93-99・:164-171）: `.owned-world`・`.owned-times` の 2 行を `ownedSourceLine` の 1 行に置き換える（「共有: …（Alice）」と「この PC で読み込み: …」は title に入れる）。案内（`notices`）はその下に残す（対応が要るものだけになったので、ふだんは出ない）。
-7. **理想個体と継承ルートに 1 行**: 理想個体は要約（ideal-results の `.ideal-summary`）の上に `ownedSourceLine`。ideal-results で要約の右端に出していた「セーブ …」は外し、「最終確認」はスロットの表示に任せる（`checkedAt`）。継承ルートは所持パルの欄（`ownedSection`、web/js/views/route.js:58・`renderOwned` :115-）の先頭に置く（所持パルのデータがあるときだけ）。どちらも `owned.subscribe` で `update(state)` だけを呼ぶ（結果は描き直さない）。
+7. **理想個体と継承ルートに 1 行**: 理想個体は要約（ideal-results の `.ideal-summary`）の上に `ownedSourceLine`。ideal-results で要約の右端に出していた「セーブ …」は外し、「最終確認」はスロットの表示に任せる（`checkedAt`）。継承ルートは所持パルの欄（`ownedSection`、web/js/views/route.js:58・`renderOwned` :115-）の先頭に置く（所持パルのデータがあるときだけ）。どちらも `owned.subscribe` で `update(state)` だけを呼ぶ（結果は描き直さない）。（追記 2026-10-13、ideal-results の実装の後: 要約の行は `div.result-note.ideal-summary` の固定の 3 つの子〔`span.ideal-summary-text`・`button.ideal-excluded`・`span.ideal-checked`〕。「最終確認 … · セーブ …」は views/ideal.js の `renderChecked()` が `span.ideal-checked` に書くので、「セーブ …」はその 2 つ目の部分を消し、「最終確認」をスロットに任せるなら `span.ideal-checked` ごと外す。確認の時刻は `refresh` の `lastChecked`〔読めなかった確認では進めない〕。ideal-results の「実装の記録」2・3）
 8. **参加者も開いている間は読み直す**（O-36）: views/shared.js に
 
    ```js
@@ -836,7 +861,7 @@ talent-target（個体値の部品）・popovers（パッシブの 1 行部品�
 - 本セッションの案: **O-21**（能力ごとの個体値順）・**O-22**（判断: 「場所順」をボックスの並びに。共有の列は足さず placeLabel から読む）・**O-24**（判断: 「パッシブの数が多い順」を「良いパッシブ順（ランクの合計）」に置き換え、キーは 'passives' のまま）・**O-10**（判断: 拠点の個体の「拠点 1／拠点 1／預けた人」の重なりを表示で直す。CSV の列名は変えない）・**O-25**（判断: 行の中だけランクの高い順に並べる。負のパッシブを薄くはしない）・**O-30**（行の推定の高さ）・**O-44**（個体値のミニバー。判断: CSS 変数でバーを描き SVG は使わない、ケーキの 3 段階と合計の表示は入れない、aria-label に数値）・**O-45**（★の 4 枠。判断: CSS の ★／☆ の色分けでもよい）・**O-52**（判断: 印は「完成品: 目標名」と「目標名の欲しいパッシブ」の 2 つ、表示の切り替えは既定オン、キーワードで探せる。継承ルートの印は保存がないので作れない）・**O-38**（判断: 列は足さず、行の右端に重ねる。p には正のランクのパッシブだけ）・**V-10**（判断: 6×5 の小さな図。合わなければ文字だけ）。
 
 ### 依存
-owned-toolbar（パネルの高さ `--panel-h`・並べ替えの選択）、stable-render（`syncList`・最初の 200 行と区切った描画・古い仕事の無効化）、ideal-results（`ownedRow` の `highlight`）、ideal-farms（`ownedRow` の `marks`）。
+owned-toolbar（パネルの高さ `--panel-h`・並べ替えの選択）、stable-render（`syncList`・最初の 200 行と区切った描画・古い仕事の無効化）、ideal-results（`ownedRow` の `highlight`）、ideal-farms（`ownedRow` の `marks`）。（追記 2026-10-13、ideal-results の実装の後: `ownedRow(pal, { notes, highlight })`・`fillOwnedRow(row, pal, { notes = [], highlight } = {})` で、中は views/owned.js の `passiveCell(ids, wanted)`〔wanted が 1 個以上のときだけ `.is-wanted`＋`span.passive-check`・`.is-extra`〕と `talentCell(talent, targets)`〔targets があるときだけ `span.talent-cell[data-key][role=img]` ×3＋`span.talent-sep`、`.met`／`.short`＋`span.talent-diff`。targets がない所持パルの画面は 1 つの文のまま〕。差は値の下に小さく出している〔個体値の列 190px に収めるため〕。4 セルにするときは talentCell を置き換え、所持パルの画面でもセルにする。ideal-results の「実装の記録」9）
 
 ### このテーマでやらないこと
 - 個体の詳細のドロワー・キーワード一致の全文（フェーズ 3 の owned-detail。ここでは 1 行に省略し title に全文）。
