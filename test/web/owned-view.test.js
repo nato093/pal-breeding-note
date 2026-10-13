@@ -64,7 +64,8 @@ const holderSelect = (view) => view.element.querySelector('[aria-label="所持�
 // 件数の行の先頭の数（「N / M 体 · …」の N）
 const shownCount = (view) => Number(view.element.querySelector('.result-note').textContent.split(' / ')[0]);
 // 効いている条件のチップの文
-const filterChips = (view) => view.element.querySelectorAll('.filter-chip').map((node) => node.querySelector('.filter-chip-text').textContent);
+// （状態の行の中だけ。「+n」の板のチップは数えない）
+const filterChips = (view) => view.element.querySelector('.filter-chips').querySelectorAll('.filter-chip').map((node) => node.querySelector('.filter-chip-text').textContent);
 
 test('所持パル画面: 読み込んだパルを、パッシブ・所持者・場所と更新時刻つきで一覧にする（連携の設定は出さない）', (t) => {
   installDom(t);
@@ -1635,6 +1636,12 @@ test('所持パル画面: 古い保存の条件（タマゴ・グローバルの
   assert.deepEqual(migrateFilter({ place: '' }).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
   assert.deepEqual(migrateFilter({ globals: true }).places, all);
+  // 矛盾した古い組み合わせ（場所「タマゴ」でタマゴを隠す・場所「グローバル」でグローバルを出さない）は 0 件にせず、
+  // 場所を選んでいない既定（タマゴ・グローバルの表示はそのまま）に戻す（B14。前は places が [] で 0 件だった）
+  assert.deepEqual(migrateFilter({ place: 'egg', eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.deepEqual(migrateFilter({ place: 'global', globals: false }).places, DEFAULT_PLACES);
+  assert.deepEqual(migrateFilter({ place: 'global' }).places, DEFAULT_PLACES);
+  assert.deepEqual(migrateFilter({ place: 'global', globals: true }).places, ['global']);
   assert.deepEqual(pick(migrateFilter({ holder: `base:${B1}` })), { holder: '', bases: [B1], places: ['base', 'egg'] });
   assert.deepEqual(pick(migrateFilter({ holder: `base:${B1}`, eggs: false })), { holder: '', bases: [B1], places: ['base'] });
   assert.deepEqual(pick(migrateFilter({ holder: 'global', globals: true })), { holder: '', bases: [], places: ['global'] });
@@ -1733,7 +1740,8 @@ test('所持パル画面: 列見出しは一覧の前の別の要素（toolbar�
   const states = new Map();
   const view = ownedView(memoryApp(fakeOwned(manyData(0, [sheep('m', 50), sheep('h', 90), sheep('l', 10)])), states), parseHash('#/owned'));
   const head = view.element.querySelector('.owned-list-head');
-  assert.deepEqual([head.getAttribute('role'), head.getAttribute('aria-label')], ['toolbar', '並べ替え']);
+  // 名前は状態の行の選択（並べ替え）と分ける（B13。前はどちらも「並べ替え」）
+  assert.deepEqual([head.getAttribute('role'), head.getAttribute('aria-label')], ['toolbar', '列見出しで並べ替え']);
   // 列見出しは syncList の行に混ぜない（一覧の入れ物の外）
   assert.equal(view.element.querySelector('.owned-list').querySelector('.owned-list-head'), null);
   assert.deepEqual(head.querySelectorAll('button').map((node) => node.getAttribute('data-value')), ['dex', 'level', 'stars', 'passives', 'hp', 'shot', 'defense', 'talent', 'place']);
@@ -1789,7 +1797,8 @@ test('所持パル画面: 行は固定の枠。パッシブ 5 個以上は 3 個
   // ランクの高い順（希少 4・伝説 4 は保存の順、職人気質 3）に 3 個と「+2」
   assert.deepEqual(five.querySelectorAll('.passive-chip').map((node) => node.textContent), ['希少', '伝説', '職人気質']);
   const more = five.querySelector('.passive-more');
-  assert.deepEqual([more.textContent, more.getAttribute('aria-label'), more.title], ['+2', 'ほかのパッシブ 2 個', '脳筋\nうたれ弱い']);
+  // 読み上げの名前にも見えている「+2」を入れる（B13。前は「ほかのパッシブ 2 個」）
+  assert.deepEqual([more.textContent, more.getAttribute('aria-label'), more.title], ['+2', '+2（ほかのパッシブ 2 個）', '脳筋\nうたれ弱い']);
   await more.dispatch('click');
   const board = body.querySelector('.hint-popover');
   assert.deepEqual(board.querySelectorAll('.passive-chip').map((node) => node.textContent), ['脳筋', 'うたれ弱い']);
@@ -1907,7 +1916,7 @@ test('所持パル画面: 目標の印は行に 2 個までと「+N」（押す�
   const row = () => view.element.querySelectorAll('.owned-row').find((node) => /モコロン/.test(node.getAttribute('aria-label')));
   assert.deepEqual(row().querySelectorAll('.badge-mark').map((node) => node.textContent), ['完成品: 目標1', '完成品: 目標2']);
   const more = row().querySelector('.mark-more');
-  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+98', 'ほかの目標の印 98 個']);
+  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label')], ['button', '+98', '+98（ほかの目標の印 98 個）']);
   assert.equal(more.title.split('\n').length, 98);
   // バッジの行の title にはすべての印
   assert.equal(row().querySelector('.owned-badges').title.split('\n').length, 100);
@@ -1979,5 +1988,250 @@ test('所持パル画面: 行の操作はポインターの行とフォーカス
   keywordOf(view).focus();
   await list.dispatch('focusout', { target: inner, relatedTarget: keywordOf(view) });
   assert.deepEqual(withActions(), []);
+  view.destroy();
+});
+
+test('所持パル画面: クリップボードの返事を待つ間に画面を閉じたら、失敗・成功のどちらが返っても板・document のリスナー・トーストを出さない（B3）。「リンクをコピー」は板を開いている間だけ aria-expanded（B13）', async (t) => {
+  const { body, events } = installDom(t);
+  const before = { location: Object.getOwnPropertyDescriptor(globalThis, 'location'), navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator') };
+  t.after(() => {
+    for (const [name, descriptor] of Object.entries(before)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  });
+  let answer = null;
+  Object.defineProperty(globalThis, 'location', { value: { origin: 'https://example.test', pathname: '/note/' }, configurable: true });
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: () => new Promise((resolve, reject) => { answer = { resolve, reject }; }) } }, configurable: true });
+  const listening = () => ['pointerdown', 'keydown'].reduce((sum, name) => sum + (events.listeners.get(name) ?? []).length, 0);
+  // 板を開いていないときは aria-expanded を付けない。失敗で開いたら true、閉じたら外す
+  const view = ownedView(memoryApp(fakeOwned(holderData())), parseHash('#/owned'));
+  body.append(view.element);
+  const copy = button(view, 'リンクをコピー');
+  assert.equal(copy.getAttribute('aria-expanded'), null);
+  let clicked = copy.dispatch('click');
+  answer.reject(new Error('拒否'));
+  await clicked;
+  assert.ok(view.element.querySelector('.owned-link-field'));
+  assert.equal(copy.getAttribute('aria-expanded'), 'true');
+  // Esc で閉じて「リンクをコピー」へ戻る（A13 の所持パルの分）
+  await events.dispatch('keydown', { key: 'Escape' });
+  assert.equal(view.element.querySelector('.owned-link-field'), null);
+  assert.equal(document.activeElement, copy);
+  assert.equal(copy.getAttribute('aria-expanded'), null);
+  assert.equal(listening(), 0);
+  // 返事を待つ間に閉じる → 失敗が返っても板と document のリスナーを付けない（前は付け直していた）
+  clicked = copy.dispatch('click');
+  view.destroy();
+  answer.reject(new Error('拒否'));
+  await clicked;
+  assert.equal(body.querySelector('.owned-link-field'), null);
+  assert.equal(listening(), 0);
+  // 成功が返っても、閉じた画面からトーストを出さない
+  const other = ownedView(memoryApp(fakeOwned(holderData())), parseHash('#/owned'));
+  body.append(other.element);
+  clicked = button(other, 'リンクをコピー').dispatch('click');
+  other.destroy();
+  answer.resolve();
+  await clicked;
+  assert.equal(body.querySelector('.toast'), null);
+  assert.equal(listening(), 0);
+});
+
+// ---- フェーズ 1b・1c の終わりのレビューの直し（所持パルのパネル。B6〜B10・A13 の所持パルの分） ----
+
+test('所持パル画面: 条件を変えて一覧の先頭を見せるとき、同じ操作でパネルの高さが変わっていたら、今の高さを --panel-h に書いてから動かす（B6）', async (t) => {
+  installDom(t);
+  const observer = installResizeObserver(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  const panel = view.element.querySelector('.owned-panel');
+  observer.resize(panel, 172.39);
+  assert.equal(view.element.style.getPropertyValue('--panel-h'), '172.39px');
+  let written = null;
+  list.scrollIntoView = () => { written = view.element.style.getPropertyValue('--panel-h'); };
+  // パッシブのチップの改行などでパネルが 210.39px になった（ResizeObserver の知らせはまだ来ていない）。
+  // 前は scroll-margin-top が前の高さのままで、1 行目の上 約 30px が列見出しに隠れた
+  panel.getBoundingClientRect = () => ({ top: 64, bottom: 274.39, height: 210.39, left: 0, width: 900 });
+  await placeChip(view, 'egg').dispatch('click');
+  assert.equal(written, '210.39px');
+  view.destroy();
+});
+
+test('所持パル画面: 一覧の先頭がパネルの下に隠れるまでスクロールしているときに案内の帯が出入りしたら、その分だけスクロールして一覧を同じ位置に保つ。ページの上の方では動かさない（B7）', (t) => {
+  const { windowEvents } = installDom(t);
+  const scrolls = [];
+  windowEvents.scrollBy = (x, y) => scrolls.push(y);
+  const owned = fakeOwned();
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  const notices = view.element.querySelector('.owned-notices');
+  // 帯 1 本で一覧が 40px 下がる。一覧の先頭はパネルと列見出しの下（パネルの下端 252＋列見出し 52）に隠れている
+  const base = notices.children.length;
+  let top = -500;
+  list.getBoundingClientRect = () => ({ top: top + (notices.children.length - base) * 40, bottom: 0, left: 0, width: 900 });
+  owned.state.auto = { ...owned.state.auto, status: 'permission', error: '読み込みの許可が要ります' };
+  owned.emit();
+  assert.equal(notices.children.length, base + 1);
+  assert.deepEqual(scrolls, [40]);
+  owned.state.auto = { ...owned.state.auto, status: 'ready', error: '' };
+  owned.emit();
+  assert.equal(notices.children.length, base);
+  assert.deepEqual(scrolls, [40, -40]);
+  // ページの上の方（一覧の先頭が見えている）では動かさない（出てきた帯が見えるように）
+  top = 400;
+  owned.state.auto = { ...owned.state.auto, status: 'permission', error: '読み込みの許可が要ります' };
+  owned.emit();
+  assert.equal(notices.children.length, base + 1);
+  assert.deepEqual(scrolls, [40, -40]);
+  view.destroy();
+});
+
+test('所持パル画面: 状態の行で 1 行に入り切らずに隠れた条件のチップは inert にし、「+n」のボタンで板に出して × で外せる。隠れるチップにフォーカスがあれば「+n」へ（B8）', async (t) => {
+  installDom(t);
+  installResizeObserver(t);
+  // チップの入れ物の中の位置（2 個目までが 1 行目、3 個目からは 2 行目に回って隠れる）
+  const create = document.createElement;
+  document.createElement = (name) => {
+    const node = create(name);
+    node.getBoundingClientRect = function rect() {
+      if (this.className !== 'filter-chip-item' || !this.parentElement) return { left: 100, top: 200, bottom: 252, width: 220 };
+      const index = this.parentElement.children.indexOf(this);
+      return { left: 100, top: index < 2 ? 200 : 228, bottom: index < 2 ? 224 : 252, width: 80 };
+    };
+    return node;
+  };
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned?p=Rare&stars=1&hp=10&q=モコ'));
+  document.body.append(view.element);
+  const wraps = () => view.element.querySelector('.filter-chips').children;
+  assert.deepEqual(filterChips(view), ['パッシブ: 希少', '★1 以上', 'HP 10 以上', 'キーワード: モコ']);
+  assert.deepEqual(wraps().map((node) => Boolean(node.inert)), [false, false, true, true]);
+  const more = view.element.querySelector('.filter-more');
+  assert.deepEqual([more.tagName, more.textContent, more.getAttribute('aria-label'), more.getAttribute('aria-hidden')], ['button', '+2', '+2（隠れている条件 2 個）', null]);
+  assert.equal(more.className.split(' ').includes('is-empty'), false);
+  // 押すと隠れたチップを板に並べ、最初のチップへ
+  await more.dispatch('click');
+  const board = () => view.element.querySelector('.filter-more-popover');
+  const boardChips = () => board()?.querySelectorAll('.filter-chip').map((node) => node.querySelector('.filter-chip-text').textContent);
+  assert.deepEqual(boardChips(), ['HP 10 以上', 'キーワード: モコ']);
+  assert.equal(document.activeElement, board().querySelectorAll('.filter-chip')[0]);
+  // 板の × で外すと、同じ番号（無ければ前）の項目へ
+  await board().querySelectorAll('.filter-chip')[0].dispatch('click');
+  assert.deepEqual(filterChips(view), ['パッシブ: 希少', '★1 以上', 'キーワード: モコ']);
+  assert.deepEqual(boardChips(), ['キーワード: モコ']);
+  assert.equal(document.activeElement, board().querySelectorAll('.filter-chip')[0]);
+  // 隠れたチップがなくなったら板を閉じ、状態の行の最後のチップへ
+  await board().querySelectorAll('.filter-chip')[0].dispatch('click');
+  assert.equal(board(), null);
+  assert.deepEqual(filterChips(view), ['パッシブ: 希少', '★1 以上']);
+  assert.equal(more.className.split(' ').includes('is-empty'), true);
+  assert.equal(document.activeElement.querySelector('.filter-chip-text').textContent, '★1 以上');
+  // フォーカスのあるチップが前に足された条件で 2 行目へ回ったら、「+n」へ（隠れたチップは inert でフォーカスを持てない）
+  view.applyRoute(parseHash(`#/owned?holder=player:${P1}&p=Rare&stars=1`), { reason: 'navigate' });
+  view.element.querySelectorAll('.filter-chip').find((node) => node.textContent.startsWith('★1')).focus();
+  view.applyRoute(parseHash(`#/owned?holder=player:${P1}&el=Fire&p=Rare&stars=1`), { reason: 'navigate' });
+  assert.deepEqual(filterChips(view), ['所持者: Alice', '属性: 炎', 'パッシブ: 希少', '★1 以上']);
+  assert.equal(document.activeElement, more);
+  view.destroy();
+});
+
+test('所持パル画面: 「すべて解除」を押すと（押せなくなるので）キーワードへ、拠点の板の「すべての拠点」を押すと板の先頭の拠点へフォーカスを移し、板は閉じない（B9）', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned'));
+  document.body.append(view.element);
+  starsOf(view).value = '1';
+  await starsOf(view).dispatch('change');
+  const reset = button(view, 'すべて解除');
+  reset.focus();
+  await reset.dispatch('click');
+  assert.equal(reset.disabled, true);
+  assert.equal(document.activeElement, keywordOf(view));
+  await view.element.querySelector('.place-chip-more').dispatch('click');
+  const board = view.element.querySelector('.place-bases');
+  const checks = board.querySelectorAll('input');
+  checks[1].checked = true;
+  await checks[1].dispatch('change');
+  const clear = board.querySelectorAll('button').find((node) => node.textContent === 'すべての拠点');
+  assert.equal(clear.disabled, false);
+  clear.focus();
+  await clear.dispatch('click');
+  assert.equal(clear.disabled, true);
+  assert.equal(document.activeElement, board.querySelectorAll('input')[0]);
+  assert.ok(view.element.querySelector('.place-bases'));
+  assert.deepEqual(filterChips(view), []);
+  view.destroy();
+});
+
+test('所持パル画面: 「まとめて ▾」のメニューは開くと最初の項目へ、↑↓・Home・End で項目の間を移り（端で回る）、項目は Tab で止まらない。Esc で閉じてボタンへ（B10）', async (t) => {
+  const { events } = installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  document.body.append(view.element);
+  const open = view.element.querySelector('.talent-preset-button');
+  await open.dispatch('click');
+  const menu = view.element.querySelector('.talent-preset-menu');
+  const items = menu.querySelectorAll('[role="menuitem"]');
+  assert.deepEqual(items.map((node) => [node.textContent, node.tabIndex]), [['すべて 90 以上', -1], ['すべて 100', -1]]);
+  assert.equal(document.activeElement, items[0]);
+  const key = async (name, expected) => {
+    const result = await menu.dispatch('keydown', { key: name });
+    assert.equal(result.defaultPrevented, true, name);
+    assert.equal(document.activeElement, items[expected], name);
+  };
+  await key('ArrowDown', 1);
+  await key('ArrowDown', 0);
+  await key('ArrowUp', 1);
+  await key('Home', 0);
+  await key('End', 1);
+  await events.dispatch('keydown', { key: 'Escape' });
+  assert.equal(view.element.querySelector('.talent-preset-menu'), null);
+  assert.equal(document.activeElement, open);
+  view.destroy();
+});
+
+test('所持パル画面: 条件のチップの × の後は次のチップ → 前のチップ → キーワードへ。列見出しは ←・Home・End で端まで移り、端で回る（A13 の所持パルの分）', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned?p=Rare&stars=1&hp=10'));
+  document.body.append(view.element);
+  const chip = (text) => view.element.querySelectorAll('.filter-chip').find((node) => node.querySelector('.filter-chip-text').textContent === text);
+  assert.deepEqual(filterChips(view), ['パッシブ: 希少', '★1 以上', 'HP 10 以上']);
+  chip('★1 以上').focus();
+  await chip('★1 以上').dispatch('click');
+  assert.equal(document.activeElement, chip('HP 10 以上'));
+  await chip('HP 10 以上').dispatch('click');
+  assert.equal(document.activeElement, chip('パッシブ: 希少'));
+  await chip('パッシブ: 希少').dispatch('click');
+  assert.equal(document.activeElement, keywordOf(view));
+  // 列見出し: 先頭で ← は最後へ、Home・End で端へ
+  const head = view.element.querySelector('.owned-list-head');
+  headButton(view, 'dex').focus();
+  await head.dispatch('keydown', { key: 'ArrowLeft' });
+  assert.equal(document.activeElement, headButton(view, 'place'));
+  await head.dispatch('keydown', { key: 'ArrowRight' });
+  assert.equal(document.activeElement, headButton(view, 'dex'));
+  await head.dispatch('keydown', { key: 'End' });
+  assert.equal(document.activeElement, headButton(view, 'place'));
+  await head.dispatch('keydown', { key: 'Home' });
+  assert.equal(document.activeElement, headButton(view, 'dex'));
+  assert.deepEqual([headButton(view, 'dex').tabIndex, headButton(view, 'place').tabIndex], [0, -1]);
+  view.destroy();
+});
+
+test('所持パル画面: 拠点・属性の板は開くと中の最初の部品へフォーカスを移し、Esc で閉じて開いたボタンへ戻す（A13 の所持パルの分。まとめて・リンクはそれぞれのテスト）', async (t) => {
+  const { events } = installDom(t);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned?el=Ice'));
+  document.body.append(view.element);
+  const bases = view.element.querySelector('.place-chip-more');
+  await bases.dispatch('click');
+  assert.equal(document.activeElement, view.element.querySelector('.place-bases').querySelectorAll('input')[0]);
+  await events.dispatch('keydown', { key: 'Escape' });
+  assert.equal(view.element.querySelector('.place-bases'), null);
+  assert.equal(document.activeElement, bases);
+  // 属性は選んでいる最初の属性（無ければ先頭）へ
+  const elements = view.element.querySelector('.owned-element-button');
+  await elements.dispatch('click');
+  assert.equal(document.activeElement.getAttribute('data-value'), 'Ice');
+  await events.dispatch('keydown', { key: 'Escape' });
+  assert.equal(view.element.querySelector('.owned-element-popover'), null);
+  assert.equal(document.activeElement, elements);
   view.destroy();
 });

@@ -199,7 +199,8 @@ export function restoreAnchor(container, anchor) {
 /**
  * target の高さ（border-box）を host の CSS 変数 name に書き続ける（sticky のパネルの下に重ねる帯の top・scroll-margin-top が使う）。
  * 値は style.setProperty で書き（style 属性の文字列は使わない）、同じ高さでは書き直さない。
- * ResizeObserver が無い環境（テスト）では 1 回だけ測る。戻り値は監視をやめる関数
+ * ResizeObserver が無い環境（テスト）では 1 回だけ測る。戻り値は監視をやめる関数で、その measure() は今すぐ測って書く
+ *（ResizeObserver の知らせは requestAnimationFrame の後に来るので、同じフレームの中で高さを使う前に呼ぶ）
  */
 export function trackHeight(target, host, name = '--panel-h') {
   let written = '';
@@ -217,7 +218,7 @@ export function trackHeight(target, host, name = '--panel-h') {
   const Observer = globalThis.ResizeObserver;
   if (typeof Observer !== 'function') {
     measure();
-    return () => {};
+    return Object.assign(() => {}, { measure });
   }
   const observer = new Observer((entries) => {
     const size = entries.at(-1)?.borderBoxSize?.[0];
@@ -225,7 +226,7 @@ export function trackHeight(target, host, name = '--panel-h') {
     else measure();
   });
   observer.observe(target);
-  return () => observer.disconnect();
+  return Object.assign(() => observer.disconnect(), { measure });
 }
 
 // ---------------------------------------------------------------------------

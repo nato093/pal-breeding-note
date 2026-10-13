@@ -88,7 +88,8 @@ export const OWNED_MEMORY = {
  * 絞り込みの値を今の形にする（古い viewState・保存・URL も同じ口で読み替える。どの値も OWNED_MEMORY で確かめる）。
  * 前の形: place（1 つ）→ places: [place]、place '' → 既定、eggs: false → places から 'egg' を外す、globals: true → 'global' を足す、
  * 所持者 base:<id> → 所持者なし・bases: [id]・places: ['base', 'egg']（拠点のタマゴも拠点の持ち物。eggs: false なら 'base' だけ）、
- * 所持者 global → 所持者なし・places: ['global']。places は PLACE_ORDER の順に並べる
+ * 所持者 global → 所持者なし・places: ['global']。places は PLACE_ORDER の順に並べる。
+ * place と eggs・globals の組み合わせで places が空になる古い保存（{ place: 'egg', eggs: false } など）は、place を選んでいない既定に戻す
  * @returns {{ holder: string, places: string[], bases: string[], elements: string[], palId: string, passives: string[],
  *   passiveMode: string, query: string, sort: string, dir: 'asc' | 'desc', stars: number, talent: { hp: number, shot: number, defense: number } }}
  */
@@ -96,9 +97,11 @@ export function migrateFilter(old) {
   const saved = cleanSaved(old, OWNED_MEMORY);
   let places = saved.places;
   if (!places) {
-    places = saved.place ? [saved.place] : [...PLACE_ORDER];
-    if (saved.eggs === false) places = places.filter((group) => group !== 'egg');
-    if (saved.globals !== true) places = places.filter((group) => group !== 'global');
+    const shown = (groups) => groups.filter((group) => !(group === 'egg' && saved.eggs === false) && !(group === 'global' && saved.globals !== true));
+    places = shown(saved.place ? [saved.place] : [...PLACE_ORDER]);
+    // 古い保存の矛盾した組み合わせ（場所「タマゴ」でタマゴを隠す・場所「グローバル」でグローバルを出さない）で 0 件にしない。
+    // そのときは場所を選んでいない既定（タマゴ・グローバルの表示はそのまま）に戻す
+    if (!places.length) places = shown([...PLACE_ORDER]);
   }
   let { holder, bases } = saved;
   if (holder.startsWith('base:')) {
@@ -284,7 +287,8 @@ function palCellBadges(pal, marks, hints) {
   const rest = marks.slice(shown.length);
   if (rest.length) {
     const more = button(`+${rest.length}`, null, 'owned-badge mark-more');
-    more.setAttribute('aria-label', `ほかの目標の印 ${rest.length} 個`);
+    // 読み上げの名前にも見えている「+N」を入れる（見えている文で呼びかけても押せるように）
+    more.setAttribute('aria-label', `+${rest.length}（ほかの目標の印 ${rest.length} 個）`);
     more.setAttribute('data-focus', 'marks-more');
     more.title = rest.join('\n');
     line.append(more);
@@ -353,7 +357,8 @@ function fillPassiveList(list, ids, wanted, hints, after) {
     return;
   }
   const more = button(`+${rest.length}`, null, 'passive-more');
-  more.setAttribute('aria-label', `ほかのパッシブ ${rest.length} 個`);
+  // 読み上げの名前にも見えている「+N」を入れる（見えている文で呼びかけても押せるように）
+  more.setAttribute('aria-label', `+${rest.length}（ほかのパッシブ ${rest.length} 個）`);
   more.setAttribute('data-focus', 'passive-more');
   more.title = rest.map((id) => passivesById.get(id)?.ja ?? id).join('\n');
   list.append(more);
@@ -669,8 +674,18 @@ export function ownedView(context, route) {
       changed();
     }, 'talent-preset-item');
     item.setAttribute('role', 'menuitem');
+    // メニューの項目は Tab では止まらず（Tab はメニューの外へ出て閉じる）、↑↓・Home・End で移る（menu の作法）
+    item.tabIndex = -1;
     presetMenu.element.append(item);
   }
+  presetMenu.element.addEventListener('keydown', (event) => {
+    const items = [...presetMenu.element.querySelectorAll('[role="menuitem"]')];
+    const index = items.indexOf(globalThis.document?.activeElement);
+    const to = { ArrowDown: index + 1, ArrowUp: index < 0 ? items.length - 1 : index - 1, Home: 0, End: items.length - 1 }[event.key];
+    if (to === undefined || !items.length) return;
+    event.preventDefault();
+    items[(to + items.length) % items.length].focus();
+  });
   talentBox.append(talents.element, presetSlot);
   // 所持している種族を先に「♂3 ♀2」つきで出す
   const picker = palPicker({ label: 'パル', value: filter.palId, describe: () => ownedSpeciesNotes(owned.state.owned),
@@ -716,6 +731,8 @@ export function ownedView(context, route) {
   const baseList = el('div', 'place-base-list');
   const baseClear = button('すべての拠点', () => {
     filter.bases = [];
+    // 押すとこのボタンは押せなくなり（disabled）、フォーカスが body に落ちて板が閉じるので、先に板の先頭（検索欄か最初の拠点）へ移す
+    if (globalThis.document?.activeElement === baseClear) (baseSearch.parentElement ? baseSearch : baseList.querySelector('input'))?.focus();
     renderPlaces(owned.state);
     changed();
   }, 'button secondary small');
@@ -817,8 +834,16 @@ export function ownedView(context, route) {
   const chipBox = el('div', 'filter-chips');
   chipBox.setAttribute('role', 'group');
   chipBox.setAttribute('aria-label', '効いている条件');
-  const chipMore = el('span', 'filter-more is-empty');
-  chipMore.setAttribute('aria-hidden', 'true');
+  // 1 行に入り切らずに隠れたチップの「+n」。押すと隠れたチップを板に並べ、そこでも × で外せる（隠れたチップは inert にして Tab で止めない）
+  const chipMoreSlot = el('span', 'filter-more-slot');
+  const chipMore = button('', () => (chipPopover.isOpen() ? chipPopover.close() : chipPopover.open()), 'filter-more is-empty');
+  chipMore.setAttribute('aria-haspopup', 'dialog');
+  chipMoreSlot.append(chipMore);
+  const chipPopover = createPopover({ anchor: chipMore, wrapper: chipMoreSlot, className: 'picker-popover filter-more-popover', focusOut: true,
+    onOpen: () => renderHiddenChips({ focus: 0 }) });
+  chipPopover.element.setAttribute('role', 'dialog');
+  chipPopover.element.tabIndex = -1;
+  chipPopover.element.setAttribute('aria-label', '隠れている条件');
   const resetButton = button('すべて解除', () => resetAll(), 'button secondary small owned-reset');
   const copySlot = el('span', 'owned-copy-slot');
   const copyButton = button('リンクをコピー', () => copyLink(), 'button secondary small owned-copy');
@@ -829,12 +854,16 @@ export function ownedView(context, route) {
   linkInput.type = 'text';
   linkInput.readOnly = true;
   linkInput.setAttribute('aria-label', 'この条件のリンク');
+  // 板はコピーできなかったときだけ開く。ふだんのボタンは開閉のボタンではないので、開いていない間は aria-expanded を付けない
+  //（createPopover は anchor にいつも aria-expanded="false" を付ける）
   const linkPopover = createPopover({ anchor: copyButton, wrapper: copySlot, className: 'picker-popover owned-link-field', focusOut: true,
     onOpen: () => {
       linkInput.value = linkUrl;
       linkInput.focus();
       linkInput.select?.();
-    } });
+    },
+    onClose: () => copyButton.removeAttribute('aria-expanded') });
+  copyButton.removeAttribute('aria-expanded');
   linkPopover.element.setAttribute('role', 'dialog');
   linkPopover.element.tabIndex = -1;
   linkPopover.element.setAttribute('aria-label', 'この条件のリンク');
@@ -882,13 +911,14 @@ export function ownedView(context, route) {
     elementSlot,
   );
   const statusRow = el('div', 'owned-status-row');
-  statusRow.append(count, chipBox, chipMore, marksToggle, resetButton, copySlot, sort, idealLink, routeLink);
+  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, copySlot, sort, idealLink, routeLink);
   panel.append(panelMain, panelSub, statusRow);
   // ---- 列見出し（F069。押すとその並べ替え、もう一度で向きを反対に）。syncList の行の入れ物とは別の要素で、列の幅は CSS の
   // --owned-cols を行と共有する。パネルの下に貼り付く。並べ替えの選択（状態の行）と同じ filter.sort・filter.dir を使う ----
   const head = el('div', 'owned-list-head');
   head.setAttribute('role', 'toolbar');
-  head.setAttribute('aria-label', '並べ替え');
+  // 状態の行の並べ替えの選択（aria-label「並べ替え」）と名前を分ける
+  head.setAttribute('aria-label', '列見出しで並べ替え');
   const headButtons = new Map();
   const headButton = ([key, text, name]) => {
     const node = button('', () => pressHead(key), 'owned-head-button');
@@ -1002,8 +1032,20 @@ export function ownedView(context, route) {
     const list = ownedNotices(state);
     const key = JSON.stringify(list);
     if (key === noticesKey) return;
+    // 案内の帯はパネルより上にあるので、出入りすると下の一覧が上下する（一覧は overflow-anchor: none）。一覧の先頭がパネルの下に
+    // 隠れるまでスクロールしているときは、帯は画面の外なので、書き換えた分だけスクロールして一覧を同じ位置に保つ。
+    // ページの上の方を見ているときは動かさない（新しい帯が見えるように）
+    const before = noticesKey !== null ? scrolledTop() : null;
     noticesKey = key;
     noticeList(list, notices, noticeActions);
+    if (before === null) return;
+    const moved = results.getBoundingClientRect().top - before;
+    if (moved) globalThis.window?.scrollBy?.(0, moved);
+  }
+  // 一覧の先頭がパネル（と列見出し）の下に隠れているときの、一覧の上端の位置。隠れていなければ null
+  function scrolledTop() {
+    const top = results.getBoundingClientRect?.().top;
+    return Number.isFinite(top) && top < fixedBottom() - 1 ? top : null;
   }
 
   // ---- データごとに 1 回だけ作るもの（場所の件数・拠点の件数・所持者の許す個体） ----
@@ -1150,39 +1192,82 @@ export function ownedView(context, route) {
     }
     return items;
   }
-  function chipRow(first) {
-    let current = first;
-    const wrap = el('span', 'filter-chip-item');
-    const chip = button('', () => {
-      current.clear();
-      showFilter();
-      changed();
-    }, 'filter-chip');
-    // × で外した後は、次のチップ（無ければ前のチップ）へ。チップが無くなればキーワードへ（syncList の fallbackFocus）
-    chip.setAttribute('data-focus', 'chip');
+  // 条件のチップ（× でその条件を外す）。状態の行と「+n」の板で同じ形
+  function chipButton(condition, onClear) {
+    const chip = button('', onClear, 'filter-chip');
     const textNode = el('span', 'filter-chip-text');
     const remove = el('span', 'filter-chip-x', '×');
     remove.setAttribute('aria-hidden', 'true');
     chip.append(textNode, remove);
+    const show = (next) => {
+      if (textNode.textContent !== next.text) textNode.textContent = next.text;
+      chip.setAttribute('aria-label', `${next.text} を外す`);
+      chip.title = next.text;
+    };
+    show(condition);
+    return { chip, show };
+  }
+  // 状態の行のチップの入れ物 → そのチップの今の条件（「+n」の板に隠れたチップを出すとき）
+  const chipConditions = new WeakMap();
+  function chipRow(first) {
+    let current = first;
+    const wrap = el('span', 'filter-chip-item');
+    const { chip, show } = chipButton(first, () => {
+      current.clear();
+      showFilter();
+      changed();
+    });
+    // × で外した後は、次のチップ（無ければ前のチップ）へ。チップが無くなればキーワードへ（syncList の fallbackFocus）
+    chip.setAttribute('data-focus', 'chip');
     wrap.append(chip);
-    const item = {
+    chipConditions.set(wrap, () => current);
+    return {
       element: wrap,
       update(next) {
         current = next;
-        if (textNode.textContent !== next.text) textNode.textContent = next.text;
-        chip.setAttribute('aria-label', `${next.text} を外す`);
-        chip.title = next.text;
+        show(next);
       },
     };
-    item.update(first);
-    return item;
   }
   function renderChips(state) {
     const items = activeConditions(state);
+    // 隠れていたチップも、外した後のフォーカスの行き先になれるよう inert を外しておく（どれが隠れるかは描いた後に measureChips が決め直す）
+    for (const wrap of chipBox.children) wrap.inert = false;
     syncList(chipBox, items, { key: (item) => item.key, create: chipRow, fallbackFocus: query });
     resetButton.disabled = !items.length;
     afterLayout(measureChips);
   }
+  // 「+n」の板: 隠れたチップを並べる。focus は板を作り直した後にフォーカスを置く項目の番号（範囲の外なら最後の項目）。
+  // 隠れたチップがなくなったら板を閉じ、状態の行の最後のチップ（無ければキーワード）へ
+  let hiddenChips = [];
+  const chipList = el('div', 'filter-more-list');
+  chipPopover.element.append(chipList);
+  function renderHiddenChips({ focus = null } = {}) {
+    if (!chipPopover.isOpen()) return;
+    const conditions = hiddenChips.map((wrap) => chipConditions.get(wrap)?.()).filter(Boolean);
+    const inside = chipPopover.element.contains(globalThis.document?.activeElement);
+    if (!conditions.length) {
+      chipPopover.close({ focus: false });
+      if (inside) lastChipOrQuery().focus({ preventScroll: true });
+      return;
+    }
+    // 作り直す間もフォーカスを板の中に残す（外れると focusOut で板が閉じる）。外していないときは同じ番号の項目へ戻す
+    const current = [...chipList.children].indexOf(globalThis.document?.activeElement);
+    if (inside) chipPopover.element.focus({ preventScroll: true });
+    if (inside && pendingChipFocus === null && current >= 0) pendingChipFocus = current;
+    chipList.replaceChildren(...conditions.map((condition, index) => chipButton(condition, () => {
+      // 外した後は同じ番号の項目（無ければ前の項目）へ。描き直した後の measureChips で板を作り直すときに使う
+      pendingChipFocus = index;
+      condition.clear();
+      showFilter();
+      changed();
+    }).chip));
+    const at = focus ?? (inside ? pendingChipFocus : null);
+    pendingChipFocus = null;
+    if (at !== null) chipList.children[Math.min(at, chipList.children.length - 1)]?.focus({ preventScroll: true });
+  }
+  let pendingChipFocus = null;
+  const lastChipOrQuery = () => chipBox.lastElementChild?.querySelector('.filter-chip') ?? query;
   // 次の描画の前に 1 回だけ呼ぶ（同じ関数は 1 回にまとめる）。requestAnimationFrame が無い環境（テスト）ではすぐ呼ぶ
   const layoutJobs = new Set();
   function afterLayout(job) {
@@ -1196,15 +1281,28 @@ export function ownedView(context, route) {
     }
     layoutJobs.add(job);
   }
-  // 1 行目より下に回ったチップの数を「+n」に出す（チップの入れ物は 1 行分の高さで、はみ出しは隠す。名前は title に）
+  // 1 行目より下に回ったチップの数を「+n」に出す（チップの入れ物は 1 行分の高さで、はみ出しは隠す。名前は title に）。
+  // 隠れたチップは inert（Tab で止まらず、読み上げにも出さない。中身は「+n」の板で見る）。隠れるチップにフォーカスがあれば「+n」へ
   function measureChips() {
     const items = [...chipBox.children];
     const top = items[0]?.getBoundingClientRect?.().top;
     const hidden = Number.isFinite(top) ? items.filter((node) => (node.getBoundingClientRect?.().top ?? top) > top + 1) : [];
+    const active = globalThis.document?.activeElement;
+    const focusHidden = hidden.some((node) => node.contains(active));
+    // 「+n」にフォーカスがあるまま隠れるチップがなくなったら（「+n」が見えなくなる）、最後のチップかキーワードへ
+    const focusMore = active === chipMore && !hidden.length;
+    for (const node of items) node.inert = hidden.includes(node);
+    hiddenChips = hidden;
     const text = hidden.length ? `+${hidden.length}` : '';
     if (chipMore.textContent !== text) chipMore.textContent = text;
     chipMore.title = hidden.map((node) => node.querySelector('.filter-chip-text')?.textContent ?? '').join('\n');
+    // 読み上げの名前にも見えている「+n」を入れる
+    if (hidden.length) chipMore.setAttribute('aria-label', `${text}（隠れている条件 ${hidden.length} 個）`);
+    else chipMore.removeAttribute('aria-label');
     chipMore.classList.toggle('is-empty', !hidden.length);
+    if (focusHidden) chipMore.focus({ preventScroll: true });
+    else if (focusMore) lastChipOrQuery().focus({ preventScroll: true });
+    renderHiddenChips();
   }
   // 理想個体・継承ルートへのリンク（O-40）。理想個体には正のランクのパッシブだけを渡す
   function renderLinks() {
@@ -1252,33 +1350,47 @@ export function ownedView(context, route) {
       const top = results.getBoundingClientRect?.().top;
       const bottom = fixedBottom();
       if (!Number.isFinite(top) || !Number.isFinite(bottom) || top >= bottom - 1) return;
+      // 同じ操作でパネルの高さが変わった（パッシブのチップの改行など）ときは、ResizeObserver の知らせがまだ来ていないので
+      // --panel-h（scroll-margin-top が使う）が前の値のまま。今の高さを書いてから動かす（前は 1 行目の上 約 30px が列見出しに隠れた）
+      stopTracking.measure?.();
       results.scrollIntoView({ block: 'start' });
     });
   }
   function resetAll() {
-    const inside = results.contains(globalThis.document?.activeElement);
+    const active = globalThis.document?.activeElement;
+    // 0 件の表示の「条件をすべて解除」は消え、状態の行の「すべて解除」は押せなくなる（disabled でフォーカスが body に落ちる）ので、
+    // どちらから押したときもキーワードへ移す
+    const moveFocus = results.contains(active) || active === resetButton;
     keywordInput.cancel();
     adopt(filter, { ...migrateFilter({}), sort: filter.sort, dir: filter.dir });
     showFilter();
     changed();
-    // 0 件の表示の「条件をすべて解除」は消えるので、キーワードへ
-    if (inside) query.focus({ preventScroll: true });
+    if (moveFocus) query.focus({ preventScroll: true });
   }
+  // コピーの要求の番号（クリップボードの返事を待つ間に画面を閉じた・もう一度押したときは、前の返事で板を開かない）
+  let copySeq = 0;
   async function copyLink() {
     flushInputs();
-    linkUrl = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams(filter))}`;
+    const seq = ++copySeq;
+    const url = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams(filter))}`;
+    linkUrl = url;
+    let copied = false;
     try {
-      await globalThis.navigator.clipboard.writeText(linkUrl);
+      await globalThis.navigator.clipboard.writeText(url);
+      copied = true;
+    } catch {
+      // 権限がない・HTTP（clipboard がない）など。例外は出さず、下で欄に出して選ぶ
+    }
+    // 返事を待つ間に閉じた画面の板・document のリスナーを付け直さない
+    if (destroyed || seq !== copySeq) return;
+    if (copied) {
       linkPopover.close({ focus: false });
       toast('リンクをコピーしました');
-    } catch {
-      // 権限がない・HTTP（clipboard がない）など。例外は出さず、欄に出して選ぶ
-      if (linkPopover.isOpen()) {
-        linkInput.value = linkUrl;
-        linkInput.focus();
-        linkInput.select?.();
-      } else linkPopover.open();
-    }
+    } else if (linkPopover.isOpen()) {
+      linkInput.value = linkUrl;
+      linkInput.focus();
+      linkInput.select?.();
+    } else linkPopover.open();
   }
   function flushInputs() {
     for (const input of pendingInputs) input.flush();
@@ -1586,6 +1698,7 @@ export function ownedView(context, route) {
       presetMenu.destroy();
       elementPopover.destroy();
       linkPopover.destroy();
+      chipPopover.destroy();
       jobSeq++;
       warmSeq++;
       unsubscribe();

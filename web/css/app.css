@@ -1210,10 +1210,28 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   font-weight: 700;
 }
 .filter-chip:hover { background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 10%, var(--md-sys-color-secondary-container)); }
+/* チップの入れ物は 1 行分の高さで、はみ出しを隠すので、フォーカスの枠はチップの内側に描く（外側だと上下が切れる） */
+.filter-chip:focus-visible { outline-offset: -2px; }
 .filter-chip-text { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
 .filter-chip-x { padding: 0 4px; font-size: 14px; line-height: 1; }
-.filter-more { flex: none; min-width: 2em; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
+/* 1 行に入り切らずに隠れたチップの「+n」（押すと隠れたチップの板）。隠れたチップがないときも場所を残す（状態の行の並びを動かさない） */
+.filter-more-slot { position: relative; flex: none; display: inline-flex; }
+.filter-more {
+  min-width: 2em;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.filter-more:hover { background: var(--state-hover); }
 .filter-more.is-empty { visibility: hidden; }
+.filter-more-popover { left: auto; right: 0; width: 320px; padding: 10px; white-space: normal; }
+.filter-more-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .owned-status-row .button.small { flex: none; min-height: 24px; padding: 0 10px; }
 .owned-copy-slot { position: relative; flex: none; display: inline-flex; }
 .owned-link-field { left: auto; right: 0; width: 380px; display: grid; gap: 6px; padding: 10px; white-space: normal; }
