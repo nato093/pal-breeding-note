@@ -144,13 +144,33 @@ export function ownPals(data, identity) {
  * @param {object[]} pals normalizeOwned の pals
  */
 export function goalMatches(goal, pals) {
+  if (!goal.palId) return [];
+  const meets = goalTest(goal);
+  return pals.filter((pal) => pal.palId === goal.palId && meets(pal));
+}
+
+// 個体のパッシブの種類の数（同じパッシブが重なっていても 1 つ）。パッシブは 4 個までなので、Set を作らずに数える
+function distinctCount(list) {
+  let count = 0;
+  for (let i = 0; i < list.length; i++) if (list.indexOf(list[i]) === i) count++;
+  return count;
+}
+
+// 目標の完成の条件（種族は見ない）を、目標ごとに 1 回だけ組み立てる。個体ごとに Set や配列を作らない
+//（同じ種族の目標 100 件 × 同じ種族の 20,000 行で、個体ごとに Set を作ると 1 秒以上止まったため）
+function goalTest(goal) {
   const wanted = [...new Set(goal.passives)];
-  return pals.filter((pal) => {
-    if (!goal.palId || pal.palId !== goal.palId || pal.egg) return false;
-    const own = new Set(pal.passives);
-    if (!wanted.every((id) => own.has(id)) || (goal.mode === 'only' && own.size !== wanted.length)) return false;
-    return GOAL_STATS.every((key) => goal.targets[key] <= 0 || pal.talent[key] >= goal.targets[key]);
-  });
+  const only = goal.mode === 'only';
+  // 個体値の目標（GOAL_STATS の hp・shot・defense。0 以下は条件なし）
+  const [hp, shot, defense] = GOAL_STATS.map((key) => (goal.targets[key] > 0 ? goal.targets[key] : 0));
+  return (pal) => {
+    if (pal.egg) return false;
+    const own = pal.passives;
+    for (let i = 0; i < wanted.length; i++) if (!own.includes(wanted[i])) return false;
+    if (only && distinctCount(own) !== wanted.length) return false;
+    const { talent } = pal;
+    return (hp === 0 || talent.hp >= hp) && (shot === 0 || talent.shot >= shot) && (defense === 0 || talent.defense >= defense);
+  };
 }
 
 // 名前の後に文を続ける（英数字で終わる名前の後だけ空ける。views/ideal.js の joinName と同じ）
@@ -160,6 +180,8 @@ const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}
  * 登録した目標から、所持パルの行に出す個体ごとの印（O-52）。完成品（goalMatches）は「完成品: 目標名」、
  * 完成品でなく、同じ種族で目標の欲しいパッシブを 1 つ以上持つ個体は「目標名の欲しいパッシブ」。タマゴは数えない。
  * 個体を種族ごとにまとめてから、目標ごとにその種族の個体だけを見る（目標と個体が多くても、目標 × 全個体を見ない）。
+ * 欲しいパッシブのある目標は、種族ごとに作った「パッシブ → それを持つ個体」の表から、欲しいパッシブを 1 つ以上持つ個体だけを見る
+ *（持たない個体は完成品にも欲しいパッシブの印にもならない）。同じ種族の目標が多くても、個体ごとの材料は 1 回だけ作る。
  * 印の並びは目標の並び。登録した目標とセーブの情報だけを使う（配合の計算・配合表は使わない）
  * @param {object[]} goals cleanGoal で整えた目標
  * @param {object[]} pals normalizeOwned / ownedFromShared の pals
@@ -168,28 +190,45 @@ const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}
 export function goalMarks(goals, pals) {
   const marks = new Map();
   if (!goals?.length) return marks;
-  const wantedSpecies = new Set(goals.map((goal) => goal.palId));
-  const bySpecies = new Map();
-  for (const pal of pals) {
-    if (pal.egg || !wantedSpecies.has(pal.palId)) continue;
-    let list = bySpecies.get(pal.palId);
-    if (!list) bySpecies.set(pal.palId, list = []);
-    list.push(pal);
-  }
-  const add = (pal, text) => {
-    const list = marks.get(pal.id);
-    if (list) list.push(text);
-    else marks.set(pal.id, [text]);
-  };
+  // 種族ごとの目標（目標の並びのまま）。目標ごとに、完成の判定・印の文を 1 回だけ作り、欲しいパッシブ → 目標の番号の表を作る
+  const species = new Map();
   for (const goal of goals) {
-    const list = bySpecies.get(goal.palId);
-    if (!list) continue;
-    const complete = new Set(goalMatches(goal, list).map((pal) => pal.id));
-    const wanted = new Set(goal.passives);
-    for (const pal of list) {
-      if (complete.has(pal.id)) add(pal, `完成品: ${goal.name}`);
-      else if (wanted.size && pal.passives.some((id) => wanted.has(id))) add(pal, joinName(goal.name, 'の欲しいパッシブ'));
+    let entry = species.get(goal.palId);
+    if (!entry) species.set(goal.palId, entry = { goals: [], wanting: new Map(), hits: null });
+    const wanted = [...new Set(goal.passives)];
+    const index = entry.goals.length;
+    entry.goals.push({ meets: goalTest(goal), done: `完成品: ${goal.name}`, partly: joinName(goal.name, 'の欲しいパッシブ'), wanted: wanted.length > 0 });
+    for (const id of wanted) {
+      let list = entry.wanting.get(id);
+      if (!list) entry.wanting.set(id, list = []);
+      list.push(index);
     }
+  }
+  for (const entry of species.values()) entry.hits = new Int32Array(entry.goals.length);
+  // 個体ごとに、その種族の目標を並びの順に 1 回ずつ見る（印の配列は個体ごとに 1 回で作る）。欲しいパッシブのある目標は、
+  // 個体のパッシブから引いた「欲しいパッシブを 1 つ以上持つ目標」だけを確かめる
+  let stamp = 0;
+  for (const pal of pals) {
+    if (pal.egg) continue;
+    const entry = species.get(pal.palId);
+    if (!entry) continue;
+    stamp++;
+    for (const id of pal.passives) {
+      const indexes = entry.wanting.get(id);
+      if (indexes) for (const index of indexes) entry.hits[index] = stamp;
+    }
+    let list = null;
+    for (let index = 0; index < entry.goals.length; index++) {
+      const goal = entry.goals[index];
+      let text = null;
+      if (!goal.wanted) {
+        if (goal.meets(pal)) text = goal.done;
+      } else if (entry.hits[index] === stamp) text = goal.meets(pal) ? goal.done : goal.partly;
+      if (text === null) continue;
+      if (list) list.push(text);
+      else list = [text];
+    }
+    if (list) marks.set(pal.id, list);
   }
   return marks;
 }

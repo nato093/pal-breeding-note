@@ -358,8 +358,8 @@ export function keywordTerms(query) {
  */
 export function matchesKeywords(pal, terms, extra) {
   const texts = keywordTexts(pal);
-  const added = extra?.length ? extra.map(normalizedText) : null;
-  return terms.every((term) => texts.some((entry) => entry.text.includes(term)) || (added !== null && added.some((text) => text.includes(term))));
+  // 足す文字は、個体の文字で見つからなかった語のときだけ、1 つずつそろえて見る（印の多い個体で、入力のたびに配列を作らない）
+  return terms.every((term) => texts.some((entry) => entry.text.includes(term)) || (extra?.length > 0 && extra.some((text) => normalizedText(text).includes(term))));
 }
 
 // 一覧に出していない項目のうち、一致したら行に出すもの（見出し・名前の項目・説明の項目）
