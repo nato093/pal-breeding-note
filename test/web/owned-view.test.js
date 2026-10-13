@@ -735,6 +735,9 @@ test('所持パル画面: 許可が必要なときは案内の中に「読み込
   assert.ok(grant);
   await grant.dispatch('click');
   assert.equal(asked, 1);
+  // データ元の 1 行には出さない（案内の帯と 2 つ並べない。D27）。場所は残して 1 行が動かないようにする
+  const inLine = view.element.querySelector('.owned-source-grant');
+  assert.deepEqual([inLine.hidden, inLine.disabled, inLine.className.split(' ').includes('is-placeholder')], [false, true, true]);
   view.destroy();
 });
 

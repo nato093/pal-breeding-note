@@ -663,7 +663,8 @@ export function ownedView(context, route) {
     settings: { label: 'セーブ連携を開く', run: () => context.navigate('#/settings') },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
   };
-  const sourceLine = ownedSourceLine({ actions: { grant: noticeActions.grant } });
+  // 所持パルの画面では、許可のボタンは案内の帯だけに出す（1 行のボタンは見せず、場所だけ残して 1 行を動かさない。D27）
+  const sourceLine = ownedSourceLine({ actions: { grant: noticeActions.grant }, showGrant: false });
   summary.append(sourceLine.element, notices);
 
   // ---- 絞り込みの部品（作るのは 1 回だけ。条件・データが変わったら update・値の書き換えで合わせる） ----

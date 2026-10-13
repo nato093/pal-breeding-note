@@ -1717,6 +1717,9 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 .segmented-option:hover:not([aria-checked="true"]) { background: var(--state-hover); }
 .segmented-option[aria-checked="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .segmented-option:focus-visible { position: relative; z-index: 1; }
+/* 固定パネル（理想個体・所持パル）の押しボタンは左右の余白を詰める。所持パルのパネルの 2 段目の 2 行目に、1100px で 30px の余りを作る
+   （「全部持つ」が文字の幅の違うフォントでも折り返さず、パネルが伸びないように。前は 6px。D27）。2 つのパネルで同じ見た目にする */
+:is(.ideal-panel, .owned-panel) .segmented-option { padding-left: 8px; padding-right: 8px; }
 /* 要約の行は 1 行に固定。[件数などの文（入りきらない分は省略し、title に全文）][除外 N]。
    子は固定の 2 つで、条件を変えても行の高さと位置が変わらない（最終確認の時刻は上のデータ元の 1 行の状態のスロットに出す） */
 .ideal-summary { display: flex; align-items: center; gap: 10px; white-space: nowrap; height: 1lh; }

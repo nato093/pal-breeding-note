@@ -202,10 +202,12 @@ test('理想個体画面: 所持の状況は目標と同じ種族の親の候補
   view.applyRoute(parseHash('#/ideal?to=SheepBall'), { reason: 'update' });
   assert.equal(view.element.querySelector('.ideal-holding'), holding);
   assert.equal(holding.textContent, '所持 ♂1 ♀2');
-  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall');
+  // 数と同じ集まりになるよう、タマゴとグローバルパルボックスを除いた場所も渡す（D27。前は場所を渡さず、開いた先にタマゴの e1 も出た）
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
+  assert.deepEqual(filterFromParams(parseHash(holding.getAttribute('href')).params).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
   await pickPassive(view, 'Rare');
   assert.equal(holding.textContent, '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2');
-  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare');
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
   // 所持者で絞っているときは、所持パルにも同じ所持者を渡す（所持パルの URL の受け口の形 holder=player:<uid>。数は所持者で絞った後なので）
   const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
   holder.value = `player:${P1}`;
@@ -1019,7 +1021,7 @@ test('理想個体画面: 配合牧場の組をおすすめの上から同じ数
   owned.state.owned.farms = [ok('A', 'b1', ['m1', 'f1']), ok('B', 'b1', ['m3', 'f2']), ok('C', 'b2', ['cm', 'cf'])];
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
   const box = view.element.querySelector('.ideal-farms');
-  assert.equal(box.querySelector('h3').textContent, '配合牧場（この目標の組を置いている 2 か所 · 交換推奨 1 か所）');
+  assert.equal(box.querySelector('h3').textContent, '配合牧場の詳細（置いている 2 か所・交換推奨 1）');
   const rows = box.querySelectorAll('.ideal-farm');
   // 同じ拠点の 2 つの牧場は「牧場 A」「牧場 B」（I-27）
   assert.deepEqual(rows.map((row) => row.querySelector('.ideal-farm-name').textContent), ['拠点 1 の牧場 A', '拠点 1 の牧場 B']);
@@ -1105,7 +1107,8 @@ test('理想個体画面: 完成までの平均が同じ組しかないときは
   owned.state.owned.farms = farms;
   const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
   const box = () => view.element.querySelector('.ideal-farms');
-  assert.match(box().querySelector('h3').textContent, /交換推奨 0 か所/);
+  // 交換推奨が 0 のときは見出しに数を出さない（D27）
+  assert.equal(box().querySelector('h3').textContent, '配合牧場の詳細（置いている 2 か所）');
   const rows = () => box().querySelectorAll('.ideal-farm');
   assert.match(rows()[1].textContent, /そのまま（おすすめ 2 番）/);
   // 牧場の組が同点の中で先に並ぶ（同じ拠点の 2 か所なので A・B）
@@ -1114,7 +1117,8 @@ test('理想個体画面: 完成までの平均が同じ組しかないときは
   owned.state.owned = fakeOwned([...list, palworldPal('f9', 'SheepBall', 'Female', [], { hp: 99, shot: 99, defense: 99 })]).state.owned;
   owned.state.owned.farms = farms;
   owned.emit();
-  assert.match(box().querySelector('h3').textContent, /交換推奨 0 か所/);
+  // 交換推奨が 0 のときは見出しに数を出さない（D27）
+  assert.equal(box().querySelector('h3').textContent, '配合牧場の詳細（置いている 2 か所）');
   assert.match(rows()[1].textContent, /そのまま（おすすめ 2 番）/);
   assert.equal(view.element.querySelectorAll('.ideal-changed').length, 0);
   assert.doesNotMatch(box().textContent, /新しく入った組/);
@@ -1133,7 +1137,7 @@ test('理想個体画面: 入れ替えると 1 か所は早くなるが、牧場
   owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }, { id: 'B', baseId: '', parents: ['m2', 'f2'] }];
   const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
   const box = view.element.querySelector('.ideal-farms');
-  assert.match(box.querySelector('h3').textContent, /この目標の組を置いている 2 か所 · 交換推奨 0 か所/);
+  assert.equal(box.querySelector('h3').textContent, '配合牧場の詳細（置いている 2 か所）');
   // 今の組はどちらもおすすめの一覧にない（m1・f2・m2・f1 は上の 2 組で使う）ので、「そのまま」に数字を添え、押せない（D15）
   const rows = box.querySelectorAll('.ideal-farm');
   assert.deepEqual(rows.map((row) => [row.querySelector('.ideal-farm-status').textContent, row.querySelector('.ideal-farm-reason').textContent,
@@ -1342,7 +1346,7 @@ test('理想個体画面: 配合牧場の詳細は既定で閉じた 1 行（見
   assert.equal(fold.open, false);
   const head = fold.children[0];
   assert.equal(head.tagName, 'summary');
-  assert.equal(head.textContent, '配合牧場（この目標の組を置いている 2 か所 · 交換推奨 1 か所）');
+  assert.equal(head.textContent, '配合牧場の詳細（置いている 2 か所・交換推奨 1）');
   assert.equal(head.querySelector('h3').textContent, head.textContent);
   assert.equal(head.querySelectorAll('.ideal-farm').length, 0);
   assert.equal(fold.querySelectorAll('.ideal-farm').length, 2);
@@ -1364,7 +1368,8 @@ test('理想個体画面: 配合牧場の詳細は既定で閉じた 1 行（見
   owned.emit();
   assert.equal(box.querySelector('.ideal-farms-fold'), fold);
   assert.equal(fold.open, true);
-  assert.equal(fold.children[0].textContent, '配合牧場（この目標の組を置いている 2 か所 · 交換推奨 0 か所）');
+  // 交換推奨が 0 のときは数を出さない（D27。閉じた 1 行は短く、判定は帯で見える）
+  assert.equal(fold.children[0].textContent, '配合牧場の詳細（置いている 2 か所）');
   // この目標の組を置いた牧場も空き牧場もなくなったら、詳細は出さないが場所は残す（帯と同じく、結果の位置を動かさない）。戻れば開いたまま
   owned.state.owned = { ...owned.state.owned, farms: [ok('C', '', ['cm', 'cf'])] };
   owned.emit();
@@ -1411,7 +1416,7 @@ test('理想個体画面: 読めない牧場が 1 つでもあれば、交換推
   assert.equal(strip.querySelectorAll('.ideal-farm-cell').length, 0);
   const box = view.element.querySelector('.ideal-farms');
   // 見出しに交換推奨・空きを出さない。理由の 1 行
-  assert.equal(box.querySelector('h3').textContent, '配合牧場（この目標の組を置いている 2 か所）');
+  assert.equal(box.querySelector('h3').textContent, '配合牧場の詳細（置いている 2 か所）');
   assert.equal(box.querySelector('.ideal-farm-pending').textContent, '読めない牧場が 1 か所あるため、交換推奨・空き牧場・使用中の判定を保留しています');
   // 行は今の組の絵だけ。状態は「判定を保留」で、押せない。2×2・入れる／外す・空き牧場の案内はない
   const rows = box.querySelectorAll('.ideal-farm');
@@ -1430,7 +1435,7 @@ test('理想個体画面: 読めない牧場が 1 つでもあれば、交換推
   owned.state.owned = { ...owned.state.owned, farms: owned.state.owned.farms.map((farm) => ({ ...farm, status: 'ok' })) };
   owned.emit();
   assert.equal(view.element.querySelector('.ideal-farm-pending'), null);
-  assert.match(view.element.querySelector('.ideal-farms').querySelector('h3').textContent, /交換推奨 1 か所 · 空き 2 か所/);
+  assert.match(view.element.querySelector('.ideal-farms').querySelector('h3').textContent, /・交換推奨 1・空き 2）$/);
   assert.ok(view.element.querySelector('.ideal-farm-to'));
   assert.ok(view.element.querySelector('.badge-mark'));
   view.destroy();
@@ -1482,7 +1487,7 @@ test('理想個体画面: 空き牧場には、牧場に残す組・交換先の
   owned.state.owned.farms = [ok('A', 'b1', ['m1', 'f1']), ok('E', 'b1', []), ok('G', 'b2', ['m4'])];
   const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
   const box = view.element.querySelector('.ideal-farms');
-  assert.equal(box.querySelector('h3').textContent, '配合牧場（この目標の組を置いている 1 か所 · 交換推奨 0 か所 · 空き 2 か所）');
+  assert.equal(box.querySelector('h3').textContent, '配合牧場の詳細（置いている 1 か所・空き 2）');
   // 1 番（m1×f1）は牧場 A に残るので案内しない。2 番・3 番は同じ見込みで畳まれている
   const note = box.querySelector('.ideal-farm-empty');
   assert.equal(note.textContent, '空き 2 か所（拠点 1・拠点 2）。空いた牧場に置くなら おすすめ 2 番・3 番');
@@ -2324,5 +2329,13 @@ test('理想個体画面: 保存の板の「保存」をマウスで押すと保
   assert.deepEqual(ctx.ideals.list().map((goal) => goal.name), ['マウスで保存']);
   assert.equal(nameInput(view), undefined);
   assert.equal(saveButton(view).textContent, '★ 保存済み');
+  view.destroy();
+});
+
+test('理想個体画面: 組が 0 のときの要約は「組なし（候補 N 体）」で、登録済みの配合・所持者は今までどおり続ける（D27。前は「上位 0 組（全 0 組・候補 N 体）」）', (t) => {
+  install(t);
+  const owned = fakeOwned([palworldPal('m1', 'SheepBall', 'Male', []), palworldPal('m2', 'SheepBall', 'Male', [])]);
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
+  assert.equal(view.element.querySelector('.ideal-summary-text').textContent, '組なし（候補 2 体） · 同じ種族どうし');
   view.destroy();
 });
