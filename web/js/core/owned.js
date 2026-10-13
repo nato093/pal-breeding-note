@@ -234,9 +234,13 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     bases: [...bases.values()].sort((a, b) => (a.number || Infinity) - (b.number || Infinity)).slice(0, BASES_MAX)
       .map((base) => ({ ...base, label: baseLabel(base.id) })),
     pals: entries,
-    // 配合牧場（親が読めた牧場だけ）。理想個体の配合の計画で、置いてある組と比べる。牧場を読む前の解析結果では null（情報がない）
-    farms: Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).filter((farm) => farm.status !== 'uncertain')
-      .map((farm) => ({ id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }) })) : null,
+    // 配合牧場（状態つき）。理想個体の配合の計画で、置いてある組と比べる。牧場を読む前の解析結果では null（情報がない）。
+    // 親が読めない・食い違う牧場（uncertain。parents は引けた親だけ）も捨てずに残し、判定の側で使わない・判定を保留する
+    //（core/ideal-farms.js の readyFarms・farmCompleteness）。状態のない古い解析結果は ok
+    farms: Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).map((farm) => ({
+      id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
+      status: farm.status === 'uncertain' ? 'uncertain' : 'ok',
+    })) : null,
     stats: snapshot?.stats ?? {},
   };
 }
@@ -553,8 +557,10 @@ export function sharedUpload(owned) {
   return {
     players: owned.players.map((player) => ({ uid: player.uid, name: player.name })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
-    // 牧場の情報がなければ送らない（「牧場なし」と区別するため）
-    ...(Array.isArray(owned.farms) ? { farms: owned.farms.map((farm) => ({ id: farm.id, baseId: farm.baseId, parents: farm.parents })) } : {}),
+    // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。読めた牧場だけを、状態のない今の形で送る
+    //（GAS の cleanOwnedFarms と旧コードの画面は状態を知らないので、読めない牧場を送ると普通の牧場として扱ってしまう）
+    ...(Array.isArray(owned.farms) ? { farms: owned.farms.filter((farm) => !farm.status || farm.status === 'ok')
+      .map((farm) => ({ id: farm.id, baseId: farm.baseId, parents: farm.parents })) } : {}),
     columns: OWNED_FIELDS,
     rows,
   };
@@ -622,8 +628,9 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
-    // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
-    farms: Array.isArray(world.farms) ? cleanOwnedFarms(world.farms) : null,
+    // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）。
+    // 共有には読めた牧場だけが載るので、状態は ok（cleanOwnedFarms は GAS に写すので変えない）
+    farms: Array.isArray(world.farms) ? cleanOwnedFarms(world.farms).map((farm) => ({ ...farm, status: 'ok' })) : null,
     stats: {},
   };
 }

@@ -43,22 +43,35 @@ const snapshot = {
 
 const owned = normalizeOwned(snapshot, { pals, passives });
 
-test('所持パル: 配合牧場（親が読めたもの）をデータに載せ、共有しても参加している人に届く', () => {
+test('所持パル: 配合牧場を状態つきでデータに載せ（読めない牧場も残す）、共有には読めた牧場だけを今の形で送り、参加している人に届く', () => {
   const farms = [
     { id: 'F1', baseId: BASE, status: 'ok', parents: [{ instanceId: 'b' }, { instanceId: 'c' }], eggs: [] },
     { id: 'F2', baseId: BASE, status: 'uncertain', parents: [{ instanceId: 'a' }], eggs: [] },
     { id: 'F3', baseId: BASE, status: 'ok', parents: [], eggs: [] },
+    // 状態のない古い解析結果は ok として扱う
+    { id: 'F4', baseId: BASE, parents: [{ instanceId: 'd' }], eggs: [] },
   ];
   const withFarms = normalizeOwned({ ...snapshot, breedFarms: farms }, { pals, passives });
-  assert.deepEqual(withFarms.farms, [{ id: 'F1', baseId: BASE, parents: ['b', 'c'] }, { id: 'F3', baseId: BASE, parents: [] }]);
+  assert.deepEqual(withFarms.farms, [
+    { id: 'F1', baseId: BASE, parents: ['b', 'c'], status: 'ok' },
+    // 読めない牧場は、引けた親だけを持って残す（自動登録と親の組の判定には使わない）
+    { id: 'F2', baseId: BASE, parents: ['a'], status: 'uncertain' },
+    { id: 'F3', baseId: BASE, parents: [], status: 'ok' },
+    { id: 'F4', baseId: BASE, parents: ['d'], status: 'ok' },
+  ]);
   // 牧場を読む前の解析結果では null（牧場の情報がない。「牧場なし」の [] と区別する）、共有にも載せない
   assert.equal(owned.farms, null);
   assert.equal('farms' in sharedUpload(owned), false);
   assert.deepEqual(normalizeOwned({ ...snapshot, breedFarms: [] }, { pals, passives }).farms, []);
+  // 共有には読めた牧場だけを、状態のない今の形で送る（GAS と旧コードの画面は状態を知らず、読めない牧場を普通の牧場として扱うため）
   const upload = sharedUpload(withFarms);
-  assert.deepEqual(upload.farms, withFarms.farms);
-  // 参加している人は、ワールドの行に入った farms を受け取る（牧場を共有する前のデータにはないので null）
-  assert.deepEqual(ownedFromShared({ world: { worldName: 'テスト', farms: upload.farms }, ...upload }, { pals, passives }).farms, withFarms.farms);
+  assert.deepEqual(upload.farms, [
+    { id: 'F1', baseId: BASE, parents: ['b', 'c'] }, { id: 'F3', baseId: BASE, parents: [] }, { id: 'F4', baseId: BASE, parents: ['d'] },
+  ]);
+  assert.ok(upload.farms.every((farm) => !('status' in farm)));
+  // 参加している人は、ワールドの行に入った farms を受け取る（状態は ok。牧場を共有する前のデータにはないので null）
+  assert.deepEqual(ownedFromShared({ world: { worldName: 'テスト', farms: upload.farms }, ...upload }, { pals, passives }).farms,
+    upload.farms.map((farm) => ({ ...farm, status: 'ok' })));
   assert.equal(ownedFromShared({ world: { worldName: 'テスト' }, ...upload }, { pals, passives }).farms, null);
 });
 const byId = Object.fromEntries(owned.pals.map((p) => [p.id, p]));
@@ -381,7 +394,7 @@ test('所持パル（読み戻しの検証）: 手元のセーブの値も範囲
   assert.deepEqual([c.talent, c.level, c.gender, c.nickname, c.skills, c.place], [{ hp: 0, shot: 0, defense: 0 }, 12, '', '', [], 'unknown']);
   assert.deepEqual([d.place, d.passives], ['unknown', []]);
   assert.deepEqual(list.players.map((p) => p.uid), [P1]);
-  assert.deepEqual(list.farms, [{ id: 'F1', baseId: BASE, parents: ['a'] }]);
+  assert.deepEqual(list.farms, [{ id: 'F1', baseId: BASE, parents: ['a'], status: 'ok' }]);
   // 正しいデータの個体値は今と同じ（欠けている値は 0）
   assert.deepEqual(byId.a.talent, { hp: 1, shot: 2, defense: 3 });
   assert.deepEqual(normalizeOwned({ ...snapshot, pals: [pal('z', 'PinkCat', {}, { talent: {} })] }, { pals, passives }).pals[0].talent, { hp: 0, shot: 0, defense: 0 });

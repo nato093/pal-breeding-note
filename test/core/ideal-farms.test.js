@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../../web/js/core/ideal-farms.js';
+import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, readyFarms, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../../web/js/core/ideal-farms.js';
 
 const pal = (id, palId, gender) => ({ id, palId, gender });
 const farm = (id, parents, baseId = 'b1') => ({ id, baseId, parents });
@@ -212,4 +212,69 @@ test('配合牧場（全体の速さ）: 物差しが分からない組を含む
   // measureOf がなければ、今までどおり上から K 組との比較だけで決める
   assert.deepEqual(summary(farmAdvice(farms, pairs)), summary(farmAdvice(farms, pairs, {})));
   assert.deepEqual(farmAdvice(farms, pairs).map((item) => item.status), ['swap', 'swap', 'swap']);
+});
+
+test('配合牧場の状態: 判定に使えるのは状態が ok か、状態のない古いデータの牧場だけ。読めない牧場（uncertain）が 1 つでもあれば情報がそろっていない', () => {
+  const ok = { id: 'A', baseId: 'b1', parents: ['m1', 'f1'], status: 'ok' };
+  const old = { id: 'B', baseId: 'b1', parents: ['m2', 'f2'] };
+  const unread = { id: 'C', baseId: 'b1', parents: ['m3', 'f3'], status: 'uncertain' };
+  assert.deepEqual(readyFarms([ok, old, unread]).map((item) => item.id), ['A', 'B']);
+  assert.deepEqual(readyFarms(null), []);
+  assert.deepEqual(farmCompleteness([ok, old]), { complete: true, uncertain: 0, partial: false });
+  assert.deepEqual(farmCompleteness([ok, unread, { ...unread, id: 'D' }]), { complete: false, uncertain: 2, partial: false });
+  // 共有で牧場が一部だけ（farm-data で足す印）のときも、そろっていない
+  assert.deepEqual(farmCompleteness([ok], { partial: true }), { complete: false, uncertain: 0, partial: true });
+  // 牧場の情報がない（null）ときは、欠けた牧場もない
+  assert.deepEqual(farmCompleteness(null), { complete: true, uncertain: 0, partial: false });
+  // 知らない状態も判定に使わないので、読めない牧場として数える
+  assert.deepEqual(farmCompleteness([{ ...ok, status: 'broken' }]), { complete: false, uncertain: 1, partial: false });
+});
+
+test('配合牧場の状態: 対象の牧場（この目標の組）は、読めない牧場を使わない（親が 2 体そろっていても）', () => {
+  const pals = [pal('m1', 'X', 'M'), pal('f1', 'X', 'F'), pal('m2', 'X', 'M'), pal('f2', 'X', 'F')];
+  const farms = [
+    { ...farm('A', ['m1', 'f1']), status: 'uncertain' },
+    { ...farm('B', ['m2', 'f2']), status: 'ok' },
+  ];
+  assert.deepEqual(targetFarms(farms, pals, layouts).map((item) => item.id), ['B']);
+  // 状態のない古いデータは ok として使う
+  assert.deepEqual(targetFarms([farm('A', ['m1', 'f1'])], pals, layouts).map((item) => item.id), ['A']);
+});
+
+test('配合牧場の状態: 空いている牧場は、状態が ok で親が 2 体未満の牧場', () => {
+  const farms = [
+    farm('A', []), farm('B', ['m1']), farm('C', ['m2', 'f2']),
+    { ...farm('D', []), status: 'uncertain' }, { ...farm('E', ['m3']), status: 'ok' },
+  ];
+  assert.deepEqual(emptyFarms(farms).map((item) => item.id), ['A', 'B', 'E']);
+  assert.deepEqual(emptyFarms(undefined), []);
+});
+
+test('配合牧場の名前: 拠点に 2 つ以上あれば、牧場の ID の順で A・B…を付ける（全体の牧場で数え、読めない牧場も数える）', () => {
+  const labels = { b1: '拠点 1', b2: '拠点 2' };
+  const farms = [
+    farm('F9', ['m1', 'f1'], 'b1'), { ...farm('F2', [], 'b1'), status: 'uncertain' }, farm('F5', [], 'b1'),
+    farm('G1', ['m2', 'f2'], 'b2'), farm('H1', [], 'gone'),
+  ];
+  const names = farmNames(farms, (baseId) => labels[baseId] ?? '');
+  assert.deepEqual([...names], [
+    ['F9', '拠点 1 の牧場 C'], ['F2', '拠点 1 の牧場 A'], ['F5', '拠点 1 の牧場 B'], ['G1', '拠点 2 の牧場'], ['H1', '拠点の牧場'],
+  ]);
+  // 並びが変わっても同じ名前（目標ごとに変えない）
+  const again = farmNames([...farms].reverse(), (baseId) => labels[baseId] ?? '');
+  for (const [id, name] of names) assert.equal(again.get(id), name);
+  // 27 個目からは AA・AB…
+  const many = farmNames(Array.from({ length: 28 }, (_, i) => farm(`F${String(i).padStart(2, '0')}`, [], 'b1')), () => '拠点 1');
+  assert.deepEqual([many.get('F25'), many.get('F26'), many.get('F27')], ['拠点 1 の牧場 Z', '拠点 1 の牧場 AA', '拠点 1 の牧場 AB']);
+  assert.deepEqual([...farmNames(null, () => '')], []);
+});
+
+test('配合牧場の使用中: 目標の牧場以外の牧場（読めた牧場だけ）に入っている個体と、その牧場', () => {
+  const farms = [
+    farm('A', ['m1', 'f1']), farm('B', ['m2', 'f2']), farm('C', ['m3']),
+    { ...farm('D', ['m4', 'f4']), status: 'uncertain' },
+  ];
+  const inUse = farmsInUse(farms, new Set(['A']));
+  assert.deepEqual([...inUse], [['m2', 'B'], ['f2', 'B'], ['m3', 'C']]);
+  assert.deepEqual([...farmsInUse(undefined, new Set())], []);
 });

@@ -987,6 +987,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   .ideal-results > * { transition: opacity .15s linear; }
   /* 「変更あり」の札は、出たときに一度だけ少し大きくなって戻る（状態を伝える。並びは動かさない） */
   .ideal-changed { animation: changed-pop .6s var(--ease-emphasized) .1s 1 both; }
+  /* 牧場の判定から移った組は、色が付いてから 1 秒でもとの色に戻る */
+  .ideal-pair.is-flash { animation: farm-flash 1s var(--ease-decelerate) 1 both; }
   /* 配合の行に乗ると「→」が子の方へ少し進み、編集の鉛筆は書く向きに傾く */
   .equation-symbol.arrow { transition: transform .2s var(--ease-emphasized); }
   .breeding-card:hover .equation-symbol.arrow, .route-options > .breeding-equation:hover .equation-symbol.arrow { transform: translateX(3px); }
@@ -1404,7 +1406,7 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
 /* 配合の計画の組の目的（完全体作成組／パッシブ厳選組／個体値厳選組）と、変更あり・配置中の印 */
 .ideal-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
 /* 札は押すと説明が開くボタン（ui/hint.js）。組の目的は 12px のアイコンつき */
-.ideal-tier, .ideal-changed, .ideal-placed {
+.ideal-tier, .ideal-changed, .ideal-placed, .ideal-farm-to, .ideal-owners {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -1417,24 +1419,148 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); }
   background: var(--md-sys-color-surface-container-highest);
   color: var(--md-sys-color-on-surface-variant);
 }
-:is(.ideal-tier, .ideal-changed, .ideal-placed):hover { filter: brightness(.95); }
+:is(.ideal-tier, .ideal-changed, .ideal-placed, .ideal-farm-to, .ideal-owners):hover { filter: brightness(.95); }
 .ideal-tier-icon { flex: none; width: 12px; height: 12px; }
 .ideal-tier.group-complete { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .ideal-tier.group-passive { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 .ideal-tier.group-talent { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .ideal-changed { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 .ideal-placed { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.ideal-farm-to { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 /* 配合牧場の判定 */
 .ideal-farms:empty, .ideal-missing-note:empty { display: none; }
-.ideal-farms { margin: 4px 0 10px; padding: 10px 18px; border-radius: 16px; background: var(--md-sys-color-surface-container-low); }
+/* 牧場の帯（2 段目の固定。条件のパネルの下に重なる）。高さは固定で、牧場の数・判定・保留で変わらない（下の詳細と結果を動かさない）。
+   入り切らない牧場は「ほか n か所」、狭い幅では牧場の名前を省略する */
+.ideal-view { --farm-strip-h: 44px; }
+.ideal-farm-strip {
+  position: sticky;
+  top: calc(var(--header-h) + var(--panel-h, 0px));
+  z-index: var(--z-sticky);
+  box-sizing: border-box;
+  height: var(--farm-strip-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  margin: 0 0 6px;
+  background: var(--md-sys-color-surface);
+  border-bottom: 1px solid var(--line);
+}
+.ideal-farm-strip[hidden] { display: none; }
+.ideal-farm-cell {
+  flex: 0 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-align: left;
+}
+button.ideal-farm-cell { cursor: pointer; }
+button.ideal-farm-cell:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-low)); }
+.ideal-farm-cell-name { min-width: 3em; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+.ideal-farm-cell-pals { flex: none; display: inline-flex; align-items: center; gap: 1px; }
+.ideal-farm-cell-pal { display: inline-flex; align-items: flex-end; }
+.ideal-farm-cell-pal .pal-icon { width: 26px; height: 26px; }
+.ideal-farm-cell-pal .gender { margin-left: -4px; font-size: 11px; line-height: 1; }
+.ideal-farm-cell-x, .ideal-farm-cell-arrow { color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-cell-state { flex: none; padding: 0 6px; border-radius: 4px; font-weight: 700; line-height: 1.6; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-cell.keep .ideal-farm-cell-state { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); }
+.ideal-farm-cell.swap .ideal-farm-cell-state { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.ideal-farm-more {
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ideal-farm-more:hover { background: var(--state-hover); }
+.ideal-farm-strip-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-strip-note.is-pending { color: var(--warning); font-weight: 700; }
+/* 帯の下（詳細・結果）の scrollIntoView の着地点は、帯の高さも空ける */
+.ideal-view:has(> .ideal-farm-strip:not([hidden])) > .ideal-farm-strip ~ *,
+.ideal-view:has(> .ideal-farm-strip:not([hidden])) > .ideal-farm-strip ~ * * {
+  scroll-margin-top: calc(var(--header-h) + var(--panel-h, 0px) + var(--farm-strip-h) + 8px);
+}
+/* 牧場の詳細（帯の下の通常の流れ）。牧場ごとに [名前][今の 2 体][状態]、交換推奨は 2×2 の小表と入れる・外す個体 */
+.ideal-farms { margin: 0 0 10px; padding: 10px 18px; border-radius: 16px; background: var(--md-sys-color-surface-container-low); }
 .ideal-farms h3 { margin: 0 0 6px; font-size: 14px; }
 .ideal-changed-note { margin: 0 0 6px; font-size: 12px; color: var(--md-sys-color-error); }
+.ideal-farm-pending { margin: 0 0 6px; font-size: 12px; color: var(--warning); }
 .ideal-farm-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-.ideal-farm { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; font-size: 13px; }
-.ideal-farm small { flex-basis: 100%; }
-.ideal-farm-status { font-weight: 700; }
-.ideal-farm-status.keep { color: var(--md-sys-color-primary); }
-.ideal-farm-status.swap { color: var(--md-sys-color-error); }
+.ideal-farm { display: grid; gap: 4px; font-size: 13px; }
+.ideal-farm + .ideal-farm { padding-top: 6px; border-top: 1px solid var(--line); }
+.ideal-farm-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  margin: 0 -8px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.ideal-farm-main { cursor: pointer; }
+button.ideal-farm-main:hover { background: var(--state-hover); }
+.ideal-farm-name { flex: none; min-width: 8.5em; }
+.ideal-farm-pair { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.ideal-farm-x { color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-pal { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-width: 0; }
+.ideal-farm-pal .pal-icon { width: 28px; height: 28px; }
+.ideal-farm-pal-name { white-space: nowrap; }
+.ideal-farm-talent { font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.ideal-farm-status { flex: none; font-weight: 700; padding: 0 6px; border-radius: 4px; line-height: 1.6; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-status.keep { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); }
+.ideal-farm-status.swap { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.ideal-farm-reason, .ideal-farm-measure { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm .ideal-warning { font-size: 12px; }
+.ideal-farm-swap { justify-self: start; border-collapse: separate; border-spacing: 2px; font-size: 12px; }
+.ideal-farm-swap th { padding: 0 6px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); text-align: left; }
+.ideal-farm-swap td { padding: 2px 8px; border-radius: 6px; background: var(--md-sys-color-surface-container); }
+.ideal-farm-swap td.is-changed { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.ideal-farm-swap td.is-changed .ideal-farm-talent { color: inherit; }
+.ideal-farm-moves { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.ideal-farm-move { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: 12px; }
+.ideal-farm-move.is-mine { font-weight: 700; }
+.ideal-farm-move-label { flex: none; min-width: 3.5em; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-move.in .ideal-farm-move-label { color: var(--md-sys-color-primary); }
+.ideal-farm-owner { white-space: nowrap; }
+.ideal-farm-place { color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-empty { margin: 8px 0 0; font-size: 13px; }
+.ideal-farm-pick {
+  border: 0;
+  border-radius: 4px;
+  padding: 0 6px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.ideal-farm-pick:hover { filter: brightness(.95); }
+/* ほかの配合牧場で使っている個体の印（views/owned.js の ownedRow の marks） */
+.badge-mark { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
+/* 牧場の判定から移った組（1 秒。動きを減らす設定では色だけで、ふっと戻さない） */
+.ideal-pair.is-flash { background: var(--md-sys-color-secondary-container); }
 .ideal-missing-note { margin: 4px 0 10px; }
 .ideal-missing-note p { margin: 0 0 6px; font-size: 13px; }
 .ideal-chance strong { font-size: 16px; }
@@ -1784,3 +1910,4 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--md-sys-color-pri
 @keyframes breathe { from { background-color: color-mix(in srgb, var(--md-sys-color-primary) 5%, transparent); } to { background-color: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent); } }
 @keyframes focus-in { from { outline-offset: 6px; } }
 @keyframes changed-pop { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.18); } }
+@keyframes farm-flash { 0%, 30% { background-color: var(--md-sys-color-secondary-container); } to { background-color: var(--md-sys-color-surface-container-low); } }
