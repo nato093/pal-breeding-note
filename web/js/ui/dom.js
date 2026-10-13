@@ -5,6 +5,20 @@ export function el(tag, className = '', text = '') {
   return node;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/**
+ * SVG の要素（アイコンの図形）。属性は { 名前: 値 } で、値は文字列にして付ける。属性名が変数になる setAttribute はここだけにし
+ *（test/static/security.test.js）、style 属性の文字列とイベントの属性（on*）は大文字小文字によらず投げる
+ */
+export function svgElement(tag, attributes = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    if (/^(?:style$|on)/i.test(name)) throw new Error(`SVG に付けない属性です: ${name}`);
+    node.setAttribute(name, String(value));
+  }
+  return node;
+}
+
 export function button(text, action, className = 'button') {
   const node = el('button', className, text);
   node.type = 'button';

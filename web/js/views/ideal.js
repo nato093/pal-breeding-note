@@ -1,4 +1,4 @@
-import { el, empty, link, button, syncList, clearList, trackHeight } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, svgElement } from '../ui/dom.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
@@ -129,20 +129,14 @@ const ownerOf = (pal) => (pal.place === 'base' ? pal.lastOwner || '' : pal.holde
 
 // 組の目的のアイコン（12px の SVG。王冠＝完全体作成組、つながった 2 つの輪＝パッシブ厳選組、3 本のバー＝個体値厳選組）。
 // フェーズ 1d の visual-parts で ui/icons.js に移す
-const SVG_NS = 'http://www.w3.org/2000/svg';
 const GROUP_SHAPES = {
   complete: [['path', { d: 'M1.5 9.8 1 3.4l2.8 2.2L6 1.8l2.2 3.8L11 3.4l-.5 6.4z', fill: 'currentColor' }]],
   passive: [['circle', { cx: 4.2, cy: 6, r: 2.8 }], ['circle', { cx: 7.8, cy: 6, r: 2.8 }]].map(([tag, shape]) => [tag, { ...shape, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4 }]),
   talent: [[1, 7, 4], [4.8, 4, 7], [8.6, 1, 10]].map(([x, y, height]) => ['rect', { x, y, width: 2.4, height, rx: 0.5, fill: 'currentColor' }]),
 };
-function svgNode(tag, attributes) {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
-  return node;
-}
 function groupIcon(group) {
-  const icon = svgNode('svg', { viewBox: '0 0 12 12', width: 12, height: 12, 'aria-hidden': 'true', focusable: 'false', class: 'ideal-tier-icon' });
-  for (const [tag, attributes] of GROUP_SHAPES[group] ?? []) icon.append(svgNode(tag, attributes));
+  const icon = svgElement('svg', { viewBox: '0 0 12 12', width: 12, height: 12, 'aria-hidden': 'true', focusable: 'false', class: 'ideal-tier-icon' });
+  for (const [tag, attributes] of GROUP_SHAPES[group] ?? []) icon.append(svgElement(tag, attributes));
   return icon;
 }
 

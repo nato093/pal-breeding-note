@@ -1,7 +1,7 @@
 // 所持パルの状態（連携・共有・更新時刻）の文言。所持パルのタブと設定タブで使う。
 // データ元の 1 行（ownedSourceLine）は、所持パル・理想個体・継承ルートの画面に「どのワールドの・どこから・いつのデータか」を出す
 // （ヘッダーのセーブ連携の状態〔ui/save-status.js〕は全体の状態と操作、この 1 行は画面の結果がどのデータかを示す読み取り専用のもの）。
-import { el, button, link, formatShortTime } from './dom.js';
+import { el, button, link, formatShortTime, svgElement } from './dom.js';
 import { isObject, int } from '../core/boundary.js';
 
 export function dateTime(value) {
@@ -113,16 +113,10 @@ export function sourceText(state) {
   return [worldName(meta), meta.source === 'local' ? 'この PC' : '共有', `${count} 体`, `セーブ ${dateTime(meta.saveUpdatedAt)}`].join(' · ');
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const svgNode = (tag, attributes) => {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
-  return node;
-};
 // 読み込み中に回す小さな輪（何もしていないときは隠し、動きを減らす設定では回さない。CSS の .owned-activity-spinner）
 function spinner() {
-  const svg = svgNode('svg', { viewBox: '0 0 16 16', width: 12, height: 12, 'aria-hidden': 'true', focusable: 'false', class: 'owned-activity-spinner' });
-  svg.append(svgNode('circle', { cx: 8, cy: 8, r: 6, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-dasharray': '26 12' }));
+  const svg = svgElement('svg', { viewBox: '0 0 16 16', width: 12, height: 12, 'aria-hidden': 'true', focusable: 'false', class: 'owned-activity-spinner' });
+  svg.append(svgElement('circle', { cx: 8, cy: 8, r: 6, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-dasharray': '26 12' }));
   return svg;
 }
 

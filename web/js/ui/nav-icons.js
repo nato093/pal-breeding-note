@@ -1,4 +1,6 @@
 // 左のナビゲーションのアイコン。24px の格子に線 2px・角丸の線画で描き、色は文字色に合わせる。
+import { svgElement } from './dom.js';
+
 const PATHS = {
   search: ['<circle cx="10.5" cy="10.5" r="6.5"/>', '<path d="m15.5 15.5 5 5"/>'],
   reverse: ['<path d="M9 14 4 9l5-5"/>', '<path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'],
@@ -13,11 +15,10 @@ const PATHS = {
 
 const NS = 'http://www.w3.org/2000/svg';
 
+// 上の決まった図形の文字列を、要素にする（属性は ui/dom.js の svgElement で付ける）
 function shape(markup) {
   const [, tag, attributes] = markup.match(/^<(\w+)\s+(.*?)\/>$/);
-  const node = document.createElementNS(NS, tag);
-  for (const [, key, value] of attributes.matchAll(/([\w-]+)="([^"]*)"/g)) node.setAttribute(key, value);
-  return node;
+  return svgElement(tag, Object.fromEntries([...attributes.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, key, value]) => [key, value])));
 }
 
 export function navIcon(view) {

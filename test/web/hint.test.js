@@ -28,8 +28,9 @@ test('説明の部品: 既定は「?」のボタン。押すと aria-expanded �
   assert.equal(button.getAttribute('aria-expanded'), 'true');
   const [board] = boards();
   assert.ok(board);
-  // 固定配置（周りの要素を動かさない）
+  // 固定配置（周りの要素を動かさない）。開いてから中身を入れる読み上げの status
   assert.ok(board.className.split(' ').includes('picker-popover-floating'));
+  assert.equal(board.getAttribute('role'), 'status');
   assert.equal(board.parentElement, document.body);
   assert.equal(button.getAttribute('aria-controls'), board.id);
   assert.equal(board.textContent, '性別不明の 1 体');

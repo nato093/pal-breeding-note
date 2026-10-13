@@ -2300,3 +2300,26 @@ test('理想個体画面: 所持者の選択肢の名前は所持パルとそろ
   assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Bob（ABCD1234） の個体$/);
   view.destroy();
 });
+
+test('理想個体画面: 保存の板の「保存」をマウスで押すと保存する（名前の欄から「保存」へフォーカスが移る途中の focusout で板を閉じない。ideal-save-click の回帰）', async (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  body.append(view.element);
+  saveButton(view).dispatch('click');
+  nameInput(view).value = 'マウスで保存';
+  const board = view.element.querySelector('.ideal-save-popover');
+  const submit = board.querySelectorAll('button').find((node) => node.textContent === '保存');
+  // Chrome では、押した部品へフォーカスが移る途中（focusout の後の microtask）の activeElement は body
+  body.focus();
+  await board.dispatch('focusout', { relatedTarget: submit });
+  await Promise.resolve();
+  assert.ok(nameInput(view), '板が閉じた');
+  submit.focus();
+  await submit.dispatch('click');
+  assert.deepEqual(ctx.ideals.list().map((goal) => goal.name), ['マウスで保存']);
+  assert.equal(nameInput(view), undefined);
+  assert.equal(saveButton(view).textContent, '★ 保存済み');
+  view.destroy();
+});

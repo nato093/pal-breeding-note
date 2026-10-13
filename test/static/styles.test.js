@@ -35,3 +35,18 @@ test('静的検査: scroll-margin-top にヘッダーの高さを足さない（
   assert.ok(margins.length >= 3, margins.join(' / '));
   for (const value of margins) assert.doesNotMatch(value, /--header-h/, value);
 });
+
+test('静的検査: 所持パルの行の高さの見積もり（JS の ROW_ESTIMATE）と CSS の --owned-row-h をそろえ、配合牧場の詳細の閉じた 1 行の高さは --farm-fold-h だけで決める', async () => {
+  const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
+  const owned = await readFile(new URL('../../web/js/views/owned.js', import.meta.url), 'utf8');
+  const estimate = Number(owned.match(/^const ROW_ESTIMATE = (\d+);/m)?.[1]);
+  const rowHeight = Number(css.match(/--owned-row-h: (\d+)px;/)?.[1]);
+  assert.ok(Number.isFinite(estimate) && estimate > 0, 'ROW_ESTIMATE が読めません');
+  assert.equal(estimate, rowHeight);
+  const escape = (text) => text.replace(/[[\]().:"]/g, '\\$&');
+  const rule = (selector) => css.match(new RegExp(String.raw`^${escape(selector)} \{([^}]*)\}`, 'm'))?.[1] ?? '';
+  // 全体の summary の min-height（44px）に引きずられない（--farm-fold-h を変えたら、閉じた 1 行も場所だけのときも同じ高さになる）
+  assert.match(rule('.ideal-farms-summary'), /(?:^|[;\s])height: var\(--farm-fold-h\)/);
+  assert.match(rule('.ideal-farms-summary'), /(?:^|[;\s])min-height: 0[;\s]/);
+  assert.match(rule('.ideal-farms:empty'), /(?:^|[;\s])height: var\(--farm-fold-h\)/);
+});
