@@ -222,7 +222,8 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
    - 1 段目: `[目標 palPicker 240px][欲しいパッシブ（popovers の 1 行部品）1fr][所持の状況 170px][☆ 目標として保存 auto]`
    - 2 段目: `[所持者 select 150px][パッシブの条件 segmented][個体値（talent-input）＋すべて 100][ケーキ segmented]`（短いラベルで約 830px。本文 956px に収まる）
      （追記 2026-10-13、talent-target の実装の後: 部品の個体値の 3 つ＋「すべて 100」は 1 行で 584px あり、このままでは 956px に収まらない見込み。talent-target の「実装の記録」7）
-   - CSS: `position: sticky; top: var(--header-h); z-index: var(--z-panel); background: var(--md-sys-color-surface); border-bottom: 1px solid var(--line); max-height: 130px;`。祖先に `overflow` があると sticky が効かないので、`.app-main`・`.view` に overflow が付いていないことを確かめる。
+     （追記 2026-10-13、ユーザーの決定 D20 で直した: **所持の状況は 1 段目から外して 2 段目の右端へ**。1 段目は `[目標 240px][欲しいパッシブ 1fr][☆ 目標として保存 auto]`。**欲しいパッシブのチップが 1 行に入りきらないときは改行し、パネルがその分（約 38px）伸びる**（横に省略・「+N」にはしない）。2 段目は 2 行に折り返してよいが、パネル全体はできるだけ低く（見出しを入力の左に置く・個体値の部品を詰める）。実装は下の「実装の記録」1・2）
+   - CSS: `position: sticky; top: var(--header-h); z-index: var(--z-panel); background: var(--md-sys-color-surface); border-bottom: 1px solid var(--line); max-height: 130px;`（追記 2026-10-13: D20 によりパネルは伸びるので `max-height` は付けない）。祖先に `overflow` があると sticky が効かないので、`.app-main`・`.view` に overflow が付いていないことを確かめる。
    - 高さ: `trackHeight(panel, element)` で `--panel-h` を画面の section に書く（決まり 3）。destroy で監視をやめる。
 3. **segmented の部品**（新規 `web/js/ui/segmented.js`。route.js:33-38 の `startChip` は継承ルートの開始チップで役割が違うので触らず、見た目の CSS だけ寄せる）:
 
@@ -232,7 +233,7 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
    ```
    - `div[role=radiogroup][aria-label=label]` の中に `button[role=radio][aria-checked]`。選んでいるものだけ `tabindex=0`、ほかは -1。←→ キーで移動して選ぶ（ロービングタブインデックス）。選んでいるボタンは `secondary-container` の地。
    - パッシブの条件: `[['include', '全部持つ', '欲しいものを全部持つ（他も可）'], ['only', 'だけ', '欲しいものだけを持つ']]`。ケーキ: `[['none', 'なし', 'ケーキ・野菜ケーキ'], ['talent', 'キノコ等', 'キノコケーキ・豪華野菜ケーキ（個体値 +1〜5）'], ['special', 'スペシャル', 'スペシャルケーキ（パッシブを 4 個まで継ぐ）']]`。title は core/ideal.js の CAKES・PASSIVE_MODES の文をそのまま使う（views/ideal.js から渡す。決まり 4）。値と計算は変えない。
-4. **所持の状況**（I-53）: core/ideal.js:877 の戻り値に `sameSpecies` を足す（1 語）。パネル 1 段目に `a.ideal-holding`（幅固定、目標がないときは「—」で幅を保つ）: `所持 ♂${s.M} ♀${s.F}` ＋ 欲しいパッシブがあれば ` · 全部持つ ♂${c.M} ♀${c.F}`。title「親の候補の数（タマゴ・グローバルパルボックスを除き、所持者の絞り込みの後）」。href は `buildHash('owned', { pal: to, p: passives.join(',') })`。`renderResults` の中で idealPlan の結果から書き換える（文字だけ書き換え、要素は作り直さない）。
+4. **所持の状況**（I-53）: core/ideal.js:877 の戻り値に `sameSpecies` を足す（1 語）。パネル 1 段目（追記 2026-10-13: D20 で **2 段目の右端**に移した）に `a.ideal-holding`（幅固定、目標がないときは「—」で幅を保つ）: `所持 ♂${s.M} ♀${s.F}` ＋ 欲しいパッシブがあれば ` · 全部持つ ♂${c.M} ♀${c.F}`。title「親の候補の数（タマゴ・グローバルパルボックスを除き、所持者の絞り込みの後）」。href は `buildHash('owned', { pal: to, p: passives.join(',') })`。`renderResults` の中で idealPlan の結果から書き換える（文字だけ書き換え、要素は作り直さない）。
 5. **目標として保存**（I-18〜I-20）: 1 段目の右端に `button.ideal-save`「☆ 目標として保存」。
    - 目標がないときは `visibility: hidden`（場所は残してずれを防ぐ。I-19）。登録済み（`ideals.has(goalConditions())`）なら「★ 保存済み」で無効。ログインしていない（`!ideals`）なら出さない。
    - title に `goalSummary(goalConditions())`（登録される条件。I-20）。
@@ -265,7 +266,7 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
 - 所持の状況は idealPlan の数（登録済みの配合と同じ種族だけ）で、配合表は使わない。`ui/segmented.js` は core/ideal.js を import しない。
 - viewState の `goalsOpen`（:307-308）は使わなくなる。古い viewState に残っていても読まないだけで害はない（keep-state の版の決まりで捨ててもよい）。
 - 保存の板・ダイアログは textContent だけで組む。
-- sticky パネルの高さが変わると下が動くので、パネルの中で高さが変わる要素（パッシブのチップ・所持の状況）は幅と高さを固定する。パッシブの 1 行部品は popovers で 1 行に収まる前提（選んだチップが多いときは横に省略）。
+- sticky パネルの高さが変わると下が動くので、パネルの中で高さが変わる要素（パッシブのチップ・所持の状況）は幅と高さを固定する。パッシブの 1 行部品は popovers で 1 行に収まる前提（選んだチップが多いときは横に省略）。（追記 2026-10-13: D20 で、パッシブのチップは横に省略せず、入りきらないときは改行してパネルが伸びる形にした。所持の状況・保存ボタンは幅を固定した）
 
 ### release-notes の案
 - id: `<実装日>-ideal-panel`
@@ -273,28 +274,49 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
 - body: 「条件をスクロールしても見える 2 段にまとめました。登録した目標は見出しの「目標」ボタンから開きます。」（51 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モックで、結果を下までスクロールしても条件パネルがヘッダーの下に見えている（幅 1100px で 2 段、パネルの高さ 130px 以下）。
-- [ ] scrollY=250 で欲しいパッシブを足しても、1 番目の組の top が変わらない（基準: 466→486）。フォーカスがパッシブの部品に残る。
-- [ ] 個体値・segmented・所持者を変えても、パネルの高さが変わらない（`--panel-h` の値が同じ）。
-- [ ] 目標を選ぶ前は保存ボタンが見えず、場所は空いたまま（選んだときに右が動かない）。
-- [ ] 「目標（N）」のダイアログから外す・元に戻す・呼び出すができ、呼び出すとダイアログが閉じる。
-- [ ] 幅 920px・拡大 125% で横スクロールが出ない（パネルは折り返してよい）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 所持の状況は idealPlan の数だけで配合表を使わず、`ui/segmented.js` は `core/ideal.js` を import しない（`test/import.test.js`）。互換 — 目標の保存の形（`cleanGoal` の項目）を変えていない。古い viewState の `goalsOpen` が残っていても壊れない。セキュリティ — 保存の板・ダイアログは textContent だけ（`test/static/security.test.js`）。性能 — 個体値の入力は 150ms の間引きを通ってから再計算する。
+- [x] `npm test` が通る。
+- [x] モックで、結果を下までスクロールしても条件パネルがヘッダーの下に見えている（幅 1100px で 2 段、パネルの高さ 130px 以下）。（2026-10-13: 見えている〔top 56〕。高さは D20 の形で 140.4px と 130px を超えた。理由は「実装の記録」2）
+- [x] scrollY=250 で欲しいパッシブを足しても、1 番目の組の top が変わらない（基準: 466→486）。フォーカスがパッシブの部品に残る。（改行が要るときはパネルが 37px 伸びる。アヌビスでは配合牧場の欄が伸びる分だけ動く。「実装の記録」10）
+- [x] 個体値・segmented・所持者を変えても、パネルの高さが変わらない（`--panel-h` の値が同じ）。
+- [x] 目標を選ぶ前は保存ボタンが見えず、場所は空いたまま（選んだときに右が動かない）。
+- [x] 「目標（N）」のダイアログから外す・元に戻す・呼び出すができ、呼び出すとダイアログが閉じる。
+- [x] 幅 920px・拡大 125% で横スクロールが出ない（パネルは折り返してよい）。（拡大 125%・150% 相当の 880・733px では body の min-width 920px の横スクロール〔40・187px〕が前からあり、ユーザーの判断で変えない〔phase-1a の header-frame の記録〕。パネルははみ出さない）
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 所持の状況は idealPlan の数だけで配合表を使わず、`ui/segmented.js` は `core/ideal.js` を import しない（`test/import.test.js`）。互換 — 目標の保存の形（`cleanGoal` の項目）を変えていない。古い viewState の `goalsOpen` が残っていても壊れない。セキュリティ — 保存の板・ダイアログは textContent だけ（`test/static/security.test.js`）。性能 — 個体値の入力は 150ms の間引きを通ってから再計算する。
 
 ### TODO
-- [ ] ResizeObserver のモックと `trackHeight` があるか確かめ、なければ足す
-- [ ] `ui/segmented.js` とテストを作る
-- [ ] views/ideal.js の並びを「見出し → パネル → 要約 → 牧場 → 結果」に組み直す
-- [ ] パネルの 2 段（目標・パッシブ・所持の状況・保存／所持者・パッシブの条件・個体値・ケーキ）を組み、sticky と `--panel-h` を付ける
-- [ ] パッシブの条件・ケーキを segmented に差し替える
-- [ ] idealPlan の戻り値に sameSpecies を足し、所持の状況のリンクを出す
-- [ ] 「☆ 目標として保存」と保存の板（名前・Enter・Esc・条件が変わったら閉じる）を作る
-- [ ] 登録一覧の details を「目標（N）」→ダイアログに移す（購読・閉じる・呼び出すで閉じる）
-- [ ] 要約の行を 1 行固定にする（中身は ideal-results）
-- [ ] ideal-view.test.js の select 前提・登録の行前提のテストを直し、新しいテストを足す
-- [ ] 古い CSS を消して新しい CSS を足し、1100px・920px・125% で確かめる
-- [ ] release-notes に 1 件足す
+- [x] ResizeObserver のモックと `trackHeight` があるか確かめ、なければ足す
+- [x] `ui/segmented.js` とテストを作る
+- [x] views/ideal.js の並びを「見出し → パネル → 要約 → 牧場 → 結果」に組み直す
+- [x] パネルの 2 段（目標・パッシブ・保存／所持者・パッシブの条件・個体値・ケーキ・所持の状況。D20）を組み、sticky と `--panel-h` を付ける
+- [x] パッシブの条件・ケーキを segmented に差し替える
+- [x] idealPlan の戻り値に sameSpecies を足し、所持の状況のリンクを出す
+- [x] 「☆ 目標として保存」と保存の板（名前・Enter・Esc・条件が変わったら閉じる）を作る
+- [x] 登録一覧の details を「目標（N）」→ダイアログに移す（購読・閉じる・呼び出すで閉じる）
+- [x] 要約の行を 1 行固定にする（中身は ideal-results）
+- [x] ideal-view.test.js の select 前提・登録の行前提のテストを直し、新しいテストを足す
+- [x] 古い CSS を消して新しい CSS を足し、1100px・920px・125% で確かめる
+- [x] release-notes に 1 件足す
+
+### 実装の記録（2026-10-13、ブランチ `feature/ideal-panel`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ ideal-results・ideal-farms・owned-toolbar はこちらを正とする）。
+
+1. **パネルの形（D20 で手順 2 を直した）**: `section.ideal-panel`（aria-label「理想個体の条件」。sticky・`top: var(--header-h)`・`z-index: var(--z-panel)`・surface の地・下の線）の中に 2 段。
+   - 1 段目 `div.ideal-panel-main`: grid `240px minmax(0, 1fr) auto`。目標の palPicker（`div.picker`）・欲しいパッシブ（`div.field.passive-selector`）・`div.ideal-save-slot`。見出しは入力の上で、picker と passive-selector は subgrid（見出しの行と入力の行をそろえる。パッシブが改行して入力の行が高くなっても、目標の選択欄と保存ボタンは 1 行目に置く）。1100px でパッシブの欄は 534.7px。
+   - 2 段目 `div.ideal-panel-sub`: flex・折り返し。`label.ideal-panel-item`（見出し「所持者」＋select）・`div.ideal-panel-item`（「条件」＋segmented）・「個体値（以上）」＋talent-input・「ケーキ」＋segmented・右端の `a.ideal-holding`（所持の状況。D20 で 1 段目から移した）。見出しは入力の左（`span.field-label`。押しボタンの見出しは radiogroup の名前と重ねて読まれないよう aria-hidden）。
+   - 文書の `max-height: 130px` は付けていない（D20: パッシブのチップが改行したらパネルが伸びる。max-height だと下が切れる）。
+   - 個体値の部品はパネルの中だけ CSS で詰めた（各欄の「以上」を隠して見出しを「個体値（以上）」の 1 回に、数値欄の増減のボタンを隠して 3.6em・高さ 32px。↑↓ キーの増減は残る）。部品の API・aria-label（「HPの目標」「HPを条件にする」）は変えていない。ラベルを「攻」「防」に縮めることはしていない（1100px で 1 行目に入ったため）。所持者の select・押しボタン・プリセットも高さ 32px。
+2. **高さ（実測。ユーザーに示した例の「約 125px」と違う）**: 幅 1100px・パッシブ 0 個で **140.4px**（1280px も同じ。920px は 2 段目が 3 行で 164px）。内訳: 上下の余白 4＋6・段の間 5・下の線 1・1 段目 55.4（見出し 14.4＋2＋入力 40。パル選択と追加欄の高さ 40px は他画面と同じ部品）・2 段目 69（32＋5＋32）。2 段目の欄を 1 行に並べると 所持者 192・条件 159・個体値 492・ケーキ 251・所持の状況 204 で約 1,330px あり、本文の幅 941px（1100px − ナビ 96 − 余白 48 − スクロールバー 15）に入らないので 2 行になる（1 行目に 所持者・条件・個体値、2 行目に ケーキ・所持の状況。ユーザーに示した例と同じ並び）。パッシブのチップが改行すると +37px（1100px で 3 個目にダイヤモンドボディなど長い名前が来たとき 177.4px。920px で 4 個は 3 行で 239px）。130px に収めるには 1 段目の見出しを消す（約 −16px）しかなく、ユーザーが選んだ例（見出しは入力の上）と違うのでしていない。
+3. **`trackHeight`**（`web/js/ui/dom.js`。決まり 3 の形のまま）: `trackHeight(target, host, name = '--panel-h') → () => void`。ResizeObserver の border-box の高さを 0.01px に丸めて `host.style.setProperty(name, …)` で書き、同じ値なら書き直さない。ResizeObserver が無い環境（テスト）では getBoundingClientRect で 1 回だけ測る。理想個体は `trackHeight(panel, element)`（**`--panel-h` は画面の section `section.view.ideal-view` に書く**）で、画面の destroy で監視をやめる。パネルより後ろの要素（要約・牧場・結果とその中）に `scroll-margin-top: calc(var(--header-h) + var(--panel-h, 0px) + 8px)`（フォーカス・scrollIntoView の先がパネルの下に隠れない）。ideal-farms の 2 段目の帯は `top: calc(var(--header-h) + var(--panel-h))` で使う。テストのモックは `test/helpers/dom.js` の `installResizeObserver(t) → { resize(target, 高さ), observed(target) }` と、`test/web/app.test.js` の `boot(t, { resize: true })`（同じ resize・observed を返す）。
+4. **`segmented`**（新規 `web/js/ui/segmented.js`）: `segmented({ label, choices, value, onChange }) → { element, update(value), destroy() }`。`div.segmented[role=radiogroup][aria-label=label]` の中に `button.segmented-option[role=radio][data-value][aria-checked][tabindex]`。choices は `[value, 短いラベル, title?]`。押す・←→↑↓（端では反対の端へ回る）・Home・End で選び、選んでいるものを押しても onChange は呼ばない。`update` は onChange を呼ばず、知らない値ならどれも選ばず先頭を tabindex=0 にする。選んでいるものは secondary-container の地（継承ルートの開始チップと同じ）。理想個体は `shortChoices(PASSIVE_MODES, { include: '全部持つ', only: 'だけ' })`・`shortChoices(CAKES, { none: 'なし', talent: 'キノコ等', special: 'スペシャル' })`（title は core/ideal.js の長い文。views/ideal.js から渡す）。owned-toolbar の「全部／だけ／なし」もこれを使える。
+5. **要約の行**: `p.result-note.ideal-note`（1 行に固定・省略記号。`showNote(text)` が textContent と title に同じ文を入れる）。中身は今の `summaryText` のまま。ideal-results で `.ideal-summary` に組み直すときは、1 行に固定する CSS（`.ideal-note`）を引き継ぐ。
+6. **見出しと「?」の置き場**: `header.view-heading` の h1 の右に `div.view-heading-actions`（`button.ideal-goals-button`「目標（N）」と `button.icon-button.view-help-button`「?」・aria-label「計算のしくみの説明」）。見出しは sticky にしていない（パネルの上でスクロールで隠れる）。**計算のしくみは結果の下から外し、「?」で `openDialog('計算のしくみ', { className: 'ideal-help-dialog' })` に今の 14 項目（`ul.ideal-help`）をそのまま出す**（手順 1 の「先に外すなら仮のダイアログ」を採った）。ideal-results は `openHelp()` の中身を 4 見出しにする。
+7. **目標のダイアログ（手順 6）**: 「目標（N）」で `openDialog('目標', { className: 'ideal-goals-dialog' })`。中は保存の失敗の警告（`p.form-errors`・role=alert）と `ul.ideal-goal-list`（`syncList`。キーは目標の ID、行の `update` は状態の文と `.done`・`.ready` だけ。目標の中身は変えられないため）と足の「閉じる」。行の列: `div.ideal-goal-title`（パルの絵＋名前）／パッシブの小さなチップ（無ければ「—」）／`small.ideal-goal-summary`（`goalSummary`）／`span.ideal-goal-status`／「呼び出す」（`a.button.secondary.small`・`data-focus-key="goal:<id>"`・押すとダイアログを閉じて、遷移はリンクのまま）／外す（`「名前」を目標から外す`。トーストの「元に戻す」で戻る）。並びは今と同じ完成済みが上。空のときは `li.ideal-goal-empty`「保存した目標はまだありません。…」。行を外してフォーカスを失ったら次の行、無ければ「閉じる」へ（syncList の fallbackFocus）。開いている間だけ行を描き（`ideals.subscribe` と所持パルの更新で `renderGoals`）、閉じたら `clearList`。画面の destroy で開いていたダイアログ（目標・計算のしくみ）を閉じる。`ideals.saveFailed` のときはボタンを「目標（N）!」にして title「この端末に保存できませんでした」。
+8. **目標として保存（手順 5）**: `div.ideal-save-slot > button.button.secondary.ideal-save`（min-width 10.5em で「☆ 目標として保存」「★ 保存済み」の幅が同じ）。目標がないときは `.is-placeholder`（visibility: hidden）と disabled で場所を残す（1100px で目標なし・ありとも左 919px・幅 142px、パッシブの欄の幅 534.7px で変わらない）。**保存済みは disabled ではなく `aria-disabled="true"`**（文書の「無効」。disabled にすると、保存した直後に押していたボタンからフォーカスが落ちるため。押しても何もしない）。ログインしていない（`!ideals`）ときは slot ごと hidden。板は `createPopover({ anchor: saveButton, wrapper: slot, className: 'picker-popover ideal-save-popover', focusOut: true })`（role=dialog・aria-label「目標として保存」。右端にそろえた幅 320px）で、名前の欄（aria-label「目標の名前」。開くと `defaultName()` を入れて全選択）・「この端末に保存します。完成したら右上のベルで知らせます。」・キャンセル・保存。Enter（変換中は除く）で保存、Esc・キャンセルで閉じてボタンへ。applyRoute で目標かパッシブが変わったら閉じる。目標を外した・保存済みになったときも閉じる。成功のトーストは「「名前」を保存しました（`goalSummary`）。完成したら右上のベルで知らせます」、ほかの結果の文も「登録」を「保存」にした。保存の形（`goalConditions()`。`order: 'next'` を含む）は変えていない。
+9. **所持の状況（手順 4）**: `a.ideal-holding`（2 段目の右端・幅 17em・右寄せ・省略記号）。`drawPlan` で idealPlan の結果から「所持 ♂${sameSpecies.M} ♀${sameSpecies.F}」＋欲しいパッシブがあれば「 · 全部持つ ♂${complete.M} ♀${complete.F}」（文書の文のまま。ユーザーに示した例は「/ 全部」）、href は `buildHash('owned', { pal: to, p })`（href 属性で付け外し）。結果が無い（目標なし・データなし・初めての計算中）ときは「—」で href なし。前の結果を残したまま計算しているときは、要約と同じく前の数のまま。
+10. **固定と動き（完了の条件の画面の確認。phase-1a の「計測の記録」の ideal-panel の行）**: 下までスクロールしてもパネルはヘッダーの下（top 56）。scrollY=250 でパッシブを 1・2 個足しても 1 番目の組の top は動かない（ホルス・1100×600 で 49 → 49）。改行が要る 3 個目ではパネルが 37px 伸び、Chrome のスクロールのアンカーで scrollY が 250 → 287 に補正され、1 番目の組の top は 49 のまま（パネルが 37px 分多く重なる）。スクロールしていないとき（クロスケンタウロス・scrollY 0）は 1 番目の組が 299 → 336（+37）下がる。注入データのアヌビスでは、伝説を足すと配合牧場の判定が「そのまま」→「交換推奨」に変わって牧場の欄が 133 → 172px（+39）伸び、1 番目の組も 39px 下がる（パネルと要約の行は動かない。牧場の欄の高さは ideal-farms で直す）。フォーカスは 1〜3 個目で候補の検索欄、4 個目で最後のチップの ×。個体値・押しボタン・所持者・「すべて 100」・← キーで変えても `--panel-h` は 140.39px のまま。
+11. **テスト**: `test/web/segmented.test.js`（5 件。部品を作る前にモジュールがなくて落ちることを確かめた）、`test/web/dom.test.js` に trackHeight（2 件）、`test/core/ideal.test.js` に sameSpecies（区切った計算の固定のハッシュの比較は、区切る前の実装に無い sameSpecies を外して比べる）、ideal-view に パネルの形・ResizeObserver・所持の状況・保存の板（Enter・Esc・キャンセル・目標なし・ログインなし）・目標のダイアログ（外す・元に戻す・呼び出す・閉じた後）・保存の失敗と古い viewState の goalsOpen、app.test.js に `--panel-h` と画面を離れたときの監視の終わり。期待値を直したもの: ケーキ・パッシブの条件を select から押しボタンに（ideal-view 5 か所・app.test.js の読み込み直し）、登録の行・一覧の折りたたみを保存の板・ダイアログに（ideal-view の登録・g・applyRoute・外す、app.test.js の「呼び出す」）、`.ideal-help` を「?」のダイアログに、`.route-query` を `.ideal-panel-main` に、見出し「個体値の目標（以上）」を「個体値（以上）」に。
+12. **そのほか**: docs/OPERATIONS.md の理想個体の節（目標として保存・目標のダイアログ・パネル・押しボタン）を新しい画面に合わせた（触るファイルの一覧にはなかった）。viewState の `goalsOpen` は読まなくなった（残っていても害はない）。候補の一覧はパネルの中で下に開くので、窓の高さがおよそ 585px より低いと、パネルが固定された状態で候補の下の端が窓の外に出ることがある（候補の一覧の高さは今の `min(60vh, 520px)` のまま）。
 
 ---
 
@@ -311,7 +333,7 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
 - **ideal-calc の後**（2026-10-12 追記）: 組の定義（同じ種族で両親合わせて欲しいパッシブがそろう組も完全体作成組）と、配合牧場・「変更あり」の決め方（全体の速さの目安 R・交換推奨の行き先だけ）が変わった。ダイアログとタグの説明（手順 5・6）は ideal-calc で直した文（phase-1-0-ideal-calc.md の手順 6）に合わせて書き直した。上から K 組が牧場に置く組とは限らないので、I-37 の「牧場に置く K 組は畳まない」は外した（手順 7）。
 
 ### 依存
-ideal-panel（要約の行の場所・見出しの「?」の置き場）、popovers（`ui/popover.js`）、stable-render（結果の差分更新。カードの `data-key`）、ideal-calc（説明の文・組の定義）。
+ideal-panel（要約の行の場所・見出しの「?」の置き場）、popovers（`ui/popover.js`）、stable-render（結果の差分更新。カードの `data-key`）、ideal-calc（説明の文・組の定義）。（追記 2026-10-13: ideal-panel で、要約の行は `p.result-note.ideal-note`〔1 行固定〕、「?」は見出しの `button.view-help-button` で、計算のしくみは今の 14 項目のまま `openHelp()` のダイアログに移してある。ideal-panel の「実装の記録」5・6）
 
 追記（2026-10-12、ideal-calc の実装）: 組のカードの ambiguous の注記は「同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。」になった（D19）。説明の :165 も、補助の判定の言い回しと D19 の一文を足した（phase-1-0-ideal-calc.md の「実装の記録」の 4・5）。「?」のダイアログに移すときは、この文を使う。
 
@@ -441,7 +463,7 @@ ideal-panel（要約の行の場所・見出しの「?」の置き場）、popov
   - **D16**: 空き牧場には、牧場に残す組・交換先の組に使う個体を除いた、おすすめの上位の組を案内する（I-29 の「おすすめ K+1〜K+m 番」は、上から K 組が牧場に置く組とは限らないので使わない）。
 
 ### 依存
-ideal-results（カードの札・説明部品・畳み）、ideal-panel（`--panel-h`）、stable-render（カードの `data-key`）、ideal-calc（`farmAdvice` の `measureOf`・`idealPlan` の `measures`・「変更あり」の絞り込み）。
+ideal-results（カードの札・説明部品・畳み）、ideal-panel（`--panel-h`）、stable-render（カードの `data-key`）、ideal-calc（`farmAdvice` の `measureOf`・`idealPlan` の `measures`・「変更あり」の絞り込み）。（追記 2026-10-13: `--panel-h` は ideal-panel が `trackHeight` で画面の section に書き、パネルが伸びる〔D20〕と変わる。今は牧場の欄の中身〔「そのまま」→「交換推奨」の詳細の行〕が変わると下の結果が動く〔アヌビスで +39px〕。ideal-panel の「実装の記録」3・10）
 
 追記（2026-10-12、ideal-calc の実装）: `farmAdvice` は、今の組か交換先の組が「同じ組み合わせで別の子も登録されている組」（`ambiguous`）のまとまりを比べず、おすすめの順のとおりにする（D19）。今の牧場の行には、その旨の注記（`small.ideal-warning`「⚠ 牧場の組（交換先の組）は、…どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。」）がある。行を絵と押せる行に作り直すときも、この注記は残す（phase-1-0-ideal-calc.md の「実装の記録」）。
 
@@ -735,6 +757,7 @@ talent-target（個体値の部品）・popovers（パッシブの 1 行部品�
      （追記 2026-10-13、talent-target の実装の後: 部品の個体値の 3 つ＋プリセット 2 つは 1 行で 710px ある。talent-target の「実装の記録」7）
    - 状態の行（28px）: `12 / 340 体 · ♂5 ♀6 タマゴ 1`（O-04・O-50。グローバルを外していて数があれば title に「グローバル 25 体は非表示」）＋効いている条件のチップ（既定から変えた条件だけ。例「所持者: Alice ×」「★2 以上 ×」「攻撃 90 以上 ×」「パッシブ: 職人気質 ×」「属性: 闇 ×」。入り切らなければ「+n」）＋[すべて解除]＋[リンクをコピー]＋右端に O-40 のリンク（パルを選んでいれば「この条件で理想個体 →」＝ `buildHash('ideal', { to: palId, p: 正のランクのパッシブ })`、パッシブを選んでいれば「このパッシブを運ぶ継承ルート →」＝ `buildHash('route', { p })`。継承ルートでは目標を選ぶ手順が残る）。
    - 合計の高さは約 125px（キャプションを各欄の上に 1 行、操作は 36px）。幅 920px では折り返してよい。
+   - （追記 2026-10-13、ユーザーの決定 D20: 理想個体と同じ決め方にする。**パッシブのチップが 1 行に入りきらないときは横に省略せず改行し、パネルがその分伸びる**（`--panel-h` は ui/dom.js の `trackHeight` で画面の section に書く）。段は折り返してよいが、全体はできるだけ低く。理想個体の形〔見出しを入力の左に置く・個体値の「以上」は見出しに 1 回・増減のボタンを隠す CSS は `.ideal-panel` の中だけ〕と測った値は ideal-panel の「実装の記録」）
    - 統合プランの F056 の 1 段目は「[所持者][場所チップ][パル][キーワード][並べ替え]」だが、場所のチップ（約 420px）とパル（240px）を同じ段に置くと 956px を超えるので、パルを 2 段目に、属性をボタンにした（下の「コードで確かめてプランと違っていた点」）。
 7. **検索つきの選択**（新規 `web/js/ui/search-select.js`。所持者のほか、フェーズ 2 の登録者でも使う）:
 
