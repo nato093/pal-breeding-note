@@ -96,3 +96,25 @@ test('検索つきの選択: update で件数が閾値をまたぐと select と
   assert.equal(trigger(), null);
   assert.equal(select().value, 'player:1');
 });
+
+test('検索つきの選択: 日本語の変換中（isComposing・keyCode 229）の矢印・Enter・Esc は候補の操作に使わない（B4: 変換を確定する Enter で候補を選んでいた）', async (t) => {
+  const { changes, trigger, search, part } = mount(t, { options: [['', 'すべて'], ...players(13)], value: '' });
+  await trigger().dispatch('click');
+  search().value = 'bob';
+  await search().dispatch('input');
+  await search().dispatch('keydown', { key: 'ArrowDown', preventDefault() {} });
+  assert.equal(part.element.querySelector('.highlighted').textContent, 'Bob1');
+  // 変換中の矢印は候補を動かさず、Enter（変換の確定）で選ばず、Esc（変換の取り消し）で閉じない
+  let prevented = false;
+  await search().dispatch('keydown', { key: 'ArrowDown', isComposing: true, preventDefault() { prevented = true; } });
+  assert.equal(part.element.querySelector('.highlighted').textContent, 'Bob1');
+  await search().dispatch('keydown', { key: 'Enter', isComposing: true, preventDefault() { prevented = true; } });
+  await search().dispatch('keydown', { key: 'Enter', keyCode: 229, preventDefault() { prevented = true; } });
+  await search().dispatch('keydown', { key: 'Escape', isComposing: true, preventDefault() { prevented = true; }, stopPropagation() {} });
+  assert.deepEqual(changes, []);
+  assert.equal(prevented, false);
+  assert.ok(search());
+  // 確定した後の Enter で選ぶ
+  await search().dispatch('keydown', { key: 'Enter', preventDefault() {} });
+  assert.deepEqual(changes, ['player:1']);
+});

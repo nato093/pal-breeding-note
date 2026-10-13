@@ -253,6 +253,12 @@ test('trackHeight: target の高さを host の CSS 変数に書き続け、同�
   resize(panel, 128.4);
   resize(panel, 166);
   assert.deepEqual(writes, [['--panel-h', '128.4px'], ['--panel-h', '166px']]);
+  // measure() は知らせを待たずに今の高さを書く（同じフレームの中で高さを使う前に呼ぶ。B6）
+  panel.getBoundingClientRect = () => ({ top: 64, bottom: 274, height: 210 });
+  stop.measure();
+  assert.equal(host.style.getPropertyValue('--panel-h'), '210px');
+  resize(panel, 210);
+  assert.equal(writes.length, 3);
   // 名前を変えられる（別の要素の高さを同じ host に）
   const strip = el('div');
   trackHeight(strip, host, '--strip-h');
@@ -260,8 +266,8 @@ test('trackHeight: target の高さを host の CSS 変数に書き続け、同�
   assert.equal(host.style.getPropertyValue('--strip-h'), '44px');
   // やめた後は書かない
   stop();
-  resize(panel, 200);
-  assert.equal(host.style.getPropertyValue('--panel-h'), '166px');
+  resize(panel, 300);
+  assert.equal(host.style.getPropertyValue('--panel-h'), '210px');
 });
 
 test('trackHeight: ResizeObserver が無い環境では 1 回だけ測って書き、やめる関数は何もしない', (t) => {

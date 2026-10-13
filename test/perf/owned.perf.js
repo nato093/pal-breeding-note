@@ -185,6 +185,54 @@ test('性能: 目標 100 件 × 所持パル 20,000 行の目標の印（goalMar
   assert.ok(searching < 100, `印の文字のキーワードが 100ms を超えました: ${searching.toFixed(2)} ms`);
 });
 
+// B1（フェーズ 1b・1c の終わりのレビュー）: 目標が 1 つの種族に偏り、所持パルもその種族ばかりのとき。前の goalMarks は目標ごとに
+// その種族の全個体を見て、個体ごとに Set を作っていたので、目標 100 件 × 20,000 行で 1〜2.6 秒止まった（上のテストは目標を 100 種族に
+// 散らしていて気づけなかった）。印の計算と、印の文字を含むキーワードの入力（1 回目と 2 回目以降）が、それぞれ 100ms 以内
+test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,000 行の目標の印（goalMarks）と、印の文字を含むキーワードの絞り込みが 100ms 以内', async () => {
+  const { goalMarks, cleanGoal, goalKey } = await import('../../web/js/core/ideal-goals.js');
+  const { normalizeOwned, filterOwned, prepareKeywords } = await import('../../web/js/core/owned.js');
+  let state = 0x42315f31;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const pick = (items) => items[Math.floor(random() * items.length)];
+  const passiveIds = passives.map((passive) => passive.id);
+  const uid = '00000000-0000-0000-0000-000000000001';
+  const owned = normalizeOwned({
+    version: 1, world: { name: 'World9', hostName: 'Alice' }, players: [{ uid, name: 'Alice', level: 50 }], bases: [], stats: {},
+    pals: Array.from({ length: OWNED_MAX_ROWS }, (_, i) => ({
+      instanceId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`, characterId: 'SheepBall', gender: pick(['Male', 'Female']),
+      level: 1 + Math.floor(random() * 60), rank: 1, nickname: '', passives: Array.from({ length: Math.floor(random() * 5) }, () => pick(passiveIds)),
+      skills: ['AirCanon'], talent: { hp: Math.floor(random() * 101), shot: Math.floor(random() * 101), defense: Math.floor(random() * 101) },
+      location: { kind: 'palbox', playerUid: uid, slotIndex: i % 960 },
+    })),
+  }, { pals, passives });
+  for (const pal of owned.pals) prepareKeywords(pal);
+  // 半分は個体値だけの目標（HP 30〜79 以上。完成品が約半分の個体に付く）、半分は欲しいパッシブ 2 つ（4 件に 1 件は「だけ」）。
+  // 保存した目標は同じ条件のものを 1 つにまとめる（parseGoals）ので、どの目標も条件を変えてある
+  const goals = Array.from({ length: 100 }, (_, i) => cleanGoal({
+    id: `g${i}`, name: `目標${i}`, palId: 'SheepBall', passives: i % 2 ? [] : passiveIds.slice(i % 50, (i % 50) + 2), mode: i % 4 === 0 ? 'only' : 'include',
+    targets: { hp: i % 2 ? 30 + (i >> 1) : 50, shot: 0, defense: 0 }, cake: 'none', order: 'next', addedAt: '', worlds: {},
+  }));
+  assert.equal(new Set(goals.map(goalKey)).size, goals.length);
+  let start = performance.now();
+  const marks = goalMarks(goals, owned.pals);
+  const marking = performance.now() - start;
+  let entries = 0;
+  for (const list of marks.values()) entries += list.length;
+  console.log(`目標の印（同じ種族の目標 100 件・同じ種族の 20,000 行）: ${marking.toFixed(2)} ms（印のある個体 ${marks.size}・印 ${entries} 個）`);
+  assert.ok(entries > 100000, `印が少なすぎます（偏った分布になっていない）: ${entries}`);
+  assert.ok(marking < 100, `同じ種族の目標の印が 100ms を超えました: ${marking.toFixed(2)} ms`);
+  for (const [label, query] of [['1 回目の「完成品」', '完成品'], ['「目標1」', '目標1'], ['どこにも当たらない「ぬぬぬ」', 'ぬぬぬ']]) {
+    start = performance.now();
+    const found = filterOwned(owned.pals, { query, extraTexts: marks });
+    const searching = performance.now() - start;
+    console.log(`印の文字を含むキーワード${label}・同じ種族の 20,000 行: ${searching.toFixed(2)} ms（${found.length} 行）`);
+    assert.ok(searching < 100, `印の文字のキーワード${label}が 100ms を超えました: ${searching.toFixed(2)} ms`);
+  }
+});
+
 test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るのが 100ms 以内・2,000 行が 1 秒以内で、1 行の要素は 35 個以下（2,000 行で 80,000 以下）', async (t) => {
   const { installDom, descendants } = await import('../helpers/dom.js');
   installDom(t);

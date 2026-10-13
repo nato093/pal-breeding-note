@@ -153,6 +153,8 @@ export function searchSelect({ label, options, value = '', onChange, threshold =
   }
 
   function onKey(event) {
+    // 日本語の変換中のキー（変換の確定の Enter・候補を選ぶ矢印・取り消しの Esc）は変換のためのもので、候補の操作に使わない
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation?.();

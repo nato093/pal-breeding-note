@@ -80,6 +80,8 @@ test('理想個体の登録: 完成品は、同じ種族で、パッシブの条
 
   // 中身の分からないタマゴは、条件がなくても数えない
   assert.ok(!ids({ passives: [], targets: { hp: 0, shot: 0, defense: 0 } }).includes('unknownEgg'));
+  // 「だけ」は、同じパッシブが重なっていても 1 つと数える（個体ごとに Set を作らない数え方にしても同じ）
+  assert.deepEqual(goalMatches(goal({ mode: 'only' }), [pal('dup', 'X', 'F', ['P1', 'P2', 'P1'], talent(100, 100, 100))]).map((item) => item.id), ['dup']);
 });
 
 test('理想個体の登録: 自分のプレイヤーは「登録者の対応」で選んだものを優先し、なければ同じ名前のプレイヤー', () => {

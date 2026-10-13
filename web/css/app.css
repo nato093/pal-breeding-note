@@ -153,6 +153,8 @@ input, select, textarea {
 }
 textarea { resize: vertical; }
 :focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+/* 見た目は隠して読み上げだけに出す文（短い表記の全文など） */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { font-size: clamp(27px, 5vw, 42px); line-height: 1.3; letter-spacing: 0; margin-bottom: 12px; }
 h2 { font-size: 17px; line-height: 1.4; }
@@ -1208,10 +1210,28 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   font-weight: 700;
 }
 .filter-chip:hover { background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 10%, var(--md-sys-color-secondary-container)); }
+/* チップの入れ物は 1 行分の高さで、はみ出しを隠すので、フォーカスの枠はチップの内側に描く（外側だと上下が切れる） */
+.filter-chip:focus-visible { outline-offset: -2px; }
 .filter-chip-text { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
 .filter-chip-x { padding: 0 4px; font-size: 14px; line-height: 1; }
-.filter-more { flex: none; min-width: 2em; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
+/* 1 行に入り切らずに隠れたチップの「+n」（押すと隠れたチップの板）。隠れたチップがないときも場所を残す（状態の行の並びを動かさない） */
+.filter-more-slot { position: relative; flex: none; display: inline-flex; }
+.filter-more {
+  min-width: 2em;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.filter-more:hover { background: var(--state-hover); }
 .filter-more.is-empty { visibility: hidden; }
+.filter-more-popover { left: auto; right: 0; width: 320px; padding: 10px; white-space: normal; }
+.filter-more-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .owned-status-row .button.small { flex: none; min-height: 24px; padding: 0 10px; }
 .owned-copy-slot { position: relative; flex: none; display: inline-flex; }
 .owned-link-field { left: auto; right: 0; width: 380px; display: grid; gap: 6px; padding: 10px; white-space: normal; }
@@ -1304,6 +1324,11 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   background: var(--md-sys-color-surface-container-highest);
   color: var(--md-sys-color-on-surface-variant);
 }
+/* ニックネームと印は長いと縮めて省略し、印の「+N」を 1 行の中に残す（全部はバッジの行の title と「+N」の板） */
+.owned-badges .badge-nickname, .owned-badges .badge-mark { flex: 0 1 auto; min-width: 2em; overflow: hidden; text-overflow: ellipsis; }
+.owned-badges .mark-more { flex: none; min-width: 0; height: 14px; border: 0; font: inherit; font-size: 11px; line-height: 14px; font-weight: 700; cursor: pointer; }
+.owned-badges .mark-more:focus-visible { outline-offset: -2px; }
+.mark-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .badge-lucky { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); font-weight: 700; }
 .badge-alpha { background: var(--Dark); color: #fff; font-weight: 700; }
 .badge-egg { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); font-weight: 700; }
@@ -1903,7 +1928,7 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 }
 .ideal-farm-pick:hover { filter: brightness(.95); }
 /* ほかの配合牧場で使っている個体の印（views/owned.js の ownedRow の marks） */
-.badge-mark { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
+.badge-mark, .mark-more { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
 /* 牧場の判定から移った組（1 秒。動きを減らす設定では色だけで、ふっと戻さない） */
 .ideal-pair.is-flash { background: var(--md-sys-color-secondary-container); }
 .ideal-missing-note { margin: 4px 0 10px; }
