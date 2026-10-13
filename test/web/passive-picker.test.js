@@ -211,16 +211,16 @@ test('パッシブ選択: groups を渡すと、その群の順に分け（同�
   assert.equal(option('Unknown_Passive_X').querySelector('.passive-option-count').textContent, '3 体');
 });
 
-test('パッシブ選択: 登録した組み合わせを押すと、選択をその組で置き換える（1 回の onChange）', async (t) => {
+test('パッシブ選択: 保存した目標の組み合わせを押すと、選択をその組で置き換える（1 回の onChange）', async (t) => {
   const presets = [{ label: '作業用', passives: ['CraftSpeed_up2', 'Rare'] }, { label: '戦闘用', passives: ['Legend', 'PAL_ALLAttack_up3', 'Noukin', 'Rare', 'WorldTree_ATK'] }];
   const { add, changes, selector, search } = mount(t, { selected: ['Legend'], presets });
   await add.dispatch('click');
   const box = selector.element.querySelector('.passive-presets');
   assert.equal(box.hidden, false);
-  assert.match(box.textContent, /^登録した組み合わせ/);
+  assert.match(box.textContent, /^保存した目標の組み合わせ/);
   const buttons = box.querySelectorAll('.passive-preset');
   assert.equal(buttons.length, 2);
-  assert.equal(buttons[0].getAttribute('aria-label'), '登録した組み合わせ「作業用」で選び直す: 職人気質、希少');
+  assert.equal(buttons[0].getAttribute('aria-label'), '保存した目標の組み合わせ「作業用」で選び直す: 職人気質、希少');
   assert.equal(buttons[0].querySelectorAll('.passive-chip').length, 2);
   await buttons[0].dispatch('click');
   assert.deepEqual(changes, [['CraftSpeed_up2', 'Rare']]);
@@ -229,7 +229,7 @@ test('パッシブ選択: 登録した組み合わせを押すと、選択をそ
   await buttons[1].dispatch('click');
   assert.deepEqual(changes.at(-1), ['Legend', 'PAL_ALLAttack_up3', 'Noukin', 'Rare']);
   assert.equal(search(), null);
-  // 登録した組み合わせが無ければ欄ごと隠す
+  // 保存した目標の組み合わせが無ければ欄ごと隠す
   selector.update({ selected: [], presets: [] });
   await add.dispatch('click');
   assert.equal(selector.element.querySelector('.passive-presets').hidden, true);

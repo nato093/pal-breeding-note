@@ -1529,7 +1529,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   text-align: left;
 }
 .passive-preset:hover { background: var(--state-hover); }
-/* 小さいチップ（文の中・候補の行・登録した組み合わせ） */
+/* 小さいチップ（文の中・候補の行・保存した目標の組み合わせ） */
 .passive-list.compact { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
 .ideal-extras .passive-list.compact, .ideal-warning .passive-list.compact { margin: 1px 2px; }
 .ideal-carry { display: inline-flex; align-items: center; gap: 6px; }

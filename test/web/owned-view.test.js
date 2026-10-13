@@ -1748,6 +1748,11 @@ test('所持パル画面: 列見出しは一覧の前の別の要素（toolbar�
   // 押している見出しだけが Tab で止まる（aria-pressed と、向きまで書いた名前）
   assert.deepEqual([headButton(view, 'dex').getAttribute('aria-pressed'), headButton(view, 'dex').tabIndex, headButton(view, 'hp').tabIndex], ['true', 0, -1]);
   assert.equal(headButton(view, 'hp').getAttribute('aria-label'), 'HP の個体値で並べ替え（高い順）');
+  // 同じ意味は同じ言い方（列見出しは「〈名前〉で並べ替え（〈向き〉）」、選択は「〈名前〉が〈向き〉」。A9）
+  assert.equal(headButton(view, 'passives').getAttribute('aria-label'), 'パッシブのランクで並べ替え（高い順）');
+  assert.equal(headButton(view, 'place').getAttribute('aria-label'), '所持者・場所で並べ替え（ボックス順）');
+  assert.deepEqual(sortOf(view).children.map((node) => node.textContent), ['図鑑番号順', 'パッシブのランクが高い順', 'レベルが高い順', 'パル濃縮（★）が多い順',
+    '個体値の合計が高い順', '個体値の合計が低い順', 'HP の個体値が高い順', '攻撃の個体値が高い順', '防御の個体値が高い順', 'ボックス順']);
   await headButton(view, 'hp').dispatch('click');
   assert.deepEqual(hpOrder(view), [90, 50, 10]);
   assert.deepEqual([headButton(view, 'hp').getAttribute('aria-pressed'), headButton(view, 'dex').getAttribute('aria-pressed')], ['true', 'false']);
@@ -1849,7 +1854,7 @@ test('所持パル画面: 行にポインターかフォーカスが入ると、
   view.destroy();
 });
 
-test('所持パル画面: 登録した目標の印（完成品・欲しいパッシブ）を名前の下に出し、キーワードで印の文字も探せる。「目標の印」で隠せ、目標がなければ切り替えも出さない', async (t) => {
+test('所持パル画面: 保存した目標の印（完成品・欲しいパッシブ）を名前の下に出し、キーワードで印の文字も探せる。「目標の印」で隠せ、目標がなければ切り替えも出さない', async (t) => {
   installDom(t);
   let goals = [
     { id: 'g1', name: 'モコロンの理想', palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: { hp: 50, shot: 0, defense: 0 } },
@@ -1867,6 +1872,7 @@ test('所持パル画面: 登録した目標の印（完成品・欲しいパッ
   assert.deepEqual(marksOf(/キツネビ/), []);
   const toggle = view.element.querySelector('.owned-marks-toggle');
   assert.equal(toggle.hidden, false);
+  assert.match(toggle.title, /^保存した目標の完成品と/);
   // キーワード「完成品」で印の文字も探す
   keywordOf(view).value = '完成品';
   await keywordOf(view).dispatch('input');

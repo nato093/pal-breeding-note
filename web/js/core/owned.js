@@ -437,13 +437,14 @@ const compareText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * 一覧の並べ替え: [キー, 既定の向きの名前, 既定の向き, 反対の向きの名前]。列見出しを押すとそのキー（既定の向き）、もう一度で反対の向き。
- * HP・攻撃・防御は 1 つの個体値（O-21）、passives は良いパッシブ順（ランクの合計。O-24）、place はボックス順（O-22）
+ * HP・攻撃・防御は 1 つの個体値（O-21）、passives はパッシブのランクの合計（O-24。前の名前は「良いパッシブ順」）、place はボックス順（O-22）。
+ * 名前は「〈何〉が〈向き〉」にそろえる（列見出しの読み上げ「〈何〉で並べ替え（〈向き〉）」と同じ言い方）
  */
 export const OWNED_SORTS = Object.freeze([
-  ['dex', '図鑑番号順', 'asc', '図鑑番号の大きい順'],
-  ['passives', '良いパッシブ順', 'desc', 'パッシブのランクが低い順'],
-  ['level', 'レベルの高い順', 'desc', 'レベルの低い順'],
-  ['stars', 'パル濃縮（★）の多い順', 'desc', 'パル濃縮（★）の少ない順'],
+  ['dex', '図鑑番号順', 'asc', '図鑑番号が大きい順'],
+  ['passives', 'パッシブのランクが高い順', 'desc', 'パッシブのランクが低い順'],
+  ['level', 'レベルが高い順', 'desc', 'レベルが低い順'],
+  ['stars', 'パル濃縮（★）が多い順', 'desc', 'パル濃縮（★）が少ない順'],
   ['talent', '個体値の合計が高い順', 'desc', '個体値の合計が低い順'],
   ['hp', 'HP の個体値が高い順', 'desc', 'HP の個体値が低い順'],
   ['shot', '攻撃の個体値が高い順', 'desc', '攻撃の個体値が低い順'],
@@ -504,7 +505,7 @@ export function sortOwned(pals, key = 'dex', dir) {
   };
   const [first, rest] = comparators[sort.key];
   const sign = sort.dir === SORT_BY_KEY.get(sort.key)[2] ? 1 : -1;
-  // 良いパッシブ順は個体ごとのランクの合計を先に求める（比べるたびに数えない）
+  // パッシブのランクの順は個体ごとのランクの合計を先に求める（比べるたびに数えない）
   const list = sort.key === 'passives' ? pals.map((pal) => ({ pal, sum: rankSum(pal) })) : null;
   if (list) {
     list.sort((a, b) => sign * (b.sum - a.sum) || rest(a.pal, b.pal) || compareText(a.pal.id, b.pal.id));

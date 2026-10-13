@@ -3,7 +3,7 @@ import { breedingCard } from '../ui/breeding-card.js';
 import { buildHash } from '../router.js';
 import { palsById } from '../ui/pal-icon.js';
 import { toast } from '../ui/toast.js';
-import { speciesGenderCounts } from '../core/owned.js';
+import { speciesGenderCounts, shortUid } from '../core/owned.js';
 import { distancesTo } from '../core/route.js';
 
 export function viewHeading(title) {
@@ -55,6 +55,23 @@ export function keepRefreshing(owned, { interval = 20500 } = {}) {
 /** パル選択の値が違うときだけ合わせる（同じ値では描き直さない）。 */
 export function syncPicker(picker, value) {
   if (picker && picker.getValue() !== value) picker.setValue(value);
+}
+
+/**
+ * 所持者の選択肢 [値, 名前]（所持パル・理想個体で同じ）: すべて・自分の個体（ログイン中〔ideals がある〕だけ）・プレイヤー（player:<uid>。
+ * 自分のプレイヤー〔ideals.selfUids〕は「（自分）」を付けて先頭、名前がない・同じ名前が 2 人以上なら UID の頭 8 字を添える）
+ */
+export function holderChoices(data, ideals) {
+  const players = data?.players ?? [];
+  const self = ideals?.selfUids?.() ?? new Set();
+  const names = new Map();
+  for (const player of players) names.set(player.name, (names.get(player.name) ?? 0) + 1);
+  const label = (player) => {
+    if (self.has(player.uid)) return `${player.name || '不明なプレイヤー'}（自分）`;
+    return !player.name || names.get(player.name) > 1 ? `${player.name || '不明なプレイヤー'}（${shortUid(player.uid)}）` : player.name;
+  };
+  const ordered = [...players.filter((player) => self.has(player.uid)), ...players.filter((player) => !self.has(player.uid))];
+  return [['', 'すべて'], ...(ideals ? [['mine', '自分の個体']] : []), ...ordered.map((player) => [`player:${player.uid}`, label(player)])];
 }
 
 // ---------------------------------------------------------------------------

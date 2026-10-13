@@ -18,7 +18,7 @@ import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, 
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing } from './shared.js';
+import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing, holderChoices } from './shared.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
@@ -327,7 +327,7 @@ export function idealView(context, route) {
     if (!goalId) return false;
     const goal = ideals?.find(goalId);
     if (goal) Object.assign(conditions, { mode: goal.mode, cake: goal.cake, targets: { ...goal.targets } });
-    else toast('登録した理想個体が見つかりません');
+    else toast('保存した目標が見つかりません');
     // 元の params から外す（ここから作る遷移先の URL や、作り直した画面に g を残さない）
     next.params.delete('g');
     context.replace(buildHash('ideal', next.params));
@@ -346,7 +346,8 @@ export function idealView(context, route) {
   // 間引いて待っている入力は、閉じるときに取り消し、移る前の保存の前に flushInputs で当てる
   const talent = talentInput({
     keys: TALENT_KEYS, labels: TALENT_LABELS, value: conditions.targets,
-    ariaLabel: (key) => `${TALENT_LABELS[key]}の目標`,
+    // 「以上」は見出しに 1 回だけ出すので、読み上げの名前に入れる（所持パルの「HPの個体値（以上）」と同じ）
+    ariaLabel: (key) => `${TALENT_LABELS[key]}の目標（以上）`,
     presets: [{ label: 'すべて 100', value: { hp: 100, shot: 100, defense: 100 } }],
     debounce: inputDelay,
     onChange: (value) => { conditions.targets = { ...value }; renderResults(); },
@@ -359,11 +360,11 @@ export function idealView(context, route) {
     renderPassives(owned?.state?.owned?.pals);
     renderResults();
   });
-  // 選択肢の並びが前と同じなら作り直さない。違っても、選んでいる途中（フォーカス中）は待つ
+  // 選択肢の並びが前と同じなら作り直さない。違っても、選んでいる途中（フォーカス中）は待つ。
+  // 名前は所持パルの所持者と同じ（自分のプレイヤーは「（自分）」を付けて先頭、同じ名前は UID の頭 8 字。views/shared.js）
   let syncingHolders = false;
   function renderHolders() {
-    const data = owned?.state?.owned;
-    const choices = [['', 'すべて'], ...(ideals ? [['mine', '自分の個体']] : []), ...(data?.players ?? []).map((player) => [`player:${player.uid}`, player.name])];
+    const choices = holderChoices(owned?.state?.owned, ideals);
     syncingHolders = true;
     try {
       syncOptions(holderSelect, choices, () => {
@@ -406,7 +407,8 @@ export function idealView(context, route) {
     cakeChoice.update(conditions.cake);
   }
 
-  // 所持の状況（I-53）: 目標と同じ種族の親の候補の数（idealPlan の数。所持者で絞った後）。押すと所持パルをその種族とパッシブで開く。
+  // 所持の状況（I-53）: 目標と同じ種族の親の候補の数（idealPlan の数。所持者で絞った後）。押すと所持パルをその種族とパッシブ
+  //（所持者で絞っていれば同じ所持者。所持パルの URL の holder）で開く。
   // 目標がないときは「—」で幅を保ち、文字だけ書き換える（要素は作り直さない）
   const holding = el('a', 'ideal-holding', '—');
   holding.title = '親の候補の数（タマゴ・グローバルパルボックスを除き、所持者の絞り込みの後）';
@@ -414,7 +416,7 @@ export function idealView(context, route) {
     const text = result && to ? `所持 ♂${result.sameSpecies.M} ♀${result.sameSpecies.F}${passives.length
       ? ` · 全部持つ ♂${result.complete.M} ♀${result.complete.F}` : ''}` : '—';
     if (holding.textContent !== text) holding.textContent = text;
-    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(',') }));
+    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(','), holder: conditions.holder }));
     else holding.removeAttribute('href');
   }
 

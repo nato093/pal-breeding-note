@@ -8,7 +8,7 @@ import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
 import { idealView, percent, eggsText } from '../../web/js/views/ideal.js';
-import { ownedRow } from '../../web/js/views/owned.js';
+import { ownedRow, filterFromParams } from '../../web/js/views/owned.js';
 import { formatTime } from '../../web/js/ui/dom.js';
 import { dateTime } from '../../web/js/ui/owned-status.js';
 import { createIdealStore } from '../../web/js/ideals.js';
@@ -206,6 +206,13 @@ test('理想個体画面: 所持の状況は目標と同じ種族の親の候補
   await pickPassive(view, 'Rare');
   assert.equal(holding.textContent, '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2');
   assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare');
+  // 所持者で絞っているときは、所持パルにも同じ所持者を渡す（所持パルの URL の受け口の形 holder=player:<uid>。数は所持者で絞った後なので）
+  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  holder.value = `player:${P1}`;
+  holder.dispatch('change');
+  const params = parseHash(holding.getAttribute('href')).params;
+  assert.deepEqual([params.get('pal'), params.get('p'), params.get('holder')], ['SheepBall', 'Rare', `player:${P1}`]);
+  assert.equal(filterFromParams(params).holder, `player:${P1}`);
   view.destroy();
 });
 
@@ -218,30 +225,30 @@ test('理想個体画面: 個体値の目標とケーキを変えると結果だ
   ]);
   const states = new Map();
   const view = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
-  const attack = input(view, '攻撃の目標');
+  const attack = input(view, '攻撃の目標（以上）');
   assert.equal(attack.value, '100');
   // 3 つとも 100 が目標なら、1 回では作れないが、子を入れ替えながら完全体を作れる。100 を 2 つ持つ m1 と組む方が完成に近い（♀ は 1 体なので 1 組）。
   // 目標に届かない個体値には差（−N）が付く
   assert.deepEqual(cards(view).map(talentsOf), ['HP 100・攻撃 0−100・防御 100・合計 200 × HP 90−10・攻撃 90−10・防御 90−10・合計 270']);
   assert.match(cards(view)[0].textContent, /完全体作成組.*完成まで 平均/);
   // 目標を 90 にすると、90 どうしなら 1 回で作れて、確率も高い
-  for (const label of ['HPの目標', '攻撃の目標', '防御の目標']) {
+  for (const label of ['HPの目標（以上）', '攻撃の目標（以上）', '防御の目標（以上）']) {
     const node = input(view, label);
     node.value = '90';
     node.dispatch('input');
   }
-  assert.equal(input(view, '攻撃の目標'), attack);
+  assert.equal(input(view, '攻撃の目標（以上）'), attack);
   assert.deepEqual(cards(view).map(talentsOf), ['HP 90・攻撃 90・防御 90・合計 270 × HP 90・攻撃 90・防御 90・合計 270']);
   assert.match(cards(view)[0].textContent, /完全体作成組/);
   assert.match(cards(view)[0].textContent, /1 個のタマゴで 30.8%/);
   // ケーキを変えると、結果だけ計算し直す（+1〜5 で 90 からでも目標の 90 以上は変わらず、乱数の分が上がる）
   chooseRadio(view, 'ケーキ', 'talent');
   assert.match(cards(view)[0].textContent, /1 個のタマゴで 31.8%/);
-  assert.equal(input(view, '攻撃の目標'), attack);
+  assert.equal(input(view, '攻撃の目標（以上）'), attack);
   view.destroy();
   // 作り直しても、入力した条件のまま
   const again = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
-  assert.equal(input(again, '攻撃の目標').value, '90');
+  assert.equal(input(again, '攻撃の目標（以上）').value, '90');
   assert.equal(chosen(again, 'ケーキ'), 'talent');
 });
 
@@ -260,7 +267,7 @@ test('理想個体画面: 個体値の目標はチェックつきの入力。チ
   const hp = input(view, 'HPを条件にする');
   hp.checked = false;
   hp.dispatch('change');
-  assert.equal(input(view, 'HPの目標').value, '100');
+  assert.equal(input(view, 'HPの目標（以上）').value, '100');
   const unchecked = cards(view)[0].textContent;
   assert.notEqual(unchecked, full100);
   // 目標を HP 0 にして開いた画面と同じ結果
@@ -275,7 +282,7 @@ test('理想個体画面: 個体値の目標はチェックつきの入力。チ
   assert.match(openGoals(view).querySelector('.ideal-goal').textContent, /HP —・攻撃 100 以上・防御 100 以上/);
   // 「すべて 100」で全部 100 に戻す
   byLabel(view, 'すべて 100').dispatch('click');
-  assert.equal(input(view, 'HPの目標').value, '100');
+  assert.equal(input(view, 'HPの目標（以上）').value, '100');
   assert.equal(input(view, 'HPを条件にする').checked, true);
   assert.equal(cards(view)[0].textContent, full100);
   view.destroy();
@@ -508,8 +515,8 @@ test('理想個体画面: 所持者（すべて／自分の個体／各プレイ
   const ctx = withIdeals(context(owned, [], states), owned);
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
   const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
-  // 拠点は選択肢に出さない
-  assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', '自分の個体', 'Alice', 'Bob']);
+  // 拠点は選択肢に出さない。自分のプレイヤーは「（自分）」を付けて先頭（所持パルの所持者と同じ名前。A7）
+  assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', '自分の個体', 'Alice（自分）', 'Bob']);
   // すべてなら ♂ 2 体・♀ 2 体で、別々の個体の組は 2 組
   assert.equal(cards(view).length, 2);
   for (const value of [`player:${P1}`, 'mine']) {
@@ -593,7 +600,7 @@ test('理想個体画面: 「☆ 目標として保存」の板で名前を付�
   assert.equal(dialog.querySelector('h2').textContent, '目標');
   assert.match(dialog.querySelector('.ideal-goal').textContent, /最強モコロン.*希少.*HP 100 以上.*完成済み: Alice · パルボックス/);
   // 条件を変えると、また保存できる
-  const attack = input(view, '攻撃の目標');
+  const attack = input(view, '攻撃の目標（以上）');
   attack.value = '90';
   attack.dispatch('input');
   assert.equal(save.textContent, '☆ 目標として保存');
@@ -724,7 +731,7 @@ test('理想個体画面: 一覧や通知から開くと（g）、登録した�
   const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&g=${goal.id}`));
   const value = (label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label).value;
   // 保存の 0（条件なし）は、チェックなし・空欄で出す
-  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['', '100', '90']);
+  assert.deepEqual([value('HPの目標（以上）'), value('攻撃の目標（以上）'), value('防御の目標（以上）')], ['', '100', '90']);
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
   assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['only', 'talent']);
   assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
@@ -733,6 +740,10 @@ test('理想個体画面: 一覧や通知から開くと（g）、登録した�
   // 目標のダイアログの「呼び出す」は g つきのリンク
   assert.equal(openGoals(view).querySelector('.ideal-goal').querySelectorAll('a').find((node) => node.textContent === '呼び出す').href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
   view.destroy();
+  // 外した目標の g で開いたときは、言い方をそろえて「保存した目標が見つかりません」（A9）
+  const missing = idealView(ctx, parseHash('#/ideal?to=SheepBall&g=goal-unknown'));
+  assert.ok(document.body.querySelectorAll('.toast').some((node) => node.textContent === '保存した目標が見つかりません'));
+  missing.destroy();
 });
 
 test('理想個体画面: 同じ画面のまま URL が変わっても（applyRoute）パネルを作り直さず、保存の板は目標・パッシブが変わったら閉じる', (t) => {
@@ -787,7 +798,7 @@ test('理想個体画面: 同じ画面のまま g つきの URL が来ると、�
   assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
   const value = (label) => input(view, label).value;
   // 保存の 0（条件なし）は、チェックなし・空欄で出す（前に出ていた HP 100 も消す）
-  assert.deepEqual([value('HPの目標'), value('攻撃の目標'), value('防御の目標')], ['', '100', '90']);
+  assert.deepEqual([value('HPの目標（以上）'), value('攻撃の目標（以上）'), value('防御の目標（以上）')], ['', '100', '90']);
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
   assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['only', 'talent']);
   assert.equal(saveButton(view).textContent, '★ 保存済み');
@@ -879,7 +890,7 @@ test('理想個体画面: 目標を選ぶと、欲しいパッシブの候補を
   none.destroy();
 });
 
-test('理想個体画面: 登録した理想個体のパッシブの組み合わせを（重複を除き新しい順に）「登録した組み合わせ」に出し、押すとその組で選び直す', async (t) => {
+test('理想個体画面: 保存した目標のパッシブの組み合わせを（重複を除き新しい順に）「保存した目標の組み合わせ」に出し、押すとその組で選び直す', async (t) => {
   install(t);
   const owned = fakeOwned();
   const ctx = withIdeals(context(owned), owned);
@@ -1615,7 +1626,7 @@ test('理想個体画面: 同じデータ・同じ条件で描き直しても（
   assert.notEqual(cards(view)[0], card);
   const again = cards(view)[0];
   // 条件を変えたら作り直す
-  const hp = input(view, 'HPの目標');
+  const hp = input(view, 'HPの目標（以上）');
   hp.value = '90';
   hp.dispatch('input');
   assert.notEqual(cards(view)[0], again);
@@ -1645,7 +1656,7 @@ test('理想個体画面: 計算が 1 回の区切りで終わらないときは
   const [card] = cards(view);
   const note = view.element.querySelector('.result-note').textContent;
   // 条件を 2 回続けて変える。計算している間は前の結果（カード・要約）を残し、最後の条件の結果だけを描く
-  const hp = input(view, 'HPの目標');
+  const hp = input(view, 'HPの目標（以上）');
   hp.value = '94';
   hp.dispatch('input');
   assert.equal(results.getAttribute('aria-busy'), 'true');
@@ -1724,7 +1735,7 @@ test('理想個体画面: 個体値の目標の間引きの途中で画面を閉
   await settle();
   const results = view.element.querySelector('.ideal-results');
   assert.equal(results.getAttribute('aria-busy'), null);
-  const hp = input(view, 'HPの目標');
+  const hp = input(view, 'HPの目標（以上）');
   hp.value = '91';
   await hp.dispatch('input');
   view.destroy();
@@ -1734,7 +1745,7 @@ test('理想個体画面: 個体値の目標の間引きの途中で画面を閉
 
   const states = new Map();
   const later = idealView({ ...context(fakeOwned(), [], states), inputDelay: 1000 }, parseHash('#/ideal?to=SheepBall'));
-  const shot = input(later, '攻撃の目標');
+  const shot = input(later, '攻撃の目標（以上）');
   shot.value = '60';
   await shot.dispatch('input');
   assert.equal(states.get('ideal').conditions.targets.shot, 100);
@@ -1894,14 +1905,15 @@ test('理想個体画面: 要約は「上位 N 組（全 M 組・候補 K 体）
   assert.equal(hintBoards().length, 0);
 });
 
-test('理想個体画面: 所持者で絞っているときは要約の最後に「Alice の個体」（自分の個体は「自分の個体」）', (t) => {
+test('理想個体画面: 所持者で絞っているときは要約の最後に「Alice（自分） の個体」（選択肢の名前。自分の個体は「自分の個体」）', (t) => {
   install(t);
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall'));
   const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
   holder.value = `player:${P1}`;
   holder.dispatch('change');
-  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Alice の個体$/);
+  // 選択肢の名前を所持パルとそろえた（A7）ので、自分のプレイヤーは「Alice（自分）」
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Alice（自分） の個体$/);
   holder.value = 'mine';
   holder.dispatch('change');
   assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · 自分の個体$/);
@@ -2265,5 +2277,26 @@ test('理想個体画面: 牧場の帯のセルの 2 体は、絵の「♂ × �
     assert.equal(cell.querySelector('.ideal-farm-cell-pals').getAttribute('aria-hidden'), 'true');
     assert.equal(cell.querySelector('.visually-hidden').textContent, '（モコロン♂ × モコロン♀）');
   }
+  view.destroy();
+});
+
+test('理想個体画面: 所持者の選択肢の名前は所持パルとそろえる（自分のプレイヤーは「（自分）」を付けて先頭、同じ名前が 2 人以上なら UID の頭 8 字を添える）', (t) => {
+  install(t);
+  const P2 = 'abcd1234-0000-0000-0000-000000000000';
+  const P3 = 'ef567890-0000-0000-0000-000000000000';
+  const owned = fakeOwned();
+  owned.state.owned = normalizeOwned({
+    version: 1, world: { name: 'テスト', hostName: 'Alice' }, bases: [], stats: {}, pals: basePals,
+    players: [{ uid: P2, name: 'Bob', level: 40 }, { uid: P1, name: 'Alice', level: 50 }, { uid: P3, name: 'Bob', level: 30 }],
+  }, { pals, passives });
+  const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall'));
+  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  assert.deepEqual([...holder.children].map((option) => [option.value, option.textContent]), [
+    ['', 'すべて'], ['mine', '自分の個体'], [`player:${P1}`, 'Alice（自分）'], [`player:${P2}`, 'Bob（ABCD1234）'], [`player:${P3}`, 'Bob（EF567890）'],
+  ]);
+  // 要約の所持者の名前も選択肢の名前
+  holder.value = `player:${P2}`;
+  holder.dispatch('change');
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Bob（ABCD1234） の個体$/);
   view.destroy();
 });
