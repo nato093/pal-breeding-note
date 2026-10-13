@@ -89,6 +89,20 @@ test('データ元の 1 行の部品: 文は textContent と title、状態の�
   line.destroy();
 });
 
+test('データ元の 1 行の部品: showGrant: false（所持パルの画面。許可は案内の帯に出す）なら、許可が要るときも 1 行のボタンは見せず、自動の読み込みを使っている間は場所だけ残す（D27）', (t) => {
+  installDom(t);
+  const line = ownedSourceLine({ actions: { grant: { label: '読み込みを許可', run: () => {} } }, showGrant: false, now: () => NOW });
+  const grant = line.element.querySelector('.owned-source-grant');
+  const shown = () => [grant.hidden, grant.disabled, grant.className.split(' ').includes('is-placeholder')];
+  line.update(ownedState());
+  assert.deepEqual(shown(), [false, true, true]);
+  line.update(ownedState({ auto: { ...ownedState().auto, status: 'permission', error: 'セーブを読むには許可が必要です' } }));
+  assert.deepEqual(shown(), [false, true, true]);
+  line.update(ownedState({ auto: { ...ownedState().auto, enabled: false, status: 'off' } }));
+  assert.equal(grant.hidden, true);
+  line.destroy();
+});
+
 test('案内: 読み込み中・確認中・共有中は帯に出さない（状態のスロットへ）。読んでいる間も前回の警告は残す', () => {
   const skipped = { files: { used: ['Level.sav'], skipped: [{ path: 'Players/x.sav', reason: '壊れています' }] }, players: [], stats: {} };
   const state = ownedState({ data: { source: 'handles', snapshot: skipped } });

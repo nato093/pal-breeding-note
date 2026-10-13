@@ -122,11 +122,12 @@ function spinner() {
 
 /**
  * データ元の 1 行の部品（読み取り専用）。[ワールド · この PC／共有 · N 体 · セーブ 時刻][状態のスロット（幅固定）][読み込みを許可][設定 →]。
- * 中身は作り直さず、文と印だけを書き換える（1 分ごとの確認・20 秒ごとの読み直しで、行の高さも各部品の幅も変わらない）。
+ * 中身は作り直さず、文と印だけを書き換える（1 分ごとの確認・10 秒ごとの読み直しで、行の高さも各部品の幅も変わらない）。
  * actions.grant（{ label, run }）があれば、許可が切れたときに押せるボタンを出す（自動の読み込みを使っていれば、ほかのときも見えないまま場所を残す）。
+ * showGrant が false（所持パルの画面。許可のボタンは案内の帯に出す）なら、許可が切れても見せず、場所だけ残す（1 行が動かない。D27）。
  * aria-live は付けない（1 分ごとに読み上げない。困っていることは所持パルの案内の帯で知らせる）
  */
-export function ownedSourceLine({ actions = {}, now = () => Date.now() } = {}) {
+export function ownedSourceLine({ actions = {}, showGrant = true, now = () => Date.now() } = {}) {
   const element = el('div', 'owned-source');
   const text = el('span', 'owned-source-text');
   const slot = el('span', 'owned-activity');
@@ -147,7 +148,7 @@ export function ownedSourceLine({ actions = {}, now = () => Date.now() } = {}) {
     const activity = activityText(state, now());
     const auto = state?.auto ?? {};
     // 確かめている途中（checking）は前の見せ方のまま（確認のたびに点滅しない）
-    if (auto.status !== 'checking') needsGrant = Boolean(auto.enabled && auto.status === 'permission');
+    if (auto.status !== 'checking') needsGrant = Boolean(showGrant && auto.enabled && auto.status === 'permission');
     const key = JSON.stringify([source, title, activity, auto.enabled === true, needsGrant]);
     if (key === written) return;
     written = key;

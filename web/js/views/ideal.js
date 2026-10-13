@@ -17,7 +17,7 @@ import { passiveCounts } from '../core/owned.js';
 import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
-import { ownedRow, rowSignature } from './owned.js';
+import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing, holderChoices } from './shared.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
@@ -217,7 +217,8 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, far
   // ♂♀ の行（列見出しはないので、個体値の 4 セルは CSS で小さな見出しを付ける）。「+N」の説明の部品も hints に入れる。
   // 行の部品の目印（data-focus。名前のリンク pal・「+N」）から data-focus-key を作る（「+N」がなくなったら同じ行の名前のリンクへ）
   const rows = [[pair.male, 'M'], [pair.female, 'F']].map(([pal, sex]) => {
-    const row = ownedRow(pal, { highlight, marks: marks(pal), hints });
+    // 「別の配合牧場で使用中」は名前の下のバッジの 1 行に（所持パルの一覧の目標の印の下の段〔D25〕は使わず、カードの行は 64px のまま）
+    const row = ownedRow(pal, { highlight, badges: marks(pal), hints });
     for (const node of row.querySelectorAll('[data-focus]')) {
       const focus = node.getAttribute('data-focus');
       node.setAttribute('data-focus-key', `pair:${key}:${sex}:${focus}`);
@@ -402,15 +403,17 @@ export function idealView(context, route) {
   }
 
   // 所持の状況（I-53）: 目標と同じ種族の親の候補の数（idealPlan の数。所持者で絞った後）。押すと所持パルをその種族とパッシブ
-  //（所持者で絞っていれば同じ所持者。所持パルの URL の holder）で開く。
+  //（所持者で絞っていれば同じ所持者。所持パルの URL の holder）で開く。親の候補はタマゴとグローバルパルボックスを除くので、
+  // 開いた先も同じ集まりになるよう、その 2 つを除いた場所（所持パルの URL の place）も渡す（D27。前は場所を渡さず、タマゴも出た）。
   // 目標がないときは「—」で幅を保ち、文字だけ書き換える（要素は作り直さない）
+  const HOLDING_PLACES = DEFAULT_PLACES.filter((group) => group !== 'egg').join(',');
   const holding = el('a', 'ideal-holding', '—');
   holding.title = '親の候補の数（タマゴ・グローバルパルボックスを除き、所持者の絞り込みの後）';
   function renderHolding(result) {
     const text = result && to ? `所持 ♂${result.sameSpecies.M} ♀${result.sameSpecies.F}${passives.length
       ? ` · 全部持つ ♂${result.complete.M} ♀${result.complete.F}` : ''}` : '—';
     if (holding.textContent !== text) holding.textContent = text;
-    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(','), holder: conditions.holder }));
+    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(','), holder: conditions.holder, place: HOLDING_PLACES }));
     else holding.removeAttribute('href');
   }
 
@@ -917,10 +920,13 @@ export function idealView(context, route) {
       farmBox.replaceChildren();
       return;
     }
-    const counts = [`この目標の組を置いている ${rows.length} か所`];
-    if (!pending) counts.push(`交換推奨 ${rows.filter((row) => row.item.status === 'swap').length} か所`);
-    if (empties.length) counts.push(`空き ${empties.length} か所`);
-    const title = `配合牧場（${counts.join(' · ')}）`;
+    // 閉じた 1 行の文は短く（D27）:「配合牧場の詳細（置いている 2 か所・交換推奨 1・空き 2）」。交換推奨・空きは判定できるときだけで、
+    // 0 のときは出さない（閉じていても、牧場ごとの判定は上の帯で見える）
+    const swaps = pending ? 0 : rows.filter((row) => row.item.status === 'swap').length;
+    const counts = [`置いている ${rows.length} か所`];
+    if (swaps) counts.push(`交換推奨 ${swaps}`);
+    if (empties.length) counts.push(`空き ${empties.length}`);
+    const title = `配合牧場の詳細（${counts.join('・')}）`;
     if (farmTitle.textContent !== title) farmTitle.textContent = title;
     // 狭い幅では見出しを省略記号で 1 行に収めるので、全文は title に
     farmHead.title = title;
@@ -975,7 +981,8 @@ export function idealView(context, route) {
       .flatMap((layout) => layout.sources.map((source) => source.record.id)));
     const holder = holderName();
     return [
-      `上位 ${result.pairs.length} 組（全 ${result.total} 組・候補 ${result.candidates} 体）`,
+      // 組が 0 のときは「組なし（候補 N 体）」（D27。前は「上位 0 組（全 0 組・候補 N 体）」）
+      result.total ? `上位 ${result.pairs.length} 組（全 ${result.total} 組・候補 ${result.candidates} 体）` : `組なし（候補 ${result.candidates} 体）`,
       records.size ? `登録済みの配合 ${records.size} 件` : '同じ種族どうし',
       !holder ? '' : conditions.holder === 'mine' ? holder : `${holder} の個体`,
     ].filter(Boolean).join(' · ');
@@ -1228,7 +1235,7 @@ export function idealView(context, route) {
   // 描くときのデータ（plan.data。計算の後に読み直したデータ）から求める。読めない牧場があれば判定を保留し、交換推奨・空き牧場・使用中・
   //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）。
   // 作り直す部品（帯のセル・詳細の行・空き牧場の番号・カードと札・行の部品・畳みの見出し）にあったフォーカスは、描いた後に同じ役目の部品
-  //（data-focus-key）へ戻す。20 秒ごとの読み直しや再計算で、キーボードの位置を body に落とさない（開いていた札の説明の板は閉じる）
+  //（data-focus-key）へ戻す。10 秒ごとの読み直しや再計算で、キーボードの位置を body に落とさない（開いていた札の説明の板は閉じる）
   function drawPlan(result, plan, changed) {
     const focus = captureFocus(element);
     paintPlan(result, plan, changed, focus);
@@ -1348,7 +1355,7 @@ export function idealView(context, route) {
     lastReady = ownedState.ready;
     update();
   });
-  // 開いている間は 20 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
+  // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
   // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）。確かめ終えた時刻は、データ元の 1 行が出す
   owned.load().then(() => {
     if (!destroyed && globalThis.document?.visibilityState !== 'hidden') return owned.autoRefresh();

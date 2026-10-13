@@ -21,7 +21,8 @@ function contentNodes(content) {
  * 渡さなければ「?」のボタン（aria-label「〈label〉の説明」）を作る。
  * content は文字列か、板の中身（文字列・要素・その配列）を返す関数（開くたびに呼ぶ）。
  * @param {{ label: string, content: string | (() => any), trigger?: HTMLElement }} options
- * @returns {{ element: HTMLElement, close: () => void, destroy: () => void }}
+ * open() はボタンを押したのと同じく板を開く（押したときに部品を作る呼び出し側が、その押した 1 回で開くため）。
+ * @returns {{ element: HTMLElement, open: () => void, close: () => void, destroy: () => void }}
  */
 export function hint({ label, content, trigger }) {
   const element = trigger ?? button('?', null, 'hint-button');
@@ -53,6 +54,9 @@ export function hint({ label, content, trigger }) {
   }, { signal: listeners.signal });
   return {
     element,
+    open() {
+      if (!destroyed && !popover.isOpen()) popover.open();
+    },
     close: self.close,
     destroy() {
       destroyed = true;

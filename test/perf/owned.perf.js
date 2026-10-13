@@ -233,7 +233,7 @@ test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,00
   }
 });
 
-test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るのが 100ms 以内・2,000 行が 1 秒以内で、1 行の要素は 35 個以下（2,000 行で 80,000 以下）', async (t) => {
+test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るのが 100ms 以内・2,000 行が 1 秒以内で、1 行の要素は 35 個以下（印のある行は 41 個以下。全部の行に印があっても 2,000 行で 80,000 以下）', async (t) => {
   const { installDom, descendants } = await import('../helpers/dom.js');
   installDom(t);
   const { ownedRowItem } = await import('../../web/js/views/owned.js');
@@ -254,4 +254,16 @@ test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るの�
   assert.ok(firstMs < 100, `200 行の生成が 100ms を超えました: ${firstMs.toFixed(2)} ms`);
   assert.ok(allMs < 1000, `2,000 行の生成が 1 秒を超えました: ${allMs.toFixed(2)} ms`);
   assert.ok(total <= 80000, `2,000 行の要素が 80,000 を超えました: ${total}`);
+  // 全部の行に目標の印が 5 つ以上ある（行の下の段に 4 つと「+N」。D25）。いちばん要素の多い行は、パッシブ 4 個・パルボックスの位置（図と読み上げの文）・
+  // 印の段（入れ物＋印 4＋「+N」＝6）で 41。2,000 行の画面全体（行のほかに約 1,000〜1,500。ブラウザの計測の記録）で 80,000 に収めるため、
+  // 行だけで 78,000 以下を確かめる（この分布ではパッシブの数がばらけるので、実際は 41 × 2,000 より少ない）
+  const marks = Array.from({ length: 6 }, (_, i) => `完成品: 目標${i + 1}`);
+  const boxed = owned.pals.find((pal) => pal.passives.length === 4 && !pal.nickname && !pal.egg && !pal.lucky && !pal.alpha && pal.known && pal.box);
+  const heaviest = descendants(ownedRowItem(boxed, { actions: true, marks }).element).length;
+  console.log(`1 行の要素（パッシブ 4 個・パルボックスの位置・印 6 個〔4 個と「+N」〕）: ${heaviest} 個`);
+  assert.ok(heaviest <= 41, `印のある行の要素が 41 個を超えました: ${heaviest}`);
+  const marked = owned.pals.map((pal) => ownedRowItem(pal, { actions: true, marks }));
+  const markedTotal = marked.reduce((sum, row) => sum + descendants(row.element).length, 0);
+  console.log(`全部の行に印 6 個（2,000 行）の要素: ${markedTotal} 個`);
+  assert.ok(markedTotal <= 78000, `印のある 2,000 行の要素が 78,000 を超えました: ${markedTotal}`);
 });

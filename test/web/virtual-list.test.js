@@ -91,3 +91,38 @@ test('見えている範囲だけ描く: 上下の余白で全体の高さを保
   assert.equal(container.children.length, 0);
   assert.ok(!container.className.includes('is-virtual'));
 });
+
+test('見えている範囲だけ描く: setEstimate で見積もりを変えると、測って覚えた高さを捨てて全部の行を新しい見積もりにする（所持パルの行の高さの切り替え。D25）', (t) => {
+  const { windowEvents } = installDom(t);
+  windowEvents.innerHeight = 600;
+  const container = el('div', 'owned-list');
+  document.body.append(container);
+  let scrolled = 0;
+  container.getBoundingClientRect = () => ({ top: 100 - scrolled, bottom: 100 - scrolled + 60000, height: 60000 });
+  // 描いた行は 64px と測れる
+  let rowHeight = 64;
+  const list = virtualRows(container, {
+    key: (item) => item.id, estimate: 64, overscan: 2,
+    create: (item) => {
+      const element = el('article', 'row', item.id);
+      element.getBoundingClientRect = () => ({ top: 0, bottom: rowHeight, height: rowHeight });
+      return { element, update() {} };
+    },
+  });
+  const items = Array.from({ length: 1000 }, (_, i) => ({ id: `r${i}` }));
+  list.render(items);
+  // 下へスクロールして別の行を描く（先頭の行は 64px と覚えたまま、DOM から外れる）
+  scrolled = 30000;
+  list.render(items);
+  const [top] = container.children;
+  const start = Number.parseFloat(top.style.getPropertyValue('--space')) / 64;
+  assert.ok(Number.isInteger(start) && start > 0);
+  // 全部の行が 80px になった。覚えた 64px を捨てないと、上の余白が描いていない行の 64px のまま残る
+  rowHeight = 80;
+  list.setEstimate(80);
+  list.render(items);
+  const offset = Number.parseFloat(top.style.getPropertyValue('--space'));
+  assert.equal(offset % 80, 0);
+  assert.equal(offset / 80, Number(list.rows.children[0].textContent.slice(1)));
+  list.destroy();
+});

@@ -11,7 +11,9 @@ import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQ
 
 const DATA_VERSION = 1;
 const AUTO_INTERVAL = 20000;
-const SHARED_INTERVAL = 30000;
+// 共有の読み直しの間隔（開いている画面の 10 秒ごとの読み直し〔views/shared.js の keepRefreshing〕に合わせる。D26）。読むのはワールドの一覧の
+// 小さなシートで、書き込みのロックは取らない。中身はホストが送り直したとき（uploadedAt が変わったとき）だけ取る
+const SHARED_INTERVAL = 10000;
 // 自動のアップロードの間隔（ゲームは数分おきに保存するので、毎回は送らない）
 const UPLOAD_INTERVAL = 60000;
 
