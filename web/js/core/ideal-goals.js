@@ -19,7 +19,7 @@ const PAL_ID = /^[A-Za-z0-9_]{1,64}$/;
 
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 const oneOf = (list, value, fallback) => (list.includes(value) ? value : fallback);
-// 個体値の目標は 0〜100 の整数だけ受け付ける。読めない値は 0（気にしない）ではなく 100 にして、誤って完成扱いにしない
+// 個体値の目標は 0〜100 の整数だけ受け付ける。読めない値は 0（条件なし〔画面ではチェックなし・空欄〕）ではなく 100 にして、誤って完成扱いにしない
 const target = (value) => (Number.isInteger(value) && value >= 0 && value <= 100 ? value : 100);
 
 function cleanWorld(value) {
@@ -138,7 +138,7 @@ export function ownPals(data, identity) {
 
 /**
  * 登録した理想個体の条件を満たす個体（完成品）。目標と同じ種族で、パッシブの条件（全部持つ／欲しいものだけ）と
- * 個体値の目標（0 は気にしない）を満たすもの。所持しているので、グローバルパルボックスの個体も含める。
+ * 個体値の目標（0 は条件なし〔画面ではチェックなし・空欄〕）を満たすもの。所持しているので、グローバルパルボックスの個体も含める。
  * 性別は問わない。タマゴは数えない（孵化させて受け取ったら完成）。
  * @param {{ palId: string, passives: string[], mode: 'include'|'only', targets: object }} goal cleanGoal で整えたもの
  * @param {object[]} pals normalizeOwned の pals

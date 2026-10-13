@@ -80,7 +80,7 @@ const clampTarget = (value) => {
   return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
 };
 
-/** 個体値の目標（0〜100 の整数。0 は気にしない）。指定のないものは 100。 */
+/** 個体値の目標（0〜100 の整数。0 は条件なし〔画面ではチェックなし・空欄〕）。指定のないものは 100。 */
 export function talentTargets(targets = {}) {
   return Object.fromEntries(TALENT_KEYS.map((key) => [key, targets[key] === undefined ? 100 : clampTarget(targets[key])]));
 }
@@ -112,7 +112,7 @@ function combine(inherited, random) {
  * 3 つのステータスは独立ではない（3 つとも写すことが多い）ため、パターンごとに掛け合わせる。
  * @param {{ hp: number, shot: number, defense: number }} a 親の個体値
  * @param {{ hp: number, shot: number, defense: number }} b もう一方の親の個体値
- * @param {{ hp?: number, shot?: number, defense?: number }} targets 目標（0 は気にしない）
+ * @param {{ hp?: number, shot?: number, defense?: number }} targets 目標（0 は条件なし〔画面ではチェックなし・空欄〕）
  */
 export function talentChance(a, b, targets, { cake = 'none' } = {}) {
   const goal = talentTargets(targets);

@@ -1085,9 +1085,13 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-filters .owned-toggle { align-self: center; }
 .owned-filter-group { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-bottom: 12px; min-width: 0; }
 .owned-filter-group .field-label { margin-bottom: 0; }
-.owned-talent-filter { display: flex; flex-wrap: wrap; gap: 8px 12px; }
-.owned-talent-filter label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
-.owned-talent-filter input { width: 4.5em; min-height: 36px; }
+/* 個体値の下限の入力（ui/talent-input.js）。☑ ラベル [数値] 以上 を並べ、チェックのない欄は数字を残して薄くする */
+.talent-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.talent-input-item { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; }
+/* 「100」と増減のボタンが入る幅（4.5em では 100 の右の 0 が切れる） */
+.talent-input-item input[type="number"] { width: 5.5em; min-height: 36px; }
+.talent-input-unit { font-weight: 400; color: var(--muted); }
+.talent-input-item.is-off input[type="number"] { opacity: .5; }
 .owned-passive-slot { grid-column: 1 / -1; }
 .owned-list { display: grid; }
 .owned-row {
@@ -1316,7 +1320,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .ideal-chance strong { font-size: 16px; }
 .ideal-chance small { font-size: 12px; }
 .ideal-source { font-size: 12px; color: var(--muted); text-align: right; }
-.ideal-conditions .owned-talent-filter input { width: 5.5em; }
 /* 個体値が判断の中心なので、所持パルの行より個体値の列を広げて 1 行に収める */
 .ideal-pair .owned-row { grid-template-columns: minmax(180px, 1.3fr) 80px minmax(0, 2fr) 190px minmax(0, 1fr); padding-left: 0; padding-right: 0; content-visibility: visible; }
 .ideal-pair .owned-row:hover { background: transparent; }

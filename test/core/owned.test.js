@@ -7,7 +7,7 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
-  keywordTerms, keywordNotes, speciesGenderCounts,
+  keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 
@@ -108,6 +108,21 @@ test('所持パル: 所持者・場所・パル・パッシブ・キーワード
   assert.deepEqual(ids({ talent: { defense: 4 } }), []);
   assert.deepEqual(sortOwned(owned.pals, 'stars').slice(0, 1).map((p) => p.id), ['a']);
   assert.equal(passiveCounts(owned.pals).get('CraftSpeed_up2'), 3);
+});
+
+test('所持パル: 個体値の合計が高い順・低い順に並べ（同じ合計は図鑑番号順）、低い順は高い順の次の選択肢', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('mid', 'PinkCat', {}, { talent: { hp: 50, shot: 50, defense: 50 } }),
+    pal('top', 'SheepBall', {}, { talent: { hp: 100, shot: 100, defense: 100 } }),
+    pal('lo', 'PinkCat', {}, { talent: { hp: 0, shot: 10, defense: 0 } }),
+    pal('same', 'SheepBall', {}, { talent: { hp: 60, shot: 40, defense: 50 } }),
+  ] }, { pals, passives }).pals;
+  // 合計 150 の 2 体は図鑑番号順（モコロン No.1 → ツッパニャン No.2）
+  assert.deepEqual(sortOwned(list, 'talent').map((p) => p.id), ['top', 'same', 'mid', 'lo']);
+  assert.deepEqual(sortOwned(list, 'talent-low').map((p) => p.id), ['lo', 'same', 'mid', 'top']);
+  const keys = OWNED_SORTS.map(([key]) => key);
+  assert.equal(keys[keys.indexOf('talent') + 1], 'talent-low');
+  assert.deepEqual(OWNED_SORTS.find(([key]) => key === 'talent-low'), ['talent-low', '個体値の合計が低い順']);
 });
 
 test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（レベル・★・個体値は含めない）', () => {
