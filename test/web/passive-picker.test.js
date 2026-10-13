@@ -296,3 +296,16 @@ test('パッシブ選択: update の disabled で追加のボタンと × を押
   assert.ok(!selector.element.className.split(' ').includes('is-disabled'));
   assert.deepEqual(selector.element.querySelectorAll('.passive-remove').map((node) => node.disabled), [false, false]);
 });
+
+test('パッシブ選択: 候補の一覧の高さを窓の下端までに収める（固定のパネルの中で開いても下がはみ出さない。狭すぎるときは 160px）。組み合わせの段が変われば測り直す', async (t) => {
+  const { add, selector, windowEvents } = mount(t, { presets: [{ label: '作業用', passives: ['CraftSpeed_up2', 'Rare'] }] });
+  const list = () => selector.element.querySelector('.passive-options');
+  // テストの DOM の一覧の上端は 200px。窓の高さ 600px なら、窓の下端から 12px 空けて 388px
+  windowEvents.innerHeight = 600;
+  await add.dispatch('click');
+  assert.equal(list().style.getPropertyValue('--passive-options-max'), '388px');
+  // 組み合わせの段が変わると一覧の上端が動くので測り直す（窓が低くなったときも、開き直さずに合う）
+  windowEvents.innerHeight = 300;
+  selector.update({ presets: [] });
+  assert.equal(list().style.getPropertyValue('--passive-options-max'), '160px');
+});

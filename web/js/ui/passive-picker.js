@@ -174,7 +174,18 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
     input.addEventListener('keydown', onKey);
     renderPresets();
     renderOptions();
+    fitList();
     input.focus();
+  }
+
+  // 候補の一覧の高さを、窓の下端までに収める（理想個体・所持パルの固定のパネルの中で開くと、ページを動かしても下が見えないため。
+  // 拡大 150% 相当〔853×600〕で、組み合わせの段のぶん窓の下へはみ出していた）。一覧の上端から窓の下端まで 12px 空ける。
+  // 狭すぎるときは 160px（固定でない画面では、ページを動かして見る）。CSS の --passive-options-max（上限は今までどおり min(60vh, 520px)）
+  function fitList() {
+    const top = view.list.getBoundingClientRect?.().top;
+    const height = globalThis.window?.innerHeight;
+    if (!Number.isFinite(top) || !Number.isFinite(height)) return;
+    view.list.style.setProperty('--passive-options-max', `${Math.max(160, Math.floor(height - top - 12))}px`);
   }
 
   // 登録した組み合わせ（並びが変わったときだけ作り直す。押したボタンのフォーカスを失わないように）
@@ -295,6 +306,8 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
       const keep = view.position >= 0 ? view.options[view.position]?.id ?? null : null;
       renderPresets();
       renderOptions({ keep });
+      // 組み合わせの段が変わると一覧の上端が動くので測り直す
+      fitList();
     },
     destroy() { popover.destroy(); },
   };

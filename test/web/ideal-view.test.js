@@ -2247,3 +2247,23 @@ test('理想個体画面: 帯・詳細の行・空き牧場の番号から組へ
   assert.equal(document.activeElement, cards(view)[0]);
   view.destroy();
 });
+
+test('理想個体画面: 牧場の帯のセルの 2 体は、絵の「♂ × ♀」を読ませず、見た目は隠した文で「名前♂ × 名前♀」と読ませる（押せないセルでも、どの組か分かる）', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 100 }),
+    palworldPal('m2', 'SheepBall', 'Male', [], { hp: 100, shot: 100, defense: 0 }),
+    palworldPal('f1', 'SheepBall', 'Female', [], { hp: 100, shot: 0, defense: 0 }),
+    palworldPal('f2', 'SheepBall', 'Female', [], { hp: 100, shot: 0, defense: 100 }),
+  ]);
+  // 交換を見送った「そのまま」で、今の組がおすすめの一覧にない（帯のセルは押せない）
+  owned.state.owned.farms = [{ id: 'A', baseId: '', parents: ['m1', 'f1'] }, { id: 'B', baseId: '', parents: ['m2', 'f2'] }];
+  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall'));
+  const cells = view.element.querySelector('.ideal-farm-strip').querySelectorAll('.ideal-farm-cell');
+  assert.deepEqual(cells.map((cell) => cell.tagName), ['div', 'div']);
+  for (const cell of cells) {
+    assert.equal(cell.querySelector('.ideal-farm-cell-pals').getAttribute('aria-hidden'), 'true');
+    assert.equal(cell.querySelector('.visually-hidden').textContent, '（モコロン♂ × モコロン♀）');
+  }
+  view.destroy();
+});

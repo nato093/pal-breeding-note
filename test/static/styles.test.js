@@ -27,3 +27,11 @@ test('静的検査: パッシブの欄は空のとき 1 行分で、行の数を
   assert.match(rule('.passive-row'), /flex-wrap: wrap/);
   assert.deepEqual(css.match(/^[^{}\n]*\.passive-row[^{}\n]*(?=\{)/gm).map((selector) => selector.trim()), ['.passive-row']);
 });
+
+test('静的検査: scroll-margin-top にヘッダーの高さを足さない（html の scroll-padding-top がヘッダーと 8px を受け持つ。足すと着地点がヘッダーの分だけ下がる）', async () => {
+  const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
+  assert.match(css, /^html \{[^}]*scroll-padding-top: calc\(var\(--header-h\) \+ 8px\)/m);
+  const margins = [...css.matchAll(/scroll-margin-top:\s*([^;}]+)/g)].map((match) => match[1].trim());
+  assert.ok(margins.length >= 3, margins.join(' / '));
+  for (const value of margins) assert.doesNotMatch(value, /--header-h/, value);
+});

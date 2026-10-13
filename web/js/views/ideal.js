@@ -774,11 +774,13 @@ export function idealView(context, route) {
     return picks;
   }
 
-  // 帯の 1 か所: [牧場の名前][♂の絵]×[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）
+  // 帯の 1 か所: [牧場の名前][♂の絵]×[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）。
+  // 絵の「♂ × ♀」は読ませず、見た目は隠した文で「（名前♂ × 名前♀）」と読ませる（押せないセルは aria-label がないので、どの組か分かるように）
   function stripCell({ item, name, state, key }) {
     const cell = key ? button('', () => jumpTo(key), `ideal-farm-cell ${item.status}`) : el('div', `ideal-farm-cell ${item.status} is-static`);
     if (key) cell.setAttribute('data-focus-key', `farm-cell:${item.farm.id}`);
     const pals = el('span', 'ideal-farm-cell-pals');
+    pals.setAttribute('aria-hidden', 'true');
     [item.farm.male, item.farm.female].forEach((pal, index) => {
       if (index) pals.append(el('span', 'ideal-farm-cell-x', '×'));
       const icon = el('span', 'ideal-farm-cell-pal');
@@ -787,7 +789,8 @@ export function idealView(context, route) {
     });
     const arrow = el('span', 'ideal-farm-cell-arrow', '→');
     arrow.setAttribute('aria-hidden', 'true');
-    cell.append(el('span', 'ideal-farm-cell-name', name), pals, arrow, el('span', 'ideal-farm-cell-state', state.short));
+    cell.append(el('span', 'ideal-farm-cell-name', name), pals, el('span', 'visually-hidden', `（${item.farm.male.name}♂ × ${item.farm.female.name}♀）`),
+      arrow, el('span', 'ideal-farm-cell-state', state.short));
     const label = `${name}（${item.farm.male.name}♂ × ${item.farm.female.name}♀）: ${state.chip}`;
     cell.title = label;
     if (key) cell.setAttribute('aria-label', `${label}。押すとその組へ移ります`);
