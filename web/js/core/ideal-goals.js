@@ -152,3 +152,44 @@ export function goalMatches(goal, pals) {
     return GOAL_STATS.every((key) => goal.targets[key] <= 0 || pal.talent[key] >= goal.targets[key]);
   });
 }
+
+// 名前の後に文を続ける（英数字で終わる名前の後だけ空ける。views/ideal.js の joinName と同じ）
+const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}${rest}`;
+
+/**
+ * 登録した目標から、所持パルの行に出す個体ごとの印（O-52）。完成品（goalMatches）は「完成品: 目標名」、
+ * 完成品でなく、同じ種族で目標の欲しいパッシブを 1 つ以上持つ個体は「目標名の欲しいパッシブ」。タマゴは数えない。
+ * 個体を種族ごとにまとめてから、目標ごとにその種族の個体だけを見る（目標と個体が多くても、目標 × 全個体を見ない）。
+ * 印の並びは目標の並び。登録した目標とセーブの情報だけを使う（配合の計算・配合表は使わない）
+ * @param {object[]} goals cleanGoal で整えた目標
+ * @param {object[]} pals normalizeOwned / ownedFromShared の pals
+ * @returns {Map<string, string[]>} 個体 ID → 印の文（印のない個体は入れない）
+ */
+export function goalMarks(goals, pals) {
+  const marks = new Map();
+  if (!goals?.length) return marks;
+  const wantedSpecies = new Set(goals.map((goal) => goal.palId));
+  const bySpecies = new Map();
+  for (const pal of pals) {
+    if (pal.egg || !wantedSpecies.has(pal.palId)) continue;
+    let list = bySpecies.get(pal.palId);
+    if (!list) bySpecies.set(pal.palId, list = []);
+    list.push(pal);
+  }
+  const add = (pal, text) => {
+    const list = marks.get(pal.id);
+    if (list) list.push(text);
+    else marks.set(pal.id, [text]);
+  };
+  for (const goal of goals) {
+    const list = bySpecies.get(goal.palId);
+    if (!list) continue;
+    const complete = new Set(goalMatches(goal, list).map((pal) => pal.id));
+    const wanted = new Set(goal.passives);
+    for (const pal of list) {
+      if (complete.has(pal.id)) add(pal, `完成品: ${goal.name}`);
+      else if (wanted.size && pal.passives.some((id) => wanted.has(id))) add(pal, joinName(goal.name, 'の欲しいパッシブ'));
+    }
+  }
+  return marks;
+}

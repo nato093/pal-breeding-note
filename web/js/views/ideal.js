@@ -212,7 +212,8 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, far
   if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
-  card.append(head, ownedRow(pair.male, { highlight, marks: marks(pair.male) }), ownedRow(pair.female, { highlight, marks: marks(pair.female) }));
+  // ♂♀ の行（列見出しはないので、個体値の 4 セルは CSS で小さな見出しを付ける）。「+N」の説明の部品も hints に入れる
+  card.append(head, ownedRow(pair.male, { highlight, marks: marks(pair.male), hints }), ownedRow(pair.female, { highlight, marks: marks(pair.female), hints }));
   if (notes.children.length) card.append(notes);
   return card;
 }

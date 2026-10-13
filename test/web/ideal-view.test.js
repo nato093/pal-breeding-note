@@ -62,7 +62,9 @@ function install(t) {
 const cards = (view) => view.element.querySelectorAll('.ideal-pair');
 const pairOf = (card) => card.querySelectorAll('.owned-row').map((row) => row.getAttribute('aria-label')).join('×');
 // 同じ種族の個体は名前で区別できないので、個体値の表示で見分ける
-const talentsOf = (card) => card.querySelectorAll('.owned-talent').map((node) => node.textContent).join(' × ');
+// 組の ♂♀ 行の個体値（4 セルの読み上げ aria-label。目標以上の注は外し、目標まで足りない差は「−N」に縮める。owned-rows で textContent から変えた）
+const talentsOf = (card) => card.querySelectorAll('.owned-talent').map((node) => node.getAttribute('aria-label')
+  .replace(/^個体値 /, '').replace(/（目標 \d+ 以上）/g, '').replace(/（目標 \d+ まで あと (\d+)）/g, '−$1')).join(' × ');
 const input = (view, label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label);
 // パッシブの選択欄: 追加のボタンでポップオーバーを開き（開いていなければ）、候補を押す
 const passiveAdd = (view) => view.element.querySelector('.passive-add');
@@ -220,7 +222,7 @@ test('理想個体画面: 個体値の目標とケーキを変えると結果だ
   assert.equal(attack.value, '100');
   // 3 つとも 100 が目標なら、1 回では作れないが、子を入れ替えながら完全体を作れる。100 を 2 つ持つ m1 と組む方が完成に近い（♀ は 1 体なので 1 組）。
   // 目標に届かない個体値には差（−N）が付く
-  assert.deepEqual(cards(view).map(talentsOf), ['HP 100 / 攻 0−100 / 防 100 × HP 90−10 / 攻 90−10 / 防 90−10']);
+  assert.deepEqual(cards(view).map(talentsOf), ['HP 100・攻撃 0−100・防御 100・合計 200 × HP 90−10・攻撃 90−10・防御 90−10・合計 270']);
   assert.match(cards(view)[0].textContent, /完全体作成組.*完成まで 平均/);
   // 目標を 90 にすると、90 どうしなら 1 回で作れて、確率も高い
   for (const label of ['HPの目標', '攻撃の目標', '防御の目標']) {
@@ -229,7 +231,7 @@ test('理想個体画面: 個体値の目標とケーキを変えると結果だ
     node.dispatch('input');
   }
   assert.equal(input(view, '攻撃の目標'), attack);
-  assert.deepEqual(cards(view).map(talentsOf), ['HP 90 / 攻 90 / 防 90 × HP 90 / 攻 90 / 防 90']);
+  assert.deepEqual(cards(view).map(talentsOf), ['HP 90・攻撃 90・防御 90・合計 270 × HP 90・攻撃 90・防御 90・合計 270']);
   assert.match(cards(view)[0].textContent, /完全体作成組/);
   assert.match(cards(view)[0].textContent, /1 個のタマゴで 30.8%/);
   // ケーキを変えると、結果だけ計算し直す（+1〜5 で 90 からでも目標の 90 以上は変わらず、乱数の分が上がる）
@@ -469,17 +471,18 @@ test('理想個体画面: 産まれたタマゴは候補にせず、孵化を読
   ];
   const owned = fakeOwned(list);
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
-  assert.equal(talentsOf(cards(view)[0]), 'HP 100 / 攻 100 / 防 100 × HP 0−100 / 攻 0−100 / 防 0−100');
+  assert.equal(talentsOf(cards(view)[0]), 'HP 100・攻撃 100・防御 100・合計 300 × HP 0−100・攻撃 0−100・防御 0−100・合計 0');
   // 配合牧場に、3 つとも 100 のメスのタマゴが産まれた。孵化するまで牧場に置けないので、候補にしない
   const egg = palworldPal('e1', 'SheepBall', 'Female', [], { hp: 100, shot: 100, defense: 100 }, { kind: 'egg-ground', playerUid: P1 });
   owned.state.owned = fakeOwned([...list, egg]).state.owned;
   owned.emit();
-  assert.deepEqual(cards(view).map(talentsOf), ['HP 100 / 攻 100 / 防 100 × HP 0−100 / 攻 0−100 / 防 0−100']);
+  assert.deepEqual(cards(view).map(talentsOf), ['HP 100・攻撃 100・防御 100・合計 300 × HP 0−100・攻撃 0−100・防御 0−100・合計 0']);
   // 孵化すると、同じ個体がパルボックスのパルとして、3 つとも 100 の ♂ との組で出る
   owned.state.owned = fakeOwned([...list, { ...egg, location: { kind: 'palbox', playerUid: P1, slotIndex: 0 } }]).state.owned;
   owned.emit();
-  assert.equal(talentsOf(cards(view)[0]), 'HP 100 / 攻 100 / 防 100 × HP 100 / 攻 100 / 防 100');
-  assert.match(cards(view)[0].textContent, /パルボックス 1 ページ・1 行 1 列/);
+  assert.equal(talentsOf(cards(view)[0]), 'HP 100・攻撃 100・防御 100・合計 300 × HP 100・攻撃 100・防御 100・合計 300');
+  // パルボックスの位置は「P1 · 1-1」と小さな図（場所の全文は title。owned-rows で前の「パルボックス 1 ページ・1 行 1 列」の文字から変えた）
+  assert.ok(cards(view)[0].querySelectorAll('.owned-where').some((node) => node.title === 'パルボックス 1 ページ・1 行 1 列' && /P1 · 1-1/.test(node.textContent)));
   view.destroy();
 });
 test('理想個体画面: 所持者（すべて／自分の個体／各プレイヤー）で親の候補とパッシブの所持数を絞り、選んだプレイヤーがいなくなったら「すべて」に戻す', async (t) => {
@@ -1064,7 +1067,7 @@ test('理想個体画面: 両親合わせて欲しいパッシブがそろう組
   owned.state.owned.farms = [{ id: 'F4', baseId: '', parents: ['A', 'B'] }];
   const view = idealView(context(owned), parseHash(`#/ideal?to=KabukiMan&p=${wanted.join(',')}`));
   // 1 番は ♂A×♀D（♀D は冷静沈着だけだが、A と合わせて 4 つそろい、HP 100 がある）
-  assert.equal(talentsOf(cards(view)[0]), 'HP 97−3 / 攻 99−1 / 防 96−4 × HP 100 / 攻 14−86 / 防 96−4');
+  assert.equal(talentsOf(cards(view)[0]), 'HP 97−3・攻撃 99−1・防御 96−4・合計 292 × HP 100・攻撃 14−86・防御 96−4・合計 210');
   assert.equal(cards(view)[0].querySelector('.ideal-chance').querySelector('strong').textContent, '完成まで 平均 約 3,592 個');
   assert.equal(cards(view)[0].querySelector('.ideal-farm-to').textContent, '→ 拠点の牧場へ');
   const row = view.element.querySelector('.ideal-farm');
@@ -1185,7 +1188,7 @@ test('理想個体画面: 牧場の中身が最後に変わってから新しく
   owned.state.owned.farms = farms;
   owned.emit();
   assert.match(cards(view)[0].textContent, /変更あり/);
-  assert.match(talentsOf(cards(view)[0]), /HP 100 \/ 攻 100 \/ 防 100$/);
+  assert.match(talentsOf(cards(view)[0]), /HP 100・攻撃 100・防御 100・合計 300$/);
   assert.match(view.element.querySelector('.ideal-farms').textContent, /新しく入った組が 1 組/);
   assert.match(view.element.querySelector('.ideal-farm').textContent, /交換推奨 → おすすめ 1 番/);
   // 条件を変えると別の基準（変えた条件で初めて見るので印はない）。戻すと、もとの基準で印が戻る
@@ -1996,7 +1999,7 @@ test('理想個体画面: 見込みが同じ個体値厳選組の 2 組目以降
   varied.destroy();
 });
 
-test('理想個体画面: 組の ♂♀ 行で、欲しいパッシブに ✓・それ以外は薄く、目標未満の個体値に差（−N）を出す。所持パルの画面の行（highlight なし）は変えない', (t) => {
+test('理想個体画面: 組の ♂♀ 行で、欲しいパッシブに ✓・それ以外は薄く、目標未満の個体値に差（−N）を出す。所持パルの画面の行（highlight なし）には印を付けない', (t) => {
   install(t);
   const owned = fakeOwned([
     palworldPal('m1', 'SheepBall', 'Male', ['CraftSpeed_up2', 'Noukin'], { hp: 100, shot: 80, defense: 100 }),
@@ -2014,24 +2017,29 @@ test('理想個体画面: 組の ♂♀ 行で、欲しいパッシブに ✓・
   assert.equal(check.textContent, '✓');
   assert.equal(check.getAttribute('aria-label'), '欲しいパッシブ');
   assert.ok(female.querySelector('.passive-chip').className.split(' ').includes('is-wanted'));
-  // 個体値: ステータスごとのセル。目標以上は met、未満は short と差、目標 0（条件なし）は何もしない
+  // 個体値: HP・攻・防・計の 4 セル（owned-rows。前は区切りの文字つきの 3 つ）。目標以上は met、未満は short と差（値の下。D23）、
+  // 目標 0（条件なし）と合計は何もしない。目標のあるセルは縦線の位置（--t）。読み上げは欄の aria-label にまとめる
   const cells = male.querySelector('.owned-talent').querySelectorAll('.talent-cell');
-  assert.deepEqual(cells.map((cell) => [cell.getAttribute('data-key'), cell.className, cell.textContent, cell.getAttribute('aria-label')]), [
-    ['hp', 'talent-cell met', 'HP 100', 'HP 100（目標 100 以上）'],
-    ['shot', 'talent-cell short', '攻 80−20', '攻撃 80（目標 100 まで あと 20）'],
-    ['defense', 'talent-cell', '防 100', '防御 100'],
+  assert.deepEqual(cells.map((cell) => [cell.getAttribute('data-key'), cell.className, cell.textContent, cell.style.getPropertyValue('--t')]), [
+    ['hp', 'talent-cell has-target met', '100', '100'],
+    ['shot', 'talent-cell has-target short', '80−20', '100'],
+    ['defense', 'talent-cell', '100', ''],
+    ['total', 'talent-cell', '280', ''],
   ]);
   assert.equal(male.querySelector('.talent-diff').textContent, '−20');
-  assert.equal(male.querySelector('.owned-talent').textContent, 'HP 100 / 攻 80−20 / 防 100');
+  assert.equal(male.querySelector('.owned-talent').getAttribute('role'), 'img');
+  assert.equal(male.querySelector('.owned-talent').getAttribute('aria-label'), '個体値 HP 100（目標 100 以上）・攻撃 80（目標 100 まで あと 20）・防御 100・合計 280');
   view.destroy();
   // 欲しいパッシブを選んでいないときは、パッシブを薄くしない
   const none = idealView(context(owned, [], states), parseHash('#/ideal?to=SheepBall'));
   assert.equal(cards(none)[0].querySelectorAll('.passive-chip').filter((chip) => /is-(wanted|extra)/.test(chip.className)).length, 0);
   none.destroy();
-  // 所持パルの画面の行（highlight なし）は、個体値は 1 つの文のまま、パッシブに印を付けない
+  // 所持パルの画面の行（highlight なし）は、同じ 4 セルで目標の印・差がなく、パッシブに印を付けない
   const row = ownedRow(owned.state.owned.pals.find((pal) => pal.id === 'm1'));
-  assert.equal(row.querySelector('.owned-talent').children.length, 0);
-  assert.equal(row.querySelector('.owned-talent').textContent, 'HP 100 / 攻 80 / 防 100');
+  assert.deepEqual(row.querySelectorAll('.talent-cell').map((cell) => [cell.className, cell.textContent]),
+    [['talent-cell', '100'], ['talent-cell', '80'], ['talent-cell', '100'], ['talent-cell', '280']]);
+  assert.equal(row.querySelector('.owned-talent').getAttribute('aria-label'), '個体値 HP 100・攻撃 80・防御 100・合計 280');
+  assert.equal(row.querySelector('.talent-diff'), null);
   assert.equal(row.querySelector('.passive-check'), null);
   assert.ok(row.querySelectorAll('.passive-chip').every((chip) => !/is-(wanted|extra)/.test(chip.className)));
 });

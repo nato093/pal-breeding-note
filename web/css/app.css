@@ -41,6 +41,14 @@
   --Ground: #9a693d;
   --Dark: #8159a7;
   --Dragon: #665bc2;
+  /* パル濃縮（★）の色（ゲームの青い星に寄せる）と、個体値のミニバーの色・地 */
+  --condense: #2b67c9;
+  --talent-bar: color-mix(in srgb, var(--md-sys-color-primary) 60%, transparent);
+  --talent-track: var(--md-sys-color-outline-variant);
+  /* 所持パルの行と列見出しの列（[パル][Lv・★][パッシブ][個体値 HP・攻・防・計][所持者・場所]）。理想個体の組の ♂♀ 行も同じ */
+  --owned-cols: minmax(170px, 1.3fr) 72px minmax(0, 2fr) 184px minmax(0, 1fr);
+  /* 所持パルの行の高さ（中身はパッシブ 2 段＋キーワードの理由 1 行・バッジ 1 行・場所 2 行に固定）。views/owned.js の ROW_ESTIMATE と同じ値 */
+  --owned-row-h: 80px;
   --bg: var(--md-sys-color-surface);
   --surface: var(--md-sys-color-surface-container-low);
   --surface-soft: var(--md-sys-color-surface-container-high);
@@ -116,6 +124,7 @@
     --md-sys-color-scrim: #000000;
     --elevation-2: 0 1px 2px #0000004d, 0 2px 6px 2px #00000026;
     --elevation-3: 0 4px 8px 3px #00000040, 0 1px 3px #0000004d;
+    --condense: #8db7ff;
   }
 }
 
@@ -443,8 +452,10 @@ img, svg { max-width: 100%; }
 }
 /* 拡大して窓の幅が 928px を切ると、案内（最小 300px）とトースト（460px）が横に並ばず重なる（トーストが上に出て「閉じる」を隠す）。
    案内が出ている間は、トーストの領域を案内の右（間 24px）から右の余白までに縮める（372px = 案内の左の余白 24 + 最小 300 + 間 24 + 右の余白 24）。
-   928px 以上では 460px のまま */
-body:has(.update-banner:not([hidden])) .toast-region {
+   928px 以上では 460px のまま。案内が出ている間は ui/update-banner.js が html に .has-update-banner を付ける
+   （前の body:has(.update-banner…) は、本文の要素を出し入れするたびに画面全体をたどり、所持パルの 2,000 行でキーワードの入力が
+   100ms 以上止まった。owned-rows） */
+.has-update-banner .toast-region {
   width: min(460px, calc(100% - 48px), max(200px, calc(100% - var(--drawer) - 372px)));
 }
 .update-banner-message { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
@@ -1208,8 +1219,12 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-link-field input { min-height: 32px; font-size: 12px; }
 .owned-sort { flex: none; width: 12.5em; min-height: 26px; height: 26px; padding: 0 8px; font-size: 12px; }
 .owned-panel-link { flex: none; }
-/* 固定のパネルの下に、条件を変えたときの一覧の先頭（O-05）・フォーカスの先が隠れない（html の scroll-padding-top がヘッダーの分） */
-.owned-list, .owned-list .owned-row { scroll-margin-top: var(--panel-h, 0px); }
+/* 固定のパネルと列見出しの下に、条件を変えたときの一覧の先頭（O-05）・フォーカスの先が隠れない（html の scroll-padding-top がヘッダーの分） */
+.owned-view { --owned-head-h: 32px; }
+.owned-list, .owned-list .owned-row { scroll-margin-top: calc(var(--panel-h, 0px) + var(--owned-head-h)); }
+/* 目標の印（O-52）を出すかの切り替え（状態の行。登録した目標がないときは隠す） */
+.owned-marks-toggle { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--md-sys-color-on-surface-variant); cursor: pointer; }
+.owned-marks-toggle input { width: 14px; height: 14px; min-height: 0; margin: 0; }
 /* 検索つきの選択（ui/search-select.js。選択肢が 12 件を超えたとき）。閉じているときは select と同じ見た目 */
 .search-select { position: relative; display: inline-flex; min-width: 0; }
 .search-select-trigger {
@@ -1247,21 +1262,29 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .talent-input-item input[type="number"] { width: 5.5em; min-height: 36px; }
 .talent-input-unit { font-weight: 400; color: var(--muted); }
 .talent-input-item.is-off input[type="number"] { opacity: .5; }
-.owned-list { display: grid; }
+/* 一覧の入れ物はブロック（行はそれぞれ grid）。2,000 行の入れ物を grid にすると、行が増減するたびに全部の行の並びを計算し直すため */
+.owned-list { display: block; }
+/* 所持パルの 1 行（views/owned.js の ownedRowItem）。列は --owned-cols、高さは --owned-row-h に固定（パッシブ 5 個以上・拠点の個体・
+   タマゴ・人間も、キーワードの有無でも同じ高さ。行の推定の高さ〔contain-intrinsic-size〕と見えている範囲だけ描く一覧の見積もりもこの値）。
+   中身は上にそろえ、パッシブの欄の下の 1 行をキーワードの理由に取っておく（キーワードを打つたびに全部の行の高さを変えない） */
 .owned-row {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(180px, 1.3fr) 80px minmax(0, 2fr) 150px minmax(0, 1fr);
-  align-items: center;
-  gap: 4px 14px;
+  grid-template-columns: var(--owned-cols);
+  align-items: start;
+  height: var(--owned-row-h);
   border-bottom: 1px solid var(--line);
   min-width: 0;
 }
-.owned-pal { min-width: 0; }
+.owned-row > * { min-width: 0; }
+.owned-pal { display: flex; flex-direction: column; gap: 2px; }
 .owned-pal .pal-tile { min-height: 36px; gap: 8px; font-size: 13px; }
 .owned-pal .pal-icon { width: 36px; height: 36px; }
+.owned-pal .pal-label { line-height: 1.35; max-width: 100%; }
+.owned-pal .pal-label strong, .owned-pal .pal-name-line { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .owned-unknown { color: var(--ink); }
-/* 件数が多くても全部出すので、画面外の行は描画を後回しにする */
-.owned-row { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+/* 件数が多くても全部出すので、画面外の行は描画を後回しにする（推定の高さは固定の行の高さ） */
+.owned-row { content-visibility: auto; contain: strict; contain-intrinsic-size: auto var(--owned-row-h); }
 /* 2,000 行を超えたら見えている範囲だけを置く（ui/virtual-list.js）。上下の余白で全体の高さを保ち、行は実際の高さで測る */
 /* 行の要素を使い回すので、並べ替えで行が動いたときにブラウザが画面をその行へ追いかけない（スクロール位置は今までどおり。
    自動の更新の後に位置を戻すのは views/owned.js の anchorOf・restoreAnchor）。見えている範囲だけ描くときは、測った高さの補正に任せる */
@@ -1269,10 +1292,13 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-list.is-virtual { display: block; }
 .owned-list.is-virtual .owned-row { content-visibility: visible; }
 .virtual-spacer { height: var(--space, 0px); }
-.virtual-rows { display: grid; }
-.owned-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.virtual-rows { display: block; }
+/* 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）は 1 行。入り切らない分は隠す（全部は title） */
+.owned-badges { display: flex; gap: 4px; height: 14px; overflow: hidden; white-space: nowrap; }
 .owned-badge {
+  flex: none;
   font-size: 11px;
+  line-height: 14px;
   border-radius: 4px;
   padding: 0 6px;
   background: var(--md-sys-color-surface-container-highest);
@@ -1281,19 +1307,147 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .badge-lucky { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); font-weight: 700; }
 .badge-alpha { background: var(--Dark); color: #fff; font-weight: 700; }
 .badge-egg { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); font-weight: 700; }
-.owned-level { display: flex; flex-direction: column; font-size: 13px; }
-.owned-stars { color: var(--md-sys-color-primary); }
-.owned-talent { font-size: 13px; font-weight: 700; color: var(--ink); }
-.owned-where { display: flex; flex-direction: column; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.owned-level { display: flex; flex-direction: column; font-size: 13px; line-height: 1.4; }
+/* パル濃縮の 4 枠（塗りの ★ は文字、輪郭の ☆ は data-off）。Lv の文字はセルに直接置く */
+.owned-level { font-weight: 700; }
+.owned-stars { font-size: 12px; font-weight: 400; letter-spacing: 1px; white-space: nowrap; color: var(--condense); }
+.owned-stars::after { content: attr(data-off); color: var(--md-sys-color-outline); }
+/* 所持者・場所（2 行。長い名前は省略して title に全文） */
+.owned-where { display: flex; flex-direction: column; font-size: 13px; line-height: 1.4; }
+.owned-where > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .owned-where small { font-size: 11px; }
+.owned-box { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+/* パルボックスの 1 ページ（横 6 × 縦 5）の小さな図。枠は背景の線で描き、子の 1 つの印を --r・--c の枠に置く（要素は 2 つ） */
+.box-map {
+  position: relative;
+  flex: none;
+  width: 25px;
+  height: 21px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 2px;
+  background:
+    linear-gradient(to right, var(--md-sys-color-outline-variant) 1px, transparent 1px) -1px 0 / 4px 4px,
+    linear-gradient(to bottom, var(--md-sys-color-outline-variant) 1px, transparent 1px) 0 -1px / 4px 4px;
+}
+.box-map::after {
+  content: '';
+  position: absolute;
+  left: calc((var(--c, 1) - 1) * 4px);
+  top: calc((var(--r, 1) - 1) * 4px);
+  width: 3px;
+  height: 3px;
+  background: var(--md-sys-color-primary);
+}
 .passive-list { display: flex; flex-wrap: wrap; gap: 6px; }
-/* 所持パルの一覧では、ゲームと同じく 2 列に並べる */
-.owned-passives .passive-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 6px; }
-.owned-passives .passive-chip { min-width: 0; width: 100%; }
-.owned-passives .passive-name { white-space: normal; overflow-wrap: anywhere; }
-/* キーワードに一致したスキル・説明（一覧に出していない項目）を、パッシブの下に出す */
-.owned-hit { margin: 4px 0 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
-.owned-hit-desc { display: block; font-size: 11px; color: var(--muted); }
+/* パッシブはゲームと同じく 2 列 × 2 段の固定の枠（セルそのものが grid。2 段分の高さをいつも取る）。チップは 1 行で、長い名前は省略（全文は title）。
+   3 段目はキーワードに一致した理由の 1 行（無いときも場所を取る） */
+.owned-passives { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 24px 24px 15px; gap: 3px 6px; height: 69px; }
+.owned-passives .passive-chip { min-width: 0; width: 100%; min-height: 24px; height: 24px; gap: 4px; padding: 1px 6px 1px 10px; font-size: 12px; }
+.owned-passives .passive-chip::before { border-width: 1px; border-left-width: 4px; }
+.owned-passives .passive-rank { width: 15px; height: 15px; }
+.owned-passives .passive-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 5 個以上のときの「+N」（押すと残りを板に出す） */
+.passive-more {
+  height: 24px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.passive-more:hover { background: var(--state-hover); }
+/* キーワードに一致したスキル・説明（一覧に出していない項目）を、パッシブの下に 1 行で（入り切らない分は省略。全文は title） */
+.owned-hits { grid-column: 1 / -1; grid-row: 3; margin: 0; height: 15px; font-size: 12px; line-height: 15px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owned-hit + .owned-hit::before { content: ' · '; }
+.owned-hit-desc { margin-left: 4px; font-size: 11px; color: var(--muted); }
+/* 個体値の 4 セル（HP・攻・防・計）。数字は右寄せ、下にミニバー（--v）。目標があれば縦の目印（--t） */
+.owned-talent { display: grid; grid-template-columns: repeat(4, minmax(3ch, 1fr)); column-gap: 6px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.talent-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-bottom: 5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  background:
+    linear-gradient(var(--talent-bar), var(--talent-bar)) left bottom / calc(var(--v, 0) * 1%) 3px no-repeat,
+    linear-gradient(var(--talent-track), var(--talent-track)) left bottom / 100% 3px no-repeat;
+}
+.talent-cell.has-target {
+  background:
+    linear-gradient(var(--md-sys-color-on-surface), var(--md-sys-color-on-surface)) calc(var(--t, 0) * 1%) bottom / 2px 7px no-repeat,
+    linear-gradient(var(--talent-bar), var(--talent-bar)) left bottom / calc(var(--v, 0) * 1%) 3px no-repeat,
+    linear-gradient(var(--talent-track), var(--talent-track)) left bottom / 100% 3px no-repeat;
+}
+.talent-cell[data-key="total"] { color: var(--md-sys-color-on-surface-variant); }
+/* 行の操作（目標に・ここから継承ルート・親1 にして配合を探す）。触れた行にだけ作り、行の右端に重ねる（列は足さない） */
+.owned-row-actions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--elevation-2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.owned-row:hover .owned-row-actions, .owned-row:focus-within .owned-row-actions { opacity: 1; pointer-events: auto; }
+.owned-row-action { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: var(--md-sys-color-on-surface-variant); }
+.owned-row-action:hover { background: var(--state-hover); color: var(--md-sys-color-primary); text-decoration: none; }
+.owned-row-action .tab-icon { width: 18px; height: 18px; }
+/* 幅が狭いとき（窓 1000px 以下。幅 920px で本文 約 760px）は、Lv・個体値の列と間を詰めてパッシブの列を広げる（X-02 の直しの一部。
+   右のドロワー〔D3〕は本文に重ねるので本文の幅は窓で決まる。container query は先祖の固定配置の基準を変えるので使わない） */
+@media (max-width: 1000px) {
+  :root { --owned-cols: minmax(150px, 1.2fr) 56px minmax(0, 2fr) 152px minmax(0, 1fr); }
+  :is(.owned-view, .ideal-view) .owned-row, .owned-view .owned-list-head { column-gap: 10px; }
+  :is(.owned-view, .ideal-view) .owned-talent, .owned-view .owned-head-talent { column-gap: 4px; }
+}
+/* 列見出し（押すと並べ替え）。固定のパネルの下に貼り付く。列は行と同じ --owned-cols、一覧の帯の上の角を受け持つ */
+.owned-list-head {
+  position: sticky;
+  top: calc(var(--header-h) + var(--panel-h, 0px));
+  z-index: var(--z-sticky);
+  display: grid;
+  grid-template-columns: var(--owned-cols);
+  align-items: center;
+  height: var(--owned-head-h);
+  padding: 0 16px;
+  column-gap: 14px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+  background: var(--md-sys-color-surface-container-high);
+  font-size: 12px;
+}
+.owned-head-level { display: flex; gap: 2px; }
+.owned-head-talent { display: grid; grid-template-columns: repeat(4, minmax(3ch, 1fr)); column-gap: 6px; }
+.owned-head-talent .owned-head-button { justify-self: end; padding: 0 2px; }
+.owned-head-button {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 2px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.owned-head-button:hover { background: var(--state-hover); color: var(--md-sys-color-on-surface); }
+.owned-head-button[aria-pressed="true"] { color: var(--md-sys-color-primary); }
+.owned-head-arrow { display: inline-block; width: 10px; font-size: 9px; text-align: center; }
+.owned-list-head:not([hidden]) + .owned-list, .owned-list-head:not([hidden]) + .owned-list > :first-child,
+.owned-list-head:not([hidden]) + .owned-list.is-virtual .virtual-rows > :first-child { border-top-left-radius: 0; border-top-right-radius: 0; }
 /* パッシブの選択欄: [パッシブを追加… ▾] と選んだチップを 1 行に並べる（1 個目を選んでも下の欄が下がらない） */
 .passive-selector { position: relative; }
 .passive-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; }
@@ -1757,16 +1911,19 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-chance strong { font-size: 16px; }
 .ideal-chance small { font-size: 12px; }
 .ideal-source { font-size: 12px; color: var(--muted); text-align: right; }
-/* 個体値が判断の中心なので、所持パルの行より個体値の列を広げて 1 行に収める */
-.ideal-pair .owned-row { grid-template-columns: minmax(180px, 1.3fr) 80px minmax(0, 2fr) 190px minmax(0, 1fr); padding-left: 0; padding-right: 0; content-visibility: visible; }
+/* 組の ♂♀ 行は所持パルの行と同じ列（--owned-cols）と高さ。列見出しがないので、個体値の 4 セルには小さな見出しを付ける */
+.ideal-pair .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; }
 .ideal-pair .owned-row:hover { background: transparent; }
-/* 組の ♂♀ 行の強調（views/owned.js の ownedRow の highlight）。欲しいパッシブは先頭に ✓、それ以外は薄く。
-   個体値は目標以上を primary の太字、目標未満は細字にして後ろに差（−N） */
+.ideal-pair .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
+.ideal-pair .talent-cell[data-key="hp"]::before { content: 'HP'; }
+.ideal-pair .talent-cell[data-key="shot"]::before { content: '攻'; }
+.ideal-pair .talent-cell[data-key="defense"]::before { content: '防'; }
+.ideal-pair .talent-cell[data-key="total"]::before { content: '計'; }
+/* 組の ♂♀ 行の強調（views/owned.js の ownedRowItem の highlight）。欲しいパッシブは先頭に ✓、それ以外は薄く。
+   個体値は目標以上を primary の太字、目標未満は細字にして下に差（−N。D23） */
 .passive-chip.is-extra { opacity: .55; }
 .passive-check { flex: none; margin-right: -4px; font-weight: 700; }
-/* 差は値の下に小さく出す（横に並べると 3 つで約 230px になり、個体値の列 190px で折り返すため。値の並びは 1 行のまま） */
-.talent-cell { display: inline-flex; flex-direction: column; vertical-align: top; white-space: nowrap; }
-.talent-sep { vertical-align: top; }
+/* 差は値の下に小さく出す（D23。4 セルの幅に収める） */
 .talent-cell.met { color: var(--md-sys-color-primary); }
 .talent-cell.short { font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
 .talent-diff { font-size: 11px; line-height: 1.2; color: var(--muted); }
@@ -2011,9 +2168,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 :is(.card-stack, .owned-list, .wishlist, .route-starts) > :first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
 :is(.card-stack, .owned-list, .wishlist, .route-starts) > :last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
 .card-stack:empty, .owned-list:empty, .wishlist:empty { display: none; }
-.card-stack:has(> .empty-state:only-child), .owned-list:has(> .empty-state:only-child), .wishlist:has(> .empty-state:only-child) { background: transparent; }
+.card-stack:has(> .empty-state:only-child), .wishlist:has(> .empty-state:only-child) { background: transparent; }
+/* 所持パルの一覧は :has() を使わず、空の表示のときに JS が付ける .is-empty で見る（:has() は行の出し入れのたびに一覧の全体の
+   スタイルを計算し直させ、2,000 行でキーワードの入力が 100ms 以上止まったため。owned-rows） */
+.owned-list.is-empty { background: transparent; }
 .breeding-card, .owned-row, .wishlist-row, .draft-row { padding: 4px 16px; gap: 2px 14px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
-.owned-row { padding-top: 6px; padding-bottom: 6px; }
+.owned-row { padding-top: 5px; padding-bottom: 5px; gap: 0 14px; }
 .breeding-card:last-child, .owned-row:last-child, .wishlist-row:last-child, .draft-row:last-child { border-bottom: 0; }
 .breeding-card:hover, .owned-row:hover, .wishlist-row:hover, .draft-row:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 7%, transparent); }
 .card-action.danger-text { color: var(--md-sys-color-error); }
@@ -2026,9 +2186,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .owned-toggle input, input[type="checkbox"] { accent-color: var(--md-sys-color-primary); }
 .dialog-header, .dialog-footer { background: var(--md-sys-color-surface-container-high); border-color: transparent; padding: 16px 24px; }
 .dialog .card-stack { background: var(--md-sys-color-surface-container); }
-/* ログイン画面（ナビゲーションを出さない） */
-#app:has(.navigation[hidden]) { padding-left: 0; }
-#app:has(.navigation[hidden]) .app-header { padding: 0 32px; border-bottom: 0; background: transparent; }
+/* ログイン画面（ナビゲーションを出さない）。app.js が #app に .is-login を付ける（:has() にすると、本文の要素を出し入れするたびに
+   画面全体のスタイルを計算し直させ、所持パルの 2,000 行でキーワードの入力が止まったため。owned-rows） */
+#app.is-login { padding-left: 0; }
+#app.is-login .app-header { padding: 0 32px; border-bottom: 0; background: transparent; }
 /* 押した位置から薄く広がる波紋（ui/ripple.js が .ripple を足す） */
 .ripple-host { position: relative; overflow: hidden; isolation: isolate; }
 .ripple {

@@ -891,13 +891,13 @@ talent-target（個体値の部品）・popovers（パッシブの 1 行部品�
 
 ### 完了の条件
 - [x] `npm test` が通る。（2026-10-13: exit 0・1,345 件）
-- [ ] 幅 1100px でパネルが 2 段＋状態の行（高さ 130px 以下）に収まり、129 行の一覧の下の方でも条件と件数が見える。（途中: 2 段＋状態の行には収まり、下までスクロールしてもパネルの top 56・件数が見える。高さは 172.39px で 130px を超える〔理想個体 140.4px〕。並びの別案とあわせてユーザーに確かめる。実装の記録 8）
+- [x] 幅 1100px でパネルが 2 段＋状態の行（高さ 130px 以下）に収まり、129 行の一覧の下の方でも条件と件数が見える。（2 段＋状態の行には収まり、下までスクロールしてもパネルの top 56・件数が見える。高さは 172.39px で 130px を超える〔理想個体 140.4px〕が、2026-10-13 にユーザーが「1100px で 172px のままでよい」と決めた〔README の D24。約 135px・約 156px の別案は採らない〕。実装の記録 8）
 - [x] scrollY=380 でパッシブを足しても一覧の先頭の行の top が変わらない（基準: +44px）。結果が減っても条件と件数を見失わない（基準: 画面全体が 242px 動く）。（2026-10-13: 一覧の先頭が見えている位置では 1・2 個目で動かず、改行が要る 3 個目でパネルが伸びた 38px だけ下がる〔D20〕。scrollY=380 は一覧の先頭がパネルの下に隠れているので、手順 9〔O-05〕で一覧の先頭がパネルの下端＋8px に来る。結果が減ってもパネルと件数は top 56・198 のまま。計測の記録）
 - [x] 所持者「Alice」の件数が、理想個体の所持者「Alice」の候補と同じ個体の集合になる（タマゴ・グローバルの場所のチップの状態を同じにしたとき）。（2026-10-13: Alice・Bob × 4 種族で同じ数。テストでは palsOfPlayers と同じ集合）
 - [x] 古い viewState（タマゴのチェックを外した状態）から開いても同じ絞り込みになる。（2026-10-13: 124 / 138 体・タマゴのチップだけ外れる）
 - [x] リンクをコピー → 新しいタブで開く → 同じ件数。（2026-10-13）
-- [ ] 2,000 行の注入データで、キーワードの入力が 100ms 以上止まらない（Performance パネルの Long Task で確かめる）。（途中: Long Task 81〜120ms が出る。main も同じ条件で 126〜157ms で、このテーマで増えたものではない。ユーザーに報告し、owned-rows で見直す。計測の記録）
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 古い viewState・古い URL・旧コードのタブが作ったリンクを `migrateFilter` で読み替え、URL の値は検証してから使う（上の確認）。INV-2 — 所持数を数えるだけで、`core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `test/static/security.test.js` が通り、クリップボードの失敗で例外を出さない。性能 — 上の 2,000 行の確認に加え、許可 id の Set と場所の件数はデータが変わったときだけ作る。（途中: INV-2〔test/import.test.js〕・セキュリティ〔security.test.js・クリップボードの失敗で例外なし〕・互換〔migrateFilter・古い URL・古い viewState〕・許可 id の Set と場所の件数をデータごとに作ること は確かめた。2,000 行の Long Task が残る）
+- [x] 2,000 行の注入データで、キーワードの入力が 100ms 以上止まらない（Performance パネルの Long Task で確かめる）。（owned-rows へ移した（D24）。owned-toolbar の時点では Long Task 81〜120ms〔main も 126〜157ms〕。owned-rows で直した〔先祖の `:has()` をクラスに置き換えた・すぐ書き換える行を 60 行に・行の署名を個体ごとに覚えた〕。owned-rows の「完了の条件」と「実装の記録」）
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 古い viewState・古い URL・旧コードのタブが作ったリンクを `migrateFilter` で読み替え、URL の値は検証してから使う（上の確認）。INV-2 — 所持数を数えるだけで、`core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `test/static/security.test.js` が通り、クリップボードの失敗で例外を出さない。性能 — 上の 2,000 行の確認に加え、許可 id の Set と場所の件数はデータが変わったときだけ作る。（INV-2〔test/import.test.js〕・セキュリティ〔security.test.js・クリップボードの失敗で例外なし〕・互換〔migrateFilter・古い URL・古い viewState〕・許可 id の Set と場所の件数をデータごとに作ること は確かめた。2,000 行のキーワード入力の Long Task は owned-rows へ移した（D24）。owned-rows で満たした）
 
 ### TODO
 - [x] 絞り込みの値の新しい形と `migrateFilter` を作り、テストする
@@ -1045,29 +1045,70 @@ owned-toolbar（パネルの高さ `--panel-h`・並べ替えの選択）、stab
 - body: 「列見出しを押すと並べ替えます。個体値は数字とバー、★は 4 枠、場所はボックスの位置の図で出します。」（50 字）
 
 ### 完了の条件
-- [ ] `npm test` と `npm run test:perf` が通る。
-- [ ] 129 行の一覧で scrollHeight を 4 回測って同じ値になる（基準: 10011／10001／9574／9757）。
-- [ ] 列見出しがパネルの下に貼り付き、押すと並べ替わる（View Transition は並べ替えのときだけ。動きを減らす設定では使わない）。
-- [ ] 2,000 行の注入データで、最初の 200 行が 100ms 以内・全行が 1 秒以内に出て、`document.getElementsByTagName('*').length` が 80,000 以下、ヒープの増加が 150MB 以下。
-- [ ] パッシブ 5 個以上・拠点の個体・タマゴ・人間の行も、ほかの行と同じ高さ。
-- [ ] 行の操作から理想個体・継承ルート・配合検索へ、パッシブを選び直さずに進める。
-- [ ] 理想個体の組のカードでも、4 セルと強調（✓・差）が崩れない。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 印は登録した目標とセーブの情報だけで、`goalMarks` は `core/ideal-goals.js` に置く（`test/import.test.js`）。互換 — 共有の形（OWNED_FIELDS・placeLabel の書式）と CSV の列名を変えていない。古い共有で box が null でも文字で出る。セキュリティ — 図・★・バーは要素と `style.setProperty`（`test/static/security.test.js`）。性能 — 上の 2,000 行の確認に加え、20,000 行・偏った種族の分布で入力が 100ms 以上止まらない（`test/perf/owned.perf.js` とブラウザ）。
+- [x] `npm test` と `npm run test:perf` が通る。（2026-10-13: npm test exit 0・1,353 件。test:perf は 2 回とも通過〔共有の所持パル 20,000 行の整え直しと変換 199.46 / 194.83 ms・予算 200。PC の負荷で揺れ、変える前のコードでも同じ条件で 163〜220ms。変換だけを前後で交互に 12 回ずつ測ると中央値 88.5 → 88.1ms で差はない〕。計測の記録）
+- [x] 129 行の一覧で scrollHeight を 4 回測って同じ値になる（基準: 10011／10001／9574／9757）。（2026-10-13: 開いた直後・全部の行を出した後・HP で並べ替えた後・図鑑番号順に戻した後とも 10,762px。開いたまま 65 秒〔20 秒ごとの読み直しを 3 回〕5 秒ごとに測っても 10,762px）
+- [x] 列見出しがパネルの下に貼り付き、押すと並べ替わる（View Transition は並べ替えのときだけ。動きを減らす設定では使わない）。（2026-10-13: scrollY 5000 で列見出しの top 228.38〔パネルの下端 228.39〕・いちばん上に見える。「HP」を座標で押すと HP の高い順〔並べ替えの選択も hp〕、もう一度で低い順。一覧の先頭が隠れていたので O-05 で一覧の先頭が列見出しの下端〔268〕に来る。動きは並べ替えのときだけ `withTransition`〔動きを減らす設定では付けない〕）
+- [x] 2,000 行の注入データで、最初の 200 行が 100ms 以内・全行が 1 秒以内に出て、`document.getElementsByTagName('*').length` が 80,000 以下、ヒープの増加が 150MB 以下。（2026-10-13: 配合検索から開いて 3 回、最初の 200 行 31〜39ms・全行 520〜649ms・57,500 ノード・ヒープの増加 2.7〜2.8MB。開く間の Long Task は 62〜83ms）
+- [x] 2,000 行の注入データで、キーワードの入力が 100ms 以上止まらない（Long Task。PerformanceObserver の longtask で測ってよい）（D24 で owned-toolbar から移した）。（2026-10-13: 「アヌビス」「ぽち」を 220ms 間隔で 1 字ずつ・幅 1100／1280px で 3 回とも、50ms を超える Long Task なし〔同じ条件の main は 155・158ms〕。ただし playwright-cli の前のコマンドで作った行のまま測ると〔ツールのスナップショットでアクセシビリティのツリーができている状態〕、行をたくさん外す「ぽ」で 88〜115ms が出る。「実装の記録」12・計測の記録）
+- [x] パッシブ 5 個以上・拠点の個体・タマゴ・人間の行も、ほかの行と同じ高さ。（2026-10-13: 129 行と、パッシブ 6 個のアヌビスを足した 130 行で、どの行も 80px）
+- [x] 行の操作から理想個体・継承ルート・配合検索へ、パッシブを選び直さずに進める。（2026-10-13: 行にポインターを乗せると操作が出て〔opacity 1〕、「目標に（理想個体）」を押すと `#/ideal?to=SheepBall&p=PAL_sadist,Nocturnal,Witch`〔引きこもり −1 は渡さない〕。パルの名前のリンクから Tab で「目標に」へ届き、操作が見える）
+- [x] 理想個体の組のカードでも、4 セルと強調（✓・差）が崩れない。（2026-10-13: アヌビス＋伝説・個体値 100 の組で、4 セルに小さな見出し〔HP・攻・防・計〕、目標以上は太字、未満は値の下に差〔「70−30」〕と目標の縦線、欲しいパッシブに ✓。行は 80px、個体値の列は 184px）
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 印は登録した目標とセーブの情報だけで、`goalMarks` は `core/ideal-goals.js` に置く（`test/import.test.js`）。互換 — 共有の形（OWNED_FIELDS・placeLabel の書式）と CSV の列名を変えていない。古い共有で box が null でも文字で出る。セキュリティ — 図・★・バーは要素と `style.setProperty`（`test/static/security.test.js`）。性能 — 上の 2,000 行の確認に加え、20,000 行・偏った種族の分布で入力が 100ms 以上止まらない（`test/perf/owned.perf.js` とブラウザ）。（2026-10-13: INV-2 — `goalMarks` は core/ideal-goals.js で、目標とセーブの情報だけ〔test/import.test.js〕。互換 — OWNED_FIELDS・placeLabel の書式・CSV の列名は変えていない、位置のない古い共有の「パルボックス」は box が null で文字だけ〔core のテスト〕、前の並べ替えの値 talent-low は読み替える〔viewState・URL のテスト〕。セキュリティ — ★・図・バーは要素と `style.setProperty`・CSS の attr()〔security.test.js〕。性能 — 20,000 行は見えている範囲だけ描き、開いて 71〜82ms・886 ノード・ヒープの増加 0.3MB、入力の Long Task は最大 76ms。test/perf/owned.perf.js に並べ替え〔20,000 行で最大 28〜37ms〕・目標の印〔目標 100 件で 33〜39ms〕・行の部品〔1 行 33 要素〕を足した）
 
 ### TODO
-- [ ] 正規化に `box` を足し、`parseBoxLabel` を作ってテストで書式と結び付ける
-- [ ] `OWNED_SORTS` に向きと HP・攻撃・防御を足し、良いパッシブ順・ボックス順・id の決め手を入れる
-- [ ] `ownedRowItem`（`{ element, update, destroy }`）を作り、`ownedRow` を包みにする
-- [ ] ★の 4 枠・タマゴの「—」・パッシブの 2×2 と「+N」・キーワードの理由の 1 行を作る
-- [ ] 個体値の 4 セルとバー（CSS 変数）を作り、理想個体の強調を移し、190px の特例を消す
-- [ ] 所持者・場所の表示（拠点の重なりをなくす・P2 · 1-2・6×5 の図）を作る
-- [ ] `goalMarks` と目標の印（表示の切り替え・キーワードで探せる）を作る
-- [ ] 行の操作を、触れた行にだけ作る形で足す
-- [ ] 列見出し（別の入れ物・`--owned-cols`・押すと並べ替え・select と同期）を作る
-- [ ] syncList と区切った描画に乗せ、行の推定の高さを実際の高さに合わせる
-- [ ] owned-view・ideal-view・owned のテストを直し・足す
-- [ ] 2,000 行・20,000 行で予算を測り、超えたら直す
-- [ ] release-notes に 1 件足す
+- [x] 正規化に `box` を足し、`parseBoxLabel` を作ってテストで書式と結び付ける
+- [x] `OWNED_SORTS` に向きと HP・攻撃・防御を足し、良いパッシブ順・ボックス順・id の決め手を入れる
+- [x] `ownedRowItem`（`{ element, update, destroy }`）を作り、`ownedRow` を包みにする
+- [x] ★の 4 枠・タマゴの「—」・パッシブの 2×2 と「+N」・キーワードの理由の 1 行を作る
+- [x] 個体値の 4 セルとバー（CSS 変数）を作り、理想個体の強調を移し、190px の特例を消す
+- [x] 所持者・場所の表示（拠点の重なりをなくす・P2 · 1-2・6×5 の図）を作る
+- [x] `goalMarks` と目標の印（表示の切り替え・キーワードで探せる）を作る
+- [x] 行の操作を、触れた行にだけ作る形で足す
+- [x] 列見出し（別の入れ物・`--owned-cols`・押すと並べ替え・select と同期）を作る
+- [x] syncList と区切った描画に乗せ、行の推定の高さを実際の高さに合わせる
+- [x] owned-view・ideal-view・owned のテストを直し・足す
+- [x] 2,000 行・20,000 行で予算を測り、超えたら直す
+- [x] release-notes に 1 件足す
+
+### 実装の記録（2026-10-13、ブランチ `feature/owned-rows`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のフェーズ 1d の visual-parts・cleanup-dead-code、フェーズ 2 の find-merge・route-cleanup、フェーズ 3 の owned-detail・farm-board・goals-detail はこちらを正とする）。
+
+1. **パルボックスの位置 box（手順 1）**: `normalizeOwned` の個体に `box: { page, row, column } | null`（パルボックスで位置が分かるときだけ。どれも 1 始まり）。書式は core/owned.js の **`palboxLabel({ page, row, column })`**（「パルボックス 2 ページ・1 行 2 列」。placeLabel に入り、共有の列にもそのまま載る）に寄せ、読み取りは **`parseBoxLabel(label) → { page, row, column } | null`**（`palboxPosition` の隣。ページ 1〜9999・行 1〜5・列 1〜6 の外や、書式の違う文字は null）。`ownedFromShared` は place が palbox の行だけ placeLabel から読む。テストで書式と読み取りの往復・セーブと共有で同じ box・古い共有（「パルボックス」）は null を確かめた。共有の列（OWNED_FIELDS）・CSV の列名は変えていない。
+2. **並べ替え（手順 2）**: `OWNED_SORTS` は **`[キー, 既定の向きの名前, 既定の向き, 反対の向きの名前]`**（文書の 3 つに、反対の向きの名前を足した）。キーは dex・passives（良いパッシブ順＝ランクの合計。マスターにない ID は 0）・level・stars・talent・hp・shot・defense・place（ボックス順＝所持者 → 場所のグループ → box〔位置の分からない個体はその後〕→ 図鑑）。`sortOwned(pals, key, dir)` は最初の比較だけを反転し（place は「所持者 → 場所 → 位置」をまとめて 1 つの比較として反転）、最後は必ず個体 ID の順。**`sortKey(value, dir) → { key, dir }`**（前の値 `talent-low` は talent・asc、知らないキーは dex、知らない向きはそのキーの既定）と **`sortLabel(key, dir)`** を export。
+   - 画面の状態は `filter.sort`（キー）と **`filter.dir`**（'asc' | 'desc'）。`OWNED_MEMORY` に `dir` を足し、`sort` は前の値 talent-low も受けて `migrateFilter` が読み替える。URL は `sort`（既定〔図鑑・昇順〕でなければ）と **`dir`**（そのキーの既定の向きでなければ）。前のリンクの `sort=talent-low` も読む。
+   - 状態の行の並べ替えの選択は、値が「キー」か「キー:向き」（`sortValue`）。選択肢は OWNED_SORTS の既定の向き 9 つと、talent-target で足した「個体値の合計が低い順」（`talent:asc`。X-30。高い順の次）。**列見出しで選んだ反対の向き（「HP の個体値が低い順」など）は、選んでいる間だけそのキーの次に足す**（文書は選択と見出しの同期だけで、選択に向きをどう出すかは決めていなかった。選択肢を倍にしないため）。選択肢の入れ替えは views/shared.js の `syncOptions`（選んでいる途中は離れてから）。
+3. **列見出し（手順 4）**: `div.owned-list-head[role=toolbar][aria-label=並べ替え]` を `.owned-list` の前に置く（syncList の行には混ぜない）。中は `button.owned-head-button[data-value=キー][aria-pressed]`（`span.owned-head-text`＋向きの `span.owned-head-arrow`〔▼ 降順・▲ 昇順。押しているものだけ〕）で、Lv・★ は `div.owned-head-level`、HP・攻・防・計は `div.owned-head-talent`（行の 4 セルと同じ grid）にまとめる。aria-label・title は「HP の個体値で並べ替え（高い順）」（押していない見出しは、押したときの既定の向き）。**押している見出しだけが Tab で止まり（tabIndex 0）、←→・Home・End で見出しの間を移る**（toolbar の決まり）。押すと同じキーなら向きを反対に、違うキーならそのキーの既定の向きで `applySort()`（選択と見出しをそろえ、2,000 行以下なら `withTransition`、O-05）。行が 0 のとき・データがないときは hidden。sticky の `top: calc(var(--header-h) + var(--panel-h))`・`z-index: var(--z-sticky)`、高さは `.owned-view` の **`--owned-head-h: 32px`**。
+   - O-05（owned-toolbar の申し送り）: **一覧の先頭は列見出しの下端に合わせる**。`.owned-list`・`.owned-row` の `scroll-margin-top: calc(var(--panel-h) + var(--owned-head-h))`、views/owned.js の **`fixedBottom()`**（パネルの下端＋列見出しの高さ）を、条件を変えたときの「一覧の先頭が隠れているか」・自動の更新で見ていた行を戻す基準（`anchorOf`）・見えている範囲だけ描く一覧の `topOffset` に使う（前の `panelBottom` を置き換えた）。
+4. **列の幅 `--owned-cols`（手順 4・5）**: `:root` の **`--owned-cols: minmax(170px, 1.3fr) 72px minmax(0, 2fr) 184px minmax(0, 1fr)`**（[パル][Lv・★][パッシブ][個体値 4 セル][所持者・場所]）を行と列見出しが使う。理想個体の組の行も同じ値（190px の特例は消した）。**幅 1000px 以下は `minmax(150px, 1.2fr) 56px minmax(0, 2fr) 152px minmax(0, 1fr)` と間 10px に詰める**（幅 920px でパッシブの欄が約 165 → 221px。README 3-6 で回ってきた X-02 の一部。文書の X-02 の直しの「主の欄 980px 未満で場所を名前の下へ」は、1100px の本文〔941px〕でもいつも当たって列見出しの形と合わないので採らず、@media で列の幅だけを詰めた。container query は先祖の固定配置の基準を変えるので使っていない。右のドロワー〔D3〕は本文に重ねるので、本文の幅は窓で決まる）。
+5. **行の部品（手順 3）**: views/owned.js の **`ownedRowItem(pal, options) → { element, pal, update(pal, options) → boolean, showActions() → boolean, destroy() }`**（export）と **`ownedRow(pal, options) = ownedRowItem(pal, options).element`**。options は `{ notes, highlight, marks, actions, hints }`（`hints` を足した: 「+N」の説明の部品を入れる配列。理想個体のカードは `pairCard` の hints を渡し、カードを作り直すときに destroy される。省くと行が持ち、行の destroy で消す）。`update` はセルごとの署名を比べて**変わったセルだけ**中身を入れ直す（pal・Lv・パッシブ・一致の理由・個体値・所持者と場所・行の操作）。前の `fillOwnedRow`・`replaceNotes`・`talentCell`・`passiveCell` はなくした（呼ぶ所がなくなった）。
+   - 一覧の中では `ownedView` の **`listRow`** が ownedRowItem を包み、区切った書き換えに乗せる。**すぐ書き換える既にある行は先頭から 200 行 → 60 行（`FILL_NOW`）**にし、残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。作ったばかりの行はいつもすぐ中身を入れる。stable-render の「実装の記録」9 の「200 行まで」はこの値に変わった（2,000 行でキーワードを打つたびに 200 行の理由を書き換えると止まったため。窓に入る行は約 10 行）。
+   - **`rowSignature(pal, notes = [], marks = [])`**（export。3 つ目に印を足した。ideal-farms の申し送り）。行に出す値の部分は個体のデータごとに 1 回だけ作って覚える（WeakMap。box も入れた）。
+   - DOM: `article.owned-row` の子は `div.owned-pal`（palTile か人間の `span.pal-tile.owned-unknown`、バッジがあれば `span.owned-badges`〔1 行・入り切らない分は隠し title に全部〕）・`div.owned-level`（「Lv 12」の文字〔タマゴは「—」〕と `span.owned-stars`）・`div.owned-passives`（チップと「+N」・`p.owned-hits`）・`div.owned-talent[role=img]`（`span.talent-cell[data-key]` ×4）・`div.owned-where`（`strong`＋`small`）、触れた後は `div.owned-row-actions`。
+6. **★・タマゴ・パッシブ・一致の理由（手順 3）**: ★は **`span.owned-stars[role=img][data-off]` の 1 要素**（塗りの ★ は文字、輪郭の ☆ は CSS の `::after { content: attr(data-off) }`。aria-label「パル濃縮 ★2」／「パル濃縮なし」）。文書の「塗りの span と輪郭の span」から 1 要素にしたのは、2,000 行の要素の数を減らすため。色はトークン **`--condense`**（ライト #2b67c9・ダーク #8db7ff）、☆ は outline の色。パッシブは**セル `div.owned-passives` そのものを 2 列 × 2 段（24px）の grid** にし（前の `span.passive-list` の入れ物をなくした）、チップは行の中だけ小さく（高さ 24px・12px・長い名前は省略、全文は今までどおり title）。5 個以上は 3 個と `button.passive-more`「+N」（aria-label「ほかのパッシブ N 個」・title に名前。押すと `ui/hint.js` の板に残りのチップ）。一致の理由は `p.owned-hits`（grid の 3 段目・1 行・省略・title に「アクティブスキル：名前（説明）」を改行でつないだ全文）の中に `span.owned-hit`（`.owned-hit-name`・`.owned-hit-desc`）を横に並べる。
+7. **個体値の 4 セル（手順 3・D23）**: `span.talent-cell[data-key=hp|shot|defense|total]` に数字だけ（計は合計）、`--v` に値（計は合計の 1/3 を丸めたもの）、CSS の 2 枚の linear-gradient で下に 3px のバーと地。目標があるセルは `.has-target` と `--t`（目標の縦の目印）、目標以上は `.met`、未満は `.short` と `span.talent-diff`「−N」を**値の下**に（D23）。**読み上げは欄 `div.owned-talent[role=img]` の aria-label にまとめる**（「個体値 HP 70・攻撃 100・防御 64・合計 234」、目標があれば「HP 70（目標 100 まで あと 30）」）。セルは aria-label を持たない（ideal-results ではセルが role=img だった）。**理想個体の組のカードは列見出しがないので、CSS の `::before` で各セルの上に小さな見出し（HP・攻・防・計）を出す**（文書は決めていなかった）。テストの `talentsOf`（ideal-view.test.js）は aria-label を読み、注を縮めて比べる形にした（ideal-results の申し送り）。
+8. **所持者・場所（手順 3）**: 拠点の個体（`place === 'base'` で holder と placeLabel が同じ）は `strong` に拠点の名前、`small` に「Alice が預けた」（預けた人がいなければ 1 行）。パルボックスで box があれば `strong` に所持者、`small.owned-box` に「P2 · 1-2」と **`span.box-map`（要素 1 つ。`--r`・`--c` を図に書き、6×5 の枠は背景の線、位置の印は `::after`）**、欄の title に placeLabel の全文。box がなければ今までの placeLabel の文字。
+9. **行の操作（手順 3。F063・O-38）**: リンクを作るのは **`ownedRowLinks(pal) → [{ key, icon, label, href }]`**（export。目標に〔`buildHash('ideal', { to, p: 正のランクのパッシブ })`〕・ここから継承ルート〔`buildHash('route', { from, p })`〕・親1 にして配合を探す〔`buildHash('search', { p1 })`〕。**フェーズ 2 の find-merge で行き先を変えるときはここだけを直す**）。`.owned-list` の `pointerover`・`focusin` で、触れた行の `showActions()` が `div.owned-row-actions` に 3 つの `a.owned-row-action`（ui/nav-icons.js の `navIcon` の絵・aria-label と title が文）を作る（パルのマスターにない人間・タマゴ・理想個体のカードの行では作らない）。行の右端の中ほどに重ね、ポインターが乗っている・フォーカスが中にあるときだけ見せる。パルの名前のリンクから Tab で届く。
+10. **目標の印（手順 3。O-52）**: core/ideal-goals.js の **`goalMarks(goals, pals) → Map<個体 id, string[]>`**（種族ごとにまとめてから目標ごとにその種族だけを見る。完成品は「完成品: 目標名」、完成品でなく目標の欲しいパッシブを 1 つ以上持つ個体は「目標名の欲しいパッシブ」〔英数字で終わる名前の後だけ空ける。views/ideal.js の joinName と同じ〕、タマゴは数えない、並びは目標の順）。所持パルの画面は、データか目標の中身（`goalsKey`: id・名前・種族・パッシブ・条件・個体値）が変わったときだけ作り直し、`ideals.subscribe` では目標の中身が変わったときだけ描き直す（完成の判定の書き直しでは描かない）。**表示の切り替えは状態の行の `label.owned-marks-toggle`「目標の印」**（既定オン。viewState の `showMarks` に覚え、`OWNED_MEMORY` には入れない〔表示の好みで条件ではない。読み込み直すとオン〕。目標がない・`context.ideals` がないときは隠す）。印を出しているときだけ、`filterOwned` の **`extraTexts`**（個体 id → 文字の配列。`matchesKeywords(pal, terms, extra)`）で印の文字もキーワードで探す（keywordCache には入れない）。印は名前の下の `span.owned-badge.badge-mark`。
+11. **行の高さ（手順 5）**: **行は 80px に固定**（`--owned-row-h`・views/owned.js の `ROW_ESTIMATE`、`contain-intrinsic-size: auto var(--owned-row-h)`、`contain: strict`）。中身はパッシブ 2 段＋**キーワードの理由の 1 行をいつも取り**（文書のとおり。はじめはキーワードがあるときだけ一覧に `has-query` を付けて 66 → 84px にしたが、1 字目と消したときに全部の行の高さとスタイルが変わって 2,000 行で 50〜60ms かかったのでやめた）、セルは上にそろえる。129 行で 10,762px。理想個体の組の行も同じ高さ。一覧の入れ物 `.owned-list` と `.virtual-rows` は grid ではなく block にした（行がそれぞれ grid）。
+12. **2,000 行でキーワードの入力が止まらないようにしたこと（D24。owned-toolbar の計測の記録の続き）**:
+    - **主な原因は先祖に付けた `:has()`** だった（Chrome の trace の SelectorStats・invalidationTracking で確かめた）。とくに `body:has(.update-banner:not([hidden])) .toast-region` は、行を出し入れするたびに body から下の約 3,000 要素のスタイルを計算し直させ（区切って足すフレームごとに 15〜23ms）、その :has() の確かめにページ全体（約 5 万要素）をたどって 1 回 約 4ms かかっていた。`#app:has(.navigation[hidden])`・`.owned-list:has(> .empty-state:only-child)` も、行の出し入れのたびに :has() の確かめ直しをさせていた。→ html の `.has-update-banner`（ui/update-banner.js）・`#app.is-login`（app.js）・`.owned-list.is-empty`（views/owned.js）のクラスに置き換えた（前の 2 つは別のコミット）。置き換えた後は、1 字打ったときにスタイルを計算し直す要素は数個〜約 200。**後のテーマで、先祖（body・#app・一覧の入れ物）に `:has()` を足さない**（子の数が多い入れ物の `:has(> …)` も同じ）。
+    - すぐ書き換える既にある行を 60 行に（上の 5）、行の署名を個体ごとに覚えた（上の 5）。
+    - 試してやめたこと: 外す行の多いときに `replaceChildren` でまとめて入れ替える（一度画面に出た行では 1 行ずつ外すより遅かった）、外す行を `content-visibility: hidden` で隠して後で区切って外す（隠すためのスタイルの計算が外すのと同じくらい重かった）。syncList は変えていない。
+    - **計測の注意（後のテーマも同じ）**: playwright-cli は各コマンドの終わりにページのスナップショット（アクセシビリティのツリー）を取り、その後は DOM の出し入れが 3〜5 倍重くなる（前のコマンドで作った 2,000 行から 1,950 行を外すと 92〜158ms、同じコマンドの中で作った行なら 17〜27ms）。owned-toolbar の記録の 81〜120ms・main の 126〜157ms もこの状態の値。支援技術を使っていない利用者と同じ条件にするには、**同じ run-code の中で画面を開き直して行を作ってから測る**（`shots/owned/owned-rows/longtask3.js`）。この形では 2,000 行の入力の Long Task は出ない（main は 155〜158ms）。前のコマンドで作った行のままだと、行をたくさん外す「ぽ」で 88〜115ms が出る（スクリーンリーダーなどでアクセシビリティのツリーがあるときに近い）。
+13. **要素の数（手順 7）**: 1 行の要素はパッシブ 4 個・バッジなしで 33（`test/perf/owned.perf.js` が 35 以下を確かめる）、バッジがあると 1 つにつき +1（入れ物 +1）、触れた行の操作は +15。2,000 行で 57,500 ノード（ブラウザ）。
+14. **テスト**: test/core/owned.test.js に 4 件（並べ替えの読み替え・HP／攻撃／防御・良いパッシブ順と向き・同じ値の ID の順、ボックス順、box と parseBoxLabel の往復と古い共有）と extraTexts、test/core/ideal-goals.test.js に goalMarks、owned-view.test.js に 4 件（列見出し〔toolbar・押す・向き・選択との同期・←→・URL の sort／dir・talent-low〕、固定の枠〔「+N」と板・拠点の 1 行・パッシブなし・閉じると板も閉じる〕、行の操作〔触れた行だけ・正のパッシブ・タマゴと人間に出ない〕、目標の印〔印・キーワード・切り替え・目標を外す・行の使い回し〕）を足し、どれも変える前のコード（web/ を `git stash`）で落ちることを確かめた。期待値を直したもの: パッシブの並び（ランクの高い順）・場所の「P2 · 1-2」と title・★の aria-label と data-off・タマゴの「—」・4 セルと aria-label（owned-view・ideal-view の talentsOf・highlight のテスト）・行の要素の使い回し（セルの中身だけ入れ直す）・HP の絞り込みの確かめ方・パネルの後の子の並び（列見出し）・migrateFilter の dir・O-05（固定の部分の下端）・すぐ書き換える行（200 → 60）・孵化した個体の場所。test/perf/owned.perf.js に 3 件（2,000・20,000 行の 18 通りの並べ替え、目標 100 件の印と印のキーワード、行の部品の生成と要素の数）。app.test.js・version.test.js に `.is-login`・`.has-update-banner` の付け外し。テストの偽 DOM（test/helpers/dom.js）は変えていない。
+15. **そのほか**: docs/OPERATIONS.md の所持パルの表示（行・列見出し・行の操作・目標の印・位置の書式・URL の dir）と理想個体の組の行を新しい画面に合わせた（触るファイルの一覧にはなかった）。release-notes は文書の案のまま（id `2026-10-13-owned-rows`）。web/js/views/route.js の `carrierList`（継承ルートの開始の個体の一覧）は手順 6 のとおり触っていない（場所は全文の placeLabel のまま）。
+16. **後のテーマへの申し送り**:
+    - visual-parts（1d）: ★の色 `--condense`、個体値のバー `--talent-bar`・`--talent-track`、行の中の小さなチップ（`.owned-passives .passive-chip`）、行の操作の絵（`navIcon` を流用）、6×5 の図（`.box-map`）。目標の印は `badge-mark`（牧場で使用中と同じ色）。
+    - cleanup-dead-code（1d）: 行の `.talent-sep`・`.owned-passives .passive-list`・前の `.owned-hit`（段落）の CSS は消した。`fillOwnedRow` はなくした。
+    - find-merge（2）: 行の操作の「親1 にして配合を探す」は `ownedRowLinks` の search を新しい行き先に。
+    - route-cleanup（2）: 開始の個体の一覧を `ownedRow` にするときは、`ownedRowItem` の options（actions は出さない）と、行の高さ 80px・`--owned-cols` を使う。
+    - owned-detail（3）: 行の操作に「詳細」を足すなら `ownedRowLinks` と `showActions`（触れた行にだけ作る）に足す。一致の理由の全文は今は title。
+    - farm-board（3）: 牧場の親の印（O-51）は `marks` で渡し、`rowSignature` の 3 つ目にも入れる（一覧の `rowOptionsOf` に足す）。
+    - goals-detail（3）: 目標と個体の対応は `goalMarks` と同じく種族ごとにまとめてから見る。目標の中身の比べ方は views/owned.js の `goalsKey`。
+    - 計測: 上の 12 の「計測の注意」。2,000 行の画面の計測は `longtask3.js`・`perf-open.js`（同じコマンドの中で行を作る）。
+
 
 ---
 

@@ -1,7 +1,9 @@
 import { el, field, empty, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight } from '../ui/dom.js';
 import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
+import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
+import { hint } from '../ui/hint.js';
+import { navIcon } from '../ui/nav-icons.js';
 import { talentInput } from '../ui/talent-input.js';
 import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
@@ -9,13 +11,13 @@ import { createPopover } from '../ui/popover.js';
 import { ownedNotices, noticeList, ownedSourceLine } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { viewHeading, syncPicker, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute } from './shared.js';
+import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute } from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import {
-  filterOwned, sortOwned, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, shortUid,
+  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, shortUid,
 } from '../core/owned.js';
-import { palsOfPlayers } from '../core/ideal-goals.js';
+import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
 import { normalizeQuery, queryTerms } from '../core/kana.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
 import { ELEMENTS } from '../../data/pals.js';
@@ -24,10 +26,6 @@ function option(value, label) {
   const node = el('option', '', label);
   node.value = value;
   return node;
-}
-
-function talentText(talent) {
-  return `HP ${talent.hp} / 攻 ${talent.shot} / 防 ${talent.defense}`;
 }
 
 const STAR_FILTERS = [['', 'すべて'], ['1', '★1 以上'], ['2', '★2 以上'], ['3', '★3 以上'], ['4', '★4']];
@@ -40,6 +38,10 @@ const TALENT_PRESETS = [
 // URL の個体値の名前（hp・at・df）
 const TALENT_PARAMS = { hp: 'hp', shot: 'at', defense: 'df' };
 const SORT_KEYS = OWNED_SORTS.map(([key]) => key);
+// 並べ替えの既定の向き（キーごと）
+const SORT_DIRS = new Map(OWNED_SORTS.map(([key, , dir]) => [key, dir]));
+// 並べ替えの選択肢の値（既定の向きならキーだけ、反対の向きは「キー:向き」）
+const sortValue = (key, dir) => (dir === SORT_DIRS.get(key) ? key : `${key}:${dir}`);
 // パッシブの条件（押しボタン。値は core/owned.js の filterOwned の passiveMode）
 const PASSIVE_MODES = [
   ['include', '全部', '選んだパッシブを全部持つ個体'],
@@ -71,7 +73,9 @@ export const OWNED_MEMORY = {
   passives: (value) => list(value, { max: 4, map: (id) => internalName(id) || null, key: (id) => id }),
   passiveMode: (value) => oneOf(value, PASSIVE_MODES.map(([key]) => key), 'include'),
   query: (value) => text(value, 100),
-  sort: (value) => oneOf(value, SORT_KEYS, 'dex'),
+  // 並べ替えのキー（前の値 talent-low も受け、migrateFilter が talent・asc に読み替える）と向き（無ければそのキーの既定）
+  sort: (value) => oneOf(value, [...SORT_KEYS, 'talent-low'], 'dex'),
+  dir: (value) => oneOf(value, ['asc', 'desc'], undefined),
   stars: (value) => intIn(value, { min: 0, max: 4, fallback: 0 }),
   talent: (value) => cleanSaved(value, { hp: talentAtLeast, shot: talentAtLeast, defense: talentAtLeast }),
   // 前の形（1c の owned-toolbar より前）の項目。読み戻して migrateFilter に渡すだけ
@@ -86,7 +90,7 @@ export const OWNED_MEMORY = {
  * 所持者 base:<id> → 所持者なし・bases: [id]・places: ['base', 'egg']（拠点のタマゴも拠点の持ち物。eggs: false なら 'base' だけ）、
  * 所持者 global → 所持者なし・places: ['global']。places は PLACE_ORDER の順に並べる
  * @returns {{ holder: string, places: string[], bases: string[], elements: string[], palId: string, passives: string[],
- *   passiveMode: string, query: string, sort: string, stars: number, talent: { hp: number, shot: number, defense: number } }}
+ *   passiveMode: string, query: string, sort: string, dir: 'asc' | 'desc', stars: number, talent: { hp: number, shot: number, defense: number } }}
  */
 export function migrateFilter(old) {
   const saved = cleanSaved(old, OWNED_MEMORY);
@@ -108,11 +112,17 @@ export function migrateFilter(old) {
   }
   return {
     holder, places: PLACE_ORDER.filter((group) => places.includes(group)), bases, elements: saved.elements, palId: saved.palId,
-    passives: saved.passives, passiveMode: saved.passiveMode, query: saved.query, sort: saved.sort, stars: saved.stars, talent: saved.talent,
+    passives: saved.passives, passiveMode: saved.passiveMode, query: saved.query, ...sortOf(saved.sort, saved.dir), stars: saved.stars, talent: saved.talent,
   };
 }
 
-// URL の絞り込みの名前（どれかがあれば、URL がすべての条件を決める。sort は並べ替えだけで、あれば入れる）
+// 並べ替え（キーと向き。前の値 talent-low は talent・asc）
+function sortOf(value, dir) {
+  const { key, dir: resolved } = sortKey(value, dir);
+  return { sort: key, dir: resolved };
+}
+
+// URL の絞り込みの名前（どれかがあれば、URL がすべての条件を決める。sort・dir は並べ替えだけで、あれば入れる）
 const FILTER_PARAMS = ['holder', 'place', 'base', 'el', 'pal', 'p', 'pm', 'q', 'stars', 'hp', 'at', 'df'];
 const commaList = (value) => (value ?? '').split(',').filter(Boolean);
 
@@ -147,7 +157,8 @@ export function filterParams(filter) {
   if (filter.passives.length) params.set('p', filter.passives.join(','));
   if (filter.passiveMode !== 'include') params.set('pm', filter.passiveMode);
   if (filter.query) params.set('q', filter.query);
-  if (filter.sort !== 'dex') params.set('sort', filter.sort);
+  if (filter.sort !== 'dex' || filter.dir !== SORT_DIRS.get(filter.sort)) params.set('sort', filter.sort);
+  if (filter.dir !== SORT_DIRS.get(filter.sort)) params.set('dir', filter.dir);
   if (filter.stars) params.set('stars', String(filter.stars));
   for (const [key] of TALENT_FILTERS) if (filter.talent[key] > 0) params.set(TALENT_PARAMS[key], String(filter.talent[key]));
   return params;
@@ -161,6 +172,11 @@ function adopt(target, next) {
 
 // 一覧の描き方（性能の予算: 2,000 行で最初の 200 行が 100ms 以内・全行が 1 秒以内。2,000 行を超えたら見えている範囲だけ描く）
 const FIRST_ROWS = 200;
+// 描き直し 1 回で、すぐ中身を書き換える既にある行の数（先頭から）。残りは区切って書き換える（キーワードを打つと多くの行の一致の理由が
+// 変わり、2,000 行で 200 行ずつすぐ書き換えると入力が 100ms 以上止まったため。窓に入る行〔約 10 行〕より十分多い）
+const FILL_NOW = 60;
+// 行の高さ（px。CSS の .owned-row の高さと同じ。見えている範囲だけ描く一覧の、まだ測っていない行の見積もり）
+const ROW_ESTIMATE = 80;
 const VIRTUAL_OVER = 2000;
 // 残りの行を足す 1 回の区切り（16ms 以内）。前の区切りの速さで、足す行数を 25〜400 の間で増減する
 const SLICE_MS = 16;
@@ -168,20 +184,69 @@ const STEP_MIN = 25;
 const STEP_MAX = 400;
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
 const nextFrame = (fn) => (typeof globalThis.requestAnimationFrame === 'function' ? globalThis.requestAnimationFrame(fn) : setTimeout(fn, 0));
+// 列見出し: [並べ替えのキー, 見出しの文字, 読み上げの名前]。押すとそのキー（既定の向き）、もう一度で反対の向き
+const HEAD_COLUMNS = {
+  dex: ['dex', 'パル', 'パル（図鑑番号）'],
+  level: ['level', 'Lv', 'レベル'],
+  stars: ['stars', '★', 'パル濃縮（★）'],
+  passives: ['passives', 'パッシブ', '良いパッシブ'],
+  hp: ['hp', 'HP', 'HP の個体値'],
+  shot: ['shot', '攻', '攻撃の個体値'],
+  defense: ['defense', '防', '防御の個体値'],
+  talent: ['talent', '計', '個体値の合計'],
+  place: ['place', '所持者・場所', '所持者・場所'],
+};
+// 向きの言い方（列見出しの読み上げ。「HP の個体値で並べ替え（高い順）」）
+const HIGH_LOW = { desc: '高い順', asc: '低い順' };
+const HEAD_WORDS = {
+  dex: { asc: '小さい順', desc: '大きい順' }, passives: { desc: '良い順', asc: '低い順' }, level: HIGH_LOW, stars: { desc: '多い順', asc: '少ない順' },
+  talent: HIGH_LOW, hp: HIGH_LOW, shot: HIGH_LOW, defense: HIGH_LOW, place: { asc: 'ボックスの順', desc: '逆の順' },
+};
 // 場所の検索欄を出す拠点の数
 const BASE_SEARCH_OVER = 12;
 
-// 行に出す値の署名（一致の理由を除く）と、一致の理由の署名。理由を入れ忘れると、キーワードを変えても古い理由が残る
-const baseSignature = (pal) => [pal.palId, pal.known, pal.name, pal.human?.icon ?? '', pal.level, pal.rank, pal.stars,
-  pal.passives.join(','), pal.talent.hp, pal.talent.shot, pal.talent.defense, pal.holder, pal.place, pal.placeLabel, pal.nickname,
-  pal.gender, pal.egg, pal.lucky, pal.alpha, pal.lastOwner].join('\u0001');
+// 行に出す値の署名（一致の理由・印を除く）と、一致の理由の署名。理由を入れ忘れると、キーワードを変えても古い理由が残る
+const boxText = (box) => (box ? `${box.page}.${box.row}.${box.column}` : '');
+// 個体のデータ（読み込みごとに作り直され、中は変えない）ごとに 1 回だけ作る（キーワードを打つたびに 2,000 行ぶん作らない）
+const baseSignatures = new WeakMap();
+function baseSignature(pal) {
+  let signature = baseSignatures.get(pal);
+  if (signature === undefined) {
+    signature = [pal.palId, pal.known, pal.name, pal.human?.icon ?? '', pal.level, pal.rank, pal.stars,
+      pal.passives.join(','), pal.talent.hp, pal.talent.shot, pal.talent.defense, pal.holder, pal.place, pal.placeLabel, boxText(pal.box), pal.nickname,
+      pal.gender, pal.egg, pal.lucky, pal.alpha, pal.lastOwner].join('\u0001');
+    baseSignatures.set(pal, signature);
+  }
+  return signature;
+}
 const notesSignature = (notes) => notes.map((note) => `${note.label}:${note.name}:${note.desc}`).join('|');
-export const rowSignature = (pal, notes) => `${baseSignature(pal)}\u0002${notesSignature(notes)}`;
+/** 行に出す値の署名（一致の理由 notes と印 marks を含む）。同じなら行を書き換えない（理想個体の描き直しの判定も使う） */
+export const rowSignature = (pal, notes = [], marks = []) => `${baseSignature(pal)}\u0002${notesSignature(notes)}\u0002${marks.join('\u0001')}`;
 
-// marks は行の印（理想個体の組の親の「別の配合牧場で使用中」など。owned-rows の O-52 の印も同じ口を使う）
-function palCell(pal, marks = []) {
-  const cell = el('div', 'owned-pal');
-  if (pal.known) cell.append(palTile(pal.palId, { gender: pal.gender, genderFirst: true }));
+// ---- 所持パルの 1 行（所持パルの一覧・理想個体の組のカード）。列は [パル][Lv・★][パッシブ][個体値 4 セル][所持者・場所]（CSS の --owned-cols） ----
+// 個体値のセル（列見出しの HP・攻・防・計と同じ並び）。名前は読み上げの文に使う
+const TALENT_CELLS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御'], ['total', '合計']];
+// 1 つの行に出すパッシブの数。5 個以上なら 3 個と「+N」（残りは押すと板に出す。行の中には広げない）
+const PASSIVE_SLOTS = 4;
+
+// 行の操作（所持パルの画面だけ）の行き先。配合を探す（search）はフェーズ 2 の find-merge で行き先が変わるので、ここ 1 か所で作る
+const positivePassives = (pal) => pal.passives.filter((id) => (passivesById.get(id)?.rank ?? 0) > 0);
+/** 行の操作のリンク（目標に・ここから継承ルート・親1 にして配合を探す）。理想個体と継承ルートへは正のランクのパッシブだけを渡す */
+export function ownedRowLinks(pal) {
+  const p = positivePassives(pal).join(',');
+  return [
+    { key: 'ideal', icon: 'ideal', label: '目標に（理想個体）', href: buildHash('ideal', { to: pal.palId, p }) },
+    { key: 'route', icon: 'route', label: 'ここから継承ルート', href: buildHash('route', { from: pal.palId, p }) },
+    { key: 'search', icon: 'search', label: '親1 にして配合を探す', href: buildHash('search', { p1: pal.palId }) },
+  ];
+}
+// 行の操作を出せる個体（パルのマスターにある・タマゴでない）
+const canAct = (pal) => pal.known && !pal.egg && Boolean(pal.palId);
+
+// パル（絵と名前・性別）と、名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファ・印）。バッジは 1 行（入り切らない分は隠し、title に全部）
+function fillPalCell(cell, pal, marks) {
+  const nodes = [];
+  if (pal.known) nodes.push(palTile(pal.palId, { gender: pal.gender, genderFirst: true }));
   else {
     // 人間のキャラクターなど、パルのマスターにないもの。ゲームから取り出した名前とアイコンがあれば出す
     const unknown = el('span', 'pal-tile owned-unknown');
@@ -194,109 +259,237 @@ function palCell(pal, marks = []) {
       label.append(line);
     } else label.append(name);
     unknown.append(label);
-    cell.append(unknown);
+    nodes.push(unknown);
   }
-  const badges = el('span', 'owned-badges');
-  if (pal.nickname) badges.append(el('span', 'owned-badge', `「${pal.nickname}」`));
-  if (pal.egg) badges.append(el('span', 'owned-badge badge-egg', 'タマゴ'));
-  if (pal.lucky) badges.append(el('span', 'owned-badge badge-lucky', 'ラッキー'));
-  if (pal.alpha) badges.append(el('span', 'owned-badge badge-alpha', 'アルファ'));
-  for (const mark of marks) badges.append(el('span', 'owned-badge badge-mark', mark));
-  if (badges.children.length) cell.append(badges);
-  return cell;
+  const badges = [];
+  if (pal.nickname) badges.push(['owned-badge', `「${pal.nickname}」`]);
+  if (pal.egg) badges.push(['owned-badge badge-egg', 'タマゴ']);
+  if (pal.lucky) badges.push(['owned-badge badge-lucky', 'ラッキー']);
+  if (pal.alpha) badges.push(['owned-badge badge-alpha', 'アルファ']);
+  for (const mark of marks) badges.push(['owned-badge badge-mark', mark]);
+  if (badges.length) {
+    const line = el('span', 'owned-badges');
+    line.append(...badges.map(([className, text]) => el('span', className, text)));
+    line.title = badges.map(([, text]) => text).join('\n');
+    nodes.push(line);
+  }
+  cell.replaceChildren(...nodes);
 }
 
-/**
- * @param {{ notes?: { label: string, name: string, desc: string }[], highlight?: { wanted: string[], targets: { hp: number, shot: number, defense: number } }, marks?: string[] }} [options]
- *   notes は一致した理由（core/owned.js の keywordNotes）。highlight は理想個体の組の親で、欲しいパッシブと個体値の目標との差を見せる
- *   （無いとき〔所持パルの画面〕の行の中身・textContent は今までと同じ）。marks は名前の下の印（.owned-badges の span.owned-badge.badge-mark）
- */
-export function ownedRow(pal, options) {
-  return fillOwnedRow(el('article', 'owned-row'), pal, options);
+// レベル（タマゴは「—」。文字はセルに直接）と、パル濃縮の 4 枠（塗りの ★ は文字、輪郭の ☆ は CSS が data-off から出す。
+// SVG にせず要素 1 つ。2,000 行で要素の数を増やさないため）
+function fillLevelCell(cell, pal) {
+  const filled = Math.max(0, Math.min(4, pal.stars));
+  const stars = el('span', 'owned-stars', '★'.repeat(filled));
+  stars.setAttribute('role', 'img');
+  stars.setAttribute('aria-label', filled ? `パル濃縮 ★${filled}` : 'パル濃縮なし');
+  stars.setAttribute('data-off', '☆'.repeat(4 - filled));
+  cell.textContent = pal.egg ? '—' : `Lv ${pal.level}`;
+  cell.append(stars);
 }
 
-/** 行の要素の中身を pal の内容で入れ直す（一覧で同じ個体の要素を使い回すとき）。オプションは ownedRow と同じ */
-export function fillOwnedRow(row, pal, { notes = [], highlight, marks = [] } = {}) {
-  row.setAttribute('aria-label', `${pal.name}${pal.nickname ? `（${pal.nickname}）` : ''}`);
-  const level = el('div', 'owned-level');
-  level.append(el('strong', '', pal.egg ? '孵化前' : `Lv ${pal.level}`), el('small', 'owned-stars', pal.stars ? '★'.repeat(pal.stars) : '☆なし'));
-  const where = el('div', 'owned-where');
-  where.append(el('strong', '', pal.holder), el('small', 'muted', pal.placeLabel));
-  if (pal.place === 'base' && pal.lastOwner) where.append(el('small', 'muted', `預けた人 ${pal.lastOwner}`));
-  const passives = el('div', 'owned-passives');
-  passives.append(passiveCell(pal.passives, highlight?.wanted), ...noteLines(notes));
-  row.replaceChildren(palCell(pal, marks), level, passives, talentCell(pal.talent, highlight?.targets), where);
-  return row;
-}
-
-// パッシブの並び。欲しいパッシブ（wanted。1 つ以上のときだけ）があれば、欲しいものに ✓ を付け、それ以外を薄くする
-function passiveCell(ids, wanted) {
-  if (!ids.length) return el('span', 'muted', 'パッシブなし');
-  const list = passiveList(ids);
-  if (!wanted?.length) return list;
-  const set = new Set(wanted);
-  [...list.children].forEach((chip, index) => {
-    if (!set.has(ids[index])) {
+// パッシブの並び（行の中だけランクの高い順。同じランクは保存の順）を 2×2 の固定の枠（セルそのものが grid）に。5 個以上なら 3 個と「+N」。
+// 欲しいパッシブ（wanted。1 つ以上のときだけ）があれば、欲しいものに ✓ を付け、それ以外を薄くする。パッシブなしは枠が空（文字は出さない）。
+// after は枠の後ろに残す要素（一致の理由の 1 行）
+function fillPassiveList(list, ids, wanted, hints, after) {
+  const ordered = ids.map((id, index) => ({ id, index, rank: passivesById.get(id)?.rank ?? 0 }))
+    .sort((a, b) => b.rank - a.rank || a.index - b.index).map((item) => item.id);
+  const shown = ordered.length > PASSIVE_SLOTS ? ordered.slice(0, PASSIVE_SLOTS - 1) : ordered;
+  const set = wanted?.length ? new Set(wanted) : null;
+  const chips = shown.map((id) => {
+    const chip = passiveChip(id);
+    if (!set) return chip;
+    if (!set.has(id)) {
       chip.classList.add('is-extra');
-      return;
+      return chip;
     }
     chip.classList.add('is-wanted');
     const check = el('span', 'passive-check', '✓');
     check.setAttribute('role', 'img');
     check.setAttribute('aria-label', '欲しいパッシブ');
     chip.insertBefore(check, chip.children[0] ?? null);
+    return chip;
   });
-  return list;
+  list.replaceChildren(...chips);
+  const rest = ordered.slice(shown.length);
+  if (!rest.length) {
+    if (after) list.append(after);
+    return;
+  }
+  const more = button(`+${rest.length}`, null, 'passive-more');
+  more.setAttribute('aria-label', `ほかのパッシブ ${rest.length} 個`);
+  more.title = rest.map((id) => passivesById.get(id)?.ja ?? id).join('\n');
+  list.append(more);
+  if (after) list.append(after);
+  hints.push(hint({ label: 'ほかのパッシブ', trigger: more, content: () => [passiveList(rest)] }));
 }
 
-const TALENT_SHORT = { hp: 'HP', shot: '攻', defense: '防' };
-// 個体値の欄。目標（targets）があれば、ステータスごとのセル（span.talent-cell[data-key]）にして、
-// 目標以上は .met、目標未満は .short と差（−N）を見せる（目標 0 は条件なしなので何もしない）。
-// 目標がなければ今までどおり 1 つの文（所持パルの画面。行の数を増やさない）。owned-rows で 4 セルにする
-function talentCell(talent, targets) {
-  if (!targets) return el('div', 'owned-talent', talentText(talent));
-  const cell = el('div', 'owned-talent');
-  TALENT_FILTERS.forEach(([key, name], index) => {
-    // 区切りは見た目だけ（テストの DOM に文字のノードがないので span にする）
-    if (index) {
-      const separator = el('span', 'talent-sep', ' / ');
-      separator.setAttribute('aria-hidden', 'true');
-      cell.append(separator);
-    }
-    const value = talent[key];
-    const target = targets[key] ?? 0;
-    const item = el('span', 'talent-cell', `${TALENT_SHORT[key]} ${value}`);
+// キーワードに一致した、一覧に出していない項目（スキル・説明）。1 行に横に並べ（入り切らない分は省略）、title に全文
+function fillHits(line, notes) {
+  line.replaceChildren(...notes.map((note) => {
+    const hit = el('span', 'owned-hit');
+    hit.append(el('span', 'owned-hit-name', `${note.label}：${note.name}`));
+    if (note.desc) hit.append(el('span', 'owned-hit-desc', note.desc));
+    return hit;
+  }));
+  line.title = notes.map((note) => `${note.label}：${note.name}${note.desc ? `（${note.desc}）` : ''}`).join('\n');
+}
+
+// 個体値の 4 セル（HP・攻・防・計）。数字と、下のミニバー（--v。計は合計の 1/3）。目標（targets）があれば、目標の縦線（--t）と
+// 目標以上は .met、目標未満は .short と差（−N。値の下に小さく〔D23〕）。読み上げは欄の aria-label にまとめる
+function fillTalentCell(cell, talent, targets) {
+  const total = talent.hp + talent.shot + talent.defense;
+  const spoken = [];
+  cell.replaceChildren(...TALENT_CELLS.map(([key, name]) => {
+    const value = key === 'total' ? total : talent[key];
+    const item = el('span', 'talent-cell', String(value));
     item.setAttribute('data-key', key);
-    item.setAttribute('role', 'img');
-    if (target > 0 && value >= target) {
+    item.style.setProperty('--v', String(key === 'total' ? Math.round(total / 3) : value));
+    const target = key === 'total' ? 0 : targets?.[key] ?? 0;
+    if (target <= 0) {
+      spoken.push(`${name} ${value}`);
+      return item;
+    }
+    item.classList.add('has-target');
+    item.style.setProperty('--t', String(target));
+    if (value >= target) {
       item.classList.add('met');
-      item.setAttribute('aria-label', `${name} ${value}（目標 ${target} 以上）`);
-    } else if (target > 0) {
+      spoken.push(`${name} ${value}（目標 ${target} 以上）`);
+    } else {
       item.classList.add('short');
       item.append(el('span', 'talent-diff', `−${target - value}`));
-      item.setAttribute('aria-label', `${name} ${value}（目標 ${target} まで あと ${target - value}）`);
-    } else item.setAttribute('aria-label', `${name} ${value}`);
-    cell.append(item);
-  });
-  return cell;
+      spoken.push(`${name} ${value}（目標 ${target} まで あと ${target - value}）`);
+    }
+    return item;
+  }));
+  cell.setAttribute('aria-label', `個体値 ${spoken.join('・')}`);
 }
 
-// 一致した理由の行（パッシブの欄の下）
-function noteLines(notes) {
-  return notes.map((note) => {
-    const line = el('p', 'owned-hit');
-    line.append(el('span', 'owned-hit-name', `${note.label}：${note.name}`));
-    if (note.desc) line.append(el('span', 'owned-hit-desc', note.desc));
-    return line;
-  });
+// 所持者と場所。拠点の個体は拠点の名前と「Alice が預けた」（場所の行は重ねない）。パルボックスは「P2 · 1-6」と 6×5 の小さな図
+//（title に場所の全文）。位置が分からなければ場所の文字
+function fillWhereCell(cell, pal) {
+  if (pal.place === 'base' && pal.holder === pal.placeLabel) {
+    cell.replaceChildren(el('strong', '', pal.holder), ...(pal.lastOwner ? [el('small', 'muted', `${pal.lastOwner} が預けた`)] : []));
+    cell.title = '';
+    return;
+  }
+  if (!pal.box) {
+    cell.replaceChildren(el('strong', '', pal.holder), el('small', 'muted', pal.placeLabel));
+    cell.title = '';
+    return;
+  }
+  const place = el('small', 'muted owned-box', `P${pal.box.page} · ${pal.box.row}-${pal.box.column}`);
+  // 図は要素 1 つ（枠は背景の線、位置の印は ::after を --r・--c の枠に置く）
+  const map = el('span', 'box-map');
+  map.setAttribute('aria-hidden', 'true');
+  map.style.setProperty('--r', String(pal.box.row));
+  map.style.setProperty('--c', String(pal.box.column));
+  place.append(map);
+  cell.replaceChildren(el('strong', '', pal.holder), place);
+  cell.title = pal.placeLabel;
 }
 
-// 一致した理由だけが変わった行は、パッシブの欄の理由の行だけを入れ直す（キーワードの入力のたびに行全体を作り直さない）
-function replaceNotes(row, notes) {
-  const passives = row.children[2];
-  while (passives.children.length > 1) passives.lastElementChild.remove();
-  passives.append(...noteLines(notes));
+/**
+ * 所持パルの 1 行の部品。options: { notes, highlight, marks, actions, hints }。
+ * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値の目標との差を見せる
+ * （{ wanted, targets }）、marks は名前の下の印（span.owned-badge.badge-mark）、actions は行の操作を出せる行か（所持パルの画面だけ。
+ * 操作の要素は showActions で、初めて触れた行にだけ作る）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。省くと行が持つ）。
+ * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）
+ * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, showActions(): boolean, destroy(): void }}
+ */
+export function ownedRowItem(pal, options) {
+  const element = el('article', 'owned-row');
+  const cells = {
+    pal: el('div', 'owned-pal'), level: el('div', 'owned-level'), passives: el('div', 'owned-passives'),
+    talent: el('div', 'owned-talent'), where: el('div', 'owned-where'),
+  };
+  cells.talent.setAttribute('role', 'img');
+  let hitsLine = null;
+  element.append(cells.pal, cells.level, cells.passives, cells.talent, cells.where);
+  const shown = {};
+  let ownHints = [];
+  let actions = null;
+  let eligible = false;
+  let current = pal;
+  // セルごとの値の署名。変わったセルだけを作り直す
+  const write = (name, key, fill) => {
+    if (shown[name] === key) return false;
+    shown[name] = key;
+    fill();
+    return true;
+  };
+  const actionsKey = (target) => `${target.palId}\u0002${positivePassives(target).join(',')}`;
+  function fillActions() {
+    actions.replaceChildren(...ownedRowLinks(current).map((item) => {
+      const node = link('', item.href, `owned-row-action action-${item.key}`);
+      node.setAttribute('aria-label', item.label);
+      node.title = item.label;
+      node.append(navIcon(item.icon));
+      return node;
+    }));
+  }
+  const item = {
+    element,
+    get pal() { return current; },
+    update(next, { notes = [], highlight, marks = [], actions: withActions = false, hints } = {}) {
+      current = next;
+      let changed = false;
+      changed = write('label', `${next.name}\u0001${next.nickname}`, () => {
+        element.setAttribute('aria-label', `${next.name}${next.nickname ? `（${next.nickname}）` : ''}`);
+      }) || changed;
+      changed = write('pal', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender, next.nickname, next.egg, next.lucky, next.alpha,
+        marks.join('\u0001')].join('\u0002'), () => fillPalCell(cells.pal, next, marks)) || changed;
+      changed = write('level', `${next.egg}:${next.level}:${next.stars}`, () => fillLevelCell(cells.level, next)) || changed;
+      changed = write('passives', `${next.passives.join(',')}\u0002${highlight?.wanted?.join(',') ?? ''}`, () => {
+        for (const old of ownHints) old.destroy();
+        ownHints = [];
+        fillPassiveList(cells.passives, next.passives, highlight?.wanted, hints ?? ownHints, hitsLine);
+      }) || changed;
+      changed = write('hits', notesSignature(notes), () => {
+        if (!notes.length) {
+          hitsLine?.remove();
+          hitsLine = null;
+          return;
+        }
+        if (!hitsLine) {
+          hitsLine = el('p', 'owned-hits');
+          cells.passives.append(hitsLine);
+        }
+        fillHits(hitsLine, notes);
+      }) || changed;
+      const targets = highlight?.targets;
+      changed = write('talent', `${next.talent.hp}:${next.talent.shot}:${next.talent.defense}:${targets ? TALENT_CELLS.map(([key]) => targets[key] ?? 0).join(',') : ''}`,
+        () => fillTalentCell(cells.talent, next.talent, targets)) || changed;
+      changed = write('where', [next.place, next.holder, next.placeLabel, boxText(next.box), next.lastOwner].join('\u0002'), () => fillWhereCell(cells.where, next)) || changed;
+      eligible = withActions && canAct(next);
+      if (actions && !eligible) {
+        actions.remove();
+        actions = null;
+        shown.actions = '';
+      } else if (actions) write('actions', actionsKey(next), fillActions);
+      return changed;
+    },
+    /** 行の操作（目標に・ここから継承ルート・親1 にして配合を探す）を出す。出せない行（タマゴ・人間・理想個体のカード）は false */
+    showActions() {
+      if (!eligible) return false;
+      if (actions) return true;
+      actions = el('div', 'owned-row-actions');
+      element.append(actions);
+      shown.actions = actionsKey(current);
+      fillActions();
+      return true;
+    },
+    destroy() {
+      for (const old of ownHints) old.destroy();
+      ownHints = [];
+    },
+  };
+  item.update(pal, options);
+  return item;
 }
+
+/** 所持パルの 1 行の要素（理想個体の組のカード・テストで使う薄い包み）。オプションは ownedRowItem と同じ */
+export const ownedRow = (pal, options) => ownedRowItem(pal, options).element;
 
 export function ownedView(context, route) {
   const owned = context.owned;
@@ -318,10 +511,10 @@ export function ownedView(context, route) {
   // 入れたら true を返す
   function readRoute(next) {
     const fromUrl = filterFromParams(next.params);
-    const sortParam = next.params.has('sort') ? oneOf(next.params.get('sort'), SORT_KEYS, 'dex') : null;
+    const sortParam = next.params.has('sort') ? sortOf(next.params.get('sort'), next.params.get('dir')) : null;
     if (!fromUrl && sortParam === null) return false;
-    if (fromUrl) adopt(filter, { ...fromUrl, sort: sortParam ?? filter.sort });
-    else filter.sort = sortParam;
+    if (fromUrl) adopt(filter, { ...fromUrl, ...(sortParam ?? { sort: filter.sort, dir: filter.dir }) });
+    else Object.assign(filter, sortParam);
     // 画面内で変えた絞り込みは URL に出ないため、戻ってきたときに古い URL の指定で上書きしないよう外しておく。
     if (memory) context.replace(buildHash('owned'));
     return true;
@@ -354,8 +547,22 @@ export function ownedView(context, route) {
   query.value = filter.query;
   const sort = el('select', 'owned-sort');
   sort.setAttribute('aria-label', '並べ替え');
-  for (const [key, label] of OWNED_SORTS) sort.append(option(key, label));
-  sort.value = filter.sort;
+  // 並べ替えの選択肢（値は sortValue）。個体値の合計が低い順は高い順の次（X-30）。列見出しで選んだ反対の向き（HP の個体値が低い順など）は、
+  // 選んでいる間だけそのキーの次に足す（選択肢を倍にしない）
+  function sortChoices() {
+    const choices = [];
+    for (const [key, label, , reverse] of OWNED_SORTS) {
+      choices.push([key, label]);
+      if (key === 'talent') choices.push([sortValue('talent', 'asc'), reverse]);
+    }
+    const current = sortValue(filter.sort, filter.dir);
+    if (!choices.some(([value]) => value === current)) {
+      choices.splice(choices.findIndex(([value]) => value === filter.sort) + 1, 0, [current, sortLabel(filter.sort, filter.dir)]);
+    }
+    return choices;
+  }
+  for (const [value, label] of sortChoices()) sort.append(option(value, label));
+  sort.value = sortValue(filter.sort, filter.dir);
   const stars = el('select');
   stars.setAttribute('aria-label', 'パル濃縮（★）');
   for (const [value, label] of STAR_FILTERS) stars.append(option(value, label));
@@ -567,6 +774,15 @@ export function ownedView(context, route) {
     return node;
   };
   const idealLink = panelLink('理想個体 →', 'この条件で理想個体を開く');
+  // 目標の印（O-52）を出すか（既定はオン。画面の表示の好みなので絞り込みの条件には入れず、viewState にだけ覚える〔読み込み直すとオン〕）。
+  // 登録した目標がないときは隠す
+  const marksToggle = el('label', 'owned-marks-toggle');
+  const marksCheck = el('input');
+  marksCheck.type = 'checkbox';
+  marksCheck.checked = memory?.showMarks !== false;
+  marksToggle.append(marksCheck, el('span', '', '目標の印'));
+  marksToggle.title = '登録した目標の完成品と、目標の欲しいパッシブを持つ個体に印を付けます（印の文字もキーワードで探せます）';
+  marksToggle.hidden = true;
   const routeLink = panelLink('継承ルート →', 'このパッシブを運ぶ継承ルートを開く');
 
   // ---- パネル（sticky。高さは画面の section の --panel-h に書き続ける〔owned-rows の列見出しの top・scroll-margin-top が使う〕） ----
@@ -593,13 +809,78 @@ export function ownedView(context, route) {
     elementSlot,
   );
   const statusRow = el('div', 'owned-status-row');
-  statusRow.append(count, chipBox, chipMore, resetButton, copySlot, sort, idealLink, routeLink);
+  statusRow.append(count, chipBox, chipMore, marksToggle, resetButton, copySlot, sort, idealLink, routeLink);
   panel.append(panelMain, panelSub, statusRow);
+  // ---- 列見出し（F069。押すとその並べ替え、もう一度で向きを反対に）。syncList の行の入れ物とは別の要素で、列の幅は CSS の
+  // --owned-cols を行と共有する。パネルの下に貼り付く。並べ替えの選択（状態の行）と同じ filter.sort・filter.dir を使う ----
+  const head = el('div', 'owned-list-head');
+  head.setAttribute('role', 'toolbar');
+  head.setAttribute('aria-label', '並べ替え');
+  const headButtons = new Map();
+  const headButton = ([key, text, name]) => {
+    const node = button('', () => pressHead(key), 'owned-head-button');
+    node.setAttribute('data-value', key);
+    const arrow = el('span', 'owned-head-arrow');
+    arrow.setAttribute('aria-hidden', 'true');
+    node.append(el('span', 'owned-head-text', text), arrow);
+    headButtons.set(key, { node, name, arrow });
+    return node;
+  };
+  const headGroup = (className, columns) => {
+    const group = el('div', className);
+    group.append(...columns.map(headButton));
+    return group;
+  };
+  head.append(
+    headButton(HEAD_COLUMNS.dex),
+    headGroup('owned-head-level', [HEAD_COLUMNS.level, HEAD_COLUMNS.stars]),
+    headButton(HEAD_COLUMNS.passives),
+    headGroup('owned-head-talent', [HEAD_COLUMNS.hp, HEAD_COLUMNS.shot, HEAD_COLUMNS.defense, HEAD_COLUMNS.talent]),
+    headButton(HEAD_COLUMNS.place),
+  );
+  // 列見出しは 1 つのタブ止まり（押している見出し）で、←→・Home・End で見出しの間を移る（toolbar の決まり）
+  head.addEventListener('keydown', (event) => {
+    const nodes = [...headButtons.values()].map((item) => item.node);
+    const index = nodes.indexOf(globalThis.document?.activeElement);
+    if (index < 0) return;
+    const to = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: nodes.length - 1 }[event.key];
+    if (to === undefined) return;
+    event.preventDefault();
+    const target = nodes[(to + nodes.length) % nodes.length];
+    for (const node of nodes) node.tabIndex = node === target ? 0 : -1;
+    target.focus();
+  });
+  function renderHead() {
+    for (const [key, { node, name, arrow }] of headButtons) {
+      const pressed = key === filter.sort;
+      const dir = pressed ? filter.dir : SORT_DIRS.get(key);
+      const label = `${name}で並べ替え（${HEAD_WORDS[key][dir]}）`;
+      node.setAttribute('aria-pressed', String(pressed));
+      node.setAttribute('aria-label', label);
+      node.title = label;
+      node.tabIndex = pressed ? 0 : -1;
+      const mark = pressed ? (dir === 'desc' ? '▼' : '▲') : '';
+      if (arrow.textContent !== mark) arrow.textContent = mark;
+    }
+  }
+  // 見出しを押す: 同じキーなら向きを反対に、違うキーならそのキーの既定の向き
+  function pressHead(key) {
+    Object.assign(filter, key === filter.sort ? { dir: filter.dir === 'asc' ? 'desc' : 'asc' } : { sort: key, dir: SORT_DIRS.get(key) });
+    applySort();
+  }
   const results = el('div', 'owned-list');
-  element.append(summary, panel, results);
+  element.append(summary, panel, head, results);
+  renderHead();
   const stopTracking = trackHeight(panel, element);
-  // パネルの下端（自動の更新の後に見ていた行を同じ位置に戻すときと、見えている範囲だけ描くときの基準）
-  const panelBottom = () => panel.getBoundingClientRect?.().bottom ?? 0;
+  // 固定の部分（パネルと、貼り付いた列見出し）の下端。自動の更新の後に見ていた行を同じ位置に戻すとき・見えている範囲だけ描くとき・
+  // 一覧の先頭が隠れているかを見るときの基準
+  const fixedBottom = () => {
+    const bottom = panel.getBoundingClientRect?.().bottom ?? 0;
+    if (head.hidden) return bottom;
+    const rect = head.getBoundingClientRect?.();
+    const height = rect ? rect.bottom - rect.top : 0;
+    return bottom + (Number.isFinite(height) ? height : 0);
+  };
   // 効いている条件のチップが 1 行に入り切らないときの「+n」（幅が変わったら数え直す）
   const chipObserver = typeof globalThis.ResizeObserver === 'function' ? new globalThis.ResizeObserver(() => measureChips()) : null;
   chipObserver?.observe(chipBox);
@@ -611,17 +892,29 @@ export function ownedView(context, route) {
     talents.update(filter.talent);
     syncPicker(picker, filter.palId);
     modeChoice.update(filter.passiveMode);
-    sort.value = filter.sort;
+    showSort();
     holderSelect.update({ value: filter.holder });
     renderPlaces(owned.state);
     renderElements();
   }
 
-  // 並べ替えは行の順番が変わるので動きを付ける（行が多いとスナップショットが重いので、2,000 行を超えるときは付けない）
-  sort.addEventListener('change', () => {
-    filter.sort = sort.value;
+  // 並べ替えの選択と列見出しを、今の並べ替えにそろえる
+  function showSort() {
+    const current = sortValue(filter.sort, filter.dir);
+    syncOptions(sort, sortChoices(), (node) => { if (node.value !== current) node.value = current; });
+    renderHead();
+  }
+  // 並べ替えは行の順番が変わるので動きを付ける（行が多いとスナップショットが重いので、2,000 行を超えるときは付けない。
+  // 動きを減らす設定では withTransition が付けない）
+  function applySort() {
+    showSort();
     if (shownCount > VIRTUAL_OVER) changed();
     else withTransition(() => changed());
+  }
+  sort.addEventListener('change', () => {
+    const [key, dir] = sort.value.split(':');
+    Object.assign(filter, sortOf(key, dir));
+    applySort();
   });
   // キーワードは入力を間引き、日本語の変換中は絞らない
   const keywordInput = onTextInput(query, (value) => { filter.query = value; changed(); }, { delay: inputDelay, signal: inputs.signal });
@@ -734,7 +1027,7 @@ export function ownedView(context, route) {
       pruneBases(state);
       renderPlaces(state);
       renderElements();
-      sort.value = filter.sort;
+      showSort();
     } finally {
       syncingFilters = false;
     }
@@ -884,15 +1177,15 @@ export function ownedView(context, route) {
     afterLayout(() => {
       if (destroyed) return;
       const top = results.getBoundingClientRect?.().top;
-      const bottom = panel.getBoundingClientRect?.().bottom;
-      if (!Number.isFinite(top) || !Number.isFinite(bottom) || top >= bottom) return;
+      const bottom = fixedBottom();
+      if (!Number.isFinite(top) || !Number.isFinite(bottom) || top >= bottom - 1) return;
       results.scrollIntoView({ block: 'start' });
     });
   }
   function resetAll() {
     const inside = results.contains(globalThis.document?.activeElement);
     keywordInput.cancel();
-    adopt(filter, { ...migrateFilter({}), sort: filter.sort });
+    adopt(filter, { ...migrateFilter({}), sort: filter.sort, dir: filter.dir });
     showFilter();
     changed();
     // 0 件の表示の「条件をすべて解除」は消えるので、キーワードへ
@@ -922,8 +1215,9 @@ export function ownedView(context, route) {
   // ---- 一覧（行は個体の ID で使い回す。中身が同じ行は触らない） ----
   let terms = [];
   let termsKey = '';
-  // 1 回の描き直しで、すぐ書き換える行の数（先頭から）。残りの書き換えは区切って行う（キーワードで一致の理由が多くの行で変わるときに止まらないように）
-  let fillBudget = FIRST_ROWS;
+  // 1 回の描き直しで、すぐ書き換える既にある行の数（先頭から。FILL_NOW）。残りの書き換えは区切って行う（キーワードで一致の理由が多くの行で
+  // 変わるときに止まらないように）。作ったばかりの行はいつもすぐ中身を入れる
+  let fillBudget = FILL_NOW;
   const deferred = new Map();
   let flushing = false;
   function flushDeferred() {
@@ -942,45 +1236,90 @@ export function ownedView(context, route) {
     };
     nextFrame(tick);
   }
-  function ownedRowItem(pal) {
-    let base = '';
-    let shownNotes = null;
-    let last = null;
-    let lastTerms = null;
-    const element = el('article', 'owned-row');
+  // 行に渡すもの（キーワードに一致した理由・目標の印・行の操作）
+  const rowOptionsOf = (pal) => ({ notes: terms.length ? keywordNotes(pal, terms) : [], marks: shownMarks?.get(pal.id) ?? [], actions: true });
+  // 行の要素 → 行の部品（行の操作を、触れた行にだけ作るとき）
+  const rowParts = new WeakMap();
+  // 一覧の 1 行（ownedRowItem を、区切った書き換えに乗せる）。作ったばかりの行と、先頭から決まった数（FILL_NOW）の行はすぐ書き換え、
+  // 残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。中身は変わったセルだけを書き換える
+  //（一致の理由だけが変わったら理由の行だけ）
+  function listRow(pal) {
+    let last = pal;
+    let lastTerms = termsKey;
+    let lastMarks = marksStamp;
+    const first = rowOptionsOf(pal);
+    const row = ownedRowItem(pal, first);
+    let signature = rowSignature(pal, first.notes, first.marks);
+    rowParts.set(row.element, row);
     const item = {
-      element,
-      // next: { pal, notes }
-      fill({ pal: target, notes }) {
-        const nextBase = baseSignature(target);
-        const nextNotes = notesSignature(notes);
-        if (nextBase !== base) fillOwnedRow(element, target, { notes });
-        else if (nextNotes !== shownNotes) replaceNotes(element, notes);
-        base = nextBase;
-        shownNotes = nextNotes;
+      element: row.element,
+      // 今のキーワード・印で next の中身にする（同じなら何もしない）
+      fill(next) {
+        const options = rowOptionsOf(next);
+        const nextSignature = rowSignature(next, options.notes, options.marks);
+        if (nextSignature === signature) return;
+        row.update(next, options);
+        signature = nextSignature;
       },
       update(next) {
-        // 区切って足すときは同じ個体で何度も呼ばれるので、個体とキーワードが同じなら何もしない
-        if (next === last && termsKey === lastTerms) return;
+        // 区切って足すときは同じ個体で何度も呼ばれるので、個体・キーワード・印が同じなら何もしない
+        if (next === last && termsKey === lastTerms && marksStamp === lastMarks) return;
         last = next;
         lastTerms = termsKey;
-        const notes = terms.length ? keywordNotes(next, terms) : [];
-        if (baseSignature(next) === base && notesSignature(notes) === shownNotes) { deferred.delete(item); return; }
-        // まだ中身のない行（作ったばかり）と、先頭から決まった数の行はすぐ書き換え、残りは区切って書き換える
-        if (base && fillBudget <= 0) { deferred.set(item, { pal: next, notes }); return; }
+        lastMarks = marksStamp;
+        if (fillBudget <= 0) { deferred.set(item, next); return; }
         fillBudget--;
         deferred.delete(item);
-        item.fill({ pal: next, notes });
+        item.fill(next);
       },
-      destroy() { deferred.delete(item); },
+      destroy() {
+        deferred.delete(item);
+        row.destroy();
+      },
     };
-    item.update(pal);
     return item;
   }
+  // 行の操作（F063・O-38）は、初めて触れた行（ポインターが乗った・フォーカスが入った行）にだけ作る（2,000 行ぶんを最初から作らない）
+  const rowOf = (target) => {
+    for (let node = target; node && node !== results; node = node.parentElement) {
+      const row = rowParts.get(node);
+      if (row) return row;
+    }
+    return null;
+  };
+  const revealActions = (event) => { rowOf(event.target)?.showActions(); };
+  results.addEventListener('pointerover', revealActions, { signal: inputs.signal });
+  results.addEventListener('focusin', revealActions, { signal: inputs.signal });
+
+  // ---- 目標の印（O-52）。登録した目標とデータから、どちらかが変わったときに 1 回だけ作る（core/ideal-goals.js の goalMarks） ----
+  const ideals = context.ideals;
+  let marks = { data: undefined, key: null, map: new Map(), count: 0 };
+  // 印を作り直した回数（行の書き換えの判定に使う）
+  let marksVersion = 0;
+  let shownMarks = null;
+  let marksStamp = '';
+  const goalsKey = (goals) => JSON.stringify(goals.map((goal) => [goal.id, goal.name, goal.palId, goal.passives, goal.mode, goal.targets]));
+  function marksOf(data) {
+    const goals = ideals?.list?.() ?? [];
+    const key = goalsKey(goals);
+    if (marks.data === data && marks.key === key) return marks.map;
+    marks = { data, key, map: data && goals.length ? goalMarks(goals, data.pals) : new Map(), count: goals.length };
+    marksVersion++;
+    return marks.map;
+  }
+  marksCheck.addEventListener('change', () => {
+    if (memory) memory.showMarks = marksCheck.checked;
+    renderResults();
+  });
+  // 目標を保存・外したとき（ほかのタブも）。完成の判定の書き直しなど、印に関わらない保存では描き直さない
+  const stopGoals = ideals?.subscribe?.(() => {
+    if (destroyed || goalsKey(ideals.list()) === marks.key) return;
+    renderResults({ keepPosition: true });
+  }) ?? (() => {});
   // 0 件のとき。中の「条件をすべて解除」は今の条件を読む（syncList は同じ文の空の表示を作り直さない）
   let emptyText = '条件に合うパルはいません。';
   const rowOptions = {
-    key: (pal) => pal.id, create: ownedRowItem,
+    key: (pal) => pal.id, create: listRow,
     empty: () => empty(emptyText, button('条件をすべて解除', () => resetAll(), 'button secondary')),
   };
   // 描画の仕事の番号（条件の変更・データの更新・画面の破棄で古い仕事を止める）
@@ -998,7 +1337,7 @@ export function ownedView(context, route) {
     // 閉じた後に遅れて呼ばれたとき（並べ替えの動きの後など）は描かない
     if (destroyed) return;
     const job = ++jobSeq;
-    fillBudget = FIRST_ROWS;
+    fillBudget = FILL_NOW;
     const state = owned.state;
     renderChips(state);
     renderLinks();
@@ -1006,6 +1345,9 @@ export function ownedView(context, route) {
     if (!state.owned) {
       renderCount(state, 0, null, { unknown: false });
       shownCount = 0;
+      head.hidden = true;
+      results.classList.toggle('is-empty', true);
+      marksToggle.hidden = true;
       passive.update({ selected: filter.passives, counts: new Map(), disabled: none });
       leaveVirtual();
       clearList(results);
@@ -1013,23 +1355,31 @@ export function ownedView(context, route) {
       return;
     }
     const holder = allowedIds(state.owned);
-    const matched = filterOwned(state.owned.pals, { ...filter, ids: holder.ids });
+    // 目標の印（表示がオンのときだけ。印の文字もキーワードで探す）
+    const markMap = marksOf(state.owned);
+    marksToggle.hidden = !marks.count;
+    shownMarks = marksCheck.checked && marks.count ? markMap : null;
+    marksStamp = shownMarks ? `on:${marksVersion}` : 'off';
+    const matched = filterOwned(state.owned.pals, { ...filter, ids: holder.ids, extraTexts: shownMarks });
     const totals = totalsOf(matched);
     passive.update({ selected: filter.passives, counts: totals.counts, disabled: none });
-    const list = sortOwned(matched, filter.sort);
+    const list = sortOwned(matched, filter.sort, filter.dir);
     terms = keywordTerms(filter.query);
     termsKey = terms.join(' ');
+    // 空の表示だけのときは帯を敷かない（CSS の .owned-list.is-empty。:has() は行の出し入れのたびに全体を計算し直させるので使わない）
+    results.classList.toggle('is-empty', !list.length);
+    head.hidden = !list.length;
     renderCount(state, list.length, totals, holder);
     emptyText = holder.unknown
       ? '自分のプレイヤーが分からないため、自分の個体で絞れません（所持者を「すべて」にすると全員の個体が出ます）。'
       : '条件に合うパルはいません。';
     shownCount = list.length;
-    const anchor = keepPosition ? anchorOf(virtual ? virtual.rows : results, panelBottom()) : null;
+    const anchor = keepPosition ? anchorOf(virtual ? virtual.rows : results, fixedBottom()) : null;
     // 2,000 行を超えたら、見えている範囲だけを描く
     if (list.length > VIRTUAL_OVER) {
       if (!virtual) {
         clearList(results);
-        virtual = virtualRows(results, { key: rowOptions.key, create: ownedRowItem, estimate: 60, topOffset: panelBottom });
+        virtual = virtualRows(results, { key: rowOptions.key, create: listRow, estimate: ROW_ESTIMATE, topOffset: fixedBottom });
       }
       // 見ていた行の位置で先に描く（今の位置より前に多数の行が増えても戻せる）。測った高さとのずれは restoreAnchor で直す
       virtual.render(list, { anchor });
@@ -1136,6 +1486,7 @@ export function ownedView(context, route) {
     destroy() {
       destroyed = true;
       stopRefreshing();
+      stopGoals();
       stopTracking();
       chipObserver?.disconnect();
       sourceLine.destroy();
