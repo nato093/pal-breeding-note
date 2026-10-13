@@ -1768,7 +1768,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .talent-preset-item:hover, .talent-preset-item:focus-visible { background: var(--state-hover); }
 /* 所持の状況は 2 段目の 2 行目の右端（後ろに欄がないので、数が変わっても折り返しの位置は動かない。最大 17em で省略）。目標がないときは「—」。
    数があるときは、所持パルのパネルの結果の行と同じ薄い primary の地（条件の欄ではなく結果だと分かるように。D28） */
-.ideal-holding { margin-left: auto; max-width: 17em; padding: 0 10px; height: 26px; line-height: 26px; border-radius: 8px; font-size: 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
+/* ケーキの行は右に余りが多いので、数が 3 桁でも「· 全部持つ ♂n ♀m」まで省略せずに出す（17em では「全部持つ ♂0…」で切れた） */
+.ideal-holding { margin-left: auto; max-width: 32em; padding: 0 10px; height: 26px; line-height: 26px; border-radius: 8px; font-size: 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
 a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; background: var(--result-bar); }
 /* 押しボタンの選択（ui/segmented.js）。選んでいるものは継承ルートの開始チップと同じ secondary-container の地 */
 .segmented { display: inline-flex; }
