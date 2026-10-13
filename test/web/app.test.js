@@ -114,6 +114,8 @@ function assertLoginOnly() {
   for (const name of signedInParts) assert.equal(byClass(name).hidden, true, name);
   assert.equal(byClass('sync-status').disabled, true);
   assert.equal(byClass('brand').inert, true);
+  // ログイン画面の並びは #app の .is-login（CSS。:has() は本文の出し入れのたびに全体のスタイルを計算し直させるので使わない。owned-rows）
+  assert.ok(document.getElementById('app').className.split(' ').includes('is-login'));
   // ヘッダーで読まれるのは、テスト環境のチップだけ（同期状況の文・ログインのエラーは読まれない）
   assert.match(readable(byClass('app-header')), /^(テスト環境)?$/);
 }
@@ -323,6 +325,8 @@ test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状�
   // ベル・登録はヘッダーの中（main より前）にあり、ルートの子はスキップリンク・ヘッダー・ナビ・更新の帯・本文だけ
   assert.deepEqual(document.getElementById('app').children.map((node) => node.className.split(' ')[0]),
     ['skip-link', 'app-header', 'navigation', 'update-banner', 'app-main']);
+  // ログインした後はログイン画面の並び（.is-login）を外す
+  assert.equal(document.getElementById('app').className.split(' ').includes('is-login'), false);
   // 開発 API はテスト環境なので、ロゴの右にチップを出す
   assert.equal(byClass('env-chip').hidden, false);
   assert.equal(byClass('env-chip').textContent, 'テスト環境');

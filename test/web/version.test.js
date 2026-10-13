@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom } from '../helpers/dom.js';
+import { installDom, FakeElement } from '../helpers/dom.js';
 import { runningVersion, createVersionWatcher, servedVersion } from '../../web/js/version.js';
 import { updateBanner } from '../../web/js/ui/update-banner.js';
 
@@ -127,7 +127,9 @@ function banner(t, { busy = () => '', served = async () => NEW } = {}) {
 }
 
 test('更新の帯: 新しい更新内容の title と件数を出し、読み込み直すと反映されることを伝える', (t) => {
-  const { instance, text } = banner(t);
+  const { instance, text, close } = banner(t);
+  // 帯が出ている間は html に .has-update-banner（CSS がトーストの領域を狭める。:has() は使わない。owned-rows）
+  document.documentElement = new FakeElement('html');
   assert.equal(instance.element.hidden, true);
   assert.equal(instance.element.getAttribute('role'), 'status');
   instance.show({ version: NEW, notes: [{ id: 'a', title: '新しい機能' }, { id: 'b', title: '修正' }] });
@@ -135,6 +137,10 @@ test('更新の帯: 新しい更新内容の title と件数を出し、読み�
   assert.equal(text(), '新しいバージョンがあります：新しい機能（ほか 1 件）読み込み直すと反映されます。');
   instance.show({ version: 'ccccccc', notes: [] });
   assert.equal(text(), '新しいバージョンがあります読み込み直すと反映されます。');
+  assert.ok(document.documentElement.className.split(' ').includes('has-update-banner'));
+  close.dispatch('click');
+  assert.equal(instance.element.hidden, true);
+  assert.equal(document.documentElement.className.split(' ').includes('has-update-banner'), false);
 });
 
 test('更新の帯: 新しい版が配信されていれば読み込み直し、取り消されたらまた押せるようにする', async (t) => {

@@ -39,9 +39,15 @@ export function updateBanner({ current, busy, served, reload, delay = setTimeout
     }
     restore();
   }, 'button primary');
+  // 帯が出ている間は文書の根（html）に .has-update-banner を付ける（CSS がトーストの領域を狭める。:has() で帯を探すと、
+  // 本文の要素を出し入れするたびに画面全体のスタイルを計算し直させるので使わない）
+  const showing = (visible) => {
+    element.hidden = !visible;
+    globalThis.document?.documentElement?.classList.toggle('has-update-banner', visible);
+  };
   const close = button('閉じる', () => {
     dismissed = version;
-    element.hidden = true;
+    showing(false);
   }, 'button secondary');
   const actions = el('div', 'update-banner-actions');
   actions.append(reloadButton, close);
@@ -62,7 +68,7 @@ export function updateBanner({ current, busy, served, reload, delay = setTimeout
       message.textContent = notes.length ? `新しいバージョンがあります：${notes[0].title}${extra}` : '新しいバージョンがあります';
       hint.textContent = '読み込み直すと反映されます。';
       restore();
-      element.hidden = false;
+      showing(true);
     },
   };
 }

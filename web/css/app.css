@@ -443,8 +443,10 @@ img, svg { max-width: 100%; }
 }
 /* 拡大して窓の幅が 928px を切ると、案内（最小 300px）とトースト（460px）が横に並ばず重なる（トーストが上に出て「閉じる」を隠す）。
    案内が出ている間は、トーストの領域を案内の右（間 24px）から右の余白までに縮める（372px = 案内の左の余白 24 + 最小 300 + 間 24 + 右の余白 24）。
-   928px 以上では 460px のまま */
-body:has(.update-banner:not([hidden])) .toast-region {
+   928px 以上では 460px のまま。案内が出ている間は ui/update-banner.js が html に .has-update-banner を付ける
+   （前の body:has(.update-banner…) は、本文の要素を出し入れするたびに画面全体をたどり、所持パルの 2,000 行でキーワードの入力が
+   100ms 以上止まった。owned-rows） */
+.has-update-banner .toast-region {
   width: min(460px, calc(100% - 48px), max(200px, calc(100% - var(--drawer) - 372px)));
 }
 .update-banner-message { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
@@ -2026,9 +2028,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .owned-toggle input, input[type="checkbox"] { accent-color: var(--md-sys-color-primary); }
 .dialog-header, .dialog-footer { background: var(--md-sys-color-surface-container-high); border-color: transparent; padding: 16px 24px; }
 .dialog .card-stack { background: var(--md-sys-color-surface-container); }
-/* ログイン画面（ナビゲーションを出さない） */
-#app:has(.navigation[hidden]) { padding-left: 0; }
-#app:has(.navigation[hidden]) .app-header { padding: 0 32px; border-bottom: 0; background: transparent; }
+/* ログイン画面（ナビゲーションを出さない）。app.js が #app に .is-login を付ける（:has() にすると、本文の要素を出し入れするたびに
+   画面全体のスタイルを計算し直させ、所持パルの 2,000 行でキーワードの入力が止まったため。owned-rows） */
+#app.is-login { padding-left: 0; }
+#app.is-login .app-header { padding: 0 32px; border-bottom: 0; background: transparent; }
 /* 押した位置から薄く広がる波紋（ui/ripple.js が .ripple を足す） */
 .ripple-host { position: relative; overflow: hidden; isolation: isolate; }
 .ripple {

@@ -478,6 +478,8 @@ async function boot() {
     showingLogin = needsLogin;
     shownAuth = auth;
     brand.inert = showingLogin;
+    // ログイン画面の並び（CSS の #app.is-login。:has() は本文の出し入れのたびに全体のスタイルを計算し直させるので使わない）
+    root.classList.toggle('is-login', showingLogin);
     nav.hidden = showingLogin;
     register.hidden = showingLogin;
     bell.element.hidden = showingLogin;
