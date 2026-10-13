@@ -81,6 +81,24 @@ test('ポップオーバー: focusOut ならフォーカスが外へ出たとき
   assert.equal(document.activeElement, anchor);
 });
 
+test('ポップオーバー: focusOut でも、中の別の部品へ移る focusout（relatedTarget が中）では閉じない（Chrome では移る途中は body のため）', async (t) => {
+  const { popover, body } = setup(t, { focusOut: true });
+  popover.open();
+  const first = document.createElement('button');
+  const second = document.createElement('button');
+  popover.element.append(first, second);
+  first.focus();
+  // 押した部品へフォーカスが移る途中（activeElement はまだ body）
+  body.focus();
+  await popover.element.dispatch('focusout', { relatedTarget: second });
+  await Promise.resolve();
+  assert.equal(popover.isOpen(), true);
+  // 外へ出るときは今までどおり閉じる
+  await popover.element.dispatch('focusout', { relatedTarget: body });
+  await Promise.resolve();
+  assert.equal(popover.isOpen(), false);
+});
+
 test('ポップオーバー: host があれば host の中に浮かせ、外でのホイール・タッチのスクロール・resize・ダイアログの cancel で閉じる', async (t) => {
   const dom = installDom(t);
   const dialog = document.createElement('dialog');

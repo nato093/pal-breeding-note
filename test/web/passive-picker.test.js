@@ -274,3 +274,25 @@ test('パッシブ選択: × のフォーカスの目印は部品のラベルご
   assert.equal(restoreFocus(root, token), false);
   assert.equal(document.activeElement, body);
 });
+
+test('パッシブ選択: update の disabled で追加のボタンと × を押せなくし（開いていれば閉じる）、選んだチップは残す', async (t) => {
+  const { selector, add, search } = mount(t, { selected: ['Rare'] });
+  await add.dispatch('click');
+  assert.ok(search());
+  selector.update({ disabled: true });
+  assert.equal(search(), null);
+  assert.equal(add.disabled, true);
+  assert.ok(selector.element.className.split(' ').includes('is-disabled'));
+  assert.deepEqual(selector.element.querySelectorAll('.passive-remove').map((node) => node.disabled), [true]);
+  assert.equal(selector.element.querySelectorAll('.passive-chip').length, 1);
+  // 押せない間は開かない
+  await add.dispatch('click');
+  assert.equal(search(), null);
+  // 選び直しても × は押せないまま
+  selector.update({ selected: ['Rare', 'Legend'] });
+  assert.deepEqual(selector.element.querySelectorAll('.passive-remove').map((node) => node.disabled), [true, true]);
+  selector.update({ disabled: false });
+  assert.equal(add.disabled, false);
+  assert.ok(!selector.element.className.split(' ').includes('is-disabled'));
+  assert.deepEqual(selector.element.querySelectorAll('.passive-remove').map((node) => node.disabled), [false, false]);
+});

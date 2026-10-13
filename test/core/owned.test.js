@@ -103,16 +103,27 @@ test('所持パル: 所持者と場所は入れ物で決め、拠点のタマゴ
   assert.deepEqual(byId.a.passiveNames, ['職人気質', '希少']);
 });
 
-test('所持パル: 所持者・場所・パル・パッシブ・キーワードで絞り込む', () => {
+test('所持パル: 許す個体（所持者）・場所のグループ・拠点・パル・パッシブ・キーワードで絞り込む', () => {
   const ids = (filter) => filterOwned(owned.pals, filter).map((p) => p.id).sort();
-  assert.deepEqual(ids({ holder: `player:${P1}` }), ['a', 'e']);
-  assert.deepEqual(ids({ holder: `base:${BASE}` }), ['c', 'd']);
-  assert.deepEqual(ids({ holder: 'global' }), ['f']);
-  assert.deepEqual(ids({ place: 'egg' }), ['d', 'g']);
+  const all = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  assert.deepEqual(ids({}), all);
+  // 所持者は画面が作った「許す個体の ID」の Set で絞る（null は絞らない。データにない ID は無視）
+  assert.deepEqual(ids({ ids: new Set(['a', 'c', 'zz']) }), ['a', 'c']);
+  assert.deepEqual(ids({ ids: null }), all);
+  assert.deepEqual(ids({ ids: new Set() }), []);
+  // 場所はグループ（タマゴはまとめて egg）。null は絞らない、[]（全部外した）は何も出さない
+  assert.deepEqual(ids({ places: ['egg'] }), ['d', 'g']);
+  assert.deepEqual(ids({ places: ['party', 'global'] }), ['a', 'f']);
+  assert.deepEqual(ids({ places: null }), all);
+  assert.deepEqual(ids({ places: [] }), []);
+  // 拠点を選ぶと、その拠点の個体と、その拠点に置いたタマゴだけ（場所のグループとも重ねる）
+  assert.deepEqual(ids({ bases: [BASE] }), ['c', 'd']);
+  assert.deepEqual(ids({ bases: [BASE], places: ['base'] }), ['c']);
+  assert.deepEqual(ids({ bases: ['ほかの拠点'] }), []);
   assert.deepEqual(ids({ palId: 'SheepBall' }), ['a', 'b', 'c']);
   assert.deepEqual(ids({ passives: ['CraftSpeed_up2', 'Rare'] }), ['a']);
   assert.deepEqual(ids({ query: '職人' }), ['a', 'b', 'd']);
-  assert.deepEqual(ids({ eggs: false, passives: ['CraftSpeed_up2'] }), ['a', 'b']);
+  assert.deepEqual(ids({ places: ['party', 'palbox', 'base', 'dps', 'unknown'], passives: ['CraftSpeed_up2'] }), ['a', 'b']);
   assert.deepEqual(sortOwned(owned.pals, 'passives').slice(0, 1).map((p) => p.id), ['a']);
   // パル濃縮（★の数）と個体値は下限で絞り込む
   assert.deepEqual(ids({ stars: 2 }), ['a']);
@@ -121,6 +132,29 @@ test('所持パル: 所持者・場所・パル・パッシブ・キーワード
   assert.deepEqual(ids({ talent: { defense: 4 } }), []);
   assert.deepEqual(sortOwned(owned.pals, 'stars').slice(0, 1).map((p) => p.id), ['a']);
   assert.equal(passiveCounts(owned.pals).get('CraftSpeed_up2'), 3);
+});
+
+test('所持パル: パッシブの条件は「全部持つ」「だけ（ほかを持たない）」「なし（パッシブが 0 個。選んだパッシブは見ない）」', () => {
+  const ids = (filter) => filterOwned(owned.pals, filter).map((p) => p.id).sort();
+  // a: 職人気質・希少、b: 職人気質、d: 職人気質、ほかはパッシブなし
+  assert.deepEqual(ids({ passives: ['CraftSpeed_up2'] }), ['a', 'b', 'd']);
+  assert.deepEqual(ids({ passives: ['CraftSpeed_up2'], passiveMode: 'include' }), ['a', 'b', 'd']);
+  assert.deepEqual(ids({ passives: ['CraftSpeed_up2'], passiveMode: 'only' }), ['b', 'd']);
+  assert.deepEqual(ids({ passives: ['Rare', 'CraftSpeed_up2'], passiveMode: 'only' }), ['a']);
+  assert.deepEqual(ids({ passives: ['CraftSpeed_up2'], passiveMode: 'none' }), ['c', 'e', 'f', 'g']);
+  assert.deepEqual(ids({ passiveMode: 'none' }), ['c', 'e', 'f', 'g']);
+});
+
+test('所持パル: 属性はどれかを持つ個体（OR）で絞り込み、属性の名前はマスターの ID（Fire など）で受ける。人間は属性なし', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('fire', 'Kitsunebi', {}), pal('water', 'Penguin', {}), pal('grass', 'FlowerDoll', {}), pal('human', 'Male_Soldier01', {}),
+  ] }, { pals, passives });
+  const ids = (elements) => filterOwned(list.pals, { elements }).map((p) => p.id).sort();
+  assert.deepEqual(ids([]), ['fire', 'grass', 'human', 'water']);
+  assert.deepEqual(ids(['Fire']), ['fire']);
+  // 2 つ選ぶと、どちらかを持つ個体（ペンタマは水と氷）
+  assert.deepEqual(ids(['Fire', 'Ice']), ['fire', 'water']);
+  assert.deepEqual(ids(['Dragon']), []);
 });
 
 test('所持パル: 個体値の合計が高い順・低い順に並べ（同じ合計は図鑑番号順）、低い順は高い順の次の選択肢', () => {

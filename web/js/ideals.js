@@ -1,6 +1,6 @@
 import { userIdKey } from './core/user.js';
 import { ownedWorldId } from './core/owned-shared.js';
-import { cleanGoal, parseGoals, goalKey, goalMatches, ownPals, GOAL_LIMIT } from './core/ideal-goals.js';
+import { cleanGoal, parseGoals, goalKey, goalMatches, ownPals, ownPlayerUids, GOAL_LIMIT } from './core/ideal-goals.js';
 import { buildHash } from './router.js';
 
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value));
@@ -59,6 +59,12 @@ export function createIdealStore({
     return data ? ownPals(data, identity(owned.state.meta?.worldId ?? '')) : undefined;
   }
 
+  /** 表示しているワールドの自分のプレイヤーの UID（所持パルの所持者の「（自分）」）。所持パルがない・分からなければ空 */
+  function selfUids() {
+    const data = owned?.state?.owned;
+    return data ? ownPlayerUids(data.players ?? [], identity(owned.state.meta?.worldId ?? '')) : new Set();
+  }
+
   /** 判定に使える自分の個体（表示しているワールドで、ワールド ID とセーブの時刻が分かる読み込み済みのもの）。なければ null。 */
   function current() {
     const state = owned?.state;
@@ -111,6 +117,7 @@ export function createIdealStore({
     get saveFailed() { return saveFailed; },
     list(key = scope()) { return load(key); },
     mine,
+    selfUids,
     find(id) { return load(scope()).find((goal) => goal.id === id) ?? null; },
     has(conditions) {
       const goal = cleanGoal({ ...conditions, id: 'check' });

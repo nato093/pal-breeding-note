@@ -91,7 +91,9 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     document.addEventListener('pointerdown', (event) => { if (!inside(event.target)) close({ focus: false }); }, { signal });
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); }, { signal });
     if (focusOut) {
-      element.addEventListener('focusout', () => {
+      element.addEventListener('focusout', (event) => {
+        // 中の別の部品を押した・Tab で移ったとき。Chrome では focusout の後の microtask の時点ではまだ body なので、移る先（relatedTarget）で見る
+        if (event?.relatedTarget && inside(event.relatedTarget)) return;
         queueMicrotask(() => { if (controller && !inside(document.activeElement)) close(); });
       }, { signal });
     }
