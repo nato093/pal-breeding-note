@@ -218,3 +218,15 @@ test('理想個体の登録: 完成の判定は自分の個体だけで、自分
   show([sheep('b', 100)], WORLD_A, time(3));
   assert.equal(notices().length, 1);
 });
+
+test('理想個体の登録: selfUids は表示しているワールドの自分のプレイヤーの UID（所持パルの所持者の「（自分）」に使う）', () => {
+  const { ideals, store, show } = setup();
+  // 所持パルがなければ空
+  assert.deepEqual([...ideals.selfUids()], []);
+  show([sheep('a', 90)]);
+  assert.deepEqual([...ideals.selfUids()], [ME]);
+  // 自分のプレイヤーが分からなければ空（mine() は null）
+  store.state.users = ['別の名前'];
+  assert.deepEqual([...ideals.selfUids()], []);
+  assert.equal(ideals.mine(), null);
+});

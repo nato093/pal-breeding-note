@@ -77,7 +77,8 @@ export function createSpeciesResolver(pals) {
   };
 }
 
-const shortUid = (uid) => String(uid ?? '').replace(/-/g, '').slice(0, 8).toUpperCase();
+/** プレイヤー・ギルドの UID の頭 8 字（- を除いた大文字。名前の分からない・同じ名前のプレイヤーを見分けるとき） */
+export const shortUid = (uid) => String(uid ?? '').replace(/-/g, '').slice(0, 8).toUpperCase();
 
 // 協力プレイのホストの PlayerUId（SAVE_FORMAT.md）
 const HOST_UID = '00000000-0000-0000-0000-000000000001';
@@ -363,29 +364,39 @@ export function keywordNotes(pal, terms) {
 }
 
 /**
- * 一覧の絞り込み。
+ * 一覧の絞り込み（全員を 1 回だけ走査する）。
  * @param {object[]} pals normalizeOwned の pals
- * @param {{ holder?: string, place?: string, palId?: string, passives?: string[], query?: string, eggs?: boolean, globals?: boolean,
- *   stars?: number, talent?: { hp?: number, shot?: number, defense?: number } }} filter
- *   holder は 'player:<uid>' / 'base:<baseId>' / 'global' / ''（すべて）。stars はパル濃縮（★の数）の下限、talent は個体値の下限
+ * @param {{ ids?: Set<string> | null, places?: string[] | null, bases?: string[], elements?: string[], palId?: string, passives?: string[],
+ *   passiveMode?: 'include' | 'only' | 'none', query?: string, stars?: number, talent?: { hp?: number, shot?: number, defense?: number } }} filter
+ *   ids は所持者で許す個体の ID（null は絞らない。理想個体と同じ意味の集合〔ideal-goals.js の palsOfPlayers など〕を呼び出し側が作る）。
+ *   places は場所のグループ（placeGroup の値。null は絞らない、[] は何も出さない）。bases は拠点の ID（空でなければ、その拠点の個体と
+ *   その拠点に置いたタマゴ〔baseId が入っている個体〕だけ）。elements は属性（マスターの ID〔Fire など〕。どれかを持つ個体）。
+ *   passiveMode は include＝選んだパッシブを全部持つ、only＝全部持ち、ほかを持たない、none＝パッシブが 0 個（選んだパッシブは見ない）。
+ *   stars はパル濃縮（★の数）の下限、talent は個体値の下限
  */
 export function filterOwned(pals, {
-  holder = '', place = '', palId = '', passives = [], query = '', eggs = true, globals = true, stars = 0, talent = {},
+  ids = null, places = null, bases = [], elements = [], palId = '', passives = [], passiveMode = 'include', query = '', stars = 0, talent = {},
 } = {}) {
   const terms = keywordTerms(query);
   const minStars = Number(stars) || 0;
   const min = { hp: Number(talent.hp) || 0, shot: Number(talent.shot) || 0, defense: Number(talent.defense) || 0 };
+  const placeSet = Array.isArray(places) ? new Set(places) : null;
+  const baseSet = bases?.length ? new Set(bases) : null;
+  // 個体の elements は日本語の名前（speciesInfo）なので、マスターの ID を名前にしてから比べる
+  const elementNames = elements?.length ? new Set(elements.map((key) => ELEMENTS[key] ?? key)) : null;
+  const none = passiveMode === 'none';
+  const wanted = none ? [] : [...new Set(passives ?? [])];
+  const only = passiveMode === 'only';
   return pals.filter((pal) => {
+    if (ids && !ids.has(pal.id)) return false;
+    if (placeSet && !placeSet.has(pal.placeGroup)) return false;
+    if (baseSet && !baseSet.has(pal.baseId)) return false;
     if (pal.stars < minStars) return false;
     if (pal.talent.hp < min.hp || pal.talent.shot < min.shot || pal.talent.defense < min.defense) return false;
-    if (!eggs && pal.egg) return false;
-    if (!globals && pal.place === 'global') return false;
-    if (place && pal.placeGroup !== place) return false;
-    if (holder.startsWith('player:') && pal.holderUid !== holder.slice(7)) return false;
-    if (holder.startsWith('base:') && pal.baseId !== holder.slice(5)) return false;
-    if (holder === 'global' && pal.place !== 'global') return false;
+    if (elementNames && !(pal.elements ?? []).some((name) => elementNames.has(name))) return false;
     if (palId && pal.palId !== palId) return false;
-    if (passives.length && !hasPassives(pal, passives)) return false;
+    if (none ? pal.passives.length > 0 : wanted.length && !hasPassives(pal, wanted)) return false;
+    if (only && pal.passives.length !== wanted.length) return false;
     if (terms.length && !matchesKeywords(pal, terms)) return false;
     return true;
   });

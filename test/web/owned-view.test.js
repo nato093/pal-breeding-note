@@ -1,18 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom } from '../helpers/dom.js';
+import { installDom, installResizeObserver } from '../helpers/dom.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash } from '../../web/js/router.js';
-import { ownedView, OWNED_MEMORY } from '../../web/js/views/owned.js';
+import { ownedView, OWNED_MEMORY, migrateFilter, DEFAULT_PLACES } from '../../web/js/views/owned.js';
 import { cleanSaved } from '../../web/js/core/boundary.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
 import { inheritanceView } from '../../web/js/views/route.js';
 import { dateTime } from '../../web/js/ui/owned-status.js';
+import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const snapshot = {
@@ -54,6 +55,17 @@ function context(owned, records = []) {
   return { store: { state, subscribe: () => () => {} }, owned, navigations, navigate: (hash) => navigations.push(hash), inputDelay: 0 };
 }
 
+// 場所のチップ（件数 0 で隠したものは除く）: [グループ, aria-pressed, aria-label]
+const placeChips = (view) => view.element.querySelectorAll('.place-chip').filter((node) => !node.hidden)
+  .map((node) => [node.getAttribute('data-value'), node.getAttribute('aria-pressed'), node.getAttribute('aria-label')]);
+const placeChip = (view, group) => view.element.querySelectorAll('.place-chip').find((node) => node.getAttribute('data-value') === group);
+// 所持者の選択（12 件以下は select）
+const holderSelect = (view) => view.element.querySelector('[aria-label="所持者"]');
+// 件数の行の先頭の数（「N / M 体 · …」の N）
+const shownCount = (view) => Number(view.element.querySelector('.result-note').textContent.split(' / ')[0]);
+// 効いている条件のチップの文
+const filterChips = (view) => view.element.querySelectorAll('.filter-chip').map((node) => node.querySelector('.filter-chip-text').textContent);
+
 test('所持パル画面: 読み込んだパルを、パッシブ・所持者・場所と更新時刻つきで一覧にする（連携の設定は出さない）', (t) => {
   installDom(t);
   const owned = fakeOwned();
@@ -76,29 +88,31 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.equal(source.textContent, `「テスト」（ホスト Alice） · この PC · 4 体 · セーブ ${dateTime('2026-10-05T00:00:00.000Z')}`);
   assert.match(source.title, /\nセーブの更新: .*\n共有: .*（ホスト）\nこの PC で読み込み: /);
   assert.equal(view.element.querySelector('.owned-world'), null);
-  assert.equal(view.element.querySelector('.result-note').textContent, '3 体');
+  // 件数の行は「絞り込んだ数 / 全体の数」と ♂♀・タマゴの内訳（グローバルパルボックスは既定で出さない）
+  assert.equal(view.element.querySelector('.result-note').textContent, '3 / 4 体 · ♂1 ♀1 タマゴ 1');
+  assert.equal(view.element.querySelector('.result-note').title, 'グローバル 1 体は非表示');
   assert.doesNotMatch(view.element.textContent, /セーブのファイルを登録|フォルダを選んで読み込む|データを消す/);
-  const labels = view.element.querySelectorAll('.owned-toggle').map((node) => [node.textContent, node.children[0].checked]);
-  assert.deepEqual(labels, [['タマゴも表示', true], ['グローバルボックスを表示', false]]);
+  // 場所は件数つきのチップ（件数 0 の場所は出さない）。既定はグローバルパルボックスだけを外す
+  assert.deepEqual(placeChips(view), [['party', 'true', '手持ち（1 体）'], ['palbox', 'true', 'パルボックス（1 体）'], ['global', 'false', 'グローバルパルボックス（1 体）'], ['egg', 'true', 'タマゴ（1 体）']]);
+  assert.equal(view.element.querySelectorAll('.owned-toggle').length, 0);
   view.destroy();
 });
 
-test('所持パル画面: グローバルボックスとタマゴの表示を切り替え、パッシブで絞り込む', async (t) => {
+test('所持パル画面: 場所のチップでタマゴを外し・グローバルパルボックスを足し、パッシブで絞り込む（所持者の選択肢はプレイヤーだけ）', async (t) => {
   installDom(t);
   const owned = fakeOwned();
   const view = ownedView(context(owned), parseHash('#/owned?p=CraftSpeed_up2'));
   assert.equal(view.element.querySelectorAll('.owned-row').length, 2);
-  const [eggs, globals] = view.element.querySelectorAll('.owned-toggle').map((node) => node.children[0]);
-  eggs.checked = false;
-  await eggs.dispatch('change');
+  await placeChip(view, 'egg').dispatch('click');
+  assert.equal(placeChip(view, 'egg').getAttribute('aria-pressed'), 'false');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
   view.destroy();
   const all = ownedView(context(fakeOwned()), parseHash('#/owned'));
-  const toggle = all.element.querySelectorAll('.owned-toggle')[1].children[0];
-  toggle.checked = true;
-  await toggle.dispatch('change');
+  await placeChip(all, 'global').dispatch('click');
+  assert.equal(placeChip(all, 'global').getAttribute('aria-pressed'), 'true');
   assert.equal(all.element.querySelectorAll('.owned-row').length, 4);
-  assert.ok(all.element.querySelectorAll('option').some((node) => node.textContent === 'グローバルパルボックス'));
+  // 拠点・グローバルパルボックスは所持者の選択肢に出さない（場所のチップで選ぶ）
+  assert.deepEqual(holderSelect(all).children.map((node) => node.textContent), ['すべて', 'Alice']);
   all.destroy();
 });
 
@@ -116,9 +130,7 @@ test('所持パル画面: タブを切り替えて作り直しても絞り込み
   const query = keyword(first);
   query.value = 'もこ';
   await query.dispatch('input');
-  const [eggs] = first.element.querySelectorAll('.owned-toggle').map((node) => node.children[0]);
-  eggs.checked = false;
-  await eggs.dispatch('change');
+  await placeChip(first, 'egg').dispatch('click');
   const hp = first.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
   hp.value = '5';
   await hp.dispatch('input');
@@ -127,15 +139,17 @@ test('所持パル画面: タブを切り替えて作り直しても絞り込み
   const again = ownedView(memoryContext(), parseHash('#/owned'));
   assert.equal(rows(again), 1);
   assert.equal(keyword(again).value, 'もこ');
-  assert.equal(again.element.querySelectorAll('.owned-toggle')[0].children[0].checked, false);
+  assert.equal(placeChip(again, 'egg').getAttribute('aria-pressed'), 'false');
   assert.equal(again.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）').value, '5');
   assert.deepEqual(replaced, []);
   again.destroy();
-  // URL でパッシブを指定して開いたら、その指定で絞り込み、URL からは外す（キーワードなどは残す）
+  // URL で絞り込みを指定して開いたら、その指定で絞り込み（URL にない条件は既定に戻す。前はキーワードなどを残した）、URL からは外す
   const linked = ownedView(memoryContext(), parseHash('#/owned?p=Rare'));
   assert.deepEqual(states.get('owned').filter.passives, ['Rare']);
   assert.deepEqual(replaced, ['#/owned']);
   assert.equal(rows(linked), 1);
+  assert.equal(keyword(linked).value, '');
+  assert.equal(placeChip(linked, 'egg').getAttribute('aria-pressed'), 'true');
   linked.destroy();
   // 作り直していない新しい入れ物（ページの読み込み直し）では既定に戻る
   states.clear();
@@ -145,7 +159,7 @@ test('所持パル画面: タブを切り替えて作り直しても絞り込み
   fresh.destroy();
 });
 
-test('所持パル画面: 同じ画面のまま絞り込みつきの URL が来ると（applyRoute）、作り直さずに絞り込みと選択欄を合わせ、URL から外す', (t) => {
+test('所持パル画面: 同じ画面のまま絞り込みつきの URL が来ると（applyRoute）、作り直さずに絞り込みと入力欄を URL に合わせ（URL にない条件は既定。前は打ちかけのキーワードを残した）、URL から外す', (t) => {
   installDom(t);
   const states = new Map();
   const replaced = [];
@@ -163,8 +177,8 @@ test('所持パル画面: 同じ画面のまま絞り込みつきの URL が来�
   assert.equal(view.element.querySelector('.picker-trigger'), trigger);
   assert.equal(trigger.getAttribute('aria-label'), 'パル: No.2 ツッパニャン');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
-  // 画面の中の入力（キーワード）は消さない
-  assert.equal(keyword.value, 'もこ');
+  // URL が条件のすべてを決める（打ちかけのキーワードも URL の q〔ここでは無し〕に合わせる）
+  assert.equal(keyword.value, '');
   // 絞り込みのない URL では何も変えない
   view.applyRoute(parseHash('#/owned'), { reason: 'history' });
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
@@ -227,7 +241,7 @@ test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体
   view.destroy();
 });
 
-test('所持パル画面: 個体値はチェックつきの入力。「すべて 90 以上」「すべて 100」は 3 つとも入れて 1 回だけ絞り込み、チェックを外すと条件なし', async (t) => {
+test('所持パル画面: 個体値はチェックつきの入力。「まとめて ▾」の「すべて 90 以上」「すべて 100」は 3 つとも入れて 1 回だけ絞り込み（メニューは閉じる）、チェックを外すと条件なし', async (t) => {
   installDom(t);
   const sheep = (instanceId, talent) => ({ instanceId, characterId: 'SheepBall', gender: 'Male', level: 5, passives: [], talent, location: { kind: 'palbox', playerUid: P1 } });
   const owned = fakeOwned(manyData(0, [sheep('lo', { hp: 10, shot: 20, defense: 30 }), sheep('mid', { hp: 95, shot: 92, defense: 90 }), sheep('top', { hp: 100, shot: 100, defense: 100 })]));
@@ -244,10 +258,18 @@ test('所持パル画面: 個体値はチェックつきの入力。「すべて
   const all = owned.state.owned.pals;
   all.filter = (...args) => { filtered++; return Array.prototype.filter.apply(all, args); };
   const button = (label) => view.element.querySelectorAll('button').find((node) => node.textContent === label);
+  // 2 つのプリセットは 1 つのメニューにまとめた（前はボタンを 2 つ並べていた）
+  assert.equal(button('すべて 90 以上'), undefined);
+  const menu = button('まとめて');
+  assert.equal(menu.getAttribute('aria-haspopup'), 'menu');
+  await menu.dispatch('click');
+  assert.equal(button('すべて 90 以上').getAttribute('role'), 'menuitem');
   await button('すべて 90 以上').dispatch('click');
+  assert.equal(button('すべて 100'), undefined);
   assert.deepEqual(values(), [[true, '90'], [true, '90'], [true, '90']]);
   assert.equal(filtered, 1);
   assert.equal(rows(), 2);
+  await menu.dispatch('click');
   await button('すべて 100').dispatch('click');
   assert.deepEqual(values(), [[true, '100'], [true, '100'], [true, '100']]);
   assert.equal(filtered, 2);
@@ -853,7 +875,7 @@ test('所持パル画面: 中身が同じセーブの読み直しでは行の要
   const owned = fakeOwned();
   const view = ownedView(context(owned), parseHash('#/owned'));
   const rows = view.element.querySelectorAll('.owned-row');
-  const holder = view.element.querySelectorAll('select')[0];
+  const holder = holderSelect(view);
   const options = [...holder.children];
   const firstContent = rows[0].children[0];
   // 読み直した（新しいデータだが中身は同じ）
@@ -888,7 +910,7 @@ test('所持パル画面: 所持者の選択肢は、選んでいる途中に中
   const owned = fakeOwned();
   const view = ownedView(context(owned), parseHash('#/owned'));
   document.body.append(view.element);
-  const holder = view.element.querySelectorAll('select')[0];
+  const holder = holderSelect(view);
   const options = [...holder.children];
   holder.focus();
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
@@ -911,8 +933,8 @@ test('所持パル画面: 区切って行を足している途中で画面を閉
   const view = ownedView(context(fakeOwned(manyData(1500))), parseHash('#/owned'));
   const list = view.element.querySelector('.owned-list');
   assert.equal(list.children.length, 200);
-  // 1 回の区切りぶん進める
-  frames.shift()();
+  // 1 回の区切りぶん進める（同じ描画の前に、絞り込みのパネルの「+n」を数える仕事も入っている）
+  while (list.children.length === 200 && frames.length) frames.shift()();
   const partway = list.children.length;
   assert.ok(partway > 200 && partway < 1500, `途中の行 ${partway}`);
   view.destroy();
@@ -941,7 +963,7 @@ test('所持パル画面: 区切って行を足すときも、残る既存の行
   assert.ok([...kept].every((row) => row.parentElement === list));
   t.mock.timers.runAll();
   const rows = list.querySelectorAll('.owned-row');
-  assert.equal(rows.length, Number(view.element.querySelector('.result-note').textContent.replace(/ 体$/, '')));
+  assert.equal(rows.length, shownCount(view));
   assert.equal(rows.filter((row) => kept.has(row)).length, kept.size);
   // 並びは、最初から全部描いたときと同じ
   const fresh = ownedView(context(fakeOwned(manyData(1500))), parseHash('#/owned'));
@@ -963,7 +985,7 @@ test('所持パル画面: 条件を変えたら、前の条件で区切って足
   assert.ok(shown.every((row) => /HP (9\d|100)/.test(row.textContent)));
   t.mock.timers.runAll();
   assert.equal(view.element.querySelectorAll('.owned-row').length, shown.length);
-  assert.equal(view.element.querySelector('.result-note').textContent, `${shown.length} 体`);
+  assert.equal(shownCount(view), shown.length);
   view.destroy();
 });
 
@@ -977,7 +999,7 @@ test('所持パル画面: 2,000 行を超えたら見えている範囲だけを
   assert.ok(list.className.includes('is-virtual'));
   const rows = list.querySelectorAll('.owned-row');
   assert.ok(rows.length > 0 && rows.length < 100, `描いた行 ${rows.length}`);
-  assert.equal(view.element.querySelector('.result-note').textContent, '2001 体');
+  assert.equal(view.element.querySelector('.result-note').textContent, '2001 / 2001 体 · ♂1000 ♀1001');
   // 並べ替えても仮想のまま（動きは付けない）
   const sort = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'level'));
   sort.value = 'level';
@@ -989,8 +1011,7 @@ test('所持パル画面: 2,000 行を超えたら見えている範囲だけを
   hp.dispatch('input');
   t.mock.timers.runAll();
   assert.ok(!list.className.includes('is-virtual'));
-  const count = Number(view.element.querySelector('.result-note').textContent.replace(/ 体$/, ''));
-  assert.equal(list.querySelectorAll('.owned-row').length, count);
+  assert.equal(list.querySelectorAll('.owned-row').length, shownCount(view));
   view.destroy();
 });
 
@@ -1115,7 +1136,7 @@ test('所持パル画面: パッシブは候補を開いたまま続けて選べ
   await pickPassive(view, 'WorldTree_ATK');
   assert.equal(add.disabled, true);
   assert.equal(view.element.querySelector('.picker-search'), null);
-  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:パッシブ（すべて持つ個体）:WorldTree_ATK');
+  assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:パッシブ:WorldTree_ATK');
   // × で外すと、押せるようになった追加欄へ
   await document.activeElement.dispatch('click');
   assert.equal(document.activeElement, add);
@@ -1140,10 +1161,8 @@ test('所持パル画面: パッシブの所持数は、選んでいるパッシ
   await view.element.querySelector('.passive-remove').dispatch('click');
   assert.equal(passiveAdd(view).getAttribute('aria-expanded'), 'true');
   assert.equal(optionCount(view, 'CraftSpeed_up2'), '2 体');
-  // タマゴを隠すと、タマゴの c を数えない（候補を開いたまま）
-  const eggs = view.element.querySelectorAll('.owned-toggle')[0].children[0];
-  eggs.checked = false;
-  await eggs.dispatch('change');
+  // タマゴを外すと、タマゴの c を数えない（候補を開いたまま）
+  await placeChip(view, 'egg').dispatch('click');
   assert.equal(optionCount(view, 'CraftSpeed_up2'), '1 体');
   assert.ok(view.element.querySelector('.picker-search'));
   // キーワードで絞っても数え直す
@@ -1154,7 +1173,7 @@ test('所持パル画面: パッシブの所持数は、選んでいるパッシ
   view.destroy();
 });
 
-test('所持パル画面: 戻る・進むで条件を入れ直したとき（restored）は、キーワード・個体値・チェック・並べ替えの入力欄も合わせる', (t) => {
+test('所持パル画面: 戻る・進むで条件を入れ直したとき（restored）は、キーワード・個体値・場所のチップ・並べ替えの入力欄も合わせる', (t) => {
   installDom(t);
   const states = new Map();
   const app = Object.assign(context(fakeOwned()), {
@@ -1165,19 +1184,17 @@ test('所持パル画面: 戻る・進むで条件を入れ直したとき（res
   const inputs = () => view.element.querySelectorAll('input');
   const keyword = inputs().find((node) => node.type === 'search');
   const hp = inputs().find((node) => node.getAttribute('aria-label') === 'HPの個体値（以上）');
-  // 表示の切り替え（タマゴ・グローバルボックス）のチェック。個体値のチェックは別に見る
-  const checks = () => view.element.querySelectorAll('.owned-toggle').map((node) => node.children[0].checked);
   const hpCheck = inputs().find((node) => node.getAttribute('aria-label') === 'HPを条件にする');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
   // app.js が履歴のエントリの条件を filter に入れ直す
-  Object.assign(states.get('owned').filter, { query: 'もこ', talent: { hp: 5, shot: 0, defense: 0 }, eggs: false, sort: 'level' });
+  Object.assign(states.get('owned').filter, { query: 'もこ', talent: { hp: 5, shot: 0, defense: 0 }, places: ['party', 'palbox', 'base', 'dps', 'unknown'], sort: 'level' });
   view.applyRoute(parseHash('#/owned'), { reason: 'history' });
   assert.equal(keyword.value, '');
   view.applyRoute(parseHash('#/owned'), { reason: 'history', restored: true });
   assert.equal(keyword.value, 'もこ');
   assert.equal(hp.value, '5');
   assert.equal(hpCheck.checked, true);
-  assert.deepEqual(checks(), [false, false]);
+  assert.deepEqual(placeChips(view).map(([group, pressed]) => [group, pressed]), [['party', 'true'], ['palbox', 'true'], ['global', 'false'], ['egg', 'false']]);
   assert.equal(view.element.querySelectorAll('select').find((node) => node.children.some((option) => option.value === 'passives')).value, 'level');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
   view.destroy();
@@ -1241,7 +1258,7 @@ test('所持パル画面: 選んでいる所持者が、フォーカス中の更
   const owned = fakeOwned();
   const view = ownedView(context(owned), parseHash('#/owned'));
   document.body.append(view.element);
-  const holder = view.element.querySelectorAll('select')[0];
+  const holder = holderSelect(view);
   holder.value = `player:${P1}`;
   await holder.dispatch('change');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
@@ -1258,7 +1275,7 @@ test('所持パル画面: 選んでいる所持者が、フォーカス中の更
   await settle();
   assert.equal(holder.value, '');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 1);
-  assert.equal(view.element.querySelector('.result-note').textContent, '1 体');
+  assert.equal(view.element.querySelector('.result-note').textContent, '1 / 1 体 · ♂1 ♀0');
   await passiveAdd(view).dispatch('click');
   assert.equal(optionCount(view, 'Rare'), '1 体');
   view.destroy();
@@ -1289,5 +1306,388 @@ test('継承ルート: URL のパッシブは重複と内部名の形でない�
   installDom(t);
   const view = inheritanceView(context(fakeOwned()), parseHash('#/route?to=CuteFox&p=Rare,Rare,知らないパッシブ,Unknown_Passive_X'));
   assert.deepEqual(view.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す', 'Unknown_Passive_X を外す']);
+  view.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// owned-toolbar: 絞り込みの固定パネル・場所のチップ・所持者・効いている条件のチップ・リンク
+// ---------------------------------------------------------------------------
+const P2 = 'abcd1234-0000-0000-0000-000000000000';
+const P3 = '1a2b3c4d-0000-0000-0000-000000000000';
+const B1 = 'base-1';
+const B2 = 'base-2';
+// Alice（ホスト）: パルボックスの a1、拠点 1 に預けた a2、グローバルの gl。Bob: 手持ちの b1、拠点 2 に預けた b2。拠点 1 に置いたタマゴ e1
+const holderSnapshot = {
+  version: 1, world: { name: 'テスト', hostName: 'Alice' },
+  players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: P2, name: 'Bob', level: 40 }],
+  bases: [{ id: B1, number: 1 }, { id: B2, number: 2 }],
+  pals: [
+    { instanceId: 'a1', characterId: 'SheepBall', gender: 'Female', passives: ['Rare'], talent: { hp: 50 }, location: { kind: 'palbox', playerUid: P1, slotIndex: 0 } },
+    { instanceId: 'a2', characterId: 'PinkCat', gender: 'Male', passives: [], talent: {}, lastOwnerUid: P1, location: { kind: 'base', baseId: B1 } },
+    { instanceId: 'b1', characterId: 'Kitsunebi', gender: 'Male', passives: ['Legend'], talent: {}, location: { kind: 'party', playerUid: P2 } },
+    { instanceId: 'b2', characterId: 'Penguin', gender: 'Female', passives: ['Rare', 'Legend'], talent: {}, lastOwnerUid: P2, location: { kind: 'base', baseId: B2 } },
+    { instanceId: 'e1', characterId: 'FlowerDoll', passives: [], talent: {}, location: { kind: 'egg-ground', baseId: B1 } },
+    { instanceId: 'gl', characterId: 'PinkCat', passives: [], talent: {}, location: { kind: 'global' } },
+  ],
+  stats: {},
+};
+const holderData = (snap = holderSnapshot) => ({ version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: snap });
+const rowIds = (view) => view.element.querySelectorAll('.owned-row').map((row) => row.getAttribute('aria-label'));
+const button = (view, label) => view.element.querySelectorAll('button').find((node) => node.textContent === label);
+const inputLabeled = (view, label) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === label);
+const keywordOf = (view) => view.element.querySelectorAll('input').find((node) => node.type === 'search' && node.className !== 'picker-search');
+const starsOf = (view) => view.element.querySelectorAll('select').find((node) => node.children.some((child) => child.textContent === '★1 以上'));
+const sortOf = (view) => view.element.querySelectorAll('select').find((node) => node.getAttribute('aria-label') === '並べ替え');
+const radio = (view, group, value) => view.element.querySelector(`[aria-label="${group}"]`).querySelectorAll('[role="radio"]').find((node) => node.getAttribute('data-value') === value);
+const memoryApp = (owned, states = new Map()) => Object.assign(context(owned), {
+  viewState(view) { if (!states.has(view)) states.set(view, {}); return states.get(view); },
+  replace() {},
+});
+
+test('所持パル画面: 絞り込みは sticky のパネル（2 段＋状態の行）にまとめ、パネルの高さを画面の --panel-h に書き続ける', (t) => {
+  installDom(t);
+  const observer = installResizeObserver(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  const panel = view.element.querySelector('.owned-panel');
+  assert.equal(panel.tagName, 'section');
+  assert.equal(panel.getAttribute('aria-label'), '所持パルの絞り込み');
+  assert.deepEqual(panel.children.map((node) => node.className), ['owned-panel-main', 'owned-panel-sub', 'owned-status-row']);
+  // 並び: 見出し → データ元の 1 行 → パネル → 一覧（件数の行はパネルの中）
+  assert.deepEqual(view.element.children.map((node) => node.className), ['view-heading', 'owned-summary', 'owned-panel', 'owned-list']);
+  assert.ok(panel.querySelector('.owned-status-row').querySelector('.result-note'));
+  observer.resize(panel, 172.5);
+  assert.equal(view.element.style.getPropertyValue('--panel-h'), '172.5px');
+  view.destroy();
+  assert.equal(observer.observed(panel), false);
+});
+
+test('所持パル画面: 所持者は理想個体と同じ意味（そのプレイヤーが預けた拠点のパルとホストのグローバルパルボックスも含む）', async (t) => {
+  installDom(t);
+  const owned = fakeOwned(holderData());
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  assert.deepEqual(rowIds(view), ['モコロン', 'ツッパニャン', 'ペンタマ', 'キツネビ', 'フラリーナ']);
+  assert.deepEqual(holderSelect(view).children.map((node) => [node.value, node.textContent]), [['', 'すべて'], [`player:${P1}`, 'Alice'], [`player:${P2}`, 'Bob']]);
+  holderSelect(view).value = `player:${P1}`;
+  await holderSelect(view).dispatch('change');
+  // 前は所持者がそのプレイヤーの個体（a1）だけだった。拠点 1 に預けた a2 も出る
+  assert.deepEqual(rowIds(view), ['モコロン', 'ツッパニャン']);
+  assert.equal(view.element.querySelector('.result-note').textContent, '2 / 6 体 · ♂1 ♀1');
+  assert.deepEqual(filterChips(view), ['所持者: Alice']);
+  // グローバルパルボックスのチップを押すと、理想個体の所持者「Alice」の候補（palsOfPlayers）と同じ個体の集合になる
+  await placeChip(view, 'global').dispatch('click');
+  const expected = palsOfPlayers(owned.state.owned, new Set([P1])).map((pal) => pal.name).sort();
+  assert.deepEqual(rowIds(view).sort(), expected);
+  view.destroy();
+});
+
+test('所持パル画面: 「自分の個体」は理想個体と同じ自分の個体で、自分のプレイヤーは「（自分）」を付けて先頭に。分からなければ件数の行に出して 0 件', async (t) => {
+  installDom(t);
+  const owned = fakeOwned(holderData());
+  const ideals = { mine: () => palsOfPlayers(owned.state.owned, new Set([P2])), selfUids: () => new Set([P2]) };
+  const view = ownedView({ ...context(owned), ideals }, parseHash('#/owned'));
+  assert.deepEqual(holderSelect(view).children.map((node) => [node.value, node.textContent]), [['', 'すべて'], ['mine', '自分の個体'], [`player:${P2}`, 'Bob（自分）'], [`player:${P1}`, 'Alice']]);
+  holderSelect(view).value = 'mine';
+  await holderSelect(view).dispatch('change');
+  assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);
+  assert.deepEqual(filterChips(view), ['所持者: 自分の個体']);
+  view.destroy();
+  // 自分のプレイヤーが分からない（mine() が null）
+  const unknown = ownedView({ ...context(fakeOwned(holderData())), ideals: { mine: () => null, selfUids: () => new Set() } }, parseHash('#/owned'));
+  holderSelect(unknown).value = 'mine';
+  await holderSelect(unknown).dispatch('change');
+  assert.equal(rowIds(unknown).length, 0);
+  assert.match(unknown.element.querySelector('.result-note').textContent, /^0 \/ 6 体 · 自分のプレイヤーが分かりません/);
+  assert.match(unknown.element.querySelector('.owned-list').textContent, /自分のプレイヤーが分からない/);
+  unknown.destroy();
+});
+
+test('所持パル画面: 同じ名前のプレイヤーが 2 人以上いれば、所持者の名前に UID の頭 8 字を添える', (t) => {
+  installDom(t);
+  const snap = { ...holderSnapshot, players: [...holderSnapshot.players, { uid: P3, name: 'Alice', level: 3 }] };
+  const view = ownedView(context(fakeOwned(holderData(snap))), parseHash('#/owned'));
+  assert.deepEqual(holderSelect(view).children.map((node) => node.textContent), ['すべて', 'Alice（00000000）', 'Bob', 'Alice（1A2B3C4D）']);
+  view.destroy();
+});
+
+test('所持パル画面: 場所のチップは絞り込む前の件数つきで、件数 0 の場所は出さない。拠点が 2 つ以上なら ▾ で拠点を選べる', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned'));
+  document.body.append(view.element);
+  assert.deepEqual(placeChips(view), [
+    ['party', 'true', '手持ち（1 体）'], ['palbox', 'true', 'パルボックス（1 体）'], ['base', 'true', '拠点（2 体）'],
+    ['global', 'false', 'グローバルパルボックス（1 体）'], ['egg', 'true', 'タマゴ（1 体）'],
+  ]);
+  assert.deepEqual(['dps', 'unknown'].map((group) => placeChip(view, group).hidden), [true, true]);
+  // 絞り込んでもチップの件数は変わらない
+  const query = keywordOf(view);
+  query.value = 'キツネビ';
+  await query.dispatch('input');
+  assert.equal(placeChip(view, 'palbox').getAttribute('aria-label'), 'パルボックス（1 体）');
+  query.value = '';
+  await query.dispatch('input');
+  // 拠点を選ぶと、その拠点の個体とその拠点に置いたタマゴだけ
+  const more = view.element.querySelector('.place-chip-more');
+  assert.equal(more.hidden, false);
+  assert.equal(more.getAttribute('aria-label'), '拠点を選ぶ');
+  await more.dispatch('click');
+  const checks = view.element.querySelector('.place-bases').querySelectorAll('input');
+  assert.deepEqual(checks.map((node) => [node.getAttribute('aria-label'), node.checked]), [['拠点 1（2 体）', false], ['拠点 2（1 体）', false]]);
+  checks[0].checked = true;
+  await checks[0].dispatch('change');
+  assert.deepEqual(rowIds(view), ['ツッパニャン', 'フラリーナ']);
+  assert.deepEqual(filterChips(view), ['拠点: 拠点 1']);
+  // 拠点が 1 つなら ▾ は出さない
+  const one = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  assert.equal(one.element.querySelector('.place-chip-more').hidden, true);
+  one.destroy();
+  view.destroy();
+});
+
+test('所持パル画面: 属性は ▾ で開くトグルで選び、2 つ選ぶとどちらかを持つ個体（OR）。ボタンには選んだ数を出し、名前は aria-label と条件のチップに出す', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned'));
+  document.body.append(view.element);
+  const open = view.element.querySelector('.owned-element-button');
+  assert.equal(open.getAttribute('aria-haspopup'), 'dialog');
+  await open.dispatch('click');
+  const toggle = (key) => view.element.querySelectorAll('.element-toggle').find((node) => node.getAttribute('data-value') === key);
+  assert.equal(view.element.querySelectorAll('.element-toggle').length, 9);
+  await toggle('Fire').dispatch('click');
+  assert.equal(toggle('Fire').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(rowIds(view), ['キツネビ']);
+  await toggle('Ice').dispatch('click');
+  assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);
+  assert.equal(open.querySelector('.owned-element-count').textContent, '2');
+  assert.equal(open.getAttribute('aria-label'), '属性: 炎・氷');
+  assert.deepEqual(filterChips(view), ['属性: 炎・氷']);
+  view.destroy();
+});
+
+test('所持パル画面: パッシブの条件「なし」はパッシブが 0 個の個体だけで、パッシブの欄を押せなくする。「だけ」はほかを持たない個体', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  document.body.append(view.element);
+  await pickPassive(view, 'CraftSpeed_up2');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 2);
+  await radio(view, 'パッシブの条件', 'none').dispatch('click');
+  // パッシブのない b だけ（g はグローバル）
+  assert.deepEqual(rowIds(view), ['ツッパニャン']);
+  assert.equal(passiveAdd(view).disabled, true);
+  assert.deepEqual(filterChips(view), ['パッシブなし']);
+  await radio(view, 'パッシブの条件', 'only').dispatch('click');
+  assert.equal(passiveAdd(view).disabled, false);
+  // 職人気質だけを持つのはタマゴの c（a は希少も持つ）
+  assert.deepEqual(rowIds(view), ['フラリーナ']);
+  assert.deepEqual(filterChips(view), ['パッシブ: 職人気質', 'パッシブの条件: だけ']);
+  view.destroy();
+});
+
+test('所持パル画面: 効いている条件のチップの × は、その条件だけを既定に戻し、部品の表示もそろえる。何もなければ「すべて解除」は押せない', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  document.body.append(view.element);
+  assert.deepEqual(filterChips(view), []);
+  assert.equal(button(view, 'すべて解除').disabled, true);
+  starsOf(view).value = '1';
+  await starsOf(view).dispatch('change');
+  inputLabeled(view, 'HPの個体値（以上）').value = '10';
+  await inputLabeled(view, 'HPの個体値（以上）').dispatch('input');
+  await pickPassive(view, 'CraftSpeed_up2');
+  keywordOf(view).value = 'もこ';
+  await keywordOf(view).dispatch('input');
+  assert.deepEqual(filterChips(view), ['パッシブ: 職人気質', '★1 以上', 'HP 10 以上', 'キーワード: もこ']);
+  assert.equal(button(view, 'すべて解除').disabled, false);
+  const chip = (text) => view.element.querySelectorAll('.filter-chip').find((node) => node.querySelector('.filter-chip-text').textContent === text);
+  assert.equal(chip('HP 10 以上').getAttribute('aria-label'), 'HP 10 以上 を外す');
+  await chip('HP 10 以上').dispatch('click');
+  assert.deepEqual(filterChips(view), ['パッシブ: 職人気質', '★1 以上', 'キーワード: もこ']);
+  assert.equal(inputLabeled(view, 'HPの個体値（以上）').value, '');
+  assert.equal(inputLabeled(view, 'HPを条件にする').checked, false);
+  assert.equal(starsOf(view).value, '1');
+  await chip('パッシブ: 職人気質').dispatch('click');
+  assert.equal(view.element.querySelector('.passive-chips').querySelectorAll('.passive-chip').length, 0);
+  await chip('キーワード: もこ').dispatch('click');
+  assert.equal(keywordOf(view).value, '');
+  await chip('★1 以上').dispatch('click');
+  assert.equal(starsOf(view).value, '');
+  assert.deepEqual(filterChips(view), []);
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 3);
+  view.destroy();
+});
+
+test('所持パル画面: 「すべて解除」と 0 件のときの「条件をすべて解除」で既定に戻し、作ったときに値を入れた部品（キーワード・パル・★・個体値）もそろえる', async (t) => {
+  installDom(t);
+  const owned = fakeOwned(holderData());
+  const view = ownedView(context(owned), parseHash(`#/owned?pal=PinkCat&q=ツッパ&stars=1&hp=10&el=Neutral&pm=only&holder=player:${P1}&place=palbox,base`));
+  document.body.append(view.element);
+  assert.deepEqual(rowIds(view), []);
+  assert.match(view.element.querySelector('.owned-list').textContent, /条件に合うパルはいません/);
+  // 0 件の空の表示に解除のボタン
+  const reset = view.element.querySelector('.owned-list').querySelector('button');
+  assert.equal(reset.textContent, '条件をすべて解除');
+  await reset.dispatch('click');
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 5);
+  const shown = () => ({
+    keyword: keywordOf(view).value, stars: starsOf(view).value, hp: inputLabeled(view, 'HPの個体値（以上）').value,
+    pal: view.element.querySelector('.picker-trigger').getAttribute('aria-label'), mode: radio(view, 'パッシブの条件', 'include').getAttribute('aria-checked'),
+    holder: holderSelect(view).value, places: placeChips(view).map(([group, pressed]) => `${group}:${pressed}`).join(','), chips: filterChips(view),
+  });
+  const expected = { keyword: '', stars: '', hp: '', pal: 'パル: パルを選択', mode: 'true', holder: '', places: 'party:true,palbox:true,base:true,global:false,egg:true', chips: [] };
+  assert.deepEqual(shown(), expected);
+  // 「すべて解除」も同じ（並べ替えは条件ではないので残す）
+  view.applyRoute(parseHash('#/owned?pal=PinkCat&q=ツッパ&stars=1&hp=10&sort=level'), { reason: 'navigate' });
+  assert.equal(view.element.querySelectorAll('.owned-row').length, 0);
+  await button(view, 'すべて解除').dispatch('click');
+  assert.deepEqual(shown(), expected);
+  assert.equal(sortOf(view).value, 'level');
+  view.destroy();
+});
+
+test('所持パル画面: 「リンクをコピー」の URL を新しい画面で開くと同じ絞り込み・同じ件数になる。コピーできなければ欄に出して選ぶ（例外を出さない）', async (t) => {
+  installDom(t);
+  const before = { location: Object.getOwnPropertyDescriptor(globalThis, 'location'), navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator') };
+  t.after(() => {
+    for (const [name, descriptor] of Object.entries(before)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  });
+  const written = [];
+  let fail = false;
+  Object.defineProperty(globalThis, 'location', { value: { origin: 'https://example.test', pathname: '/note/' }, configurable: true });
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (text) => { if (fail) throw new Error('拒否'); written.push(text); } } }, configurable: true });
+  const states = new Map();
+  const view = ownedView(memoryApp(fakeOwned(holderData()), states), parseHash('#/owned'));
+  document.body.append(view.element);
+  holderSelect(view).value = `player:${P2}`;
+  await holderSelect(view).dispatch('change');
+  await placeChip(view, 'global').dispatch('click');
+  await placeChip(view, 'egg').dispatch('click');
+  await pickPassive(view, 'Legend');
+  await radio(view, 'パッシブの条件', 'only').dispatch('click');
+  keywordOf(view).value = 'キツネ';
+  await keywordOf(view).dispatch('input');
+  sortOf(view).value = 'level';
+  await sortOf(view).dispatch('change');
+  assert.deepEqual(rowIds(view), ['キツネビ']);
+  await button(view, 'リンクをコピー').dispatch('click');
+  assert.equal(written.length, 1);
+  assert.match(written[0], /^https:\/\/example\.test\/note\/#\/owned\?/);
+  const hash = written[0].slice(written[0].indexOf('#'));
+  const params = parseHash(hash).params;
+  assert.equal(params.get('holder'), `player:${P2}`);
+  assert.equal(params.get('place'), 'party,palbox,base,dps,global,unknown');
+  assert.equal(params.get('p'), 'Legend');
+  assert.equal(params.get('pm'), 'only');
+  assert.equal(params.get('q'), 'キツネ');
+  assert.equal(params.get('sort'), 'level');
+  // 新しいタブ（覚えている条件なし）で開く
+  const fresh = new Map();
+  const opened = ownedView(memoryApp(fakeOwned(holderData()), fresh), parseHash(hash));
+  assert.deepEqual(rowIds(opened), rowIds(view));
+  assert.deepEqual(fresh.get('owned').filter, states.get('owned').filter);
+  opened.destroy();
+  // コピーに失敗したら、リンクを欄に出して選ぶ
+  fail = true;
+  await button(view, 'リンクをコピー').dispatch('click');
+  const field = view.element.querySelector('.owned-link-field');
+  assert.ok(field);
+  assert.equal(field.querySelector('input').value, written[0]);
+  assert.equal(document.activeElement, field.querySelector('input'));
+  view.destroy();
+});
+
+test('所持パル画面: 古い保存の条件（タマゴ・グローバルのチェック、所持者の拠点・グローバル、場所の 1 つ）と古い URL を読み替える（migrateFilter）', (t) => {
+  installDom(t);
+  const pick = (filter) => ({ holder: filter.holder, bases: filter.bases, places: filter.places });
+  const all = ['party', 'palbox', 'base', 'dps', 'global', 'egg', 'unknown'];
+  assert.deepEqual(DEFAULT_PLACES, ['party', 'palbox', 'base', 'dps', 'egg', 'unknown']);
+  assert.deepEqual(migrateFilter({}).places, DEFAULT_PLACES);
+  assert.deepEqual(migrateFilter({ place: 'egg' }).places, ['egg']);
+  assert.deepEqual(migrateFilter({ place: '' }).places, DEFAULT_PLACES);
+  assert.deepEqual(migrateFilter({ eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.deepEqual(migrateFilter({ globals: true }).places, all);
+  assert.deepEqual(pick(migrateFilter({ holder: `base:${B1}` })), { holder: '', bases: [B1], places: ['base', 'egg'] });
+  assert.deepEqual(pick(migrateFilter({ holder: `base:${B1}`, eggs: false })), { holder: '', bases: [B1], places: ['base'] });
+  assert.deepEqual(pick(migrateFilter({ holder: 'global', globals: true })), { holder: '', bases: [], places: ['global'] });
+  assert.equal(migrateFilter({ holder: `player:${P1}` }).holder, `player:${P1}`);
+  // 新しい形はそのまま（古い項目は持たない。場所は決まった順に並べる。壊れた値は既定）
+  assert.deepEqual(migrateFilter({ holder: 'mine', places: ['egg', 'palbox', 'xxx'], bases: [], elements: ['Fire', 'Bad'], passiveMode: 'none', query: 'x', eggs: false }), {
+    holder: 'mine', places: ['palbox', 'egg'], bases: [], elements: ['Fire'], palId: '', passives: [], passiveMode: 'none', query: 'x', sort: 'dex', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
+  });
+  assert.deepEqual(migrateFilter(null), {
+    holder: '', places: DEFAULT_PLACES, bases: [], elements: [], palId: '', passives: [], passiveMode: 'include', query: '', sort: 'dex', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
+  });
+  // 旧コードの保存（タブを切り替えて戻った viewState）から開く: 所持者「拠点 1」・タマゴを隠す・グローバルを表示
+  const states = new Map([['owned', { filter: { holder: `base:${B1}`, place: '', palId: '', passives: [], query: '', sort: 'dex', eggs: false, globals: true, stars: 0, talent: { hp: 0, shot: 0, defense: 0 } } }]]);
+  const view = ownedView(memoryApp(fakeOwned(holderData()), states), parseHash('#/owned'));
+  assert.deepEqual(rowIds(view), ['ツッパニャン']);
+  assert.deepEqual(filterChips(view), ['場所: 拠点', '拠点: 拠点 1']);
+  assert.equal(holderSelect(view).value, '');
+  assert.equal('eggs' in states.get('owned').filter, false);
+  view.destroy();
+  // 旧コードのタブが作ったリンク（所持者の拠点・グローバル・場所の 1 つ）
+  for (const [hash, expected] of [[`#/owned?holder=base:${B1}`, ['ツッパニャン', 'フラリーナ']], ['#/owned?holder=global', ['ツッパニャン']], ['#/owned?place=egg', ['フラリーナ']], [`#/owned?holder=player:${P2}`, ['ペンタマ', 'キツネビ']]]) {
+    const old = ownedView(context(fakeOwned(holderData())), parseHash(hash));
+    assert.deepEqual(rowIds(old), expected, hash);
+    old.destroy();
+  }
+});
+
+test('所持パル画面: URL の値は確かめてから使い、知らない場所・属性・範囲の外の数・知らないパルは捨てる', (t) => {
+  installDom(t);
+  const states = new Map();
+  const view = ownedView(memoryApp(fakeOwned(holderData()), states), parseHash(`#/owned?place=egg,xxx&el=Fire,Bad&stars=9&hp=150&at=90&pm=bad&pal=Nope&p=Rare,知らない&q=${'あ'.repeat(120)}&sort=zzz&base=${'x'.repeat(41)},${B1}`));
+  const filter = states.get('owned').filter;
+  assert.deepEqual(filter.places, ['egg']);
+  assert.deepEqual(filter.elements, ['Fire']);
+  assert.deepEqual(filter.bases, [B1]);
+  assert.equal(filter.stars, 0);
+  assert.deepEqual(filter.talent, { hp: 0, shot: 90, defense: 0 });
+  assert.equal(filter.passiveMode, 'include');
+  assert.equal(filter.palId, '');
+  assert.deepEqual(filter.passives, ['Rare']);
+  assert.equal(filter.query.length, 100);
+  assert.equal(filter.sort, 'dex');
+  view.destroy();
+});
+
+test('所持パル画面: 利用者が条件を変えたら（キーワードは間引いた後に 1 回）、一覧の先頭がパネルの下に隠れているときだけ一覧の先頭を見せる。データの更新では動かさない', async (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const view = ownedView(context(owned), parseHash('#/owned'));
+  const list = view.element.querySelector('.owned-list');
+  const panel = view.element.querySelector('.owned-panel');
+  let shown = 0;
+  list.scrollIntoView = (options) => { assert.deepEqual(options, { block: 'start' }); shown++; };
+  // 一覧の先頭（top 200）がパネルの下端（252）より上
+  await placeChip(view, 'egg').dispatch('click');
+  assert.equal(shown, 1);
+  keywordOf(view).value = 'もこ';
+  await keywordOf(view).dispatch('input');
+  assert.equal(shown, 2);
+  owned.state.owned = normalizeOwned(snapshot, { pals, passives });
+  owned.emit();
+  assert.equal(shown, 2);
+  // 一覧の先頭がパネルの下にあれば動かさない
+  panel.getBoundingClientRect = () => ({ top: 56, bottom: 180, left: 0, width: 900 });
+  await placeChip(view, 'egg').dispatch('click');
+  assert.equal(shown, 2);
+  view.destroy();
+});
+
+test('所持パル画面: パルを選ぶと「理想個体 →」（正のランクのパッシブだけを渡す）、パッシブを選ぶと「継承ルート →」を状態の行に出す', async (t) => {
+  installDom(t);
+  const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
+  const links = () => view.element.querySelectorAll('.owned-panel-link').filter((node) => !node.hidden).map((node) => [node.textContent, node.href, node.getAttribute('aria-label')]);
+  assert.deepEqual(links(), []);
+  view.applyRoute(parseHash('#/owned?pal=SheepBall&p=Rare,Deffence_down1'), { reason: 'navigate' });
+  assert.deepEqual(links(), [
+    ['理想個体 →', '#/ideal?to=SheepBall&p=Rare', 'この条件で理想個体を開く'],
+    ['継承ルート →', '#/route?p=Rare%2CDeffence_down1', 'このパッシブを運ぶ継承ルートを開く'],
+  ]);
+  // パッシブの条件「なし」では継承ルートへのリンクを出さない
+  await radio(view, 'パッシブの条件', 'none').dispatch('click');
+  assert.deepEqual(links().map(([text]) => text), ['理想個体 →']);
   view.destroy();
 });

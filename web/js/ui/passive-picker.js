@@ -102,10 +102,11 @@ export function passiveMatches(id, terms) {
  * groups: 候補の群 [{ label, counts: Map<id, n> }]。無ければ counts から「countLabel」の群と「その他」。
  * negatives: 'last'（負のパッシブを最後の群「マイナスのパッシブ」に。理想個体・継承ルート）| 'inline'（所持パル）
  * presets: [{ label, passives }]（登録した組み合わせ。押すと選択をその組で置き換える）
+ * update の disabled: 追加のボタンとチップの × を押せなくする（選んだチップは残す。所持パルのパッシブの条件「なし」のとき）
  */
 export function passiveSelector({ label, selected = [], counts = new Map(), countLabel = '所持パルが持っているもの', groups,
   negatives = 'inline', presets = [], onChange, max = 4 }) {
-  const state = { selected: [...selected], counts, groups, presets };
+  const state = { selected: [...selected], counts, groups, presets, disabled: false };
   const focusGroup = `passive:${label}`;
   const element = el('div', 'field passive-selector');
   const row = el('div', 'passive-row');
@@ -134,7 +135,8 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
   function renderButton() {
     const full = state.selected.length >= max;
     add.textContent = full ? `最大 ${max} 個まで` : 'パッシブを追加…';
-    add.disabled = full;
+    add.disabled = full || state.disabled;
+    element.classList.toggle('is-disabled', state.disabled);
   }
 
   function renderChips() {
@@ -144,10 +146,11 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
       create: (id) => ({ element: passiveChip(id, { onRemove: () => onChange(state.selected.filter((item) => item !== id)), focusGroup }) }),
       fallbackFocus: add,
     });
+    for (const remove of chips.querySelectorAll('.passive-remove')) remove.disabled = state.disabled;
   }
 
   function open() {
-    if (popover.isOpen() || state.selected.length >= max) return;
+    if (popover.isOpen() || state.selected.length >= max || state.disabled) return;
     const presetBox = el('div', 'passive-presets');
     const input = el('input', 'picker-search');
     input.type = 'search';
@@ -269,14 +272,20 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
     element,
     /**
      * 選んだパッシブ・所持数・群・登録した組み合わせを合わせ直す（同じ id のチップは使い回す）。開いていれば候補だけ描き直し、閉じない。
-     * max に達したら閉じて、最後のチップの × へフォーカスを移す（フォーカスがこの部品の中にあったときだけ）
+     * max に達したら閉じて、最後のチップの × へフォーカスを移す（フォーカスがこの部品の中にあったときだけ）。
+     * disabled（true/false）で押せなくし、開いていれば閉じる
      */
     update(next = {}) {
-      for (const key of ['selected', 'counts', 'groups', 'presets']) if (key in next) state[key] = next[key];
+      for (const key of ['selected', 'counts', 'groups', 'presets', 'disabled']) if (key in next) state[key] = next[key];
       state.selected = [...state.selected];
+      state.disabled = Boolean(state.disabled);
       const focused = focusIn();
       renderButton();
       renderChips();
+      if (state.disabled) {
+        popover.close({ focus: false });
+        return;
+      }
       if (state.selected.length >= max) {
         popover.close({ focus: false });
         if (focused) chips.lastElementChild?.querySelector('.passive-remove')?.focus();

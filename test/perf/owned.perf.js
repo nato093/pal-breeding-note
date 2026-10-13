@@ -79,7 +79,7 @@ test('性能: 所持パル 20,000 行（同じ種族が 6 割）で、キーワ�
   const input = (owned, query) => {
     const start = performance.now();
     const terms = keywordTerms(query);
-    const list = sortOwned(filterOwned(owned.pals, { query, globals: true }), 'dex');
+    const list = sortOwned(filterOwned(owned.pals, { query }), 'dex');
     const drawn = list.length > 2000 ? list.slice(0, 60) : list;
     let length = 0;
     for (const pal of drawn) length += rowSignature(pal, terms.length ? keywordNotes(pal, terms) : []).length;

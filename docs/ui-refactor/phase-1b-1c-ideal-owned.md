@@ -890,30 +890,70 @@ talent-target（個体値の部品）・popovers（パッシブの 1 行部品�
 - body: 「絞り込みを上に固定し、場所はチップで選べます。所持者は預けた拠点のパルも含み、条件のリンクを写せます。」（51 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] 幅 1100px でパネルが 2 段＋状態の行（高さ 130px 以下）に収まり、129 行の一覧の下の方でも条件と件数が見える。
-- [ ] scrollY=380 でパッシブを足しても一覧の先頭の行の top が変わらない（基準: +44px）。結果が減っても条件と件数を見失わない（基準: 画面全体が 242px 動く）。
-- [ ] 所持者「Alice」の件数が、理想個体の所持者「Alice」の候補と同じ個体の集合になる（タマゴ・グローバルの場所のチップの状態を同じにしたとき）。
-- [ ] 古い viewState（タマゴのチェックを外した状態）から開いても同じ絞り込みになる。
-- [ ] リンクをコピー → 新しいタブで開く → 同じ件数。
-- [ ] 2,000 行の注入データで、キーワードの入力が 100ms 以上止まらない（Performance パネルの Long Task で確かめる）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 古い viewState・古い URL・旧コードのタブが作ったリンクを `migrateFilter` で読み替え、URL の値は検証してから使う（上の確認）。INV-2 — 所持数を数えるだけで、`core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `test/static/security.test.js` が通り、クリップボードの失敗で例外を出さない。性能 — 上の 2,000 行の確認に加え、許可 id の Set と場所の件数はデータが変わったときだけ作る。
+- [x] `npm test` が通る。（2026-10-13: exit 0・1,345 件）
+- [ ] 幅 1100px でパネルが 2 段＋状態の行（高さ 130px 以下）に収まり、129 行の一覧の下の方でも条件と件数が見える。（途中: 2 段＋状態の行には収まり、下までスクロールしてもパネルの top 56・件数が見える。高さは 172.39px で 130px を超える〔理想個体 140.4px〕。並びの別案とあわせてユーザーに確かめる。実装の記録 8）
+- [x] scrollY=380 でパッシブを足しても一覧の先頭の行の top が変わらない（基準: +44px）。結果が減っても条件と件数を見失わない（基準: 画面全体が 242px 動く）。（2026-10-13: 一覧の先頭が見えている位置では 1・2 個目で動かず、改行が要る 3 個目でパネルが伸びた 38px だけ下がる〔D20〕。scrollY=380 は一覧の先頭がパネルの下に隠れているので、手順 9〔O-05〕で一覧の先頭がパネルの下端＋8px に来る。結果が減ってもパネルと件数は top 56・198 のまま。計測の記録）
+- [x] 所持者「Alice」の件数が、理想個体の所持者「Alice」の候補と同じ個体の集合になる（タマゴ・グローバルの場所のチップの状態を同じにしたとき）。（2026-10-13: Alice・Bob × 4 種族で同じ数。テストでは palsOfPlayers と同じ集合）
+- [x] 古い viewState（タマゴのチェックを外した状態）から開いても同じ絞り込みになる。（2026-10-13: 124 / 138 体・タマゴのチップだけ外れる）
+- [x] リンクをコピー → 新しいタブで開く → 同じ件数。（2026-10-13）
+- [ ] 2,000 行の注入データで、キーワードの入力が 100ms 以上止まらない（Performance パネルの Long Task で確かめる）。（途中: Long Task 81〜120ms が出る。main も同じ条件で 126〜157ms で、このテーマで増えたものではない。ユーザーに報告し、owned-rows で見直す。計測の記録）
+- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 古い viewState・古い URL・旧コードのタブが作ったリンクを `migrateFilter` で読み替え、URL の値は検証してから使う（上の確認）。INV-2 — 所持数を数えるだけで、`core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `test/static/security.test.js` が通り、クリップボードの失敗で例外を出さない。性能 — 上の 2,000 行の確認に加え、許可 id の Set と場所の件数はデータが変わったときだけ作る。（途中: INV-2〔test/import.test.js〕・セキュリティ〔security.test.js・クリップボードの失敗で例外なし〕・互換〔migrateFilter・古い URL・古い viewState〕・許可 id の Set と場所の件数をデータごとに作ること は確かめた。2,000 行の Long Task が残る）
 
 ### TODO
-- [ ] 絞り込みの値の新しい形と `migrateFilter` を作り、テストする
-- [ ] `filterOwned` の引数を `ids・places・bases・elements・passiveMode` に変え、core のテストを書き換える
-- [ ] 所持者の選択肢（すべて・自分の個体・プレイヤー）と許可 id の Set を作る
-- [ ] 場所のチップ（件数・0 件は隠す）と拠点の ▾ を作る
-- [ ] 属性 ▾ のトグルを作る
-- [ ] `ui/search-select.js` とテストを作る
-- [ ] パネルを 2 段＋状態の行に組み、sticky と `--panel-h` を付ける
-- [ ] 効いている条件のチップ・すべて解除・0 件の解除ボタン・リンクをコピーを作る（部品の同期を含む）
-- [ ] URL の受け口を広げ、値を検証する
-- [ ] 理想個体・継承ルートへのリンクと ♂♀ の内訳を状態の行に出す
-- [ ] 条件を変えたら結果の先頭を見せる（利用者の操作のときだけ）
-- [ ] 部品を作り直さず `update` する形にする
-- [ ] owned-view のテストを直し・足し、古い CSS を消す
-- [ ] release-notes に 1 件足し、1100px・920px で確かめる
+- [x] 絞り込みの値の新しい形と `migrateFilter` を作り、テストする
+- [x] `filterOwned` の引数を `ids・places・bases・elements・passiveMode` に変え、core のテストを書き換える
+- [x] 所持者の選択肢（すべて・自分の個体・プレイヤー）と許可 id の Set を作る
+- [x] 場所のチップ（件数・0 件は隠す）と拠点の ▾ を作る
+- [x] 属性 ▾ のトグルを作る
+- [x] `ui/search-select.js` とテストを作る
+- [x] パネルを 2 段＋状態の行に組み、sticky と `--panel-h` を付ける
+- [x] 効いている条件のチップ・すべて解除・0 件の解除ボタン・リンクをコピーを作る（部品の同期を含む）
+- [x] URL の受け口を広げ、値を検証する
+- [x] 理想個体・継承ルートへのリンクと ♂♀ の内訳を状態の行に出す
+- [x] 条件を変えたら結果の先頭を見せる（利用者の操作のときだけ）
+- [x] 部品を作り直さず `update` する形にする
+- [x] owned-view のテストを直し・足し、古い CSS を消す
+- [x] release-notes に 1 件足し、1100px・920px で確かめる
+
+### 実装の記録（2026-10-13、ブランチ `feature/owned-toolbar`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ owned-rows・フェーズ 1d の participant-self・フェーズ 2 の登録者の選択〔`searchSelect`〕はこちらを正とする）。
+
+1. **絞り込みの値の形（手順 1）**: views/owned.js の filter は `{ holder: '' | 'mine' | 'player:<uid>', places, bases, elements, palId, passives, passiveMode, query, sort, stars, talent }`。`places` は PLACE_ORDER の順に並べた場所のグループ（既定は `DEFAULT_PLACES`＝グローバルパルボックス以外のすべて。export）、`elements` は**マスターの ID**（`Fire` など。`data/pals.js` の `ELEMENTS` のキー。URL も同じ）。入れ物は viewState と共有し、作るとき・戻る/進む（restored）のたびに `migrateFilter` の結果で中身を入れ替える（`adopt`。前の形の項目は消す）。
+   - `OWNED_MEMORY` に新しい項目を足し、**前の形の項目（`place`・`eggs`・`globals`、所持者の `base:<id>`・`global`）は形に残して `migrateFilter` に渡す**（`MEMORY_VERSION` は 1 のまま。前の形の項目は、無ければ `undefined` を返すので今の形の保存には書かれない。`places` も配列でなければ `undefined`＝前の形の保存として place・eggs・globals から作る）。
+   - `migrateFilter(old)`（export）: どの値も `OWNED_MEMORY` で確かめてから、文書の読み替え（place 1 つ → `[place]`、eggs: false → 'egg' を外す、globals: true → 'global' を足す、`base:<id>` → 所持者なし・`bases: [id]`・`places: ['base', 'egg']`〔eggs: false なら `['base']`〕、`global` → 所持者なし・`['global']`）。前の作りと同じ意味にするため、place を選んでいて eggs: false などのときは前と同じく 0 件になる。
+2. **URL（手順 8）**: `filterFromParams(params)`（export）が `holder`・`place`（カンマ区切り。前の 1 つの形も同じ）・`base`・`el`・`pal`・`p`・`pm`・`q`・`stars`・`hp`・`at`・`df` を `migrateFilter` で確かめる（知らない場所・属性・パル、範囲の外の数〔丸めずに既定〕、41 字以上の拠点 ID は捨てる。`q` は 100 字まで）。**どれか 1 つでもあれば URL が条件のすべてを決め、URL に無い条件は既定に戻す**（文書は決めていなかった。前の作りは holder・place・pal・p を URL どおりにし〔無ければ空〕、キーワード・★などは残していた。今はキーワードなども URL に載るので、その延長でリンクの条件をそのまま再現する形にした。ユーザーに確かめる）。`sort` は並べ替えなので、あるときだけ入れる。URL から外す動き（`context.replace(buildHash('owned'))`）は今のまま。同じ画面の applyRoute で URL を入れたときは、キーワードの待っている入力を取り消して、入力欄も URL の値に合わせる（render-contract の「打ちかけのキーワードは消さない」のテストは、この決まりに合わせて書き換えた）。
+   - リンクをコピーは `filterParams(filter)`（export）。**`place` は既定でも必ず入れる**（開いたタブが覚えている条件より URL を使わせるため）。リンクは文書のとおり `location.origin + location.pathname + hash`（開発用の `?mock=1` は付かないので、画面の確認では付け足して開いた）。
+3. **`filterOwned`（手順 2）**: `filterOwned(pals, { ids, places, bases, elements, palId, passives, passiveMode, query, stars, talent })`。全員を 1 回だけ走査。`ids` は所持者で許す個体の Set（null は絞らない）、`places` は null で絞らない・`[]` で 0 件。**`bases` は文書のとおり「その拠点にいる個体とその拠点に置いたタマゴ（`baseId` がその拠点）だけ」**で、ほかの場所のチップ（パルボックスなど）を押していてもそれらは出ない（拠点のチップの ▾ で選ぶので「拠点の中だけを絞る」と受け取られるおそれがある。ユーザーに確かめる）。`passiveMode` の `only` は「選んだものを全部持ち、ほかを持たない」で、**選んだパッシブが 0 個のときはパッシブを持たない個体**（理想個体の `goalMatches` と同じ）。`none` は選んだパッシブを見ない。`shortUid` を export した。
+4. **所持者（手順 3）**: `searchSelect`（ラベル「所持者」）の選択肢は「すべて」「自分の個体」（`context.ideals` があるとき）・プレイヤー（自分は先頭に「Alice（自分）」、同じ名前が 2 人以上なら「Alice（1A2B3C4D）」、名前が空なら「不明なプレイヤー（…）」）。自分のプレイヤーは **ideals.js に足した `ideals.selfUids()`**（`ownPlayerUids(players, identity(worldId))`。所持パルがなければ空の Set）で決める。許す個体の Set は `allowedIds(data)` が **データ・所持者・自分の UID の並びが同じ間は使い回す**（入力のたびに作らない）。`mine` で `ideals.mine()` が null（自分が分からない）なら 0 件で、件数の行を「0 / M 体 · 自分のプレイヤーが分かりません」、空の表示を「自分のプレイヤーが分からないため、自分の個体で絞れません（所持者を「すべて」にすると全員の個体が出ます）。」＋「条件をすべて解除」にした。選択肢の作り直しは、前の `syncOptions` の代わりに `renderWhenIdle(holderSelect.element, …)` で包み、選んでいる途中（フォーカス中）は離れるまで待つ（離れた後に選んでいた所持者が無くなっていれば「すべて」に戻して描き直すのも前と同じ）。
+5. **検索つきの選択 `searchSelect`（手順 7。新規 web/js/ui/search-select.js）**: `searchSelect({ label, options /* [value, label][] */, value, onChange, threshold = 12 })` → `{ element, update({ options?, value? }), destroy() }`。`element` は `div.search-select` で、選択肢が threshold 以下なら中は `select[aria-label=label]`、超えたら `button.search-select-trigger`（aria-haspopup listbox・aria-label「所持者: Alice」）と `ui/popover.js` の板（`input.picker-search`〔aria-label「所持者を検索」〕・`p.picker-status`〔「N 件」／「当てはまる候補がありません。」〕・`div.picker-options[role=listbox]` に `button.picker-option.search-select-option[role=option][data-value][aria-selected]`）。検索は `core/kana.js` の `queryTerms`・`normalizeQuery` の部分一致。Enter は矢印で選んだときだけ（パル選択と同じ）、Esc で閉じてボタンへ。`update` は onChange を呼ばず、選択肢が同じなら作り直さない。件数が閾値をまたぐと中身を入れ替えるので、**フォーカス中に作り直さないのは呼び出し側で待つ**（views/shared.js の `renderWhenIdle`）。知らない値のときは、ボタンに先頭の選択肢の名前を出す。
+6. **場所のチップと拠点 ▾（手順 4）**: `div.place-chips[role=group][aria-label=場所]` に PLACE_ORDER の 7 つの `button.place-chip[data-value][aria-pressed]`（`span.place-chip-label`＝`placeGroupLabel` の名前〔文書の例どおり略さない〕・`span.place-chip-count`。aria-label「パルボックス（69 体）」）。件数は `state.owned.pals` をデータごとに 1 回だけ数え（`statsOf`）、0 のチップは `hidden`。拠点が 2 つ以上なら拠点のチップの右に `button.place-chip-more`「▾」（aria-label「拠点を選ぶ」／「拠点を選ぶ（N か所を選択中）」）。板 `div.place-bases`（role=dialog）は拠点ごとの `label.place-base`（チェック〔aria-label「拠点 1（19 体）」〕・名前・件数。`syncList` で使い回す）と「すべての拠点」。拠点が 12 を超えたら板の先頭に検索欄。データにない拠点（別のワールド・なくなった拠点）は、読み込んだ後に外す（`pruneBases`。app.js の `forgetHolders` は所持者だけを外すので、拠点はこちらで外す）。
+7. **属性 ▾（手順 5）**: `button.owned-element-button`（「属性」＋選んだ数の `span.owned-element-count`、aria-label・title「属性: 炎・闇」）で、板（role=dialog）に 9 個の `button.element-chip.element-toggle.element-<ID>[aria-pressed]`。**文書の「選んだ属性の小さなチップをボタンの中に出す」は数にした**（チップを出すと 2 つでボタンが約 120px になり、2 段目が 3 行に回ってパネルが 172 → 209px に伸びた。名前は aria-label・title と状態の行の条件のチップに出る）。
+8. **パネルの配置（手順 6・D20・D21。文書の 6 の並びから変えた）**: `section.owned-panel`（aria-label「所持パルの絞り込み」・sticky・`top: var(--header-h)`・`z-index: var(--z-panel)`）。**`--panel-h` は `trackHeight(panel, element)` で `section.view.owned-view` に書く**（画面の destroy で監視をやめる）。
+   - 1 段目 `div.owned-panel-main`（grid `200px minmax(0, 1fr) 200px`・見出しは入力の上・subgrid。理想個体の [目標][欲しいパッシブ][保存] と同じ組み方）: パル（palPicker）・パッシブ（passiveSelector。1100px で 517px）・キーワード（`label.field.owned-keyword`。placeholder は「名前・スキル・属性など」に縮め、title に「空白で区切ると…」）。
+   - 2 段目 `div.owned-panel-sub`（flex・折り返し・見出しは入力の左）: `.owned-holder-item`（所持者）・`.owned-places`（場所）・パッシブの条件（見出し「パッシブ」。segmented「全部／だけ／なし」、title に長い説明）・個体値（見出し「個体値（以上）」。`div.owned-talent-filter` に talentInput と「まとめて ▾」）・`.owned-stars-item`（見出し「★」・select の aria-label「パル濃縮（★）」）・`.owned-element-slot`（属性 ▾）。1100px では 1 行目 所持者 192＋場所 717、2 行目 パッシブの条件 203＋個体値 482＋★ 118＋属性 64 で、どちらも本文 941px に入る。幅 1080px 以下（920px など）は `order` で ★・属性を所持者の横へ寄せる（場所が 1 行を使うため。4 行 → 3 行）。
+   - 状態の行 `div.owned-status-row`（下の 9）。
+   - **個体値の部品を詰める CSS は理想個体と共通にした**（`:is(.ideal-panel, .owned-panel) .talent-input …`。「以上」を隠す・増減のボタンを隠して 3.6em・32px）。理想個体のパネルは 140.39px のまま（確かめた）。
+   - **「すべて 90 以上」「すべて 100」は 1 つの小さなメニュー `button.talent-preset-button`「まとめて ▾」（aria-haspopup menu・aria-label「個体値をまとめて入れる」）にまとめた**（ボタン 2 つのままだと 2 段目の 2 行目が 1,035px で 941px に入らず、2 段目が 3 行・パネル 209px になった）。項目は `button.talent-preset-item[role=menuitem]`。押すと `talents.update` で 3 つとも入れ、絞り込みは 1 回だけ。talentInput の presets は使っていない（部品は変えていない）。
+   - パッシブの欄の見出しを「パッシブ（すべて持つ個体）」から「**パッシブ**」にした（条件が「全部／だけ／なし」になったため）。× のフォーカスの目印は `passive-chip:パッシブ:<ID>` に変わった。
+   - **高さ（実測。ヘッドレスの Chromium・ライト/ダーク同じ）**: 幅 1100px・パッシブ 0 個で **172.39px**（状態の行を含む。文書の目安 130px より 42px、理想個体の 140.4px より 32px 高い。内訳は上下の余白 4＋6・段の間 5×2・下の線 1・1 段目 54.4・2 段目 69〔32＋5＋32〕・状態の行 28）。1280px も 172.39px（パッシブの欄 697px で 3 個でも改行しない）。1100px で 3 個目に長い名前（鬼神など）が来ると改行して 210.39px（+38px。D20）。920px は 209.39px（2 段目 3 行）・3 個で 247.39px。どの幅も横のスクロール・はみ出しなし。**理想個体より高いのは状態の行（28px＋段の間 5px）があるため**で、2 段目は 2 行が下限（所持者・場所のチップ・パッシブの条件・個体値・★・属性を 1 行に並べると約 1,850px）。別案（どれも未実装・ユーザーに確かめる）: (a) 1 段目の見出しをやめる（約 −16px → 約 156px。理想個体で採らなかった案）、(b) 2 段目の 2 行目（パッシブの条件・個体値・★・属性）を「詳しい条件 ▾」に畳み、ふだんは 1 行にする（約 −37px → 約 135px。効いている条件は状態の行のチップで見える）、(c) 状態の行の高さを 24px にする（−4px）。場所のチップの名前を縮める（「ボックス」「次元」「グローバル」）のは段の数が変わらないので効かない。
+9. **状態の行（手順 6・8・O-04・O-40・O-50）**: `div.owned-status-row`（高さ 28px・1 行）に左から `p.result-note.owned-count`「129 / 138 体 · ♂59 ♀65 タマゴ 5」（タマゴ 0 は出さない。グローバルパルボックスを外していて数があれば title「グローバル 9 体は非表示」）・`div.filter-chips`（role=group・aria-label「効いている条件」。高さ 24px で入り切らない分は隠す）・`span.filter-more`「+n」（隠れたチップの名前を title に。場所は空けておく）・`button.owned-reset`「すべて解除」（条件が無ければ disabled）・「リンクをコピー」・**並べ替えの select（aria-label「並べ替え」。2 段目に入らないのでここへ移した）**・`a.owned-panel-link`「理想個体 →」「継承ルート →」。
+   - 条件のチップは既定から変えた条件だけで、順は 所持者・場所・拠点・属性・パル・パッシブ（1 つずつ）・パッシブの条件（だけ／なし）・★・個体値（HP・攻撃・防御）・キーワード。文: 「所持者: Alice（自分）」「場所: タマゴを除く」「場所: パルボックス・拠点」（3 つ以下は並べ、多いときは除いたもの、グローバルを足しただけなら「グローバルパルボックスも含む」）「拠点: 拠点 1」「属性: 炎・闇」「パル: アヌビス」「パッシブ: 伝説」「パッシブの条件: だけ」「パッシブなし」（なしのときはパッシブのチップを出さない）「★2 以上」「HP 90 以上」「キーワード: ア」。`span.filter-chip-item > button.filter-chip[data-focus]`（aria-label「HP 90 以上 を外す」・`span.filter-chip-text`・`span.filter-chip-x`）を `syncList` で使い回し、× で外したら次のチップ（無ければ前、どれも無ければキーワード）へフォーカス。
+   - 「+n」の数え方と O-05 の位置の確かめは、**次の描画の前（requestAnimationFrame）にまとめて読む**（`afterLayout`。入力の処理の中で、描き換えた 2,000 行のレイアウトを強制しないため。rAF の無いテストではすぐ読む）。チップの入れ物の幅が変わったら ResizeObserver で数え直す。
+   - すべて解除・0 件の「条件をすべて解除」（`empty(…, button('条件をすべて解除'))`）: 値を既定に戻し（**並べ替えは条件ではないので残す**）、作ったときに値を入れた部品（キーワード・パル・★・個体値）も含め全部の部品をそろえる（`showFilter`）。0 件の表示から押したときは、そのボタンが消えるのでキーワードへフォーカス。
+   - リンクをコピー: `navigator.clipboard.writeText` → トースト「リンクをコピーしました」。失敗（権限なし・HTTP で clipboard が無い）は例外を出さず、ボタンの下の板 `div.owned-link-field`（role=dialog）に読み取り専用の欄を出して全選択（「コピーできませんでした。下のリンクを選んでコピーしてください。」）。
+   - 理想個体・継承ルートへのリンク（O-40）: **文は短く「理想個体 →」「継承ルート →」にし、文書の文は aria-label・title に「この条件で理想個体を開く」「このパッシブを運ぶ継承ルートを開く」**（文書の長い文だと、2 つ出たときに条件のチップの場所が約 50px しか残らなかった）。理想個体は `buildHash('ideal', { to, p: 正のランクのパッシブ })`、継承ルートは `buildHash('route', { p })`（パッシブの条件「なし」では出さない）。
+10. **条件を変えたら結果の先頭を見せる（手順 9・O-05）**: 利用者の操作（所持者・場所・拠点・属性・パル・パッシブ・パッシブの条件・個体値・★・キーワード〔間引きの後に 1 回〕・並べ替え・条件のチップの ×・すべて解除）の後だけ、一覧 `.owned-list` の top がパネルの下端より上なら `scrollIntoView({ block: 'start' })`。データの更新・applyRoute（URL・戻る/進む）では動かさない。**`scroll-margin-top` は文書の `calc(var(--header-h) + var(--panel-h))` ではなく `var(--panel-h)`**（html の `scroll-padding-top` がヘッダー＋8px を受け持つので、足すとヘッダーの分だけ下に離れる。今は一覧の先頭がパネルの下端＋8px に来る。行 `.owned-row` も同じ）。
+11. **部品を作り直さない（手順 10）**: パッシブは `passive.update({ selected, counts, disabled })`。**passive-picker.js の `update` に `disabled` を足した**（追加のボタンとチップの × を押せなくし、開いていれば閉じる。選んだチップは残す。部品の `is-disabled`）。パッシブの条件「なし」の間に使う。
+12. **ui/popover.js の focusOut の直し（文書になかった）**: 板の中の別の部品（属性のトグル・拠点のチェック・保存の板のボタンなど）を押すと、Chrome では focusout の後の microtask の時点ではまだ body なので板が閉じ、押した部品の click が届かなかった。→ focusout の `relatedTarget` が板の中なら閉じない（外へ出るときは今までどおり）。**main では理想個体の「目標として保存」の板の「保存」を押しても保存されずに閉じていた**（main の worktree で、板の「保存」を押して確かめた。ideal-panel の記録の確認は Enter で保存していた）ので、この直しで直った。release-notes に別に 1 件足した（`2026-10-13-ideal-save-click`）。所持パルの 4 つの板（拠点・属性・まとめて・リンク）は、余白を押しても閉じないよう板そのものに `tabIndex = -1`。
+13. **見えている範囲だけ描く一覧と位置の戻し**: 自動の更新で見ていた行を戻す基準（`anchorOf`）と `virtualRows` の `topOffset` を、ヘッダーの下端からパネルの下端（`panel.getBoundingClientRect().bottom`）にした（パネルの下に隠れた行を基準にしない）。
+14. **CSS（手順 11）**: `.owned-filters`・`.owned-filter-group`・`.owned-passive-slot`・`.owned-toggles` を消した。**`.owned-toggle` は設定の画面（views/owned-settings.js の自動登録のオン・オフ）が使っているので残した**。足したもの: `.owned-panel*`・`.place-chip*`・`.place-bases*`・`.owned-element-*`・`.element-toggle*`・`.owned-talent-filter`・`.talent-preset-*`・`.owned-status-row`・`.filter-chip*`・`.filter-more`・`.owned-link-*`・`.owned-sort`・`.owned-panel-link`・`.search-select*`。
+15. **テスト**: 新しい test/web/search-select.test.js（4 件）、test/core/owned.test.js（新しい `filterOwned` の 3 件）、passive-picker.test.js（disabled 1 件）、ideals.test.js（`selfUids` 1 件）、popover.test.js（relatedTarget 1 件）、owned-view.test.js に 14 件（パネルと `--panel-h`・所持者が理想個体と同じ意味〔palsOfPlayers と同じ集合〕・自分の個体と「（自分）」・同じ名前の UID・場所のチップの件数と拠点 ▾・属性の OR・パッシブの条件・条件のチップの ×・すべて解除と 0 件の解除・リンクをコピー〔新しい画面で同じ件数・失敗の欄〕・migrateFilter〔古い viewState・古い URL〕・URL の検証・O-05・O-40）。どれも変える前のコードで落ちることを確かめた（search-select はモジュールが無い、owned-view は `migrateFilter`・`DEFAULT_PLACES` の import で読めない）。**期待値を直したもの**: 件数の行「3 体」→「3 / 4 体 · ♂1 ♀1 タマゴ 1」（owned-view・app.test.js）、「タマゴも表示」「グローバルボックスを表示」のチェック → 場所のチップ（owned-view 4 か所・app.test.js の読み込み直し）、所持者の select の探し方（`[aria-label="所持者"]`）、「すべて 90 以上」は「まとめて」を開いてから、パッシブの欄のラベル（`passive-chip:パッシブ:…`）、並び（ペンタマはキツネビより図鑑番号が前）、rAF を 1 回ずつ回すテストは「+n」の数えの分を進める。**振る舞いを変えたもの**: URL の条件が来たら、URL に無い条件（キーワードなど）も既定に戻し、打ちかけのキーワードも URL に合わせる（既存のテスト 2 つの書き換え。テスト名・コメントに前の動きを書いた）。`test/perf/owned.perf.js` の `filterOwned` の呼び出しから使わなくなった `globals: true` を外した。テストの偽 DOM（test/helpers/dom.js）は変えていない。
+16. **後のテーマへの申し送り**:
+    - owned-rows: 列見出しは `top: calc(var(--header-h) + var(--panel-h))`（`--panel-h` は `section.view.owned-view` に書いてある）。並べ替えは今は状態の行の select（`select.owned-sort`・aria-label「並べ替え」・`filter.sort`）にあるので、列見出しで並べ替えるときはこの select と `filter.sort` を合わせる（どちらかを残すかはそのテーマで決める）。`.owned-list` と `.owned-row` の `scroll-margin-top: var(--panel-h)` は、列見出しを足したらその高さも足す。O-05 の「一覧の先頭」も列見出しの上端にするか確かめる。
+    - participant-self: 許す個体の Set は ownedView の中の `allowedIds(data)` が作り、変数 `holderIds` に覚える（データ・所持者・自分の UID の並びが同じ間は使い回す）。「自分」が変わったら `holderIds = null` → `renderFilters(owned.state)`（所持者の選択肢の「（自分）」も `ideals.selfUids()` で作り直す）→ `renderResults({ keepPosition: true })` を呼べばよい（今は自分の UID の並びが変わったときだけ、次に描くときに作り直す）。自分が分からないときの文は `renderCount` と `emptyText`（`renderResults` の中）にある。
+    - フェーズ 2 の登録者の選択: 上の 5 の `searchSelect` を使う。
+    - 性能: 2,000 行でキーワードを打つと Long Task が 81〜120ms 出た（main も同じ条件で 126〜157ms。計測の記録）。CPU プロファイルでは JS の自分の時間は約 50ms で、残りはブラウザの再計算（行の描き直し）。行の形を変える owned-rows で見直す。
 
 ---
 
