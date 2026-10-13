@@ -253,19 +253,19 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 個体値の目標を「チェックつき・空欄＝条件なし」に
 
-- 状態: 未着手 ／ ブランチ: `feature/talent-target` ／ マージのコミット: （未）
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/talent-target` ／ マージのコミット: （未）
 - 順番: 統合プランの表では ideal-panel の後。ideal-panel で今の入力欄を動かした後に部品へ差し替える手戻りをなくすため、先にした（phase-1b-1c の「テーマの順番」。逆でも成り立つ）
 
-- [ ] `ui/talent-input.js` を作る（値の形・チェックと draft・間引き・presets・destroy）
-- [ ] `test/web/talent-input.test.js` を書き、先に落ちることを確かめる
-- [ ] 理想個体の入力欄（views/ideal.js:202-220）を部品に差し替え、g の呼び出し時に `update` する
-- [ ] 見出しを「個体値の目標（以上）」に、`goalSummary` の「気にしない」を「—」「N 以上」に
-- [ ] 所持パルの入力欄（views/owned.js:131-150）を部品に差し替え、「すべて 90 以上」「すべて 100」を付ける
-- [ ] `OWNED_SORTS` と `sortOwned` に「個体値の合計が低い順」を足し、core のテストを足す
-- [ ] ideal-view.test.js:432 と、入力のたびに結果を見るテスト（ideal-view:94-118・owned-view:116-125・186-194）を間引きに合わせて直す
-- [ ] CSS を部品に合わせ、`.owned-talent-filter` の不要な規則を消す
-- [ ] docs/OPERATIONS.md:116・119 とコードのコメントの「気にしない」を直す
-- [ ] release-notes に 1 件足し、モックで両画面を確かめる
+- [x] `ui/talent-input.js` を作る（値の形・チェックと draft・間引き・presets・destroy）
+- [x] `test/web/talent-input.test.js` を書き、先に落ちることを確かめる
+- [x] 理想個体の入力欄（views/ideal.js:202-220）を部品に差し替え、g の呼び出し時に `update` する
+- [x] 見出しを「個体値の目標（以上）」に、`goalSummary` の「気にしない」を「—」「N 以上」に
+- [x] 所持パルの入力欄（views/owned.js:131-150）を部品に差し替え、「すべて 90 以上」「すべて 100」を付ける
+- [x] `OWNED_SORTS` と `sortOwned` に「個体値の合計が低い順」を足し、core のテストを足す
+- [x] ideal-view.test.js:432 と、入力のたびに結果を見るテスト（ideal-view:94-118・owned-view:116-125・186-194）を間引きに合わせて直す
+- [x] CSS を部品に合わせ、`.owned-talent-filter` の不要な規則を消す
+- [x] docs/OPERATIONS.md:116・119 とコードのコメントの「気にしない」を直す
+- [x] release-notes に 1 件足し、モックで両画面を確かめる
 
 ### 9. [ideal-panel](phase-1b-1c-ideal-owned.md#ideal-panel-理想個体の条件を-sticky-の-2-段パネルに)（M）
 

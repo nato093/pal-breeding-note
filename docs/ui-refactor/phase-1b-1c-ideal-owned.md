@@ -150,24 +150,41 @@
 - body: 「個体値の目標はチェックを外すか空欄で条件なしです。所持パルに「個体値の合計が低い順」も足しました。」（49 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る（release-notes の文字数を含む）。
-- [ ] 理想個体: HP のチェックを外すと要約が「HP —」になり、結果が「HP 0」を入れていたときと同じになる。保存済みの目標（HP 0）を呼び出すと HP は未チェック・空欄で出る。
-- [ ] 所持パル: 「すべて 90 以上」で 3 つとも 90 が入り、1 回だけ絞り込みが走る。「個体値の合計が低い順」が選べる。
-- [ ] 101 を入れて確定すると 100 に戻る。日本語変換中は絞り込みが走らない。
-- [ ] 旧コードのタブを開いたまま新しいコードで目標を登録し、旧タブで読み直しても個体値が 100 に変わらない（保存の形が同じことの確認）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 目標の保存の形が「0＝条件なし」のまま（上の旧コードのタブの確認。null・版 2 は入れていない。判断事項 10）。INV-2 — `ui/talent-input.js` が `core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `test/static/security.test.js` が通る。性能 — 間引きの途中で画面を離れても destroy でタイマーが止まり、破棄の後に結果を描かない。
+- [x] `npm test` が通る（release-notes の文字数を含む）。
+- [x] 理想個体: HP のチェックを外すと要約が「HP —」になり、結果が「HP 0」を入れていたときと同じになる。保存済みの目標（HP 0）を呼び出すと HP は未チェック・空欄で出る。
+- [x] 所持パル: 「すべて 90 以上」で 3 つとも 90 が入り、1 回だけ絞り込みが走る。「個体値の合計が低い順」が選べる。
+- [x] 101 を入れて確定すると 100 に戻る。日本語変換中は絞り込みが走らない。
+- [x] 旧コードのタブを開いたまま新しいコードで目標を登録し、旧タブで読み直しても個体値が 100 に変わらない（保存の形が同じことの確認）。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 目標の保存の形が「0＝条件なし」のまま（上の旧コードのタブの確認。null・版 2 は入れていない。判断事項 10）。INV-2 — `ui/talent-input.js` が `core/ideal.js` を import しない（`test/import.test.js`）。セキュリティ — `test/static/security.test.js` が通る。性能 — 間引きの途中で画面を離れても destroy でタイマーが止まり、破棄の後に結果を描かない。
 
 ### TODO
-- [ ] `ui/talent-input.js` を作る（値の形・チェックと draft・間引き・presets・destroy）
-- [ ] `test/web/talent-input.test.js` を書き、先に落ちることを確かめる
-- [ ] 理想個体の入力欄（views/ideal.js:202-220）を部品に差し替え、g の呼び出し時に `update` する
-- [ ] 見出しを「個体値の目標（以上）」に、`goalSummary` の「気にしない」を「—」「N 以上」に
-- [ ] 所持パルの入力欄（views/owned.js:131-150）を部品に差し替え、「すべて 90 以上」「すべて 100」を付ける
-- [ ] `OWNED_SORTS` と `sortOwned` に「個体値の合計が低い順」を足し、core のテストを足す
-- [ ] ideal-view.test.js:432 と、入力のたびに結果を見るテスト（ideal-view:94-118・owned-view:116-125・186-194）を間引きに合わせて直す
-- [ ] CSS を部品に合わせ、`.owned-talent-filter` の不要な規則を消す
-- [ ] docs/OPERATIONS.md:116・119 とコードのコメントの「気にしない」を直す
-- [ ] release-notes に 1 件足し、モックで両画面を確かめる
+- [x] `ui/talent-input.js` を作る（値の形・チェックと draft・間引き・presets・destroy）
+- [x] `test/web/talent-input.test.js` を書き、先に落ちることを確かめる
+- [x] 理想個体の入力欄（views/ideal.js:202-220）を部品に差し替え、g の呼び出し時に `update` する
+- [x] 見出しを「個体値の目標（以上）」に、`goalSummary` の「気にしない」を「—」「N 以上」に
+- [x] 所持パルの入力欄（views/owned.js:131-150）を部品に差し替え、「すべて 90 以上」「すべて 100」を付ける
+- [x] `OWNED_SORTS` と `sortOwned` に「個体値の合計が低い順」を足し、core のテストを足す
+- [x] ideal-view.test.js:432 と、入力のたびに結果を見るテスト（ideal-view:94-118・owned-view:116-125・186-194）を間引きに合わせて直す
+- [x] CSS を部品に合わせ、`.owned-talent-filter` の不要な規則を消す
+- [x] docs/OPERATIONS.md:116・119 とコードのコメントの「気にしない」を直す
+- [x] release-notes に 1 件足し、モックで両画面を確かめる
+
+### 実装の記録（2026-10-13、ブランチ `feature/talent-target`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ ideal-panel・owned-toolbar はこちらを正とする）。
+
+1. **部品の形（API）**: `talentInput({ keys, labels, value, ariaLabel, presets = [], onChange, debounce = 150 })` → `{ element, update(value), flush(), destroy() }`（web/js/ui/talent-input.js）。文書の形に **`flush()`**（間引いて待っている入力をすぐ知らせる）を足した。ビューの `flushInputs()`（app.js が履歴のエントリへ条件を書く前に呼ぶ）がこれを呼ぶ。`destroy()` は待っている入力を取り消し、その後は onChange を呼ばない。ビューは `debounce: context.inputDelay ?? 150` を渡す（ビューのテストの context は `inputDelay: 0` なので、input を送った直後に結果を確かめる今のテストはそのまま通る。文書のテストの項の「150ms 待つか change を送る形に直す」は要らなかった）。
+   - DOM: `div.talent-input` の中に、ステータスごとの `label.talent-input-item`（`input[type=checkbox]`〔aria-label「HPを条件にする」〕・`span.talent-input-label`〔ラベル〕・`input[type=number]`〔aria-label は `ariaLabel(key)`〕・`span.talent-input-unit`〔「以上」〕）、その後ろにプリセットの `button.button.secondary.small`。チェックのない欄の `label` に `.is-off`。
+   - 呼び出し側: 理想個体は views/ideal.js の `talent`（`showConditions()` で `talent.update(conditions.targets)`。onChange で `conditions.targets = { ...value }`）、所持パルは views/owned.js の `talents`（`showFilter()` で `talents.update(filter.talent)`。onChange で `filter.talent = { ...value }`）。保存の形（`IDEAL_MEMORY` の targets・`OWNED_MEMORY` の talent）は変えていない。
+2. **update の決まり（手順 1 の直し）**: 文書の「v === 0 なら draft は前の値のまま」だと、同じ画面のまま登録した目標（HP 0）を「呼び出す」と、前の HP 100 が薄く残り、完了の条件「HP は未チェック・空欄で出る」を満たさない。→ **出している値と同じステータスは触らない**（利用者がチェックを外して薄く残した数字・打っている途中の数字を残す）、**違うステータスだけ入れ直す**（v>0 はチェックつき・`String(v)`、0 は未チェック・空欄）。update は待っている間引きを取り消し、onChange は呼ばない。後のテーマで描くたびに update を呼んでも、利用者が外したチェックの薄い数字は消えない。
+3. **確定（change）**: 待っている入力があるときだけ知らせる（前のコードの `apply.flush()` と同じ。間引きの後の確定で同じ値を 2 回知らせない）。欄の書き戻し（101 → 100・小数の切り捨て・0 → 空欄でチェックを外す）では出す値は変わらない。負の値・読めない値も 0（空欄・チェックなし）。
+4. **空欄のチェックを押して外すとき**: 「空欄で離れたらチェックを外す（blur）」と「チェックボックス・ラベルを押す」が重なると、blur で外した直後の click でチェックがまた付き、空欄のチェックを押して外せなかった。→ 部品の要素の `pointerdown`（数値欄の外）で印を付け、その blur では外さない（チェックの change・数値欄の focus で印を消す）。
+5. **日本語変換**: compositionstart〜compositionend の間の input・change は知らせず、compositionend で打った文字として扱う（ui/dom.js の `onTextInput` と同じ考え方）。Chrome の `type=number` で実際に変換が始まるかは確かめていない（モックでは合成のイベントで確かめた）。
+6. **CSS（手順 7 の直し）**: 数値欄の幅は文書の 4.5em ではなく **両画面とも 5.5em**（今の理想個体の幅）。4.5em では Chrome の増減のボタンの分で「100」の右の 0 が切れた（scrollWidth 67 > clientWidth 57。所持パルの前の欄も 100 は切れていた）。`.talent-input` は `flex-wrap: wrap`（所持パルは 3 列のグリッドの 1 マスに置いたままなので、1 行には収まらない）。`.owned-talent-filter` と `.ideal-conditions .owned-talent-filter input` の規則は消した。
+7. **幅と高さ（ideal-panel・owned-toolbar への申し送り）**: 部品を 1 行に並べた幅は、理想個体（3 つ＋「すべて 100」）584px、所持パル（3 つ＋プリセット 2 つ）710px（1 つの欄 148〜154px、「すべて 90 以上」114px・「すべて 100」93px。幅 1280px で測った）。ideal-panel の 2 段目の案（所持者 150px＋segmented＋個体値＋segmented で約 830px）・owned-toolbar の 2 段目の案（パル 180px＋★ 100px＋個体値＋パッシブ 1fr＋segmented＋属性）は、この幅のままでは本文の 956px に収まらない見込み。詰めるなら「以上」を見出しに 1 回だけにする・増減のボタンを隠して欄を狭める・プリセットをメニューにする、など（どれも利用者に見える判断なので、そのテーマで確かめる）。今の場所での高さは phase-1a の「計測の記録」の talent-target の行（所持パルの絞り込みは幅 1100px で 323 → 435px、理想個体の条件は 161 → 231px）。
+8. **文言**: 理想個体の「計算のしくみ」の「目標のある各ステータスに目標以上…」（views/ideal.js の `explanation()`）は文書の手順にないので変えていない（docs/OPERATIONS.md:119 だけ「条件のある各ステータス」にした）。core/ideal.js の `talentTargets` の説明（:115 付近の `@param targets`）のコメントの「気にしない」も、:83 と同じく「条件なし〔画面ではチェックなし・空欄〕」にした（コメントだけ）。
+9. **旧コードのタブ（完了の条件 5）**: 保存の形は変えていない（core/ideal-goals.js の `cleanGoal`・`parseGoals`・`target()` などの保存・読み込みのコードは変えず、コメントだけ）。ideal-view.test.js の新しいテストで、HP のチェックを外して登録すると保存は `{ hp: 0, shot: 100, defense: 100 }` であることを確かめた（新しいコードが 0 を書くのは条件なしのときだけで、旧コードも同じ意味に読む）。旧コードのタブを実際に開いて読み直す確認はしていない。
+10. **テスト**: test/web/talent-input.test.js（11 件。値 0 と v>0 の出し方・自動のチェックと 150ms の間引き・確定の書き戻し・チェックを外すと 0 で数字は薄く残る・空欄のチェックでフォーカスと blur で外す・押して外すときの衝突・日本語変換・プリセット 1 回・update・flush と destroy・debounce 0）を、部品を作る前に落ちる（モジュールがない）ことを確かめてから足した。期待値を直したもの: ideal-view の g の 2 つ（`['0', '100', '90']` → `['', '100', '90']` と HP のチェックなし）・「パッシブの所持数は…切り替えも出さない」（チェックボックスは個体値の 3 つだけ）・owned-view の restored（表示の切り替えのチェックだけを見る＋HP のチェック）・app.test.js の読み込み直し（同じ）。足したもの: ideal-view（チェックを外すと HP 0 と同じ結果・登録の要約「HP —」・「すべて 100」）、owned-view（「すべて 90 以上」「すべて 100」で filterOwned が 1 回だけ・チェックを外すと条件なし／「個体値の合計が低い順」の並び）、core/owned.test.js（高い順・低い順と選択肢の位置）。
 
 ---
 
@@ -204,6 +221,7 @@ header-frame（`--header-h`・重なり順）、render-contract（`applyRoute`�
 2. **パネルの 2 段**（`.ideal-panel` は CSS grid。1 段目・2 段目とも 1 行・折り返さない。各欄の見出しは小さなキャプション 1 行）:
    - 1 段目: `[目標 palPicker 240px][欲しいパッシブ（popovers の 1 行部品）1fr][所持の状況 170px][☆ 目標として保存 auto]`
    - 2 段目: `[所持者 select 150px][パッシブの条件 segmented][個体値（talent-input）＋すべて 100][ケーキ segmented]`（短いラベルで約 830px。本文 956px に収まる）
+     （追記 2026-10-13、talent-target の実装の後: 部品の個体値の 3 つ＋「すべて 100」は 1 行で 584px あり、このままでは 956px に収まらない見込み。talent-target の「実装の記録」7）
    - CSS: `position: sticky; top: var(--header-h); z-index: var(--z-panel); background: var(--md-sys-color-surface); border-bottom: 1px solid var(--line); max-height: 130px;`。祖先に `overflow` があると sticky が効かないので、`.app-main`・`.view` に overflow が付いていないことを確かめる。
    - 高さ: `trackHeight(panel, element)` で `--panel-h` を画面の section に書く（決まり 3）。destroy で監視をやめる。
 3. **segmented の部品**（新規 `web/js/ui/segmented.js`。route.js:33-38 の `startChip` は継承ルートの開始チップで役割が違うので触らず、見た目の CSS だけ寄せる）:
@@ -714,6 +732,7 @@ talent-target（個体値の部品）・popovers（パッシブの 1 行部品�
 6. **パネルの配置**（本文 956px に収める。`section.owned-panel`、`position: sticky; top: var(--header-h); z-index: var(--z-panel);`、`trackHeight` で `--panel-h`）:
    - 1 段目: `[所持者 150px][場所のチップ（件数つき）][キーワード 1fr（最小 180px）][並べ替え 150px]`
    - 2 段目: `[パル 180px][★ 100px][個体値（talent-input）＋プリセット][パッシブ（1 行部品）1fr][パッシブの条件 segmented「全部／だけ／なし」][属性 ▾]`
+     （追記 2026-10-13、talent-target の実装の後: 部品の個体値の 3 つ＋プリセット 2 つは 1 行で 710px ある。talent-target の「実装の記録」7）
    - 状態の行（28px）: `12 / 340 体 · ♂5 ♀6 タマゴ 1`（O-04・O-50。グローバルを外していて数があれば title に「グローバル 25 体は非表示」）＋効いている条件のチップ（既定から変えた条件だけ。例「所持者: Alice ×」「★2 以上 ×」「攻撃 90 以上 ×」「パッシブ: 職人気質 ×」「属性: 闇 ×」。入り切らなければ「+n」）＋[すべて解除]＋[リンクをコピー]＋右端に O-40 のリンク（パルを選んでいれば「この条件で理想個体 →」＝ `buildHash('ideal', { to: palId, p: 正のランクのパッシブ })`、パッシブを選んでいれば「このパッシブを運ぶ継承ルート →」＝ `buildHash('route', { p })`。継承ルートでは目標を選ぶ手順が残る）。
    - 合計の高さは約 125px（キャプションを各欄の上に 1 行、操作は 36px）。幅 920px では折り返してよい。
    - 統合プランの F056 の 1 段目は「[所持者][場所チップ][パル][キーワード][並べ替え]」だが、場所のチップ（約 420px）とパル（240px）を同じ段に置くと 956px を超えるので、パルを 2 段目に、属性をボタンにした（下の「コードで確かめてプランと違っていた点」）。
