@@ -581,30 +581,58 @@ ideal-results（カードの札・説明部品・畳み）、ideal-panel（`--pa
 - body: 「牧場ごとに今の組と交換先をパルの絵で出し、押すとその組へ移ります。読めない牧場があれば判定を保留します。」（52 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モック（`inject.js`。拠点 1 にアヌビスの組が 2 つ・拠点 2 にジェッドランの組）で、拠点 1 の 2 つの牧場が「牧場 A」「牧場 B」と出る。
-- [ ] 牧場の行を押すと該当の組がパネルと帯の下に見える位置へ移り、1 秒光る（動きを減らす設定では色だけ）。畳まれた組なら開いてから移る。
-- [ ] 注入データの牧場の 1 つを uncertain にすると、交換推奨・空き・使用中が出ず「判定を保留」の理由が出る。「変更あり」のタグと件数の文も出ない（D13）。
-- [ ] 境目の線がなく、置く組がカードの札（「◯◯に配置中」「→ ◯◯へ」）で分かる（D14）。
-- [ ] 交換を見送って今の組が一覧にない牧場の行に「おすすめの一覧にない組 · 完成まで 平均 約 N 個」が出て、押せない。一覧にある「そのまま」の組は押すとカードへ移る（D15）。
-- [ ] 空き牧場の案内に、牧場に残す組・交換先の組の個体を使う組が出ない（D16）。
-- [ ] 牧場の帯は、目標を変えて牧場が 0↔1 になっても高さが変わらない（結果の top が動かない）。
-- [ ] ホストの画面で共有した JSON の farms に uncertain の牧場と status が入っていない（開発用 API のモックで確かめる）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — status のない古い IndexedDB・古い共有データの牧場は ok として扱われ（既存の `test/core/ideal-farms.test.js` 3 件がそのまま通る）、共有の形と GAS は変えていない（上の JSON の確認）。INV-2 — 判定はセーブの事実と idealPlan の結果だけで、配合表を読まない。セキュリティ — 帯と行は textContent と createElementNS（`test/static/security.test.js`）。性能 — 帯の高さは固定で、20 秒ごとの再計算の後も強調を `data-key` で付け直す。
+- [x] `npm test` が通る。（1,304 件・exit 0）
+- [x] モック（`inject.js`。拠点 1 にアヌビスの組が 2 つ・拠点 2 にジェッドランの組）で、拠点 1 の 2 つの牧場が「牧場 A」「牧場 B」と出る。（「拠点 1 の牧場 A」「拠点 1 の牧場 B」。帯・詳細・札とも）
+- [x] 牧場の行を押すと該当の組がパネルと帯の下に見える位置へ移り、1 秒光る（動きを減らす設定では色だけ）。畳まれた組なら開いてから移る。（帯の「⇄ 1 番へ」で 1 番のカードの上端 494・帯の下端 240、1.2 秒後に `.is-flash` が消える。動きを減らす設定ではすぐ移り animation は none・色だけ。畳まれた組は空き牧場の案内の「3 番」で開いてから移った。「実装の記録」6・計測の記録）
+- [x] 注入データの牧場の 1 つを uncertain にすると、交換推奨・空き・使用中が出ず「判定を保留」の理由が出る。「変更あり」のタグと件数の文も出ない（D13）。（拠点 2 のジェッドランの牧場を uncertain にした `ideal-farms/inject-uncertain.js` で、アヌビスの帯が「牧場の判定を保留（読めない牧場が 1 か所あります）」。「変更あり」はテストで確かめた）
+- [x] 境目の線がなく、置く組がカードの札（「◯◯に配置中」「→ ◯◯へ」）で分かる（D14）。
+- [x] 交換を見送って今の組が一覧にない牧場の行に「おすすめの一覧にない組 · 完成まで 平均 約 N 個」が出て、押せない。一覧にある「そのまま」の組は押すとカードへ移る（D15）。（一覧にない方はモックのキツネビ〔`ideal-farms/inject-skip.js`〕で「約 9.6 個」「約 14 個」・div。一覧にある方はモックで作れなかったのでテストで確かめた）
+- [x] 空き牧場の案内に、牧場に残す組・交換先の組の個体を使う組が出ない（D16）。（アヌビスで「空き 2 か所（拠点 2）。空いた牧場に置くなら おすすめ 3 番・4 番」。1 番は交換先・2 番は牧場 A に残る組）
+- [x] 牧場の帯は、目標を変えて牧場が 0↔1 になっても高さが変わらない（結果の top が動かない）。（帯は 0 か所〔ホルス〕・1 か所〔ジェッドラン〕・2 か所〔アヌビス〕・保留とも top 299・高さ 44。帯の下の詳細の高さは 70.5／131.3／447 で変わるので、結果の top は 429.5／490.3／806 と動く。「実装の記録」12・ユーザーに確かめる点）
+- [x] ホストの画面で共有した JSON の farms に uncertain の牧場と status が入っていない（開発用 API のモックで確かめる）。（モックではホストの自動の共有にセーブのファイルの登録が要るので、注入したセーブを画面と同じ `normalizeOwned` → `sharedUpload` で共有の形にし、開発用 API の `ownedUpload` に送った。送った値・保存された値とも farm-3 なし・status なし）
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — status のない古い IndexedDB・古い共有データの牧場は ok として扱われ（既存の `test/core/ideal-farms.test.js` 3 件がそのまま通る）、共有の形と GAS は変えていない（上の JSON の確認）。INV-2 — 判定はセーブの事実と idealPlan の結果だけで、配合表を読まない。セキュリティ — 帯と行は textContent と createElementNS（`test/static/security.test.js`）。性能 — 帯の高さは固定で、20 秒ごとの再計算の後も強調を `data-key` で付け直す。（どれも満たした。互換は既存の 3 件と、status のない古い牧場・共有の牧場のテスト。描くときの牧場の計算は牧場と候補の数に比例する小さなもので、計算〔idealPlan〕は増やしていない）
 
 ### TODO
-- [ ] `normalizeOwned` で uncertain の牧場を status つきで残し、`ownedFromShared` に status: 'ok' を付ける
-- [ ] `sharedUpload` で ok の牧場だけを今の形で送る（GAS・旧画面の互換）
-- [ ] core/ideal-farms.js に `readyFarms`・`farmCompleteness`・`emptyFarms`・`farmNames`・`farmsInUse` を足し、`targetFarms` で `readyFarms` を通す
-- [ ] core のテスト（ideal-farms・owned）を足す
-- [ ] views/ideal.js の判定の組み立てを、所持者で絞る前の候補・完全性・保留に合わせて組み直す（complete なら ideal-calc の `farmAdvice(…, { measureOf })`、保留中は「変更あり」なし＝D13）
-- [ ] sticky の牧場の帯を作る（高さ固定・押すと組へ移る・保留の 1 行・一覧にない「そのまま」は番号なしで押せない）
-- [ ] 牧場の詳細（絵の行・2×2・入れる／外す個体の行・空き・使用中）を作る（見送った「そのまま」の行の数字＝D15、空き牧場の組の選び方＝D16）
-- [ ] カードに `data-key`・札（牧場 A に配置中・交換先・持ち主が違う）を付ける（境目の線は作らない＝D14）
-- [ ] `ownedRow` に `marks` を足す
-- [ ] ideal-view.test.js の牧場の文のテストを直し、新しいテストを足す
-- [ ] CSS を書き直し、モックで A／B・移動・保留を確かめる
-- [ ] release-notes に 1 件足す
+- [x] `normalizeOwned` で uncertain の牧場を status つきで残し、`ownedFromShared` に status: 'ok' を付ける
+- [x] `sharedUpload` で ok の牧場だけを今の形で送る（GAS・旧画面の互換）
+- [x] core/ideal-farms.js に `readyFarms`・`farmCompleteness`・`emptyFarms`・`farmNames`・`farmsInUse` を足し、`targetFarms` で `readyFarms` を通す
+- [x] core のテスト（ideal-farms・owned）を足す
+- [x] views/ideal.js の判定の組み立てを、所持者で絞る前の候補・完全性・保留に合わせて組み直す（complete なら ideal-calc の `farmAdvice(…, { measureOf })`、保留中は「変更あり」なし＝D13）
+- [x] sticky の牧場の帯を作る（高さ固定・押すと組へ移る・保留の 1 行・一覧にない「そのまま」は番号なしで押せない）
+- [x] 牧場の詳細（絵の行・2×2・入れる／外す個体の行・空き・使用中）を作る（見送った「そのまま」の行の数字＝D15、空き牧場の組の選び方＝D16）
+- [x] カードに `data-key`・札（牧場 A に配置中・交換先・持ち主が違う）を付ける（境目の線は作らない＝D14）
+- [x] `ownedRow` に `marks` を足す
+- [x] ideal-view.test.js の牧場の文のテストを直し、新しいテストを足す
+- [x] CSS を書き直し、モックで A／B・移動・保留を確かめる
+- [x] release-notes に 1 件足す
+
+### 実装の記録（2026-10-13、ブランチ `feature/ideal-farms`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ owned-rows・フェーズ 3 の farm-data・farm-board はこちらを正とする）。
+
+1. **牧場の状態（手順 1・2）**: `normalizeOwned` の farms は `{ id, baseId, parents, status }`。status は解析の status が `'uncertain'` のときだけ `'uncertain'`、ほか（`'ok'`・状態のない古い解析結果）は `'ok'`。uncertain の牧場の parents は引けた親だけ。`sharedUpload` は `!farm.status || farm.status === 'ok'` の牧場だけを `{ id, baseId, parents }` で送る（status は送らない）。`ownedFromShared` は `cleanOwnedFarms(world.farms)` の各牧場に `status: 'ok'` を付ける。`core/owned-shared.js`・GAS・`core/auto-breeding.js` は変えていない。**牧場の状態の名前は `'ok'`・`'uncertain'` の 2 つ**（farm-data で共有の `s: 'u'` を戻すときもこの名前にする）。
+2. **core/ideal-farms.js の関数（手順 3。farm-data・farm-board が使う名前）**:
+   - `readyFarms(farms)`: status がないか `'ok'` の牧場（文書のまま）。`targetFarms` は最初にこれを通す。
+   - `farmCompleteness(farms, { partial = false } = {}) → { complete, uncertain, partial }`: **uncertain は「判定に使えない牧場」（`readyFarms` に入らない牧場）の数**（文書は uncertain の数。知らない状態の牧場も判定に使わないので、数えて保留にする）。farms が null なら `{ complete: true, uncertain: 0, partial: false }`。farm-data は `farmsPartial` を `partial` に渡す。
+   - `emptyFarms(farms)`: `readyFarms` のうち親が 2 体未満。farm-data の「古い形の共有では空き牧場の判定をしない」は呼び出し側（views/ideal.js の `farmContext`）か、この関数に足す。
+   - `farmNames(farms, baseLabel) → Map<farmId, name>`（farms の順）: 名前は `${baseLabel(baseId)} の牧場`（baseLabel が空なら「拠点の牧場」）、拠点に 2 つ以上あれば牧場の ID を文字列の順に並べて ` A`・` B`…（27 個目から AA）。uncertain の牧場も数える（読めない牧場が出ても記号が変わらない）。
+   - `farmsInUse(farms, targetIds) → Map<palId, farmId>`: `readyFarms` のうち targetIds にない牧場の親（同じ個体が 2 か所にいれば先の牧場）。
+3. **判定の組み立て（手順 4）**: views/ideal.js の **`farmContext(data, layouts)`** が、描くときのデータ（`plan.data`）から `{ names, complete, uncertain, inUse, empties, baseLabel }` を作る（文書は計算の前に組み立てる形だった）。計算に効かない値だけが変わった読み直し（`drawLatest`）では計算をし直さず、ほかの目標の牧場が読めなくなった・空いたなどは計算の署名に入らないので、**描くときに求め直す**ため。そのため `displayKey` に全部の牧場（JSON）と拠点の名前を足した（変わったら描き直す）。`plan` に `layouts`・`holder` を足した。使用中の基準の `ownFarms` は complete のときだけ `targetFarms(all, 全部の親の候補, layouts)` で求める。保留中は `farmAdvice` を呼ばない。`planChanges` は今どおり呼び、`showPlan` は complete のときだけ交換推奨の行き先で「変更あり」を絞る。**drawPlan も保留中は「変更あり」と件数の文を出さない**（描いた後にほかの牧場が読めなくなったとき。この目標の牧場は同じなので基準は変わらず、読めるようになれば印は戻る。テストで確かめた）。
+4. **牧場の帯（手順 5）**: `div.ideal-farm-strip[role=group][aria-label=配合牧場の判定]`。画面の子の並びは「見出し → パネル → 要約 → 足りないパッシブ → **帯** → 詳細（`section.ideal-farms`）→ 結果」。目標を選んでいて牧場の情報（`owned.farms` が配列）があるときは、計算の前・計算中・データの待ちでも `hidden` を外して場所を取る（ないときは hidden）。高さは `.ideal-view` の `--farm-strip-h: 44px`（下に 6px の余白・下の線）。セルは `button.ideal-farm-cell.<keep|swap|none>`（押せないときは `div.ideal-farm-cell.<…>.is-static`）で、中は `.ideal-farm-cell-name`・`.ideal-farm-cell-pals`（26px の絵と性別の印）・`→`・`.ideal-farm-cell-state`。状態の文は「✓ N 番」（見送ったが一覧にある組も）「✓ そのまま」（一覧にない。押せない）「⇄ N 番へ」、置く組のない牧場（none）は**一覧にあれば「— N 番」で押せる・なければ「—」で押せない**（文書は「—」だけ。押せるかは決めていなかった）。aria-label・title は「拠点 1 の牧場 B（アヌビス♂ × アヌビス♀）: 交換推奨 → おすすめ 1 番」。**並べる数は固定の 3 か所**（`STRIP_FARMS`。幅を測って決める形にはしていない。1100px でセルは 262〜272px なので 3 か所と「ほか n か所」が 941px に入る。920px ではセルが縮み牧場の名前を省略する）、残りは `button.ideal-farm-more`「ほか n か所」（押すと詳細へ `scrollIntoView({ block: 'start' })`）。保留中は `span.ideal-farm-strip-note.is-pending`（警告の色）、この目標の組を置いた牧場がなければ「この目標の組を置いた牧場はありません（空き n か所）」（空きは詳細の案内と同じ条件のときだけ）。
+5. **牧場の詳細（手順 6）**: 見出し「配合牧場（この目標の組を置いている K か所 · 交換推奨 n か所 · 空き m か所）」（保留中は K だけ、空きは m > 0 のときだけ）。出すのは、この目標の組の牧場か空き牧場の案内があるとき（保留中で牧場がなければ出さない。帯が理由を出す）。行は `li.ideal-farm.<keep|swap|none|pending>` の中に `button.ideal-farm-main`（押せないときは `div`）: `strong.ideal-farm-name`・`.ideal-farm-pair`（`.ideal-farm-pal` ×2）・`.ideal-farm-status.<…>`（チップ）・見送ったときは `.ideal-farm-reason`「入れ替えても全体の速さの目安が上がりません」（チップの横。幅が足りなければ折り返す）。**個体は palTile ではなく `.ideal-farm-pal`（28px の `palIcon`・名前と性別・個体値「HP 60・攻 72・防 55」・小さなパッシブのチップ）**にした（palTile は図鑑番号と 64px の高さがあり、押せる行の button の中に入れるため。個体値は文書にないが、同じ種族の 2 体を見分けるのに要る〔前の文の「名前♂（HP・攻・防）」と同じ〕）。
+   - 一覧にない「そのまま」は `small.ideal-farm-measure`「おすすめの一覧にない組 · 完成まで 平均 約 N 個」。言い方は `measureText`: 完全体作成組 `完成まで ${eggsText(1 / eggs)}`、パッシブ厳選組「欲しいパッシブが全部そろうまで …」／「欲しいパッシブ n 個のうち m 個がそろうまで …」（n は欲しいパッシブの数）、個体値厳選組 `個体値がそろうまで ${eggsText(1 / talentEggs)}`、blocked は「パッシブの条件を満たせない組」、物差しが返らなければ「おすすめの一覧にない組」だけ。
+   - 交換推奨は `table.ideal-farm-swap`（thead「今」「交換後」、行の見出し ♂／♀〔`th[scope=row]`〕。入れ替わる行の 2 つのセルに `td.is-changed`〔error-container〕）と `ul.ideal-farm-moves > li.ideal-farm-move.<out|in>`（`.is-mine` で太字）: `.ideal-farm-move-label`（外す／入れる）・`.ideal-farm-pal`・`.ideal-farm-owner`（拠点のパルは「Bob が預けた」〔lastOwner がなければ所持者＝拠点の名前〕、ほかは所持者）・`.ideal-farm-place`（placeLabel）・小さなパッシブ・使用中の印。外す行を先、入れる行を後にした。置く組のない牧場で外す個体があれば、「外す個体は、ほかの牧場の交換推奨に使います」と外す行（前の文「（ほかの牧場に入れます）」を言い換えた）。
+   - 空き牧場の案内は `p.ideal-farm-empty`「空き m か所（拠点 2）。空いた牧場に置くなら おすすめ [3 番]・[4 番]」（番号は `button.ideal-farm-pick`、aria-label「おすすめ 3 番の組へ移る」）。拠点は空き牧場の拠点の名前を重ねずに。選べる組がなければ「おすすめには、牧場に置く組と個体が重ならない組がありません。」。出すのは complete で、計算したときの所持者が「すべて」のとき。選び方は `emptyPicks(advice, pairs, m)`（文書の D16 のとおり。none の牧場は out にない個体を残る個体とした）。
+   - 保留中の行はチップ「判定を保留」で押せない。`p.ideal-farm-pending`「読めない牧場が n か所あるため、交換推奨・空き牧場・使用中の判定を保留しています」。D19 の注記（`small.ideal-warning`）は判定したときだけ。
+6. **組へ移る（手順 7）**: カードに `data-key`（`planPairKey`）。`jumpTo(key)` は `.ideal-pair` の中から data-key で探し（CSS のエスケープを使わない）、親が `details.ideal-same` で閉じていれば開き（`sameOpen` も true にする。開閉のイベントと同じ扱い）、`scrollIntoView({ block: 'center', behavior })`（`matchMedia('(prefers-reduced-motion: reduce)')` なら `'auto'`）、`.is-flash` を付けて 1 秒（`FLASH_MS`）で外す。光らせている組は `flash = { key, timer }` で覚え、drawPlan で作り直したカードにも付け直す（画面の destroy でタイマーを止める）。CSS は `.ideal-pair.is-flash` の背景を secondary-container、動きを減らさない設定では `farm-flash`（1 秒で地の色へ戻す）。scroll-margin-top は、帯が出ているとき帯より後ろの要素に `--farm-strip-h` を足す規則（`.ideal-view:has(> .ideal-farm-strip:not([hidden])) > .ideal-farm-strip ~ *`）。**フォーカスは押したボタンに残す**（カードへ移さない。文書は決めていなかった）。
+7. **カードの札（手順 8）**: 札はどれも ideal-results の `tag(…)`（説明つきのボタン）。「配置中」は `joinName(名前, 'に配置中')`（英数字で終わる名前の後だけ空ける。「拠点 1 の牧場 A に配置中」「拠点の牧場に配置中」）。交換推奨の行き先の組に `button.ideal-farm-to`「→ 拠点 1 の牧場 B へ」（説明「配合牧場の判定で、この組をその牧場の今の組と入れ替えることを勧めています（交換推奨）。」）。持ち主が違う組に `button.ideal-owners`「Alice・Carol の個体」（♂・♀ の順。説明「♂ は Alice、♀ は Carol の個体です（拠点のパルは預けた人）。」。持ち主は拠点のパルなら `lastOwner`、ほかは `holder`〔「不明」は分からない扱い〕）。保留中は「配置中」と持ち主の札だけ。畳まない組（`pointed`）は、判定したときは swap の to と rank ≥ 0（none も）、保留中は牧場に入っている組の順位。空き牧場の案内が指す組は畳む（押すと開いて移る）。
+8. **境目の線（手順 9）**: 作っていない（テストで `.ideal-farm-boundary` がないことを確かめる）。
+9. **`ownedRow` の `marks`（手順 10。owned-rows が使う口）**: `ownedRow(pal, { notes, highlight, marks })`・`fillOwnedRow(row, pal, { notes = [], highlight, marks = [] })`。marks の文ごとに `.owned-badges` に `span.owned-badge.badge-mark`（warning-container の色）。理想個体のカードは「別の配合牧場で使用中（拠点 1 の牧場 C）」を渡す（complete のときだけ）。**`rowSignature` には marks を入れていない**（所持パルの一覧は marks を使わない）。owned-rows の O-52 で所持パルの一覧に印を出すときは、行の署名にも印を足すこと。
+10. **計算のしくみ**: 「配合牧場と『変更あり』」の 2 つ目の段落の末尾に「牧場の判定を保留している間は「変更あり」は付きません。」を足した。docs/OPERATIONS.md の配合牧場の判定の節も新しい画面に合わせた（触るファイルの一覧にはなかった）。
+11. **テスト**: test/core/ideal-farms.test.js に 5 件（readyFarms・farmCompleteness／targetFarms が uncertain を使わない／emptyFarms／farmNames〔A・B・C、並びが変わっても同じ、AA〕／farmsInUse）を足し、関数を作る前に落ちる（export がない）ことを確かめた。test/core/owned.test.js は牧場のテストを status つき・共有は ok だけ・status なしに直し、読み戻しの検証の 1 件の期待値に status を足した。ideal-view.test.js は 9 件を足し（帯と詳細の行を押して移る・光る・作り直しても付け直す・動きを減らす設定／帯の場所と「ほか n か所」／保留／保留中の「変更あり」／空き牧場の案内と畳まれた組へ移る・所持者で絞ると出さない・置いた牧場がないとき／見送った組の個体を案内しない／使用中の印と自分の個体の太字／持ち主の札／一覧にある見送りの「そのまま」）、どれも views/ideal.js・views/owned.js を変える前に戻すと落ちることを確かめた（15 件が落ちた）。期待値を直したもの: 画面の子の並び（帯）、牧場のテスト 4 件（行の形・2×2・外す／入れる行・「拠点の牧場 B に配置中」・見送りの数字）、計算のしくみの一文。**テストの偽 DOM（test/helpers/dom.js）は変えていない**。`scrollIntoView` は `t.mock.method(FakeElement.prototype, 'scrollIntoView')` で呼ばれた要素と引数を見る（文書の「:101 のモックを数える形に」の代わり）。
+12. **固定の高さと結果を見られる範囲（ユーザーに確かめる点）**: 高さ 900px の窓で、ヘッダー 56＋条件のパネル 140.4（パッシブのチップが改行すると 177.4）＋帯 44 ＝ 240.4px が固定され、結果を見られるのは 659.6px（改行時 622.6px）。帯の高さは牧場の数・判定・保留で変わらないが、**帯の下の詳細は判定で高さが変わる**（モックのアヌビス〔2 か所・交換推奨 1・空きの案内〕で 447px。ホルス〔0 か所・空きの案内〕70.5px、ジェッドラン〔1 か所〕131.3px）。そのため 1 番目の組は、開いた直後は 806px（窓の下の端の近く）から始まり、目標を変えると結果の top は 429.5〜806px で動く。ideal-panel の「実装の記録」10 の「牧場の欄の高さは ideal-farms で直す」は、帯の高さだけを直した形。詳細を結果の下へ移す・閉じた状態で出すなどにするかは、ユーザーに確かめる。
+13. **uncertain の牧場が出る条件（文書の「注意」の見立て）**: 解析（web/js/save/palworld.js）で uncertain になるのは、(a) 牧場の建物の Model／ConcreteModel が読めない（形の違い・件数の範囲外・ゼロ GUID。malformed.breedFarms に数える）、(b) 作業の割り当ての個体 ID が空か同じ牧場に重複、(c) 割り当てが 3 体以上、(d) 割り当てた親が Level.sav のキャラクターにいない（壊れて読めなかった個体・消えた個体の参照）。キャラクターはワールド全体が Level.sav に入るので、**ほかのギルドの拠点・仲間の拠点の牧場だからといって uncertain にはならない**。手元のセーブ（ホストの 14 ワールド。読み取りのみ）では、牧場のある 4 ワールドのうち今の形の 3 ワールド（牧場 13）はすべて ok、最後の保存が 2024-02 の古い形の 1 ワールドだけが 5 か所とも (a)（読めない形）で uncertain だった（そのワールドではいつも保留になる。前は牧場ごと捨てて判定を出さなかった）。ギルドが 2 つ以上あるワールドは手元になかった。→ ふつうのワールドで保留が続く見込みは低いので、文書のとおり「uncertain が 1 つでもあれば保留」にした。続くようなら、保留の範囲を「読めない牧場の引けた親にこの目標の親の候補がいる、または引けた親が 2 体未満でその拠点にこの目標の親の候補がいる牧場があるとき」に狭める案（実装していない）。
+14. **後のテーマへの申し送り**: farm-data は 1・2 の名前を使い、`farmCompleteness(all, { partial: farmsPartial })` を views/ideal.js の `farmContext` で渡す。共有の uncertain（`s: 'u'`・親は空）を受けたら status `'uncertain'` に戻す（そうすると参加者の画面でも保留になる）。farm-board は `farmNames` と帯の部品（`.ideal-farm-cell`）・`jumpTo` の形を参考にする。owned-rows は 9 の `marks`。
 
 ---
 

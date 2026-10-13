@@ -19,14 +19,14 @@
 | 0 準備 | — | 9 | 済 |
 | 1-0 | 1 | 17 | 1 |
 | 1a | 7 | 96 | 7 |
-| 1b | 4 | 45 | 3 |
+| 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 0 |
 | 1d | 6 | 74 | 0 |
 | 2 | 10 | 119 | 0 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **11** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **12** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -291,7 +291,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 要約・数値・説明を短くそろえ、組の親で達否を見せる
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-results` ／ マージのコミット: （未）
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-results` ／ マージのコミット: `39416cb`
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 - 文書と違う形にしたこと: `hint` に `close()` を足し、外側を押して閉じたときはフォーカスを戻さない（popover.js の決まり）。要約は `div.result-note.ideal-summary`、所持者が自分の個体のときは「 · 自分の個体」。読めなかった確認では最終確認を進めない。計算のしくみは「条件のある各ステータス」と ideal-calc の文。畳みは間に畳まない組が入ったら分け、理由は summary の中。強調は欲しいパッシブを選んだときだけ・個体値のセルは理想個体のカードだけで、差は値の下に小さく出す（phase-1b-1c の ideal-results の「実装の記録」）
 
@@ -311,21 +311,22 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 牧場の状態を残し、牧場の判定を絵と押せる行に
 
-- 状態: 未着手 ／ ブランチ: `feature/ideal-farms` ／ マージのコミット: （未）
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-farms` ／ マージのコミット: （未）
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
+- 文書と違う形にしたこと: 牧場の名前・完全性・使用中・空きは描くときのデータから求める（`farmContext`）。`farmCompleteness` の uncertain は判定に使えない牧場の数。帯は固定の 3 か所＋「ほか n か所」、置く組のない牧場は一覧にあれば「— N 番」で押せる。詳細の個体は palTile ではなく絵・名前・個体値・パッシブの小さな形。フォーカスは押したボタンに残す。帯の高さは固定だが、帯の下の詳細の高さは判定で変わる（結果の top はアヌビスで 806px。ユーザーに確かめる）（phase-1b-1c の ideal-farms の「実装の記録」）
 
-- [ ] `normalizeOwned` で uncertain の牧場を status つきで残し、`ownedFromShared` に status: 'ok' を付ける
-- [ ] `sharedUpload` で ok の牧場だけを今の形で送る（GAS・旧画面の互換）
-- [ ] core/ideal-farms.js に `readyFarms`・`farmCompleteness`・`emptyFarms`・`farmNames`・`farmsInUse` を足し、`targetFarms` で `readyFarms` を通す
-- [ ] core のテスト（ideal-farms・owned）を足す
-- [ ] views/ideal.js の判定の組み立てを、所持者で絞る前の候補・完全性・保留に合わせて組み直す（complete なら ideal-calc の `farmAdvice(…, { measureOf })`、保留中は「変更あり」なし＝D13）
-- [ ] sticky の牧場の帯を作る（高さ固定・押すと組へ移る・保留の 1 行・一覧にない「そのまま」は番号なしで押せない）
-- [ ] 牧場の詳細（絵の行・2×2・入れる／外す個体の行・空き・使用中）を作る（見送った「そのまま」の行の数字＝D15、空き牧場の組の選び方＝D16）
-- [ ] カードに `data-key`・札（牧場 A に配置中・交換先・持ち主が違う）を付ける（境目の線は作らない＝D14）
-- [ ] `ownedRow` に `marks` を足す
-- [ ] ideal-view.test.js の牧場の文のテストを直し、新しいテストを足す
-- [ ] CSS を書き直し、モックで A／B・移動・保留を確かめる
-- [ ] release-notes に 1 件足す
+- [x] `normalizeOwned` で uncertain の牧場を status つきで残し、`ownedFromShared` に status: 'ok' を付ける
+- [x] `sharedUpload` で ok の牧場だけを今の形で送る（GAS・旧画面の互換）
+- [x] core/ideal-farms.js に `readyFarms`・`farmCompleteness`・`emptyFarms`・`farmNames`・`farmsInUse` を足し、`targetFarms` で `readyFarms` を通す
+- [x] core のテスト（ideal-farms・owned）を足す
+- [x] views/ideal.js の判定の組み立てを、所持者で絞る前の候補・完全性・保留に合わせて組み直す（complete なら ideal-calc の `farmAdvice(…, { measureOf })`、保留中は「変更あり」なし＝D13）
+- [x] sticky の牧場の帯を作る（高さ固定・押すと組へ移る・保留の 1 行・一覧にない「そのまま」は番号なしで押せない）
+- [x] 牧場の詳細（絵の行・2×2・入れる／外す個体の行・空き・使用中）を作る（見送った「そのまま」の行の数字＝D15、空き牧場の組の選び方＝D16）
+- [x] カードに `data-key`・札（牧場 A に配置中・交換先・持ち主が違う）を付ける（境目の線は作らない＝D14）
+- [x] `ownedRow` に `marks` を足す
+- [x] ideal-view.test.js の牧場の文のテストを直し、新しいテストを足す
+- [x] CSS を書き直し、モックで A／B・移動・保留を確かめる
+- [x] release-notes に 1 件足す
 
 ---
 

@@ -64,7 +64,8 @@ const baseSignature = (pal) => [pal.palId, pal.known, pal.name, pal.human?.icon 
 const notesSignature = (notes) => notes.map((note) => `${note.label}:${note.name}:${note.desc}`).join('|');
 export const rowSignature = (pal, notes) => `${baseSignature(pal)}\u0002${notesSignature(notes)}`;
 
-function palCell(pal) {
+// marks は行の印（理想個体の組の親の「別の配合牧場で使用中」など。owned-rows の O-52 の印も同じ口を使う）
+function palCell(pal, marks = []) {
   const cell = el('div', 'owned-pal');
   if (pal.known) cell.append(palTile(pal.palId, { gender: pal.gender, genderFirst: true }));
   else {
@@ -86,21 +87,22 @@ function palCell(pal) {
   if (pal.egg) badges.append(el('span', 'owned-badge badge-egg', 'タマゴ'));
   if (pal.lucky) badges.append(el('span', 'owned-badge badge-lucky', 'ラッキー'));
   if (pal.alpha) badges.append(el('span', 'owned-badge badge-alpha', 'アルファ'));
+  for (const mark of marks) badges.append(el('span', 'owned-badge badge-mark', mark));
   if (badges.children.length) cell.append(badges);
   return cell;
 }
 
 /**
- * @param {{ notes?: { label: string, name: string, desc: string }[], highlight?: { wanted: string[], targets: { hp: number, shot: number, defense: number } } }} [options]
+ * @param {{ notes?: { label: string, name: string, desc: string }[], highlight?: { wanted: string[], targets: { hp: number, shot: number, defense: number } }, marks?: string[] }} [options]
  *   notes は一致した理由（core/owned.js の keywordNotes）。highlight は理想個体の組の親で、欲しいパッシブと個体値の目標との差を見せる
- *   （無いとき〔所持パルの画面〕の行の中身・textContent は今までと同じ）
+ *   （無いとき〔所持パルの画面〕の行の中身・textContent は今までと同じ）。marks は名前の下の印（.owned-badges の span.owned-badge.badge-mark）
  */
 export function ownedRow(pal, options) {
   return fillOwnedRow(el('article', 'owned-row'), pal, options);
 }
 
 /** 行の要素の中身を pal の内容で入れ直す（一覧で同じ個体の要素を使い回すとき）。オプションは ownedRow と同じ */
-export function fillOwnedRow(row, pal, { notes = [], highlight } = {}) {
+export function fillOwnedRow(row, pal, { notes = [], highlight, marks = [] } = {}) {
   row.setAttribute('aria-label', `${pal.name}${pal.nickname ? `（${pal.nickname}）` : ''}`);
   const level = el('div', 'owned-level');
   level.append(el('strong', '', pal.egg ? '孵化前' : `Lv ${pal.level}`), el('small', 'owned-stars', pal.stars ? '★'.repeat(pal.stars) : '☆なし'));
@@ -109,7 +111,7 @@ export function fillOwnedRow(row, pal, { notes = [], highlight } = {}) {
   if (pal.place === 'base' && pal.lastOwner) where.append(el('small', 'muted', `預けた人 ${pal.lastOwner}`));
   const passives = el('div', 'owned-passives');
   passives.append(passiveCell(pal.passives, highlight?.wanted), ...noteLines(notes));
-  row.replaceChildren(palCell(pal), level, passives, talentCell(pal.talent, highlight?.targets), where);
+  row.replaceChildren(palCell(pal, marks), level, passives, talentCell(pal.talent, highlight?.targets), where);
   return row;
 }
 

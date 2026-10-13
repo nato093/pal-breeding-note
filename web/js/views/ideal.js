@@ -6,7 +6,7 @@ import { hint } from '../ui/hint.js';
 import { dateTime } from '../ui/owned-status.js';
 import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { palsById, palTile } from '../ui/pal-icon.js';
+import { palsById, palTile, palIcon } from '../ui/pal-icon.js';
 import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/passive-picker.js';
 import { talentInput } from '../ui/talent-input.js';
 import { actionIcon, icons } from '../ui/breeding-card.js';
@@ -14,7 +14,7 @@ import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts } from '../core/owned.js';
 import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
-import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey } from '../core/ideal-farms.js';
+import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature } from './owned.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets } from './shared.js';
@@ -45,6 +45,10 @@ export const IDEAL_MEMORY = {
 const REFRESH_INTERVAL = 20 * 1000 + 500;
 // 区切った計算の 1 回の区切り（ms）。最初の区切りで終われば同期で描く（stable-render の D18: 1 区切り 50ms 以内）
 const SLICE_BUDGET = 30;
+// 配合牧場の帯（高さ固定の 1 行）に並べる牧場の数。入り切らない分は「ほか n か所」（押すと下の詳細へ）
+const STRIP_FARMS = 3;
+// 牧場の判定から組へ移ったとき、カードを光らせる時間（ms）
+const FLASH_MS = 1000;
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
 
 // 中身が変わったときだけ作り直されるもの（配合の index）を、計算の署名に入れる番号にする
@@ -118,7 +122,12 @@ const TAG_HINTS = {
   talent: 'パッシブは見ずに、個体値の目標をそろえる組です。',
   changed: '交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組です。',
   placed: 'セーブで、この組がその牧場に入っていると分かった組です。',
+  farmTo: '配合牧場の判定で、この組をその牧場の今の組と入れ替えることを勧めています（交換推奨）。',
 };
+// 名前の後ろに「に配置中」「へ」を続ける（「牧場 A に」のように、英数字で終わる名前の後だけ空ける）
+const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}${rest}`;
+// 個体の持ち主（手持ち・パルボックスなどは所持者、拠点のパルは預けた人）。分からなければ空
+const ownerOf = (pal) => (pal.place === 'base' ? pal.lastOwner || '' : pal.holder === '不明' ? '' : pal.holder || '');
 
 // 組の目的のアイコン（12px の SVG。王冠＝完全体作成組、つながった 2 つの輪＝パッシブ厳選組、3 本のバー＝個体値厳選組）。
 // フェーズ 1d の visual-parts で ui/icons.js に移す
@@ -162,13 +171,16 @@ function pairMeasure(pair, cake) {
 }
 
 /**
- * 組のカード。札（組の目的・変更あり・配置中）は押すと説明が開くボタンで、作った説明の部品は hints に入れる
+ * 組のカード。札（組の目的・変更あり・配置中・交換先の牧場・持ち主）は押すと説明が開くボタンで、作った説明の部品は hints に入れる
  *（カードを作り直すときに、呼んだ側が destroy して開いている板を閉じる）。
- * highlight（{ wanted, targets }）は ♂♀ の行で欲しいパッシブと個体値の目標との差を見せる（views/owned.js の ownedRow）
+ * highlight（{ wanted, targets }）は ♂♀ の行で欲しいパッシブと個体値の目標との差を見せる（views/owned.js の ownedRow）。
+ * placed はこの組が入っている牧場の名前、farmTo は交換推奨でこの組を置く牧場の名前、marks(pal) は親の行の印（別の配合牧場で使用中）。
+ * data-key（♂と♀の個体 ID）で、牧場の判定から押したときにこのカードを探す
  */
-function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, highlight, hints = [] } = {}) {
+function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, farmTo = '', highlight, hints = [], marks = () => [] } = {}) {
   const card = el('article', `ideal-pair group-${pair.group}`);
   card.setAttribute('aria-label', `${rank + 1} 番目の組`);
+  card.setAttribute('data-key', planPairKey(pair.male, pair.female));
   const head = el('div', 'ideal-pair-head');
   const chance = el('div', 'ideal-chance');
   const tags = el('div', 'ideal-tags');
@@ -181,7 +193,13 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, hig
   };
   tags.append(tag(`ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? '', TAG_HINTS[pair.group] ?? '', groupIcon(pair.group)));
   if (changed) tags.append(tag('ideal-changed', '変更あり', TAG_HINTS.changed));
-  if (placed) tags.append(tag('ideal-placed', `${placed}に配置中`, TAG_HINTS.placed));
+  if (placed) tags.append(tag('ideal-placed', joinName(placed, 'に配置中'), TAG_HINTS.placed));
+  if (farmTo) tags.append(tag('ideal-farm-to', `→ ${joinName(farmTo, 'へ')}`, TAG_HINTS.farmTo));
+  // 2 体の持ち主が違う組（X-28。だれと相談して置くか）。どちらかが分からなければ出さない
+  const owners = [ownerOf(pair.male), ownerOf(pair.female)];
+  if (owners.every(Boolean) && owners[0] !== owners[1]) {
+    tags.append(tag('ideal-owners', `${owners.join('・')} の個体`, `♂ は ${owners[0]}、♀ は ${owners[1]} の個体です（拠点のパルは預けた人）。`));
+  }
   const [strong, small] = pairMeasure(pair, cake);
   chance.append(tags, el('strong', '', strong), el('small', 'muted', small));
   head.append(el('span', 'step-number', String(rank + 1)), chance, el('span', 'ideal-source', sourceText(pair)));
@@ -197,7 +215,7 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, hig
   if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
-  card.append(head, ownedRow(pair.male, { highlight }), ownedRow(pair.female, { highlight }));
+  card.append(head, ownedRow(pair.male, { highlight, marks: marks(pair.male) }), ownedRow(pair.female, { highlight, marks: marks(pair.female) }));
   if (notes.children.length) card.append(notes);
   return card;
 }
@@ -252,7 +270,7 @@ const HELP_SECTIONS = [
   ['配合牧場と「変更あり」', [
     // 交換の決め方は ideal-calc で直した文（入れ替えに関わる牧場・D19 の一文）のまま
     '入れ替えると、牧場全体の完成の速さの目安（各牧場の 1÷完成までの平均 の合計。完全体作成組以外は 1 個のタマゴで完成する確率）が上がるときだけ交換を勧めます。上がらなければ「そのまま」です。入れ替えに関わる牧場がどれもまだ完成できない（準備の組だけの）ときは、それらの牧場がどれも悪くならず、1 か所以上が良くなるときだけ勧めます。親の片方が同じ組を優先し、1 体の入れ替えで済むようにします。同じ組み合わせで別の子も登録されている組が関わる牧場は、どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順のとおりにします。',
-    '「変更あり」は、交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組に付き、牧場の親を入れ替えたとセーブから分かると消えます。',
+    '「変更あり」は、交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組に付き、牧場の親を入れ替えたとセーブから分かると消えます。牧場の判定を保留している間は「変更あり」は付きません。',
     '開いている間はセーブ（参加している人はホストの共有）を確かめ直し、受け取ったパルも入れて並べ直します。',
   ]],
 ];
@@ -481,8 +499,13 @@ export function idealView(context, route) {
   summary.append(summaryText, excludedButton, checked);
   // 最後にセーブ（参加している人は共有）を確かめ終えた時刻（20 秒ごとの確認。まだなら 0）
   let lastChecked = 0;
-  // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定
+  // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定（sticky の帯と、その下の詳細）。
+  // 帯は高さが固定で、目標を選んでいて牧場の情報があるときは、中身がなくても場所を残す（判定が変わっても帯の高さは変わらない）
   const missingBox = el('div', 'ideal-missing-note');
+  const farmStrip = el('div', 'ideal-farm-strip');
+  farmStrip.setAttribute('role', 'group');
+  farmStrip.setAttribute('aria-label', '配合牧場の判定');
+  farmStrip.hidden = true;
   const farmBox = el('section', 'ideal-farms');
   const results = el('div', 'ideal-results');
   // 配合牧場の中身が最後に変わったときのおすすめ（「変更あり」の基準）。アプリでは端末に残し、テストなどでは画面の中で覚える
@@ -578,7 +601,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, summary, missingBox, farmBox, results);
+  element.append(heading, panel, summary, missingBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -636,51 +659,254 @@ export function idealView(context, route) {
     missingBox.append(actions);
   }
 
-  // 個体の短い説明（牧場の判定で、どの個体を入れ替えるか分かるように）
-  const palText = (pal) => `${pal.name}${pal.gender === 'M' ? '♂' : '♀'}（HP ${pal.talent.hp}・攻 ${pal.talent.shot}・防 ${pal.talent.defense}）`;
-  // 牧場の名前（拠点の名前。拠点が分からなければ「拠点の牧場」）
-  const farmName = (baseId) => {
-    const label = owned?.state?.owned?.bases?.find((base) => base.id === baseId)?.label;
-    return label ? `${label} の牧場` : '拠点の牧場';
-  };
+  // 牧場の行の個体（絵・名前と性別・個体値。passives なら小さなパッシブのチップも）。同じ種族の 2 体は個体値で見分ける
+  const talentLine = (pal) => `HP ${pal.talent.hp}・攻 ${pal.talent.shot}・防 ${pal.talent.defense}`;
+  const genderMark = (pal) => el('span', `gender gender-${pal.gender}`, pal.gender === 'M' ? '♂' : '♀');
+  function farmPal(pal, { passives = false } = {}) {
+    const node = el('span', 'ideal-farm-pal');
+    const name = el('span', 'ideal-farm-pal-name');
+    name.append(el('strong', '', pal.name), genderMark(pal));
+    node.append(palIcon(palsById.get(pal.palId)), name, el('small', 'ideal-farm-talent', talentLine(pal)));
+    if (passives && pal.passives.length) node.append(passiveList(pal.passives, { compact: true }));
+    return node;
+  }
+  // 入れる・外す個体の持ち主（拠点のパルは預けた人）
+  const ownerText = (pal) => (pal.place === 'base' ? (pal.lastOwner ? `${pal.lastOwner} が預けた` : pal.holder) : pal.holder);
 
-  // 配合牧場の判定。今この目標の組を置いている牧場を、おすすめの上から同じ数の組と比べ、全体の速さの目安が上がる交換だけを出す。
-  // uncertain(item) は、同じ組み合わせで別の子も登録されている組（牧場の組・交換先の組）の呼び名の一覧
-  function renderFarms(advice, changed, uncertain) {
-    farmBox.replaceChildren();
-    if (!advice?.length) return;
-    const swaps = advice.filter((item) => item.status === 'swap').length;
-    farmBox.append(el('h3', '', `配合牧場（この目標の組を置いている ${advice.length} か所 · 交換推奨 ${swaps} か所）`));
-    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
-    const list = el('ul', 'ideal-farm-list');
-    for (const item of advice) {
-      const row = el('li', `ideal-farm ${item.status}`);
-      const now = `${palText(item.farm.male)} × ${palText(item.farm.female)}`;
-      const where = farmName(item.farm.baseId);
-      row.append(el('strong', '', where), el('span', '', now));
-      // 上から K 組に入っていない「そのまま」は、交換を見送った牧場（入れ替えても全体の速さの目安が上がらない）
-      if (item.status === 'keep') {
-        row.append(el('span', 'ideal-farm-status keep', item.rank >= 0 && item.rank < advice.length
-          ? `そのまま（おすすめ ${item.rank + 1} 番）` : 'そのまま（入れ替えても全体の速さの目安が上がりません）'));
-      }
-      else if (item.status === 'swap') {
-        row.append(el('span', 'ideal-farm-status swap', `交換推奨 → おすすめ ${item.to + 1} 番`));
-        const detail = [
-          item.out.length ? `外す: ${item.out.map(palText).join('・')}` : '',
-          item.in.length ? `入れる: ${item.in.map((pal) => `${palText(pal)}（${pal.holder} · ${pal.placeLabel}）`).join('・')}` : '',
-        ].filter(Boolean).join(' / ');
-        row.append(el('small', 'muted', detail));
-      } else {
-        row.append(el('span', 'ideal-farm-status none', item.rank >= 0 ? `おすすめ ${item.rank + 1} 番（ほかに置く組がありません）` : 'おすすめにない組（ほかに置く組がありません）'));
-        if (item.out.length) row.append(el('small', 'muted', `外す: ${item.out.map(palText).join('・')}（ほかの牧場に入れます）`));
-      }
-      const doubtful = uncertain(item);
-      if (doubtful.length) {
-        row.append(el('small', 'ideal-warning', `⚠ ${doubtful.join('と')}は、同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。`));
-      }
-      list.append(row);
+  // 配合牧場の情報（今のデータの牧場から。計算の後に読み直したデータで描くときも、ここから求め直す）。牧場の情報がなければ null。
+  // 名前は全体の牧場で A／B を付け（I-27）、使用中の印は所持者で絞る前の親の候補で決める（I-32）。
+  // 読めない牧場があれば complete: false で、交換推奨・空き牧場・使用中の判定を保留する
+  function farmContext(data, layouts) {
+    const all = Array.isArray(data?.farms) ? data.farms : null;
+    if (!all) return null;
+    const labels = new Map((data.bases ?? []).map((base) => [base.id, base.label]));
+    const { complete, uncertain } = farmCompleteness(all);
+    const own = complete ? targetFarms(all, (data.pals ?? []).filter(isParentCandidate), layouts) : [];
+    return {
+      names: farmNames(all, (baseId) => labels.get(baseId) ?? ''), complete, uncertain,
+      inUse: complete ? farmsInUse(all, new Set(own.map((farm) => farm.id))) : new Map(),
+      empties: complete ? emptyFarms(all) : [],
+      baseLabel: (baseId) => labels.get(baseId) || '拠点',
+    };
+  }
+
+  // 牧場の判定の文（詳細の行のチップ・帯の短い文）と、押したときに移る組の順位（移る組がなければ -1）。
+  // 「そのまま」で上から K 組（size）より下か一覧にない組は、交換を見送った牧場（skipped。ideal-calc）
+  function farmState(item, size) {
+    const listed = item.rank >= 0;
+    if (item.status === 'swap') return { chip: `交換推奨 → おすすめ ${item.to + 1} 番`, short: `⇄ ${item.to + 1} 番へ`, target: item.to, skipped: false };
+    if (item.status === 'keep') {
+      return { chip: listed ? `そのまま（おすすめ ${item.rank + 1} 番）` : 'そのまま', short: listed ? `✓ ${item.rank + 1} 番` : '✓ そのまま',
+        target: item.rank, skipped: !listed || item.rank >= size };
     }
-    farmBox.append(list);
+    return { chip: listed ? `おすすめ ${item.rank + 1} 番（ほかに置く組がありません）` : 'おすすめにない組（ほかに置く組がありません）',
+      short: listed ? `— ${item.rank + 1} 番` : '—', target: item.rank, skipped: false };
+  }
+
+  // 1 個のタマゴあたりの平均から「平均 約 N 個」（届かなければ「この組では届きません」）
+  const perEggs = (eggs) => (Number.isFinite(eggs) && eggs > 0 ? eggsText(1 / eggs) : 'この組では届きません');
+  // おすすめの一覧にない牧場の組の数字（D15。idealPlan の measures の物差しを、組のカードと同じ言い方で）。物差しがなければ空
+  function measureText(measure, wanted) {
+    if (!measure) return '';
+    if (measure.status !== 'ok') return 'パッシブの条件を満たせない組';
+    if (measure.rank === 0) return `完成まで ${perEggs(measure.eggs)}`;
+    if (measure.rank === 1) {
+      const what = measure.gathered === wanted ? '欲しいパッシブが全部そろう' : `欲しいパッシブ ${wanted} 個のうち ${measure.gathered} 個がそろう`;
+      return `${what}まで ${eggsText(measure.gatherChance)}`;
+    }
+    return `個体値がそろうまで ${perEggs(measure.talentEggs)}`;
+  }
+
+  // 空き牧場に案内する組（D16）: 判定のあとの置き場（そのままの牧場の今の組・交換先の組・置く組のない牧場に残る個体）に使う個体を除き、
+  // おすすめを上から見て、♂・♀ のどちらも使っていない組を空きの数だけ（選んだ組どうしも個体を重ねない）
+  function emptyPicks(advice, pairs, count) {
+    const used = new Set();
+    for (const item of advice) {
+      const { male, female } = item.farm;
+      if (item.status === 'swap') [pairs[item.to].male, pairs[item.to].female].forEach((pal) => used.add(pal.id));
+      else if (item.status === 'keep') [male, female].forEach((pal) => used.add(pal.id));
+      else [male, female].filter((pal) => !item.out.some((out) => out.id === pal.id)).forEach((pal) => used.add(pal.id));
+    }
+    const picks = [];
+    pairs.forEach((pair, rank) => {
+      if (picks.length >= count || used.has(pair.male.id) || used.has(pair.female.id)) return;
+      picks.push(rank);
+      used.add(pair.male.id);
+      used.add(pair.female.id);
+    });
+    return picks;
+  }
+
+  // 帯の 1 か所: [牧場の名前][♂の絵]×[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）
+  function stripCell({ item, name, state, key }) {
+    const cell = key ? button('', () => jumpTo(key), `ideal-farm-cell ${item.status}`) : el('div', `ideal-farm-cell ${item.status} is-static`);
+    const pals = el('span', 'ideal-farm-cell-pals');
+    [item.farm.male, item.farm.female].forEach((pal, index) => {
+      if (index) pals.append(el('span', 'ideal-farm-cell-x', '×'));
+      const icon = el('span', 'ideal-farm-cell-pal');
+      icon.append(palIcon(palsById.get(pal.palId)), genderMark(pal));
+      pals.append(icon);
+    });
+    const arrow = el('span', 'ideal-farm-cell-arrow', '→');
+    arrow.setAttribute('aria-hidden', 'true');
+    cell.append(el('span', 'ideal-farm-cell-name', name), pals, arrow, el('span', 'ideal-farm-cell-state', state.short));
+    const label = `${name}（${item.farm.male.name}♂ × ${item.farm.female.name}♀）: ${state.chip}`;
+    cell.title = label;
+    if (key) cell.setAttribute('aria-label', `${label}。押すとその組へ移ります`);
+    return cell;
+  }
+  // 帯の中身（高さは固定）。保留中は理由の 1 行、この目標の組を置いた牧場がなければその旨（空きの数）
+  function renderStrip({ farm, rows, pending, empties }) {
+    farmStrip.replaceChildren();
+    if (!farm) return;
+    if (pending) {
+      farmStrip.append(el('span', 'ideal-farm-strip-note is-pending', `牧場の判定を保留（読めない牧場が ${farm.uncertain} か所あります）`));
+      return;
+    }
+    if (!rows.length) {
+      farmStrip.append(el('span', 'ideal-farm-strip-note', `この目標の組を置いた牧場はありません${empties.length ? `（空き ${empties.length} か所）` : ''}`));
+      return;
+    }
+    farmStrip.append(...rows.slice(0, STRIP_FARMS).map(stripCell));
+    if (rows.length > STRIP_FARMS) {
+      farmStrip.append(button(`ほか ${rows.length - STRIP_FARMS} か所`, () => {
+        farmBox.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+      }, 'ideal-farm-more'));
+    }
+  }
+
+  // 交換推奨の 2×2 の小表（列: 今／交換後、行: ♂／♀）。入れ替わる行のセルに印（is-changed）
+  function swapTable(item, next) {
+    const table = el('table', 'ideal-farm-swap');
+    const head = el('tr');
+    for (const text of ['', '今', '交換後']) {
+      const cell = el('th', '', text);
+      cell.setAttribute('scope', 'col');
+      head.append(cell);
+    }
+    const thead = el('thead');
+    thead.append(head);
+    const body = el('tbody');
+    for (const [label, now, after] of [['♂', item.farm.male, next.male], ['♀', item.farm.female, next.female]]) {
+      const changed = now.id !== after.id;
+      const line = el('tr');
+      const title = el('th', '', label);
+      title.setAttribute('scope', 'row');
+      line.append(title);
+      for (const pal of [now, after]) {
+        const cell = el('td', changed ? 'is-changed' : '');
+        cell.append(farmPal(pal));
+        line.append(cell);
+      }
+      body.append(line);
+    }
+    table.append(thead, body);
+    return table;
+  }
+  // 外す・入れる個体（1 行 1 体。持ち主・場所・パッシブ。自分の個体は太字、別の配合牧場で使っている個体に印）
+  function moveList(outs, ins, { mine, marks }) {
+    const list = el('ul', 'ideal-farm-moves');
+    const line = (pal, kind) => {
+      const item = el('li', `ideal-farm-move ${kind}${mine.has(pal.id) ? ' is-mine' : ''}`);
+      item.append(el('span', 'ideal-farm-move-label', kind === 'in' ? '入れる' : '外す'), farmPal(pal),
+        el('span', 'ideal-farm-owner', ownerText(pal)), el('span', 'ideal-farm-place', pal.placeLabel));
+      if (pal.passives.length) item.append(passiveList(pal.passives, { compact: true }));
+      for (const mark of marks(pal)) item.append(el('span', 'owned-badge badge-mark', mark));
+      return item;
+    };
+    list.append(...outs.map((pal) => line(pal, 'out')), ...ins.map((pal) => line(pal, 'in')));
+    return list;
+  }
+  // 詳細の 1 行（牧場の名前・今の 2 体・状態のチップ）。移る組があれば行（の上の段）を押すとその組へ移る
+  function farmRow({ item, name, state, key }, view) {
+    const { pending } = view;
+    const status = pending ? 'pending' : item.status;
+    const row = el('li', `ideal-farm ${status}`);
+    const main = key && !pending ? button('', () => jumpTo(key), 'ideal-farm-main') : el('div', 'ideal-farm-main');
+    const pair = el('span', 'ideal-farm-pair');
+    pair.append(farmPal(item.farm.male, { passives: true }), el('span', 'ideal-farm-x', '×'), farmPal(item.farm.female, { passives: true }));
+    main.append(el('strong', 'ideal-farm-name', name), pair, el('span', `ideal-farm-status ${status}`, pending ? '判定を保留' : state.chip));
+    // 交換を見送った「そのまま」（D15）は、チップの横に理由
+    if (!pending && state.skipped) main.append(el('span', 'ideal-farm-reason', '入れ替えても全体の速さの目安が上がりません'));
+    row.append(main);
+    if (pending) return row;
+    if (state.skipped && item.rank < 0) {
+      row.append(el('small', 'ideal-farm-measure', ['おすすめの一覧にない組', measureText(view.measureOf(planPairKey(item.farm.male, item.farm.female)), view.wanted)]
+        .filter(Boolean).join(' · ')));
+    }
+    if (item.status === 'swap') row.append(swapTable(item, view.pairs[item.to]), moveList(item.out, item.in, view));
+    else if (item.status === 'none' && item.out.length) {
+      row.append(el('small', 'ideal-farm-reason', '外す個体は、ほかの牧場の交換推奨に使います'), moveList(item.out, [], view));
+    }
+    const doubtful = view.doubtful(item);
+    if (doubtful.length) {
+      row.append(el('small', 'ideal-warning', `⚠ ${doubtful.join('と')}は、同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順で判定しています。`));
+    }
+    return row;
+  }
+  // 空き牧場の案内（I-29・D16。仲間の拠点の牧場も含むので、勧める程度の文）。番号は押すとその組へ移る
+  function emptyNote(view) {
+    const { empties, picks, farm, pairs } = view;
+    const note = el('p', 'ideal-farm-empty');
+    const bases = [...new Set(empties.map((item) => farm.baseLabel(item.baseId)))];
+    note.append(el('span', '', `空き ${empties.length} か所（${bases.join('・')}）。`));
+    if (!picks.length) {
+      note.append(el('span', 'muted', 'おすすめには、牧場に置く組と個体が重ならない組がありません。'));
+      return note;
+    }
+    note.append(el('span', '', '空いた牧場に置くなら おすすめ '));
+    picks.forEach((rank, index) => {
+      if (index) note.append(el('span', '', '・'));
+      const pick = button(`${rank + 1} 番`, () => jumpTo(planPairKey(pairs[rank].male, pairs[rank].female)), 'ideal-farm-pick');
+      pick.setAttribute('aria-label', `おすすめ ${rank + 1} 番の組へ移る`);
+      note.append(pick);
+    });
+    return note;
+  }
+  // 牧場の詳細（帯の下の通常の流れ）。見出し・「変更あり」の件数・保留の理由・牧場の行・空き牧場の案内
+  function renderFarmBox(view) {
+    const { farm, rows, pending, empties, changed } = view;
+    farmBox.replaceChildren();
+    if (!farm || (!rows.length && !empties.length)) return;
+    const counts = [`この目標の組を置いている ${rows.length} か所`];
+    if (!pending) counts.push(`交換推奨 ${rows.filter((row) => row.item.status === 'swap').length} か所`);
+    if (empties.length) counts.push(`空き ${empties.length} か所`);
+    farmBox.append(el('h3', '', `配合牧場（${counts.join(' · ')}）`));
+    if (changed) farmBox.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
+    if (pending) farmBox.append(el('p', 'ideal-farm-pending', `読めない牧場が ${farm.uncertain} か所あるため、交換推奨・空き牧場・使用中の判定を保留しています`));
+    if (rows.length) {
+      const list = el('ul', 'ideal-farm-list');
+      list.append(...rows.map((row) => farmRow(row, view)));
+      farmBox.append(list);
+    }
+    if (empties.length) farmBox.append(emptyNote(view));
+  }
+
+  // 牧場の判定から組へ移る（I-30）。畳まれた組なら開いてから、カードを画面の中ほどへ動かし、1 秒光らせる（動きを減らす設定では色だけ）。
+  // 光らせている組は data-key で覚え、その間に結果を作り直しても付け直す（drawPlan）
+  const reducedMotion = () => Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  const cardOf = (key) => [...results.querySelectorAll('.ideal-pair')].find((card) => card.getAttribute('data-key') === key) ?? null;
+  let flash = null;
+  function jumpTo(key) {
+    const card = cardOf(key);
+    if (!card) return;
+    const fold = card.parentElement;
+    if (fold && String(fold.className).split(' ').includes('ideal-same') && !fold.open) {
+      fold.open = true;
+      sameState.sameOpen = true;
+    }
+    card.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    if (flash) {
+      clearTimeout(flash.timer);
+      cardOf(flash.key)?.classList.toggle('is-flash', false);
+    }
+    // 同じカードを続けて押しても光り直すよう、外した後に一度読んでから付け直す（読むと、外した状態が描画に反映される）
+    void card.offsetWidth;
+    card.classList.add('is-flash');
+    flash = { key, timer: setTimeout(() => {
+      cardOf(key)?.classList.toggle('is-flash', false);
+      flash = null;
+    }, FLASH_MS) };
   }
 
   const holderName = () => (conditions.holder ? [...holderSelect.children].find((node) => node.value === conditions.holder)?.textContent ?? '' : '');
@@ -789,6 +1015,7 @@ export function idealView(context, route) {
     renderSummary(null);
     renderHolding(null);
     missingBox.replaceChildren();
+    farmStrip.replaceChildren();
     farmBox.replaceChildren();
   }
 
@@ -799,6 +1026,8 @@ export function idealView(context, route) {
     renderSave();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
+    // 牧場の帯の場所（目標を選んでいて、牧場の情報があるとき。計算の前から場所を取る）
+    farmStrip.hidden = !(to && Array.isArray(owned?.state?.owned?.farms));
     if (!pals) {
       clearPlan();
       showResults([empty(owned && !owned.state.ready ? '読み込み中…'
@@ -846,7 +1075,7 @@ export function idealView(context, route) {
     const short = TALENT_KEYS.filter((name) => conditions.targets[name] > 0 && !parents.some((pal) => pal.talent[name] >= reach(name)))
       .map((name) => `${TALENT_LABELS[name]} ${reach(name)} 以上`);
     const plan = {
-      placedFarms, signature, memoryId, baseline, farms, cake: conditions.cake, data: owned.state.owned,
+      placedFarms, signature, memoryId, baseline, farms, layouts, holder: conditions.holder, cake: conditions.cake, data: owned.state.owned,
       highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short,
     };
     const steps = idealPlanSteps({
@@ -868,6 +1097,7 @@ export function idealView(context, route) {
       renderSummary(null);
       renderHolding(null);
       missingBox.replaceChildren();
+      farmStrip.replaceChildren();
       farmBox.replaceChildren();
       showResults([empty('計算中…')]);
     }
@@ -902,9 +1132,10 @@ export function idealView(context, route) {
       plan: { ...plan, data: owned.state.owned, placedFarms: plan.placedFarms.map((farm) => ({ ...farm, male: swap(farm.male), female: swap(farm.female) })) },
     };
   }
-  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・牧場の拠点の名前）。同じなら描き直さない
+  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・全部の牧場〔名前・状態・使用中・空き〕と拠点の名前）。同じなら描き直さない
   const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female])]
-    .map((pal) => rowSignature(pal, [])).concat(holderName(), plan.placedFarms.map((farm) => farmName(farm.baseId))).join('\u0003');
+    .map((pal) => rowSignature(pal, [])).concat(holderName(), JSON.stringify([plan.data?.farms ?? null, (plan.data?.bases ?? []).map((base) => [base.id, base.label])]))
+    .join('\u0003');
   // 描いている結果を、今のデータの個体で描き直す（データが変わっていて、出す値も変わったときだけ）
   function drawLatest(current) {
     if (owned.state.owned === current.plan.data) return;
@@ -921,10 +1152,13 @@ export function idealView(context, route) {
     if (Array.isArray(farms)) {
       const next = planChanges(baseline, signature, result.pairs, placedFarms.length);
       if (next.reset) planMemory.set(memoryId, next.baseline);
-      // 「変更あり」は、採った交換推奨の行き先の組だけ（交換推奨と同じ考え方）
-      const swapTargets = new Set(farmAdviceOf(result, placedFarms).advice.filter((item) => item.status === 'swap')
-        .map((item) => planPairKey(result.pairs[item.to].male, result.pairs[item.to].female)));
-      changed = new Set([...next.changed].filter((key) => swapTargets.has(key)));
+      // 「変更あり」は、採った交換推奨の行き先の組だけ（交換推奨と同じ考え方）。読めない牧場があって判定を保留している間は、
+      // 交換推奨がないので付けない（D13。基準は今どおり planChanges で更新する）
+      if (farmCompleteness(farms).complete) {
+        const swapTargets = new Set(farmAdviceOf(result, placedFarms).advice.filter((item) => item.status === 'swap')
+          .map((item) => planPairKey(result.pairs[item.to].male, result.pairs[item.to].female)));
+        changed = new Set([...next.changed].filter((key) => swapTargets.has(key)));
+      }
     }
     shown = { result, plan, changed, display: displayKey({ result, plan }) };
     drawPlan(result, plan, changed);
@@ -940,24 +1174,57 @@ export function idealView(context, route) {
     return { measureOf, advice: farmAdvice(placedFarms, result.pairs, { measureOf }) };
   }
 
-  // 要約・所持の状況・足りないパッシブ・配合牧場の判定・組のカードを描く
-  function drawPlan(result, { placedFarms, cake, highlight, short = [] }, changed) {
+  // 要約・所持の状況・足りないパッシブ・配合牧場の判定（帯と詳細）・組のカードを描く。牧場の名前・完全性・使用中・空きは、
+  // 描くときのデータ（plan.data。計算の後に読み直したデータ）から求める。読めない牧場があれば判定を保留し、交換推奨・空き牧場・使用中・
+  //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）
+  function drawPlan(result, plan, changed) {
+    const { placedFarms, cake, highlight, short = [] } = plan;
     renderSummary(result);
     renderHolding(result);
     renderMissing(result);
-    const { measureOf, advice } = farmAdviceOf(result, placedFarms);
-    renderFarms(advice, changed.size, (item) => [
-      measureOf(planPairKey(item.farm.male, item.farm.female))?.ambiguous ? '牧場の組' : '',
-      item.status === 'swap' && result.pairs[item.to].ambiguous ? '交換先の組' : '',
-    ].filter(Boolean));
+    const farm = farmContext(plan.data, plan.layouts ?? []);
+    const pending = Boolean(farm && !farm.complete);
+    const judged = farm && !pending ? farmAdviceOf(result, placedFarms) : null;
+    const keyOf = (pair) => planPairKey(pair.male, pair.female);
+    const rankOf = new Map(result.pairs.map((pair, rank) => [keyOf(pair), rank]));
+    const names = farm?.names ?? new Map();
+    const nameOf = (id) => names.get(id) ?? '拠点の牧場';
+    // 牧場ごとの判定（保留中は判定せず、今の組の順位だけ）。押したときに移る組のキー（移る組がなければ空）
+    const advice = judged?.advice ?? placedFarms.map((item) => ({ farm: item, status: 'keep', rank: rankOf.get(keyOf(item)) ?? -1 }));
+    const rows = advice.map((item) => {
+      const state = farmState(item, placedFarms.length);
+      return { item, name: nameOf(item.farm.id), state, key: state.target >= 0 ? keyOf(result.pairs[state.target]) : '' };
+    });
+    // 空き牧場は、判定がそろっていて、所持者が「すべて」のときだけ（仲間の拠点の牧場も含む）
+    const empties = judged && !plan.holder ? farm.empties : [];
+    const marks = (pal) => (farm?.inUse.has(pal.id) ? [`別の配合牧場で使用中（${nameOf(farm.inUse.get(pal.id))}）`] : []);
+    const shownChanged = judged ? changed : new Set();
+    const view = {
+      farm, rows, pending, empties, changed: shownChanged.size, pairs: result.pairs, wanted: highlight.wanted.length, marks,
+      measureOf: judged?.measureOf ?? (() => undefined), picks: judged ? emptyPicks(judged.advice, result.pairs, empties.length) : [],
+      mine: new Set((ideals?.mine() ?? []).map((pal) => pal.id)),
+      doubtful: (item) => (judged ? [
+        judged.measureOf(keyOf(item.farm))?.ambiguous ? '牧場の組' : '',
+        item.status === 'swap' && result.pairs[item.to].ambiguous ? '交換先の組' : '',
+      ].filter(Boolean) : []),
+    };
+    renderStrip(view);
+    renderFarmBox(view);
     if (!result.total) { showResults([noPairs(result)]); return; }
-    const placed = new Map(placedFarms.map((farm) => [planPairKey(farm.male, farm.female), farmName(farm.baseId)]));
-    // 牧場の判定が指している組（そのままの組・交換先の組）は畳まない
+    const placed = new Map(placedFarms.map((item) => [keyOf(item), nameOf(item.id)]));
+    // 交換推奨の行き先の組に「→ ◯◯へ」の札（D14。境目の線の代わりに、置く組を札で示す）
+    const farmTo = new Map(advice.filter((item) => item.status === 'swap').map((item) => [keyOf(result.pairs[item.to]), nameOf(item.farm.id)]));
+    // 牧場の判定が指している組（そのままの組・交換先の組。保留中は牧場に入っている組）は畳まない
     const pointed = new Set(advice.flatMap((item) => (item.status === 'swap' ? [item.to] : item.rank >= 0 ? [item.rank] : [])));
     const hints = [];
     const nodes = result.pairs.map((pair, rank) => {
-      const key = planPairKey(pair.male, pair.female);
-      return pairCard(pair, rank, { cake, placed: placed.get(key) ?? '', changed: changed.has(key), highlight, hints });
+      const key = keyOf(pair);
+      const card = pairCard(pair, rank, {
+        cake, placed: placed.get(key) ?? '', changed: shownChanged.has(key), farmTo: farmTo.get(key) ?? '', highlight, hints, marks,
+      });
+      // 光らせている途中に作り直したら、新しいカードにも付け直す
+      if (flash?.key === key) card.classList.add('is-flash');
+      return card;
     });
     showResults(foldSame(result.pairs, nodes, pointed, short), hints);
   }
@@ -992,6 +1259,7 @@ export function idealView(context, route) {
   const pickers = {
     destroy() {
       destroyed = true;
+      if (flash) clearTimeout(flash.timer);
       talent.destroy();
       job?.cancel();
       job = null;

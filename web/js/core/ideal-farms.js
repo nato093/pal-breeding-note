@@ -5,10 +5,70 @@
 export const planPairKey = (male, female) => `${male.id}|${female.id}`;
 const pairKey = planPairKey;
 
+// 所持パルのデータの牧場の形: { id, baseId, parents: 個体 ID[], status?: 'ok' | 'uncertain' }。
+// uncertain は親が読めない・食い違う牧場（parents は引けた親だけ）。status のない古いデータ（IndexedDB・共有）は ok とみなす
+
+/** 判定に使える牧場（状態が ok か、状態のない古いデータ）。 */
+export const readyFarms = (farms) => (farms ?? []).filter((farm) => !farm.status || farm.status === 'ok');
+
+/**
+ * 牧場の情報がそろっているか。判定に使えない牧場（uncertain など）が 1 つでもある、または partial（共有で牧場が一部だけ。
+ * farm-data で足す印）なら complete: false（交換推奨・空き牧場・使用中の判定を保留する。欠けた牧場で誤った交換を勧めない）
+ * @returns {{ complete: boolean, uncertain: number, partial: boolean }} uncertain は判定に使えない牧場の数
+ */
+export function farmCompleteness(farms, { partial = false } = {}) {
+  const uncertain = (farms ?? []).length - readyFarms(farms).length;
+  return { complete: !uncertain && !partial, uncertain, partial: Boolean(partial) };
+}
+
+/** 空いている牧場（状態が ok で親が 2 体未満）。 */
+export const emptyFarms = (farms) => readyFarms(farms).filter((farm) => farm.parents.length < 2);
+
+// 0 → A、25 → Z、26 → AA
+const farmLetter = (index) => (index < 26 ? String.fromCharCode(65 + index) : farmLetter(Math.floor(index / 26) - 1) + farmLetter(index % 26));
+
+/**
+ * 牧場の表示名（例「拠点 1 の牧場 A」）。拠点に 2 つ以上あるときだけ、拠点ごとに牧場の ID の順で A, B…を付ける。
+ * 読めない牧場も含めた全体の牧場で数え、目標ごとに変えない（記号が目標や読めた牧場の数で変わらない）
+ * @param {(baseId: string) => string} baseLabel 拠点の名前（分からなければ空。「拠点の牧場」になる）
+ * @returns {Map<string, string>} 牧場 ID → 名前（farms の順）
+ */
+export function farmNames(farms, baseLabel) {
+  const byBase = new Map();
+  for (const farm of farms ?? []) {
+    if (!byBase.has(farm.baseId)) byBase.set(farm.baseId, []);
+    byBase.get(farm.baseId).push(farm.id);
+  }
+  const letters = new Map();
+  for (const ids of byBase.values()) {
+    if (ids.length < 2) continue;
+    [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).forEach((id, i) => letters.set(id, farmLetter(i)));
+  }
+  return new Map((farms ?? []).map((farm) => {
+    const label = baseLabel(farm.baseId);
+    const name = label ? `${label} の牧場` : '拠点の牧場';
+    return [farm.id, letters.has(farm.id) ? `${name} ${letters.get(farm.id)}` : name];
+  }));
+}
+
+/**
+ * 目標の牧場（targetIds）以外の牧場（判定に使える牧場だけ）に入っている個体 → その牧場 ID。
+ * 理想個体の計画で、ほかの配合に使っている親に「別の配合牧場で使用中」の印を付ける（計画からは外さない）
+ * @param {Set<string>} targetIds この目標の組が入っている牧場の ID（所持者で絞る前の候補で求めたもの）
+ */
+export function farmsInUse(farms, targetIds) {
+  const inUse = new Map();
+  for (const farm of readyFarms(farms)) {
+    if (targetIds.has(farm.id)) continue;
+    for (const id of farm.parents) if (!inUse.has(id)) inUse.set(id, farm.id);
+  }
+  return inUse;
+}
+
 /**
  * 今この目標の組が入っている配合牧場。親が 2 体とも候補（pals）にいて、♂ と ♀ で、目標が産まれる向き（layouts）のもの。
- * ほかのパルを配合している牧場・空いている牧場・親が候補にいない（所持者で絞った）牧場は対象にしない。
- * @param {{ id: string, baseId: string, parents: string[] }[]} farms 所持パルのデータの farms
+ * ほかのパルを配合している牧場・空いている牧場・親が候補にいない（所持者で絞った）牧場・読めない牧場は対象にしない。
+ * @param {{ id: string, baseId: string, parents: string[], status?: string }[]} farms 所持パルのデータの farms
  * @param {object[]} pals 計画に渡した個体（所持者で絞ったもの）
  * @param {{ male: string, female: string }[]} layouts 計画の結果の layouts
  */
@@ -16,7 +76,7 @@ export function targetFarms(farms, pals, layouts) {
   const byId = new Map(pals.map((pal) => [pal.id, pal]));
   const ways = new Set(layouts.map((layout) => `${layout.male}|${layout.female}`));
   const found = [];
-  for (const farm of farms ?? []) {
+  for (const farm of readyFarms(farms)) {
     if (farm.parents.length !== 2) continue;
     const parents = farm.parents.map((id) => byId.get(id));
     const male = parents.find((pal) => pal?.gender === 'M');
