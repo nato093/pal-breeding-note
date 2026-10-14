@@ -74,5 +74,6 @@ test('静的検査: 所持パルの行の高さの見積もり（JS の ROW_ESTI
   // 全体の summary の min-height（44px）に引きずられない（--farm-fold-h を変えたら、閉じた 1 行も場所だけのときも同じ高さになる）
   assert.match(rule('.ideal-farms-summary'), /(?:^|[;\s])height: var\(--farm-fold-h\)/);
   assert.match(rule('.ideal-farms-summary'), /(?:^|[;\s])min-height: 0[;\s]/);
-  assert.match(rule('.ideal-farms:empty'), /(?:^|[;\s])height: var\(--farm-fold-h\)/);
+  // 出すものがないときに 1 行の場所を残す規則（.ideal-farms:empty）は、D30 でなくした（詳細ごと hidden にする）
+  assert.equal(rule('.ideal-farms:empty'), '');
 });

@@ -1636,7 +1636,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
    見出しと区切りは所持パルのパネルと同じ決まり（下の「固定の条件のパネルの共通の決まり」。D28） */
 .view-heading:has(> .view-heading-actions) { display: flex; align-items: center; gap: 12px; }
 .view-heading-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.view-help-button { font-size: 16px; font-weight: 700; border: 1px solid var(--md-sys-color-outline-variant); }
 .ideal-goals-button { white-space: nowrap; }
 .ideal-panel {
   position: sticky;
@@ -1738,6 +1737,7 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 /* 押しボタンの選択（ui/segmented.js）。選んでいるものは継承ルートの開始チップと同じ secondary-container の地 */
 .segmented { display: inline-flex; }
 .segmented-option {
+  position: relative;
   min-height: 32px;
   padding: 3px 12px;
   border: 1px solid var(--md-sys-color-outline);
@@ -1756,24 +1756,24 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 /* 固定パネル（理想個体・所持パル）の押しボタンは左右の余白を詰める。所持パルのパネルの 2 段目の 2 行目に、1100px で 30px の余りを作る
    （「全部持つ」が文字の幅の違うフォントでも折り返さず、パネルが伸びないように。前は 6px。D27）。2 つのパネルで同じ見た目にする */
 :is(.ideal-panel, .owned-panel) .segmented-option { padding-left: 8px; padding-right: 8px; }
-/* 要約の行は 1 行に固定。[件数などの文（入りきらない分は省略し、title に全文）][除外 N]。
-   子は固定の 2 つで、条件を変えても行の高さと位置が変わらない（最終確認の時刻は上のデータ元の 1 行の状態のスロットに出す） */
-.ideal-summary { display: flex; align-items: center; gap: 10px; white-space: nowrap; height: 1lh; }
-.ideal-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.ideal-excluded {
-  flex: none;
-  border: 0;
-  border-radius: 4px;
-  padding: 0 6px;
-  font-size: 11px;
+/* 押しボタンの小さな印（ui/segmented.js の badge。理想個体のケーキの「最速」。D30）。ボタンの右上の角に重ね、ボタンの幅と高さ・
+   パネルの高さを変えない（上端は上の行との間 5px の中に置き、上の行の所持者の欄の枠に重ねない。下端は押しボタンの文字の上に収める）。押すのはボタン（印は押せない） */
+.segmented-badge {
+  position: absolute;
+  top: -5px;
+  right: -3px;
+  z-index: 1;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-size: 9px;
   font-weight: 700;
-  line-height: 1.6;
-  background: var(--md-sys-color-surface-container-highest);
-  color: var(--md-sys-color-on-surface-variant);
+  line-height: 11px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  pointer-events: none;
 }
-.ideal-excluded:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-highest)); }
-/* 除外がないときは見えないまま幅を残す */
-.ideal-excluded.is-placeholder { visibility: hidden; }
 /* 押すと開く説明（ui/hint.js）。板は body に浮かせる（固定配置で周りを動かさない） */
 .hint-button {
   flex: none;
@@ -1816,11 +1816,12 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 /* まだ何も出していないときは、本文の「計算中…」だけを出す */
 .ideal-results.is-computing:has(> .empty-state:only-child)::after { content: none; }
 .ideal-results.is-computing > .empty-state:only-child { opacity: 1; }
-.ideal-pair { padding: 10px 18px 12px; background: var(--md-sys-color-surface-container-low); border-radius: 16px; }
-.ideal-pair-head { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.ideal-chance { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+/* 組のカード: [番号][札] の 1 行と ♂♀ の 2 行（数値の行・内訳の文・「同じ種族どうし」は D30 でなくした）。上下の余白は札の行と行の中の余白に
+   合わせて詰める（最後の行の下の線は出さない。下の .ideal-pair > .owned-row:last-child） */
+.ideal-pair { padding: 8px 18px 6px; background: var(--md-sys-color-surface-container-low); border-radius: 16px; }
+.ideal-pair-head { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 /* 配合の計画の組の目的（完全体作成組／パッシブ厳選組／個体値厳選組）と、変更あり・配置中の印 */
-.ideal-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
+.ideal-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 /* 札は押すと説明が開くボタン（ui/hint.js）。組の目的は 12px のアイコンつき */
 .ideal-tier, .ideal-changed, .ideal-placed, .ideal-farm-to, .ideal-owners {
   display: inline-flex;
@@ -1846,6 +1847,7 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 /* 配合牧場の判定 */
 .ideal-missing-note:empty { display: none; }
 /* 牧場の帯（2 段目の固定。条件のパネルの下に重なる）。高さは固定で、牧場の数・判定・保留で変わらない（下の詳細と結果を動かさない）。
+   この目標の組を置いた牧場がない（保留でもない）ときは hidden で場所も取らない（D30）。
    入り切らない牧場は「ほか n か所」、狭い幅では牧場の名前を省略する。--farm-fold-h は帯の下の詳細の閉じた 1 行の高さ（押せる高さ 44px） */
 .ideal-view { --farm-strip-h: 44px; --farm-fold-h: 44px; }
 .ideal-farm-strip {
@@ -1917,9 +1919,8 @@ button.ideal-farm-cell:hover { background: color-mix(in srgb, var(--md-sys-color
 }
 /* 牧場の詳細（帯の下の通常の流れ）。牧場ごとに [名前][今の 2 体][状態]、交換推奨は 2×2 の小表と入れる・外す個体。
    既定は閉じた 1 行（見出しだけ。D22）で、見出しの文が変わっても高さは変わらない（省略記号で 1 行）。
-   出すものがないときも、帯が出ている間はこの 1 行の場所を残す（結果の位置を動かさない） */
+   出すものがないときは hidden（D30 で、帯が出ている間に 1 行の場所を残すのをやめた） */
 .ideal-farms { margin: 0 0 10px; border-radius: 16px; background: var(--md-sys-color-surface-container-low); }
-.ideal-farms:empty { height: var(--farm-fold-h); visibility: hidden; }
 /* 高さは --farm-fold-h だけで決める（全体の summary の min-height: 44px に引きずられない。test/static/styles.test.js） */
 .ideal-farms-summary { display: flex; align-items: center; gap: 6px; height: var(--farm-fold-h); min-height: 0; padding: 0 18px; border-radius: 16px; list-style: none; cursor: pointer; }
 .ideal-farms-summary::-webkit-details-marker { display: none; }
@@ -1960,7 +1961,7 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-farm-status { flex: none; font-weight: 700; padding: 0 6px; border-radius: 4px; line-height: 1.6; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
 .ideal-farm-status.keep { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); }
 .ideal-farm-status.swap { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
-.ideal-farm-reason, .ideal-farm-measure { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-farm-reason { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .ideal-farm .ideal-warning { font-size: 12px; }
 .ideal-farm-swap { justify-self: start; border-collapse: separate; border-spacing: 2px; font-size: 12px; }
 .ideal-farm-swap th { padding: 0 6px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); text-align: left; }
@@ -1992,12 +1993,10 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-pair.is-flash { background: var(--md-sys-color-secondary-container); }
 .ideal-missing-note { margin: 4px 0 10px; }
 .ideal-missing-note p { margin: 0 0 6px; font-size: 13px; }
-.ideal-chance strong { font-size: 16px; }
-.ideal-chance small { font-size: 12px; }
-.ideal-source { font-size: 12px; color: var(--muted); text-align: right; }
 /* 組の ♂♀ 行は所持パルの行と同じ列（--owned-cols）と高さ。列見出しがないので、個体値の 4 セルには小さな見出しを付ける */
 /* 組の行は描画を後回しにせず、はみ出しを切らない（.owned-row の contain: strict の paint のまま左の余白 0 だと、パル名のリンクのフォーカスの枠の左が切れる） */
 .ideal-pair .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
+.ideal-pair > .owned-row:last-child { border-bottom: 0; }
 .ideal-pair .owned-row:hover { background: transparent; }
 .ideal-pair .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
 .ideal-pair .talent-cell[data-key="hp"]::before { content: 'HP'; }
@@ -2005,13 +2004,11 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-pair .talent-cell[data-key="defense"]::before { content: '防'; }
 .ideal-pair .talent-cell[data-key="total"]::before { content: '計'; }
 /* 組の ♂♀ 行の強調（views/owned.js の ownedRowItem の highlight）。欲しいパッシブは先頭に ✓、それ以外は薄く。
-   個体値は目標以上を primary の太字、目標未満は細字にして下に差（−N。D23） */
+   個体値は目標以上を primary の太字、目標未満は細字（目標までの差〔−N。D23〕は D30 で出さなくした。バーの目標の縦線は残す） */
 .passive-chip.is-extra { opacity: .55; }
 .passive-check { flex: none; margin-right: -4px; font-weight: 700; }
-/* 差は値の下に小さく出す（D23。4 セルの幅に収める） */
 .talent-cell.met { color: var(--md-sys-color-primary); }
 .talent-cell.short { font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
-.talent-diff { font-size: 11px; line-height: 1.2; color: var(--muted); }
 /* 同じ見込みの個体値厳選組（畳んだまとまり。中のカードは開くと出る） */
 .ideal-same { display: grid; gap: 12px; }
 .ideal-same-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 6px 18px; border-radius: 12px; list-style: none; font-size: 13px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
@@ -2024,11 +2021,6 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-notes { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .ideal-warning { color: var(--warning); }
 .ideal-missing { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-/* 計算のしくみ（見出しの「?」のダイアログ。4 つの見出しに各 1〜3 文） */
-.ideal-help-dialog { width: min(640px, calc(100% - 24px)); }
-.ideal-help { display: grid; gap: 14px; font-size: 13px; }
-.ideal-help h3 { margin: 0 0 4px; font-size: 14px; }
-.ideal-help p { margin: 0 0 4px; }
 /* 保存した目標（見出しの「目標（N）」のダイアログ。列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す） */
 .ideal-goals-dialog { width: min(960px, calc(100% - 24px)); }
 .ideal-goal-list { list-style: none; margin: 0; padding: 0; display: grid; }
