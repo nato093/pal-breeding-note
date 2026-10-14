@@ -128,7 +128,7 @@ function banner(t, { busy = () => '', served = async () => NEW } = {}) {
 
 test('更新の帯: 新しい更新内容の title と件数を出し、読み込み直すと反映されることを伝える', (t) => {
   const { instance, text, close } = banner(t);
-  // 帯が出ている間は html に .has-update-banner（CSS がトーストの領域を狭める。:has() は使わない。owned-rows）
+  // 帯が出ている間は html に .has-update-banner（CSS がトーストを帯の上に積む。:has() は使わない。owned-rows）
   document.documentElement = new FakeElement('html');
   assert.equal(instance.element.hidden, true);
   assert.equal(instance.element.getAttribute('role'), 'status');
@@ -138,6 +138,8 @@ test('更新の帯: 新しい更新内容の title と件数を出し、読み�
   instance.show({ version: 'ccccccc', notes: [] });
   assert.equal(text(), '新しいバージョンがあります読み込み直すと反映されます。');
   assert.ok(document.documentElement.className.split(' ').includes('has-update-banner'));
+  // 帯の高さを html の --snackbar-height に書く（CSS がトーストを帯の上に積む。テストの DOM の高さは 52px）
+  assert.equal(document.documentElement.style.getPropertyValue('--snackbar-height'), '52px');
   close.dispatch('click');
   assert.equal(instance.element.hidden, true);
   assert.equal(document.documentElement.className.split(' ').includes('has-update-banner'), false);

@@ -275,22 +275,75 @@ test('下書き: 確認の間にログアウトしたら、残りの下書きを
   assert.equal(app.calls.length, 0);
 });
 
-test('下書き: 一括削除は確認してから全件を消す', async (t) => {
+test('下書き: 一括削除は確認なしで全件を消し、「元に戻す」で同じ順に戻す', async (t) => {
   const app = await setup(t);
-  app.drafts.add(complete);
-  app.drafts.add();
+  const [first, second, third] = [app.drafts.add({ parent1Id: 'Alpaca' }), app.drafts.add({ parent1Id: 'Boar' }), app.drafts.add({ parent1Id: 'Deer' })];
   const view = mount(t, app);
-  let done = buttonNamed(view.element, '一括削除').dispatch('click');
-  await buttonNamed(openDialogs()[0], 'キャンセル').dispatch('click');
-  await done;
-  assert.equal(rows(view).length, 2);
-  done = buttonNamed(view.element, '一括削除').dispatch('click');
-  assert.match(openDialogs()[0].textContent, /すべての下書きを削除しますか？.*2 件/);
-  await buttonNamed(openDialogs()[0], '削除').dispatch('click');
-  await done;
+  const bulkRemove = buttonNamed(view.element, '一括削除');
+  bulkRemove.focus();
+  await bulkRemove.dispatch('click');
+  // 端末だけのものなので確認は出さない（共有する配合の削除だけ確認する。判断事項 7）
+  assert.equal(openDialogs().length, 0);
   assert.deepEqual(app.drafts.list(), []);
   assert.match(view.element.textContent, /下書きはありません/);
-  assert.match(app.body.textContent, /2 件の下書きを削除しました/);
+  assert.equal(bulkRemove.disabled, true);
+  // 押せなくなった一括削除の代わりに、空の下書きの追加へフォーカスを移す（その次の Tab でトーストの「元に戻す」）
+  assert.equal(document.activeElement, buttonNamed(view.element, '＋ 空の下書きを追加'));
+  const toastNode = app.body.querySelectorAll('.toast').find((node) => node.textContent.startsWith('3 件の下書きを削除しました'));
+  assert.ok(toastNode);
+  // 戻す前に足した下書きは、そのまま後ろに残る
+  const added = app.drafts.add({ parent1Id: 'Kitsunebi' });
+  await buttonNamed(toastNode, '元に戻す').dispatch('click');
+  assert.deepEqual(app.drafts.list().map((draft) => draft.id), [first.id, second.id, third.id, added.id]);
+  assert.equal(rows(view).length, 4);
+  assert.equal(bulkRemove.disabled, false);
+});
+
+test('下書き: 一括削除の元に戻すは、消した位置（今の長さに丸める）に差し込み、同じ ID は戻さない', async (t) => {
+  const app = await setup(t);
+  const [first, second, third, fourth] = ['Alpaca', 'Boar', 'Deer', 'Kitsunebi'].map((parent1Id) => app.drafts.add({ parent1Id }));
+  const key = app.drafts.scope();
+  const removed = app.drafts.removeAll([first.id, third.id, fourth.id, 'missing'], key);
+  // index は消す前の位置（小さい順）
+  assert.deepEqual(removed.map(({ draft, index }) => [draft.id, index]), [[first.id, 0], [third.id, 2], [fourth.id, 3]]);
+  assert.deepEqual(app.drafts.list().map((draft) => draft.id), [second.id]);
+  // 消した後に 2 件目を消すと、3・4 番目の位置は今の長さに丸める
+  app.drafts.remove(second.id, key);
+  const added = app.drafts.add({ parent1Id: 'Boar' });
+  // 先に 1 件だけ戻っていたら、その ID は飛ばして数に入れない
+  assert.equal(app.drafts.restore(third, 0, key), true);
+  assert.equal(app.drafts.restoreMany(removed, key), 2);
+  // first は 0 番目へ、fourth は 3 番目（今の長さ 3 に丸めた末尾）へ
+  assert.deepEqual(app.drafts.list().map((draft) => draft.id), [first.id, third.id, added.id, fourth.id]);
+  // 消せるものがない・名前の変更中は消さずに null。戻すのも 0
+  assert.equal(app.drafts.removeAll(['missing'], key), null);
+  app.store.state.renaming = true;
+  assert.equal(app.drafts.removeAll([first.id], key), null);
+  app.store.state.renaming = false;
+  const again = app.drafts.removeAll([first.id], key);
+  app.store.state.renaming = true;
+  assert.equal(app.drafts.restoreMany(again, key), 0);
+  assert.equal(app.drafts.restoreMany(again, ''), 0);
+  app.store.state.renaming = false;
+  // removeMany の戻り値は今までどおり件数
+  assert.equal(app.drafts.removeMany([third.id, fourth.id], key), 2);
+  assert.equal(app.drafts.removeMany([third.id], key), 0);
+});
+
+test('下書き: 一括削除の元に戻すは、名前の変更中なら戻さずにエラーのトーストで知らせる', async (t) => {
+  const app = await setup(t);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  app.drafts.add({ parent1Id: 'Boar' });
+  const view = mount(t, app);
+  await buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.deepEqual(app.drafts.list(), []);
+  app.store.state.renaming = true;
+  await buttonNamed(app.body.querySelector('.toast-list'), '元に戻す').dispatch('click');
+  assert.deepEqual(app.drafts.list(), []);
+  const [error] = app.body.querySelector('.toast-alerts').children;
+  assert.equal(error.getAttribute('role'), 'alert');
+  assert.match(error.textContent, /^元に戻せませんでした/);
+  app.store.state.renaming = false;
 });
 
 test('下書き: 1 行の削除は確認なしで消し、元に戻すと同じ位置に戻る', async (t) => {
@@ -365,18 +418,17 @@ test('下書き: 送信中で隠れている下書きは、一括削除の件数
   const registering = buttonNamed(rows(view)[0], '登録').dispatch('click');
   await flush();
   assert.equal(view.element.querySelector('.result-note').textContent, '1 件の下書き');
-  const removing = buttonNamed(view.element, '一括削除').dispatch('click');
-  assert.match(openDialogs()[0].textContent, /1 件の下書きを削除します/);
-  await buttonNamed(openDialogs()[0], '削除').dispatch('click');
-  await removing;
+  await buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.equal(openDialogs().length, 0);
   assert.deepEqual(app.drafts.list().map((draft) => draft.id), [sending.id]);
+  assert.match(app.body.textContent, /1 件の下書きを削除しました/);
   release();
   await registering;
   assert.deepEqual(app.drafts.list(), []);
   assert.equal(app.store.state.records.length, 1);
 });
 
-test('下書き: 一括削除の確認中に送信に失敗して戻った下書きは消さない', async (t) => {
+test('下書き: 一括削除は押した時点で見えていた下書きだけを消し、後で送信に失敗して戻った下書きは残す', async (t) => {
   const app = await setup(t);
   app.serve((request, next) => request.action === 'create'
     ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
@@ -386,15 +438,12 @@ test('下書き: 一括削除の確認中に送信に失敗して戻った下書
   const release = app.hold();
   const registering = buttonNamed(rows(view)[0], '登録').dispatch('click');
   await flush();
-  const removing = buttonNamed(view.element, '一括削除').dispatch('click');
-  assert.match(openDialogs()[0].textContent, /1 件の下書きを削除します/);
+  await buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.match(app.body.textContent, /1 件の下書きを削除しました/);
   release();
   await registering;
-  await buttonNamed(openDialogs()[0], '削除').dispatch('click');
-  await removing;
   assert.deepEqual(app.drafts.list().map((draft) => draft.id), [failing.id]);
   assert.equal(message(rows(view)[0]).textContent, '登録者: 文字数が上限を超えています。');
-  assert.match(app.body.textContent, /1 件の下書きを削除しました/);
 });
 
 test('下書き: 登録・削除で行が消えたら、次の行（なければ前の行）の最初のパル選択へフォーカスを移す', async (t) => {

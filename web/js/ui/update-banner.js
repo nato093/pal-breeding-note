@@ -1,4 +1,4 @@
-import { el, button } from './dom.js';
+import { el, button, trackHeight } from './dom.js';
 
 const RETRY_AFTER = 5000;
 
@@ -39,11 +39,18 @@ export function updateBanner({ current, busy, served, reload, delay = setTimeout
     }
     restore();
   }, 'button primary');
-  // 帯が出ている間は文書の根（html）に .has-update-banner を付ける（CSS がトーストの領域を狭める。:has() で帯を探すと、
-  // 本文の要素を出し入れするたびに画面全体のスタイルを計算し直させるので使わない）
+  // 帯が出ている間は文書の根（html）に .has-update-banner を付け、帯の高さを --snackbar-height に書き続ける（CSS がトーストを
+  // 帯の上に積む。:has() で帯を探すと、本文の要素を出し入れするたびに画面全体のスタイルを計算し直させるので使わない）。
+  // 高さは初めて出したときから測り続け（文が折り返すと高くなる）、出すたびにすぐ測る（ResizeObserver の知らせを待つ間に出た
+  // トーストが帯に重ならないように）
+  let tracking = null;
   const showing = (visible) => {
     element.hidden = !visible;
-    globalThis.document?.documentElement?.classList.toggle('has-update-banner', visible);
+    const root = globalThis.document?.documentElement;
+    root?.classList.toggle('has-update-banner', visible);
+    if (!visible || !root?.style) return;
+    tracking ??= trackHeight(element, root, '--snackbar-height');
+    tracking.measure();
   };
   const close = button('閉じる', () => {
     dismissed = version;

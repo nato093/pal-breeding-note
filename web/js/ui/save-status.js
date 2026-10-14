@@ -111,7 +111,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     const issues = el('ul', 'save-status-issues');
     // 許可はクリックの中で（await を挟まずに）求める
     const grant = button('読み込みを許可', () => grantPermission(), 'button primary');
-    const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message)), 'button secondary');
+    const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
     // 設定のセーブ連携のカード（読んでいる・表示しているワールドの行を開いてフォーカス。router.js の settingsHash）
     const settings = link('設定を開く', settingsHash(), 'save-status-settings');
     settings.addEventListener('click', () => popup.close({ focus: false }));
@@ -140,7 +140,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
   }
 
   function grantPermission() {
-    owned.grantAndRefresh().catch((error) => toast(error.message));
+    owned.grantAndRefresh().catch((error) => toast(error.message, { kind: 'error' }));
   }
 
   function onClick() {

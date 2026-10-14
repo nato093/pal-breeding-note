@@ -81,7 +81,7 @@ export async function registerDrafts(context, ids) {
   kept += failed;
   if (ids.length === 1) {
     if (registered) toast('配合を登録しました');
-    else if (failed) toast(`配合を登録できませんでした。${drafts.status(ids[0]).error}`);
+    else if (failed) toast(`配合を登録できませんでした。${drafts.status(ids[0]).error}`, { kind: 'error' });
   } else if (registered || kept) {
     toast(`${registered} 件を登録しました${kept ? `。${kept} 件は下書きに残っています` : ''}`);
   }
@@ -176,20 +176,23 @@ export function draftsView(context) {
     const key = drafts.scope();
     const removed = drafts.remove(id, key);
     if (!removed) return;
-    toast('下書きを削除しました', { action: () => { drafts.restore(removed.draft, removed.index, key); } });
+    toast('下書きを削除しました', { action: () => {
+      if (!drafts.restore(removed.draft, removed.index, key)) toast('元に戻せませんでした', { kind: 'error' });
+    } });
   }
 
-  async function removeAll() {
+  // 下書きはこの端末だけのものなので、確認せずに消して「元に戻す」を出す（共有する配合の削除だけ確認する。判断事項 7）
+  function removeAll() {
     const key = drafts.scope();
-    // 確認で見せた件数の下書きだけを消す（確認の間に送信に失敗して戻った下書きは消さない）。
-    const ids = visible(key).map((draft) => draft.id);
-    if (!ids.length) return;
-    if (!await confirmDialog('すべての下書きを削除しますか？', `${ids.length} 件の下書きを削除します。この操作は元に戻せません。`,
-      { confirmText: '削除', danger: true })) return;
-    if (drafts.scope() !== key) return;
-    // 確認の間に送信が始まった下書きは残る。
-    const removed = drafts.removeMany(ids, key);
-    if (removed) toast(`${removed} 件の下書きを削除しました`);
+    const focused = document.activeElement === bulkRemove;
+    // 押した時点で見えている下書きだけを消す（送信中で隠れている下書きは残る）
+    const removed = drafts.removeAll(visible(key).map((draft) => draft.id), key);
+    if (!removed) return;
+    // 押した一括削除は押せなくなってフォーカスを失うので、空の下書きの追加へ移す（その次の Tab でトーストの「元に戻す」）
+    if (focused) addEmpty.focus();
+    toast(`${removed.length} 件の下書きを削除しました`, { action: () => {
+      if (!drafts.restoreMany(removed, key)) toast('元に戻せませんでした', { kind: 'error' });
+    } });
   }
 
   function clearRows() {

@@ -84,6 +84,17 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
   // 名前の変更中は書き換えない（変更の後で、新しい名前の保存先へ移すため）
   const locked = () => Boolean(store.state.renaming);
 
+  // 送信中でない ids の下書きをまとめて消し、元に戻すための { draft, index }[]（index は消す前の位置。小さい順）を返す。消せなければ null
+  function removeAll(ids, key = scope()) {
+    const drafts = latest(key);
+    const targets = new Set(ids.filter((id) => !sending(id) && drafts.some((draft) => draft.id === id)));
+    if (!targets.size || locked()) return null;
+    for (const id of targets) statuses.delete(id);
+    const removed = drafts.flatMap((draft, index) => (targets.has(draft.id) ? [{ draft, index }] : []));
+    save(key, drafts.filter((draft) => !targets.has(draft.id)));
+    return removed;
+  }
+
   return {
     scope,
     get saveFailed() { return saveFailed; },
@@ -124,13 +135,26 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
       save(key, [...drafts.slice(0, index), draft, ...drafts.slice(index)]);
       return true;
     },
+    // 消した件数を返す（元に戻すときは removeAll）
     removeMany(ids, key = scope()) {
-      const drafts = latest(key);
-      const targets = new Set(ids.filter((id) => !sending(id) && drafts.some((draft) => draft.id === id)));
-      if (!targets.size || locked()) return 0;
-      for (const id of targets) statuses.delete(id);
-      save(key, drafts.filter((draft) => !targets.has(draft.id)));
-      return targets.size;
+      return removeAll(ids, key)?.length ?? 0;
+    },
+    removeAll,
+    // removeAll で消した下書きを、消した時点の ID・環境に index の小さい順に差し込み直す（index は今の長さに丸める。
+    // 同じ ID がもうあれば飛ばす）。戻した数を返す
+    restoreMany(items, key) {
+      if (!key || locked() || !Array.isArray(items)) return 0;
+      const drafts = [...latest(key)];
+      const ids = new Set(drafts.map((draft) => draft.id));
+      let restored = 0;
+      for (const { draft, index } of [...items].sort((a, b) => a.index - b.index)) {
+        if (ids.has(draft.id)) continue;
+        drafts.splice(Math.min(index, drafts.length), 0, draft);
+        ids.add(draft.id);
+        restored++;
+      }
+      if (restored) save(key, drafts);
+      return restored;
     },
     // 登録 ID を先に保存し、応答を受け取れずに残った下書きを同じ ID で送り直せるようにする（サーバは同じ内容なら成功を返す）。
     startSending(id, recordId, key) {

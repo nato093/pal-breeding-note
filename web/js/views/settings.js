@@ -40,7 +40,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
   const env = el('p', 'environment-label');
   const time = el('p', 'muted');
   const refresh = button('最新に更新', async () => {
-    await runButton(refresh, async () => { await store.refresh(); toast('最新の記録に更新しました'); }, (error) => toast(error.message));
+    await runButton(refresh, async () => { await store.refresh(); toast('最新の記録に更新しました'); }, (error) => toast(error.message, { kind: 'error' }));
   }, 'button secondary');
   connection.append(el('h2', '', 'データの状態'), env, time, refresh);
   const access = el('section', 'settings-card');
@@ -52,7 +52,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
     await runButton(retry, async () => {
       const userId = await context.renamer.retry();
       toast(`ID を「${userId}」に変更しました`);
-    }, (error) => toast(error.message));
+    }, (error) => toast(error.message, { kind: 'error' }));
   }, 'button primary');
   const logout = button('ログアウト', () => confirmLogout(store), 'button quiet danger-text');
   const accountActions = el('div', 'settings-actions');
@@ -105,7 +105,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
         const target = source && state.records.find((record) => record.id !== source.id && identityKey(record) === identityKey(source));
         if (target) {
           const merge = button('統合', async () => {
-            await runButton(merge, () => context.merge(source, target), (error) => toast(error.message));
+            await runButton(merge, () => context.merge(source, target), (error) => toast(error.message, { kind: 'error' }));
           }, 'button secondary');
           row.append(merge);
         }

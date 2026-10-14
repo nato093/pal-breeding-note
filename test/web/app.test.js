@@ -1388,6 +1388,9 @@ test('画面: キャッシュのない初回の取得に失敗したら、画面
   const failed = main.querySelector('.error-state');
   assert.equal(failed.getAttribute('role'), 'alert');
   assert.equal(failed.querySelector('p').textContent, 'サーバでエラーが発生しました。時間をおいてお試しください。');
+  // 同じ文は画面（errorState）とヘッダーの同期状況に出ているので、トーストは重ねない（delete-undo）
+  assert.equal(byClass('sync-status').textContent, 'サーバでエラーが発生しました。時間をおいてお試しください。');
+  assert.equal(document.body.querySelectorAll('.toast').length, 0);
   const snapshots = () => calls.filter((request) => request.action === 'snapshot').length;
   const before = snapshots();
   fail = false;
@@ -1397,4 +1400,39 @@ test('画面: キャッシュのない初回の取得に失敗したら、画面
   assert.equal(main.querySelector('.error-state'), null);
   assert.match(main.querySelector('.result-note').textContent, /^2 件の配合/);
   assert.ok(main.querySelectorAll('.breeding-card').length > 0);
+});
+
+test('画面: 前回の配合を出しているときの取得の失敗は、エラーのトースト（role=alert・×）で知らせる', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const initial = await cachedSignIn(development);
+  const api = (request) => (request.action === 'snapshot' ? { ok: false, code: 'INTERNAL' } : development(request));
+  await boot(t, { initial, api, hash: '#/list' });
+  await flush();
+  const main = document.getElementById('main');
+  // 画面は前回の配合のまま（errorState は出さない）
+  assert.equal(main.querySelector('.error-state'), null);
+  assert.ok(main.querySelectorAll('.breeding-card').length > 0);
+  assert.equal(byClass('sync-error').hidden, false);
+  assert.equal(byClass('toast-list').children.length, 0);
+  const [error] = byClass('toast-alerts').children;
+  assert.equal(error.getAttribute('role'), 'alert');
+  assert.match(error.textContent, /^サーバでエラーが発生しました/);
+  await error.querySelector('.toast-close').dispatch('click');
+  assert.equal(byClass('toast-alerts').children.length, 0);
+});
+
+test('画面: 一覧の「親の順」の行を削除するとき、確認のカードの親の左右を押した行とそろえる', async (t) => {
+  await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list' });
+  const names = (card) => card.querySelector('.breeding-equation').querySelectorAll('.pal-tile').map((tile) => tile.querySelector('strong').textContent);
+  const cards = descendants(document.getElementById('main')).filter((node) => node.className === 'breeding-card');
+  // 親の順では 1 件を親ごとに展開するので、右の親を左にした行がある
+  assert.ok(cards.some((card) => cards.some((other) => other !== card && names(other).join() === [names(card)[1], names(card)[0], names(card)[2]].join())));
+  for (const card of cards) {
+    const removing = card.querySelector('button[aria-label="削除"]').dispatch('click');
+    const dialog = find((node) => node.tagName === 'dialog' && node.open);
+    assert.match(dialog.textContent, /仲間の画面からも消えます。削除後 6 秒間は元に戻せます。/);
+    assert.deepEqual(names(dialog.querySelector('.breeding-card')), names(card));
+    await find((node) => node.tagName === 'button' && node.textContent === 'キャンセル').dispatch('click');
+    await removing;
+  }
 });
