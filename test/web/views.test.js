@@ -11,6 +11,7 @@ import { inheritanceView } from '../../web/js/views/route.js';
 import { listView } from '../../web/js/views/list.js';
 import { settingsView } from '../../web/js/views/settings.js';
 import { palView } from '../../web/js/views/pal.js';
+import { TABS, tabLabel } from '../../web/js/views/tabs.js';
 
 function context(records = [{ id: '配合', parent1Id: 'FlowerDoll', parent2Id: 'SheepBall', childId: 'MoonQueen',
   parent1Gender: 'F', parent2Gender: 'M', registrant: '仲間', updatedAt: '2026-10-04T00:00:00Z', confirmCount: 10 }]) {
@@ -60,7 +61,10 @@ test('継承ルート: 除外設定と確認回数を出さず、旧 URL でも�
   assert.equal(view.element.querySelectorAll('.picker').length, 2);
   assert.doesNotMatch(view.element.textContent, /相手親に使わない|除外|確認.*回/);
   assert.match(view.element.textContent, /最短 1 回の配合/);
-  assert.ok(view.element.textContent.includes('この経路はスキルを運ぶ個体の流れです。相手親は別途用意します'));
+  // 見出しはタブ名、説明は「パッシブ」（「スキル」はアクティブスキル・パートナースキルの言葉。copy-dead-ends）
+  assert.equal(view.element.querySelector('h1').textContent, '継承ルート');
+  assert.ok(view.element.textContent.includes('この経路はパッシブを運ぶ個体の流れです。相手親は別途用意します'));
+  assert.doesNotMatch(view.element.textContent, /スキルを運ぶ|スキルをつなぐ/);
   const swap = view.element.querySelector('.swap-button');
   assert.equal(swap.getAttribute('aria-label'), '開始と目標を入れ替える');
   await swap.dispatch('click');
@@ -129,7 +133,7 @@ test('逆引き: applyRoute で子を合わせ、不正な ID は URL から外�
   assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
   view.applyRoute(parseHash('#/reverse?c=存在しない'), { reason: 'history' });
   assert.deepEqual(replaced, ['#/reverse']);
-  assert.equal(trigger.getAttribute('aria-label'), '生まれる子: パルを選択');
+  assert.equal(trigger.getAttribute('aria-label'), '産まれる子: パルを選択');
   assert.match(view.element.textContent, /探したい子を選んでください/);
   view.destroy();
 });
@@ -396,4 +400,118 @@ test('一覧: 利用者が並べ替えを変えたら、結果の始まり（件
   app.store.emit({ records: [{ ...source, etag: 'e2' }] });
   assert.equal(moves.length, 1);
   view.destroy();
+});
+
+test('見出し: 各画面の h1 はタブの名前（views/tabs.js の TABS）。キャッチコピーの見出しは出さない', (t) => {
+  installDom(t);
+  assert.deepEqual(TABS.map(([view]) => view), ['search', 'reverse', 'route', 'list', 'drafts', 'wishlist', 'owned', 'ideal', 'settings']);
+  assert.equal(tabLabel('route'), '継承ルート');
+  assert.equal(tabLabel('pal'), '');
+  for (const [view, make] of [['search', () => searchView(context(), parseHash('#/search'))], ['reverse', () => reverseView(context(), parseHash('#/reverse'))],
+    ['route', () => inheritanceView(context(), parseHash('#/route'))], ['list', () => listView(context())], ['settings', () => settingsView(context())]]) {
+    const shown = make();
+    assert.equal(shown.element.querySelector('h1').textContent, tabLabel(view), view);
+    assert.doesNotMatch(shown.element.textContent, /配合を見つけよう|この子の親を探す|スキルをつなぐ|みんなの配合ノート|ノートの設定|パルの配合ノート/, view);
+    shown.destroy();
+  }
+});
+
+test('パル詳細: 見出しは「No.〈番号〉 〈名前〉」で、hero は絵と属性だけ（名前を二重に出さない）。「産まれる」にそろえる', (t) => {
+  installDom(t);
+  const view = palView(context(), parseHash('#/pal/MoonQueen'));
+  const pal = pals.find((item) => item.id === 'MoonQueen');
+  assert.equal(view.element.querySelector('h1').textContent, `No.${pal.label} ${pal.ja}`);
+  const hero = view.element.querySelector('.pal-hero');
+  assert.deepEqual(hero.children.map((child) => child.className), ['pal-icon pal-icon-large', 'element-chips']);
+  assert.doesNotMatch(hero.textContent, new RegExp(pal.ja));
+  assert.ok(view.element.textContent.includes('このパルが産まれる配合'));
+  view.destroy();
+});
+
+test('一覧: 登録者名で絞って 0 件なら「「入力」に合う登録はありません。」と「絞り込みを解除」（押すと元の件数に戻り、登録者名の欄へ）。登録が 1 件もなければ登録へ', async (t) => {
+  installDom(t);
+  const view = listView(context());
+  document.body.append(view.element);
+  const registrant = view.element.querySelectorAll('input')[0];
+  registrant.value = ' 該当なし ';
+  await registrant.dispatch('input');
+  const emptyState = view.element.querySelector('.empty-state');
+  assert.equal(emptyState.querySelector('p').textContent, '「該当なし」に合う登録はありません。');
+  assert.ok(emptyState.querySelector('.empty-icon'));
+  const clear = emptyState.querySelector('button');
+  assert.equal(clear.textContent, '絞り込みを解除');
+  clear.focus();
+  await clear.dispatch('click');
+  assert.equal(registrant.value, '');
+  // 親の順（既定）は 1 件を親ごとに 2 行
+  assert.equal(view.element.querySelectorAll('.breeding-card').length, 2);
+  assert.equal(view.element.querySelector('.result-note').textContent, '1 件の配合 · 2 件を表示');
+  assert.equal(document.activeElement, registrant);
+  view.destroy();
+  // 登録が 1 件もないとき（絞り込みを解除しても出ないので、登録へ）
+  const registers = [];
+  const none = context([]);
+  none.register = (fields) => registers.push(fields ?? null);
+  const emptyList = listView(none);
+  const noRecords = emptyList.element.querySelector('.empty-state');
+  assert.equal(noRecords.querySelector('p').textContent, '登録された配合はまだありません。見つけた配合を登録しましょう。');
+  await noRecords.querySelector('button').dispatch('click');
+  assert.deepEqual(registers, [null]);
+  emptyList.destroy();
+});
+
+test('配合検索: 親を 1 体だけ選んで 0 件なら「この親の配合を登録」で、その親を親 1 に入れて登録を開く（両方選んでいれば「この組み合わせを登録」）', async (t) => {
+  installDom(t);
+  const app = context();
+  const registers = [];
+  app.register = (fields) => registers.push(fields);
+  for (const [hash, label, fields] of [
+    ['#/search?p1=PinkCat', 'この親の配合を登録', { parent1Id: 'PinkCat' }],
+    ['#/search?p2=PinkCat', 'この親の配合を登録', { parent1Id: 'PinkCat' }],
+    ['#/search?p1=PinkCat&p2=SheepBall', 'この組み合わせを登録', { parent1Id: 'PinkCat', parent2Id: 'SheepBall' }],
+  ]) {
+    const view = searchView(app, parseHash(hash));
+    const emptyState = view.element.querySelector('.empty-state');
+    assert.match(emptyState.querySelector('p').textContent, /まだ登録されていません。$/, hash);
+    const register = emptyState.querySelector('button');
+    assert.equal(register.textContent, label, hash);
+    await register.dispatch('click');
+    assert.deepEqual(registers.at(-1), fields, hash);
+    view.destroy();
+  }
+});
+
+test('読み込みの失敗: 記録をまだ読み込めていない画面は「登録済みの配合を読み込み中…」（role=status）、失敗したら文と「もう一度読み込む」（押すと取り直す）', async (t) => {
+  installDom(t);
+  const app = liveContext();
+  let refreshes = 0;
+  app.store.refresh = () => { refreshes++; return Promise.resolve(); };
+  app.store.state.env = null;
+  const views = [searchView(app, parseHash('#/search?p1=SheepBall')), reverseView(app, parseHash('#/reverse?c=MoonQueen')),
+    listView(app), palView(app, parseHash('#/pal/SheepBall')), inheritanceView(app, parseHash('#/route?from=SheepBall&to=MoonQueen'))];
+  for (const view of views) {
+    const loading = view.element.querySelector('.loading-state');
+    assert.equal(loading.getAttribute('role'), 'status');
+    assert.equal(loading.textContent, '登録済みの配合を読み込み中…');
+  }
+  app.store.emit({ error: 'サーバに接続できません' });
+  for (const view of views) {
+    const failed = view.element.querySelector('.error-state');
+    assert.equal(failed.getAttribute('role'), 'alert');
+    assert.equal(failed.querySelector('p').textContent, 'サーバに接続できません');
+    await failed.querySelector('button').dispatch('click');
+  }
+  assert.equal(refreshes, views.length);
+  // 同じ失敗のまま描き直しても、同じ表示は作り直さない（押した「もう一度読み込む」のフォーカスを保つ）
+  const [search] = views;
+  const again = search.element.querySelector('.error-state').querySelector('button');
+  again.focus();
+  search.update(app.store.state);
+  assert.equal(search.element.querySelector('.error-state').querySelector('button'), again);
+  assert.equal(document.activeElement, again);
+  // 読み込めたら結果を出す
+  app.store.emit({ env: 'test', error: '' });
+  assert.equal(search.element.querySelector('.error-state'), null);
+  assert.equal(search.element.querySelectorAll('.breeding-card').length, 1);
+  for (const view of views) view.destroy();
 });

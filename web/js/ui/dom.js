@@ -1,3 +1,6 @@
+// 空の状態のアイコン（navIcon は svgElement を使うが、どちらもモジュールの読み込みの時点では呼ばないので、互いに読み込んでよい）
+import { navIcon } from './nav-icons.js';
+
 export function el(tag, className = '', text = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -38,10 +41,56 @@ export function field(label, input) {
   return wrapper;
 }
 
-export function empty(text, action) {
+/**
+ * 空の状態（結果がない・まだ選んでいない）。文の p と、あれば次の操作（ボタン・リンク。2 つ以上なら入れ物の div）。
+ * icon にタブの名前（'list'・'owned' など。ui/nav-icons.js の navIcon）を渡すと、文の上にそのタブのアイコンを出す
+ *（読み上げない。読み込み中・エラーには付けない＝loadingState・errorState）
+ */
+export function empty(text, action, { icon = '' } = {}) {
   const node = el('div', 'empty-state');
+  if (icon) {
+    const frame = el('span', 'empty-icon');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.append(navIcon(icon));
+    node.append(frame);
+  }
   node.append(el('p', '', text));
   if (action) node.append(action);
+  return node;
+}
+
+/** 読み込み中の表示。empty と同じ見た目で role="status"（アイコンは付けない） */
+export function loadingState(text) {
+  const node = empty(text);
+  node.classList.add('loading-state');
+  node.setAttribute('role', 'status');
+  return node;
+}
+
+/**
+ * 読み込みに失敗したときの表示（role="alert"・エラーの色の左の帯）。retry があればボタン「もう一度読み込む」を付け、押すと retry() を呼ぶ
+ *（Promise を返せば終わるまで押せない。失敗の文は呼び出し側が新しい状態で描き直す）
+ */
+export function errorState(message, retry) {
+  const node = el('div', 'error-state');
+  node.setAttribute('role', 'alert');
+  node.append(el('p', '', message));
+  if (retry) {
+    const again = button('もう一度読み込む', () => runButton(again, retry, () => {}), 'button secondary small');
+    node.append(again);
+  }
+  return node;
+}
+
+/**
+ * 設定などへ移る必要がある案内。1 文と、行き先のボタン 1 つ（「設定タブの〜」とだけ書いて行き先のない案内の代わり）。
+ * action は { label, href }（リンク）か { label, run }（ボタン）。kind は 'info' か 'warning'
+ */
+export function setupHint({ text, action, kind = 'info' }) {
+  const node = el('div', `setup-hint setup-hint-${kind}`);
+  node.append(el('p', '', text));
+  if (action?.href) node.append(link(action.label, action.href, 'button secondary small'));
+  else if (action?.run) node.append(button(action.label, action.run, 'button secondary small'));
   return node;
 }
 

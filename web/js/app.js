@@ -40,6 +40,7 @@ import { draftsView } from './views/drafts.js';
 import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
+import { TABS } from './views/tabs.js';
 
 // 登録したセーブを読み直す間隔
 const SAVE_POLL_INTERVAL = 60 * 1000;
@@ -107,7 +108,8 @@ async function boot() {
   brand.setAttribute('aria-label', 'パル配合ノート（配合検索へ）');
   const mark = el('span', 'brand-mark', '◇');
   const brandText = el('span', 'brand-text');
-  brandText.append(el('strong', '', 'パル配合ノート'), el('small', '', '仲間と残す、冒険の発見。'));
+  // ロゴの副題（キャッチコピー）は copy-dead-ends でなくした（見出しはタブ名にそろえる）
+  brandText.append(el('strong', '', 'パル配合ノート'));
   brand.append(mark, brandText);
   // テスト環境はロゴの右のチップ（後から帯が入って本文がずれないように、ヘッダーの中に置く）
   const envChip = el('span', 'env-chip', 'テスト環境');
@@ -119,10 +121,9 @@ async function boot() {
   headerStatus.append(sync.element, progress.element);
   const nav = el('nav', 'navigation');
   nav.setAttribute('aria-label', 'メインナビゲーション');
-  // 並びは 探す｜記録｜所持｜設定 の順（区切りの余白は CSS）
-  const tabs = [['search', '配合検索'], ['reverse', '逆引き'], ['route', '継承ルート'], ['list', '一覧'], ['drafts', '下書き'], ['wishlist', 'ウィッシュリスト'], ['owned', '所持パル'], ['ideal', '理想個体'], ['settings', '設定']];
+  // タブの並びと名前は views/tabs.js（各画面の見出しも同じ名前を引く）
   const tabLinks = new Map();
-  for (const [view, label] of tabs) {
+  for (const [view, label] of TABS) {
     const tab = link('', buildHash(view), 'nav-tab');
     // グループの区切りの余白は CSS が data-view で付ける
     tab.setAttribute('data-view', view);
@@ -149,7 +150,7 @@ async function boot() {
     storage: safeStorage(sessionStore), local: safeStorage(browserStorage), namespace,
     scope: () => ({ env: store.state.env ?? '', user: store.state.userId, world: worldId(owned.state.meta?.worldId) || conditionWorld }),
     schemas: Object.fromEntries(Object.entries(CONDITIONS).map(([view, [, schema]]) => [view, schema])),
-    views: tabs.map(([view]) => view), worldViews: WORLD_VIEWS,
+    views: TABS.map(([view]) => view), worldViews: WORLD_VIEWS,
   });
   function setTabHref(view, href) {
     const tab = tabLinks.get(view);
@@ -373,10 +374,10 @@ async function boot() {
   const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, owned: ownedView, ideal: idealView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
+    // 見出しは「ログイン」「新規登録」だけ（キャッチコピーはなくした）。説明は新規登録のときだけ
     const panel = el('section', 'login-panel');
-    panel.append(el('p', 'eyebrow', '仲間とつくる、配合の記録'),
-      el('h1', '', signup ? '新規登録' : '冒険の発見を、\nみんなのノートに。'),
-      el('p', 'muted', 'ID と共通パスワードを入力してください。'));
+    panel.append(el('h1', '', signup ? '新規登録' : 'ログイン'));
+    if (signup) panel.append(el('p', 'muted login-lead', 'ID は配合の登録者名になります（後で変更できます）。パスワードは仲間から聞いた共通のものです。'));
     const form = el('form', 'login-form');
     const userId = el('input');
     userId.autocomplete = 'username';
@@ -390,14 +391,14 @@ async function boot() {
     errors.setAttribute('role', 'alert');
     errors.textContent = store.state.error;
     const submit = button(signup ? '登録してログイン' : 'ログイン', () => form.requestSubmit(), 'button primary');
-    form.append(field('ID（1〜20文字）', userId), field('パスワード', password), errors, submit);
+    form.append(field('ID（20 文字まで）', userId), field('共通パスワード', password), errors, submit);
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       await runButton(submit, () => signup ? store.signup(userId.value, password.value) : store.login(userId.value, password.value),
         (error) => {
           const invalidId = error.response?.errors?.find((item) => item.field === 'userId');
           if (invalidId) {
-            errors.textContent = invalidId.code === 'TOO_LONG' ? 'ID は20文字以内で入力してください。' : 'ID を入力してください。';
+            errors.textContent = invalidId.code === 'TOO_LONG' ? 'ID は 20 文字以内で入力してください。' : 'ID を入力してください。';
             return;
           }
           errors.textContent = error.message;
@@ -410,8 +411,11 @@ async function boot() {
     const switchPanel = el('div', 'login-switch');
     if (!signup) switchPanel.append(el('p', 'muted', 'アカウントをお持ちでない方'));
     switchPanel.append(switchForm);
+    // 注記は INV-2（配合の候補は登録済みの記録だけ）を利用者に伝える文なので残す
     panel.append(form, switchPanel, el('p', 'login-note', 'このノートに載るのは、仲間が登録した配合だけ。'));
     main.replaceChildren(panel);
+    // すぐ入力できるよう、ID が入っていればパスワード、空なら ID の欄へ
+    (userId.value ? password : userId).focus();
   }
 
   function markTabs(current) {

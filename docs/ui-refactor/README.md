@@ -452,7 +452,7 @@ G-01（「＋ 登録」をアイコンに格下げ）・S-47（削除の確認�
 | 2 | フェーズ 0 | `.gitignore` の扱い | **済**（2026-10-12）。ユーザーの判断で、`.mso/`・`.playwright-cli/`・`Claude outputs/` を `.gitignore` に足してコミットした（[8-2](#8-2-環境の注意2026-10-12-時点)） |
 | 3 | フェーズ 0 | `docs/ui-refactor/`（このドキュメント）をコミットするか | **済**（2026-10-12）。ユーザー名を含むパス・Steam ID・ワールドの ID を伏せてからコミットし、`main` にマージした（[8-2](#8-2-環境の注意2026-10-12-時点)） |
 | 4 | フェーズ末 | Codex を使うレビュー | 使う前に目的を説明して許可を得る（グローバル・プロジェクトの規約）。先にシェルが起動するかを小さく試す |
-| 5 | 1d copy-dead-ends | 設定の「名前を変更」→「**ID を変更**」に言い換える（G-51・D7 に合わせた） | ID にそろえる。違う判断にするなら着手前に確かめる |
+| 5 | 1d copy-dead-ends | 設定の「名前を変更」→「**ID を変更**」に言い換える（G-51・D7 に合わせた） | ID にそろえる。違う判断にするなら着手前に確かめる。**済**（2026-10-14、`feature/copy-dead-ends`。既定どおり ID にそろえた。ヘッダーの ID のメニュー・ダイアログ・エラー文も） |
 | 6 | 2 bell | プロジェクトの CLAUDE.md:16 の文言の変更（規約ファイル） | 理由と影響を変更記録に書く。Edit が拒否されたら文案をユーザーに渡す |
 | 7 | 2 route-cleanup | R-08（開始チップを 8 件まで）・R-01 の「おすすめ」 | 入れない（`docs/OPERATIONS.md:99`「最初から全部出す」を守る） |
 | 8 | 3・4 | GAS の反映（`npm run gas:push`、列を足したときの `setup()`） | ユーザーの操作。クライアントは先に配信しても壊れない形にする |
@@ -544,7 +544,7 @@ G-01（「＋ 登録」をアイコンに格下げ）・S-47（削除の確認�
 
 ### 5-4. 共通部品（フェーズ 1a で作り、後のフェーズが使う）
 
-`sameScreen`・`context.update(hash)`・`changeRoute(context, hash)`・ビューの `{ element, destroy, applyRoute?(route, { reason }), update?(state) }`・`core/boundary.js`・CSS 変数 `--header-h` と `--z-*`・`ui/save-status.js`・`autoRegister.subscribe`・`syncList`・`debounce`/`onTextInput`・`ui/slice.js` の `startSliced`・`store.state.revision`・`ui/virtual-list.js`・`ui/motion.js` の `withTransition`・`ui/focus.js`・`ui/view-memory.js`・`ui/popover.js`・`passiveSelector(opts) → { element, update, destroy }`。固定の条件のパネル（理想個体・所持パル）の見出しと区切りの部品は views/shared.js の `fieldHead(field, ...extras)`・`panelItem(caption, control, opts)`・`panelLine(...items)`（D28 で足した。phase-1b-1c の ideal-panel の「実装の記録」14）。所持者の選択肢と既定は views/shared.js の `holderChoices(data, ideals)`・`holderValue(holder, ideals)`・`HOLDER_DEFAULT`（D29。phase-1b-1c の owned-toolbar の「実装の記録」21）。このワールドでの自分（設定で選ぶ自分のプレイヤー）は web/js/self-player.js の `createSelfStore`（`context.self`）、設定の行き先は router.js の `settingsHash(worldId)`（`#/settings?world=<ID>&open=auto`。設定の `applyRoute` → owned-settings.js の `reveal`）、本人が変わったときの判定し直しは ideals.js の `identityChanged()`・`identityKey()`（participant-self。phase-1d の participant-self の「実装の記録」）。通知の種類・ワールド・まとめの単位は notifications.js の `NOTIFICATION_KINDS`・`notificationTags(value)`、通知欄の行へのまとめは `groupNotifications(list)`（行の `ids`・`count`・`items`・`more`）、自動登録の通知の残す数は auto-register.js の `capNotices`（成功 20・それ以外 50）（autoreg-success。phase-1d の autoreg-success の「実装の記録」。フェーズ 2 の bell の土台）。この端末への保存に失敗したときの警告は ui/dom.js の `storageWarning(what, className)`（`p.form-errors.storage-warning`・role=alert）、空の状態の `empty(text, action)` は隠すだけの「◇」を作らない（中は文の `p` と操作だけ）、error-container の上の文字色は CSS 変数 `--md-sys-color-on-error-container`（cleanup-dead-code。phase-1d の cleanup-dead-code の「実装の記録」）。形と置き場所は phase-1a-foundation.md の「このフェーズで作る共通部品」の表が正。**名前を変えたら、その表と後のフェーズの文書にも書く**。
+`sameScreen`・`context.update(hash)`・`changeRoute(context, hash)`・ビューの `{ element, destroy, applyRoute?(route, { reason }), update?(state) }`・`core/boundary.js`・CSS 変数 `--header-h` と `--z-*`・`ui/save-status.js`・`autoRegister.subscribe`・`syncList`・`debounce`/`onTextInput`・`ui/slice.js` の `startSliced`・`store.state.revision`・`ui/virtual-list.js`・`ui/motion.js` の `withTransition`・`ui/focus.js`・`ui/view-memory.js`・`ui/popover.js`・`passiveSelector(opts) → { element, update, destroy }`。固定の条件のパネル（理想個体・所持パル）の見出しと区切りの部品は views/shared.js の `fieldHead(field, ...extras)`・`panelItem(caption, control, opts)`・`panelLine(...items)`（D28 で足した。phase-1b-1c の ideal-panel の「実装の記録」14）。所持者の選択肢と既定は views/shared.js の `holderChoices(data, ideals)`・`holderValue(holder, ideals)`・`HOLDER_DEFAULT`（D29。phase-1b-1c の owned-toolbar の「実装の記録」21）。このワールドでの自分（設定で選ぶ自分のプレイヤー）は web/js/self-player.js の `createSelfStore`（`context.self`）、設定の行き先は router.js の `settingsHash(worldId)`（`#/settings?world=<ID>&open=auto`。設定の `applyRoute` → owned-settings.js の `reveal`）、本人が変わったときの判定し直しは ideals.js の `identityChanged()`・`identityKey()`（participant-self。phase-1d の participant-self の「実装の記録」）。通知の種類・ワールド・まとめの単位は notifications.js の `NOTIFICATION_KINDS`・`notificationTags(value)`、通知欄の行へのまとめは `groupNotifications(list)`（行の `ids`・`count`・`items`・`more`）、自動登録の通知の残す数は auto-register.js の `capNotices`（成功 20・それ以外 50）（autoreg-success。phase-1d の autoreg-success の「実装の記録」。フェーズ 2 の bell の土台）。この端末への保存に失敗したときの警告は ui/dom.js の `storageWarning(what, className)`（`p.form-errors.storage-warning`・role=alert）、空の状態の `empty(text, action)` は隠すだけの「◇」を作らない（中は文の `p` と操作だけ）、error-container の上の文字色は CSS 変数 `--md-sys-color-on-error-container`（cleanup-dead-code。phase-1d の cleanup-dead-code の「実装の記録」）。タブの並びと名前（ナビと各画面の h1）は views/tabs.js の `TABS`・`tabLabel(view)`、空の状態のアイコンは ui/dom.js の `empty(text, action, { icon })`（icon はタブの名前。`span.empty-icon` に `navIcon`）、読み込み中は `loadingState(text)`（role=status）、読み込みの失敗は `errorState(message, retry)`（role=alert・「もう一度読み込む」）、設定などへ移る案内は `setupHint({ text, action: { label, href | run }, kind })`、views/shared.js の `dataPending(target, state, retry)` は失敗なら errorState（同じ表示は作り直さない）。用語表は README.md の「表記の決まり」と `test/static/wording.test.js`（`stripComments`・`BANNED`・`ALLOWED`）（copy-dead-ends。phase-1d の copy-dead-ends の「実装の記録」）。形と置き場所は phase-1a-foundation.md の「このフェーズで作る共通部品」の表が正。**名前を変えたら、その表と後のフェーズの文書にも書く**。
 
 既存で再利用するもの: `ui/pal-picker.js`（ポップオーバーと検索の土台）、`ui/dialog.js`、`views/drafts.js` の draftRow と moveFocus（行の差分更新とフォーカス移動の型）、`core/owned.js`（ownedBySpecies・palboxPosition・partnerOwnership）、`core/ideal-goals.js`（palsOfPlayers・ownPlayerUids）、`ui/owned-status.js`、`drafts.js` の registerDrafts、`scripts/extract-passive-icons.mjs` の pak 読み出し。
 
@@ -753,7 +753,7 @@ G-01（「＋ 登録」をアイコンに格下げ）・S-47（削除の確認�
 
 ## 9. 用語集
 
-画面と文書で使う言葉。画面の文言の用語表（使う／使わない）は phase-1d-small-fixes.md の copy-dead-ends の「用語表と文言のテスト」が正。
+画面と文書で使う言葉。画面の文言の用語表（使う／使わない）は phase-1d-small-fixes.md の copy-dead-ends の「用語表と文言のテスト」が正（実装したものはリポジトリの README.md の「表記の決まり」と `test/static/wording.test.js`。copy-dead-ends の「実装の記録」2）。
 
 | 用語 | 意味 |
 |---|---|
@@ -788,7 +788,7 @@ G-01（「＋ 登録」をアイコンに格下げ）・S-47（削除の確認�
 | 下書き | 端末に溜めて、まとめて登録する配合。フェーズ 2 で配合を探すの折り畳み帯へ |
 | 産まれる | 配合で子ができること（「生まれる」とは書かない） |
 | 親の組の記号 | 「親A＋親B → 子」（「×」は使わない）。性別は ♂・♀ |
-| ID | ログインの名前（ノートの ID）。画面では「名前」と書かない。「名前を変更」→「ID を変更」（要確認） |
+| ID | ログインの名前（ノートの ID）。画面では「名前」と書かない。「名前を変更」→「ID を変更」（copy-dead-ends で直した。3-7 の 5） |
 | 新しいバージョン | 配信で新しい版が出たことの表示（「新しい版」とは書かない） |
 | 新しい版のスナックバー | 新しいバージョンがあることを、下端に固定で出す帯（stable-render・delete-undo） |
 | 牧場の状態 | 配合牧場の親が読めたか（ok）／読めない（uncertain）。uncertain の牧場も捨てずに残し、自動登録と親の組の判定からだけ外す（ideal-farms） |

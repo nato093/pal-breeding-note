@@ -1,4 +1,4 @@
-// 所持パルの状態（連携・共有・更新時刻）の文言と、所持パルのタブの案内の帯。所持パルのタブ・設定タブ・ヘッダーのセーブ連携の状態
+// 所持パルの状態（連携・共有・更新時刻）の文言と、所持パルのタブの案内の帯。所持パルのタブ・設定・ヘッダーのセーブ連携の状態
 // （ui/save-status.js）で使う。どのワールドの・いつのデータか・読み込み中かは、ヘッダーのセーブ連携の状態だけに出す（2026-10-14 の
 // ユーザーのフィードバック〔D29〕で、所持パル・理想個体・継承ルートの画面に出していたデータ元の 1 行〔ownedSourceLine〕はなくした）
 import { el, button } from './dom.js';
@@ -18,7 +18,7 @@ export function worldName(meta) {
 
 export function roleLabel(state) {
   return state.role === 'host' ? 'ホスト（この PC にワールドのセーブがあります）'
-    : state.role === 'guest' ? '参加している側（ホストが共有した所持パルを表示します）' : '';
+    : state.role === 'guest' ? '参加者（ホストが共有した所持パルを表示します）' : '';
 }
 
 // 共有の結果の案内（送っている間〔sending〕は出さない。ヘッダーのセーブ連携の状態が読み込み中の印を出す）
@@ -36,11 +36,14 @@ export function timeLines(state) {
   return lines;
 }
 
-const REGISTER_TEXT = '自分のセーブを読むには、設定でワールドを登録してください。';
+// セーブのファイル（ワールド）が登録されていないときの案内。ボタン「ワールドを登録」でこの画面から登録のモーダルを開く
+const UNREGISTERED_TEXT = 'セーブのファイルが登録されていません。';
 
 /**
  * 所持パルのタブの上に出す案内。対応が要るものだけ（読み込み中・確認中・共有中は出さない。ヘッダーのセーブ連携の状態が知らせる）。
- * action は案内の中のボタンの名前（views/owned.js の noticeActions。grant＝読む許可・settings＝設定のセーブ連携へ・unknownPlace＝場所の分からないパル）
+ * 案内は 1 文と行き先のボタン（「設定タブの〜」とだけ書かない。copy-dead-ends）。action はボタンの名前（views/owned.js の noticeActions。
+ * grant＝読む許可・register＝ワールドの登録のモーダル・settings＝設定のセーブ連携〔読んでいるワールドの行〕へ・editWorld＝読んでいるワールドの
+ * 編集のモーダル・unknownPlace＝場所の分からないパル）
  */
 export function ownedNotices(state) {
   const notices = [];
@@ -49,15 +52,15 @@ export function ownedNotices(state) {
   const hasData = Boolean(state.meta?.source);
   if (!auto.enabled) {
     // 共有された所持パルなどを表示できているときは出さない
-    if (!hasData) notices.push({ text: REGISTER_TEXT, kind: 'info', action: 'settings' });
+    if (!hasData) notices.push({ text: UNREGISTERED_TEXT, kind: 'info', action: 'register' });
   } else if (auto.status === 'permission') {
     notices.push({ text: auto.error, kind: 'warning', action: 'grant' });
   } else if (auto.status === 'empty') {
-    notices.push({ text: REGISTER_TEXT, kind: 'warning', action: 'settings' });
+    notices.push({ text: UNREGISTERED_TEXT, kind: 'warning', action: 'register' });
   } else if (auto.status === 'error') {
-    notices.push({ text: `${auto.error}（設定タブで確認できます）`, kind: 'warning' });
+    notices.push({ text: auto.error || 'セーブを読めませんでした', kind: 'warning', action: 'settings' });
   }
-  // 参加している側は、データがないときだけ（どこから取ったかはヘッダーのセーブ連携の状態に出る）
+  // 参加者は、データがないときだけ（どこから取ったかはヘッダーのセーブ連携の状態に出る）
   if (state.role === 'guest' && !hasData) notices.push({ text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
   if (state.error) notices.push({ text: `セーブを読み込めませんでした: ${state.error}`, kind: 'warning' });
   const upload = state.upload ?? {};
@@ -79,7 +82,7 @@ export function ownedNotices(state) {
       const missing = (snapshot.players ?? []).filter((player) => player.uid && player.level > 0 && !files.has(`players/${player.uid.replace(/-/g, '').toLowerCase()}.sav`));
       if (missing.length) {
         const names = missing.map((player) => `${player.name || '名前なし'}（Players\\${player.uid.replace(/-/g, '').toUpperCase()}.sav）`);
-        notices.push({ text: `登録されていないプレイヤーのファイルがあります: ${names.join('、')}。設定タブの「セーブ連携」で、そのワールドの「編集」から追加できます。`, kind: 'warning' });
+        notices.push({ text: `登録されていないプレイヤーのファイルがあります: ${names.join('、')}。`, kind: 'warning', action: 'editWorld' });
       }
     }
     // 解析の数（この PC で読んだデータだけにある。古い IndexedDB では無い・形が違うことがあるので、数として確かめてから使う）。

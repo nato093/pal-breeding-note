@@ -40,7 +40,8 @@ export function routeView(routes, { annotate } = {}) {
   const wrapper = el('div', 'route-results');
   routes.forEach((route, index) => {
     const node = el('section', 'route-card');
-    node.append(el('h3', '', index === 0
+    // 画面の h1 の次の見出し（h2。大きさは CSS の .route-card h2 で前の h3 と同じ 15px）
+    node.append(el('h2', '', index === 0
       ? `最短 ${route.length} 回の配合` : `候補 ${index + 1} · ${route.length} 回の配合`), chain(route, annotate));
     wrapper.append(node);
   });

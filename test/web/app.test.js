@@ -5,6 +5,7 @@ import { FakeElement, descendants, installResizeObserver } from '../helpers/dom.
 import releaseNotes from '../../web/js/release-notes.js';
 import pals from '../../web/data/pals.js';
 import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
+import { TABS } from '../../web/js/views/tabs.js';
 
 const find = (predicate) => descendants(document.body).find(predicate);
 const byClass = (name) => find((node) => node.className.split(' ').includes(name));
@@ -150,7 +151,7 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   input('username').value = 'ＡｂＣ';
   input('current-password').value = '入力';
   await byText('ログイン').dispatch('click');
-  assert.match(byClass('form-errors').textContent, /登録されていません/);
+  assert.match(byClass('form-errors').textContent, /^この ID は見つかりません。初めての方は新規登録へ。$/);
   // ログインのエラーはフォームにだけ出す（ヘッダーの同期状況は隠したまま）
   assertLoginOnly();
   assert.equal(values.has('pal-note.passcode'), false);
@@ -160,7 +161,7 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   input('username').value = 'あ'.repeat(21);
   input('new-password').value = '入力';
   await byText('登録してログイン').dispatch('click');
-  assert.match(byClass('form-errors').textContent, /20文字以内/);
+  assert.match(byClass('form-errors').textContent, /20 文字以内/);
   input('username').value = 'ＡｂＣ';
   await byText('登録してログイン').dispatch('click');
   assert.equal(byClass('login-form'), undefined);
@@ -216,7 +217,9 @@ test('画面: 一覧の削除アイコンから確認・キャンセル・削除
   const remove = () => find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除');
   assert.equal(cards().length, 2);
   assert.equal(byClass('app-footer'), undefined);
-  assert.match(byClass('brand').textContent, /仲間と残す、冒険の発見。/);
+  // ロゴの副題（キャッチコピー）はなくした（copy-dead-ends）
+  assert.equal(byClass('brand').textContent.replace('◇', ''), 'パル配合ノート');
+  assert.doesNotMatch(byClass('brand').textContent, /仲間と残す、冒険の発見。/);
   const canceled = remove().dispatch('click');
   assert.match(find((node) => node.tagName === 'dialog').textContent, /この配合を削除しますか/);
   await byText('キャンセル').dispatch('click');
@@ -339,7 +342,7 @@ test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状�
   assert.equal(status.title, '最新に更新');
   assert.match(byClass('sync-label').textContent, /最新取得/);
   assert.equal(byClass('account-button').textContent, '架空データ');
-  assert.equal(byClass('account-button').getAttribute('aria-label'), 'ログイン中の ID: 架空データ（名前の変更・ログアウト）');
+  assert.equal(byClass('account-button').getAttribute('aria-label'), 'ログイン中の ID: 架空データ（ID の変更・ログアウト）');
   // メニューの中身は開いたときだけ作る（設定タブの「ログアウト」と取り違えない）
   assert.equal(byClass('account-panel'), undefined);
 });
@@ -443,7 +446,7 @@ test('画面: 裏で送っている間はヘッダーに保存中の件数とバ
 
 for (const [hash, next, label] of [
   ['#/search?p1=SheepBall&p2=FlowerDoll', '#/search?p2=FlowerDoll', '親1'],
-  ['#/reverse?c=SheepBall', '#/reverse', '生まれる子'],
+  ['#/reverse?c=SheepBall', '#/reverse', '産まれる子'],
   ['#/route?from=SheepBall&to=MoonQueen', '#/route?to=MoonQueen', '開始'],
 ]) {
   test(`画面: ${label} の × で URL を変えても画面を作り直さず、同じトリガーにフォーカスを残す`, async (t) => {
@@ -514,13 +517,16 @@ test('画面: 別の画面へ移るときと、パル詳細で別のパルを開
   changeHash('#/reverse?c=SheepBall');
   assert.notEqual(main.children[0], search);
   assert.equal(search.isConnected, false);
-  assert.match(main.textContent, /この子の親を探す/);
+  assert.equal(main.querySelector('h1').textContent, '逆引き');
   changeHash('#/pal/SheepBall');
   const sheep = main.children[0];
   changeHash('#/pal/FlowerDoll');
   assert.notEqual(main.children[0], sheep);
   assert.equal(sheep.isConnected, false);
-  assert.match(main.querySelector('.pal-hero').textContent, /フラリーナ/);
+  // パル詳細の見出しはパル名（hero は絵と属性だけで、名前を二重に出さない）
+  const pal = pals.find((item) => item.id === 'FlowerDoll');
+  assert.equal(main.querySelector('h1').textContent, `No.${pal.label} フラリーナ`);
+  assert.doesNotMatch(main.querySelector('.pal-hero').textContent, /フラリーナ/);
 });
 
 test('画面: ログアウトしてから同じ URL でログインし直すと、画面を作り直して前の選択を引き継がない', async (t) => {
@@ -573,7 +579,7 @@ test('画面: タブを切り替えても選んだパルと絞り込みを残し
   await registrant().dispatch('input');
   // 登録者名の入力は間引くので、確定（change）で絞り込む
   await registrant().dispatch('change');
-  assert.match(document.body.textContent, /条件に合う登録はありません/);
+  assert.match(document.body.textContent, /「該当なし」に合う登録はありません。/);
   // 配合検索のタブとロゴは、前に選んだ親のままの画面へ戻る
   assert.equal(tab('配合検索').href, '#/search?p1=SheepBall');
   assert.equal(byClass('brand').href, '#/search?p1=SheepBall');
@@ -581,7 +587,7 @@ test('画面: タブを切り替えても選んだパルと絞り込みを残し
   assert.ok(find((node) => node.getAttribute('aria-label') === '親1の選択を解除'));
   changeHash(tab('一覧').href);
   assert.equal(registrant().value, '該当なし');
-  assert.match(document.body.textContent, /条件に合う登録はありません/);
+  assert.match(document.body.textContent, /「該当なし」に合う登録はありません。/);
   // 不正な ID を URL から消したら、タブにも消した後の URL を覚える
   changeHash('#/reverse?c=存在しない');
   assert.equal(tab('逆引き').href, '#/reverse');
@@ -745,20 +751,20 @@ test('画面: ウィッシュリストに追加したパルが作れるように
   assert.equal(row.querySelector('a').href, `#/reverse?c=${target.id}`);
 });
 
-test('画面: 設定から名前を変えると、ログイン中の ID・登録者名が新しい名前になり、前の ID のエントリと保存を消す', async (t) => {
+test('画面: 設定から ID を変えると、ログイン中の ID・登録者名が新しい ID になり、前の ID のエントリと保存を消す', async (t) => {
   const { values, calls, sessionValues, events } = await boot(t, { session: {} });
   await byText('新規登録').dispatch('click');
   input('username').value = 'Taro';
   input('new-password').value = '入力';
   await byText('登録してログイン').dispatch('click');
-  assert.match(byClass('settings-view').textContent, /これまでの配合の登録者名もすべて新しい名前になります/);
+  assert.match(byClass('settings-view').textContent, /ID を変えると、これまでの配合の登録者名もすべて新しい ID になります/);
   const dialogInput = () => descendants(find((node) => node.tagName === 'dialog' && node.open)).find((node) => node.tagName === 'input');
-  byText('名前を変更').dispatch('click');
+  byText('ID を変更').dispatch('click');
   assert.equal(dialogInput().value, 'Taro');
   dialogInput().value = 'あ'.repeat(21);
   await byText('変更する').dispatch('click');
   await flush();
-  assert.match(byClass('form-errors').textContent, /20文字以内/);
+  assert.match(byClass('form-errors').textContent, /^ID は 20 文字以内で入力してください。$/);
   events.get('pagehide')();
   assert.ok(sessionValues.has('pal-note.entries'));
   assert.ok(sessionValues.has('pal-note.views'));
@@ -769,8 +775,8 @@ test('画面: 設定から名前を変えると、ログイン中の ID・登録
   assert.match(byClass('settings-view').textContent, /ログイン中の ID: Jiro/);
   // 完了したら「終わっていません」の表示を残さず、ログアウトもできる
   assert.doesNotMatch(byClass('settings-view').textContent, /終わっていません/);
-  assert.equal(byText('名前を変更').hidden, false);
-  assert.equal(byText('名前の変更を再試行').hidden, true);
+  assert.equal(byText('ID を変更').hidden, false);
+  assert.equal(byText('ID の変更を再試行').hidden, true);
   assert.equal(byText('ログアウト').disabled, false);
   assert.equal(values.get('pal-note.userId'), 'Jiro');
   assert.equal(values.has('pal-note.rename'), false);
@@ -1287,7 +1293,7 @@ test('画面: 戻る・進むで popstate と hashchange が続けて来ても�
   events.get('hashchange')();
   const shown = main.children[0];
   assert.notEqual(shown, list);
-  assert.match(shown.textContent, /配合を見つけよう/);
+  assert.equal(shown.querySelector('h1').textContent, '配合検索');
   // 同じエントリ・同じ URL の popstate（読み込んだときなど）では描き直さない
   events.get('popstate')?.();
   assert.equal(main.children[0], shown);
@@ -1311,4 +1317,84 @@ test('画面: 中身の無いエントリ（50 件の上限・名前の変更で
   back('#/list?x=1', { palEntry: '消えたエントリ' });
   await frame();
   assert.deepEqual(scrolls.slice(before), [0]);
+});
+
+test('画面: ログイン画面は見出しが「ログイン」「新規登録」だけで、説明は新規登録のときだけ。INV-2 の注記は残し、最初のフォーカスは ID の欄（入っていればパスワード）', async (t) => {
+  await boot(t);
+  const panel = byClass('login-panel');
+  assert.equal(panel.querySelector('h1').textContent, 'ログイン');
+  // キャッチコピー（eyebrow・見出し）と、ログインでは要らない説明はなくした
+  assert.doesNotMatch(panel.textContent, /仲間とつくる|冒険の発見|ID と共通パスワードを入力/);
+  assert.equal(byClass('eyebrow'), undefined);
+  assert.equal(byClass('login-lead'), undefined);
+  assert.deepEqual(panel.querySelectorAll('.field-label').map((node) => node.textContent), ['ID（20 文字まで）', '共通パスワード']);
+  assert.equal(byClass('login-note').textContent, 'このノートに載るのは、仲間が登録した配合だけ。');
+  assert.equal(document.activeElement, input('username'));
+  input('username').value = 'Alice';
+  await byText('新規登録').dispatch('click');
+  assert.equal(byClass('login-panel').querySelector('h1').textContent, '新規登録');
+  assert.equal(byClass('login-lead').textContent, 'ID は配合の登録者名になります（後で変更できます）。パスワードは仲間から聞いた共通のものです。');
+  assert.equal(byClass('login-note').textContent, 'このノートに載るのは、仲間が登録した配合だけ。');
+  // ID が入っていればパスワードの欄へ
+  assert.equal(document.activeElement, input('new-password'));
+});
+
+test('画面: 前の ID が残っている端末のログイン画面は、パスワードの欄にフォーカスする', async (t) => {
+  await boot(t, { initial: { 'pal-note.userId': 'Alice' } });
+  assert.equal(input('username').value, 'Alice');
+  assert.equal(document.activeElement, input('current-password'));
+});
+
+test('画面: 9 本のタブの見出し（h1）はタブの名前と同じ（views/tabs.js の TABS から引く。ナビのタブも同じ名前と並び）', async (t) => {
+  const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
+  const main = document.getElementById('main');
+  const tabs = descendants(byClass('navigation')).filter((node) => node.className.split(' ').includes('nav-tab'));
+  assert.deepEqual(tabs.map((node) => node.textContent), TABS.map(([, label]) => label));
+  for (const [view, label] of TABS) {
+    changeHash(`#/${view}`);
+    assert.equal(main.querySelector('h1').textContent, label, view);
+    assert.equal(navTab(label).getAttribute('aria-current'), 'page', view);
+  }
+});
+
+test('画面: ベルに未読がないときは「新しい通知はありません。」と「これまでの通知」（押すとパネルを閉じて通知一覧を開き、閉じたらベルへ）', async (t) => {
+  await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }) });
+  const bell = byClass('notification-button');
+  // 開くと未読を既読にする（更新内容のお知らせ）
+  await bell.dispatch('click');
+  await bell.dispatch('click');
+  await bell.dispatch('click');
+  const panel = byClass('notification-panel');
+  assert.equal(panel.querySelector('p').textContent, '新しい通知はありません。');
+  assert.doesNotMatch(panel.textContent, /設定タブ/);
+  const all = panel.querySelectorAll('button').find((node) => node.textContent === 'これまでの通知');
+  await all.dispatch('click');
+  assert.equal(byClass('notification-panel'), undefined);
+  assert.equal(bell.getAttribute('aria-expanded'), 'false');
+  const dialog = find((node) => node.tagName === 'dialog' && node.open);
+  assert.equal(dialog.querySelector('h2').textContent, '通知一覧');
+  assert.equal(dialog.querySelectorAll('.notification-title').length, releaseNotes.length);
+  await dialog.querySelectorAll('button').find((node) => node.textContent === '閉じる').dispatch('click');
+  assert.equal(document.activeElement, bell);
+});
+
+test('画面: キャッシュのない初回の取得に失敗したら、画面に文と「もう一度読み込む」を出し、押すと取り直して結果を出す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  let fail = true;
+  const api = (request) => (request.action === 'snapshot' && fail ? { ok: false, code: 'INTERNAL' } : development(request));
+  const { calls } = await boot(t, { initial: signedIn, api, hash: '#/list' });
+  await flush();
+  const main = document.getElementById('main');
+  const failed = main.querySelector('.error-state');
+  assert.equal(failed.getAttribute('role'), 'alert');
+  assert.equal(failed.querySelector('p').textContent, 'サーバでエラーが発生しました。時間をおいてお試しください。');
+  const snapshots = () => calls.filter((request) => request.action === 'snapshot').length;
+  const before = snapshots();
+  fail = false;
+  await failed.querySelector('button').dispatch('click');
+  await flush();
+  assert.equal(snapshots(), before + 1);
+  assert.equal(main.querySelector('.error-state'), null);
+  assert.match(main.querySelector('.result-note').textContent, /^2 件の配合/);
+  assert.ok(main.querySelectorAll('.breeding-card').length > 0);
 });

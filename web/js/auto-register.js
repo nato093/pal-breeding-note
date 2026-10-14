@@ -294,7 +294,8 @@ export function createAutoRegister({
     onNotice();
   }
 
-  const pairText = (a, b) => `${palName(a)}×${palName(b)}`;
+  // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」。前の版が保存した本文は「×」のまま読み替える＝OLD_ANOMALY・OLD_CONFLICT）
+  const pairText = (a, b) => `${palName(a)}＋${palName(b)}`;
   // 表と合わない新しいタマゴ（見たタマゴとして記録し、二度と判定しない）。表の子（m.expected）は出さない
   const anomalyNotice = (ctx, m) => ({
     id: `auto-breed:${ctx.env}:anomaly:${m.farmId}:${m.eggLocalId}`, date: ctx.importedAt,

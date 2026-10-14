@@ -29,7 +29,7 @@ test('継承ルート表示: 前の子を左親につなぎ、性別を保って
   assert.deepEqual(rows[0].querySelectorAll('.gender').map((node) => node.textContent), ['♂', '♀']);
   assert.equal(rows[0].querySelector('.route-warning').textContent, '性別条件は未検証');
   assert.equal(rows[1].querySelector('.route-warning'), null);
-  assert.match(view.querySelector('h3').textContent, /最短 2 回の配合/);
+  assert.match(view.querySelector('h2').textContent, /最短 2 回の配合/);
   for (const row of rows) {
     assert.match(row.className, /breeding-card/);
     assert.match(row.textContent, /＋.*→/);
@@ -69,8 +69,8 @@ test('継承ルート表示: multiChild の警告と最短先頭を保ち、他�
     { id: 'c', parent1Id: 'MoonQueen', parent2Id: 'FlowerDoll', childId: 'CatMage', confirmCount: 10 },
   ]);
   assert.deepEqual(view.children.map((node) => node.tagName), ['section', 'section']);
-  assert.equal(view.children[0].querySelector('h3').textContent, '最短 1 回の配合');
-  assert.equal(view.children[1].querySelector('h3').textContent, '候補 2 · 2 回の配合');
+  assert.equal(view.children[0].querySelector('h2').textContent, '最短 1 回の配合');
+  assert.equal(view.children[1].querySelector('h2').textContent, '候補 2 · 2 回の配合');
   assert.equal(view.querySelector('details'), null);
   assert.equal(view.children[0].querySelector('.route-warning').textContent, '性別条件は未検証');
   assert.equal(view.children[0].querySelector('.route-options'), null);

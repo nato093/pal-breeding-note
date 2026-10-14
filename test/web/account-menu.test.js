@@ -24,19 +24,20 @@ function setup(t, { pending = null, renamer = true } = {}) {
   return { ...dom, menu, trigger, emit, item, log, listeners };
 }
 
-test('ID のメニュー: ボタンに ID を出し、開いたときだけ「名前を変更」「ログアウト」を作る', async (t) => {
+test('ID のメニュー: ボタンに ID を出し、開いたときだけ「ID を変更」「ログアウト」を作る（画面の呼び名は ID。前は「名前を変更」）', async (t) => {
   const { menu, trigger, item, emit } = setup(t);
   assert.equal(trigger.textContent, 'とても長い名前のユーザー');
-  assert.equal(trigger.getAttribute('aria-label'), 'ログイン中の ID: とても長い名前のユーザー（名前の変更・ログアウト）');
+  assert.equal(trigger.getAttribute('aria-label'), 'ログイン中の ID: とても長い名前のユーザー（ID の変更・ログアウト）');
   assert.equal(item('ログアウト'), undefined);
   await trigger.dispatch('click');
   assert.equal(trigger.getAttribute('aria-expanded'), 'true');
   assert.match(menu.element.querySelector('.account-panel').textContent, /ログイン中の IDとても長い名前のユーザー/);
-  assert.ok(item('名前を変更'));
+  assert.ok(item('ID を変更'));
+  assert.equal(item('名前を変更'), undefined);
   assert.ok(item('ログアウト'));
-  // 名前の変更中は押せない（開いたまま書き換える）
+  // ID の変更中は押せない（開いたまま書き換える）
   emit({ renaming: true });
-  assert.equal(item('名前を変更').disabled, true);
+  assert.equal(item('ID を変更').disabled, true);
   assert.equal(item('ログアウト').disabled, true);
   emit({ renaming: false, userId: '新しい名前' });
   assert.equal(trigger.textContent, '新しい名前');
@@ -65,20 +66,23 @@ test('ID のメニュー: 「ログアウト」は確認してからログアウ
   assert.deepEqual(log, ['logout']);
 });
 
-test('ID のメニュー: 「名前を変更」で名前の変更のダイアログを開く', async (t) => {
+test('ID のメニュー: 「ID を変更」で ID の変更のダイアログを開く（題・欄・説明も「ID」）', async (t) => {
   const { body, trigger, item } = setup(t);
   await trigger.dispatch('click');
-  await item('名前を変更').dispatch('click');
+  await item('ID を変更').dispatch('click');
   const dialog = body.querySelector('dialog');
-  assert.equal(dialog.querySelector('h2').textContent, '名前を変更');
+  assert.equal(dialog.querySelector('h2').textContent, 'ID を変更');
+  assert.equal(dialog.querySelector('.field-label').textContent, '新しい ID（20 文字まで）');
+  assert.match(dialog.textContent, /すべて新しい ID に変わります。ほかの端末では、新しい ID で入り直してください。/);
+  assert.doesNotMatch(dialog.textContent, /名前/);
   assert.equal(dialog.querySelector('input').value, 'とても長い名前のユーザー');
 });
 
-test('ID のメニュー: 途中で止まった名前の変更があるとき・renamer が無いときは「名前を変更」を出さない', async (t) => {
+test('ID のメニュー: 途中で止まった ID の変更があるとき・renamer が無いときは「ID を変更」を出さない', async (t) => {
   for (const options of [{ pending: { oldId: 'a', newId: 'b' } }, { renamer: false }]) {
     const { trigger, item, menu } = setup(t, options);
     await trigger.dispatch('click');
-    assert.ok(!item('名前を変更') || item('名前を変更').hidden);
+    assert.ok(!item('ID を変更') || item('ID を変更').hidden);
     assert.ok(item('ログアウト'));
     menu.destroy();
   }

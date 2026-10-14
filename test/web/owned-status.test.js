@@ -33,19 +33,30 @@ test('案内: 読み込み中・確認中・共有中は帯に出さない（上
   assert.deepEqual(ownedNotices(ownedState({ ready: false })), []);
 });
 
-test('案内: 自動の読み込みがオフでも、所持パルを表示できているときは「設定でワールドを登録」を出さない。データがないときはボタンつきで出す', () => {
+test('案内: 自動の読み込みがオフでも、所持パルを表示できているときは登録の案内を出さない。データがないときは 1 文と「ワールドを登録」（copy-dead-ends。前は「設定でワールドを登録してください」と設定へ移るボタン）', () => {
   const off = { enabled: false, status: 'off', worlds: [], worldId: '', error: '' };
   const shared = ownedState({ auto: off, role: '', data: { world: {} }, meta: { ...ownedState().meta, source: 'shared' } });
   assert.deepEqual(ownedNotices(shared), []);
   const none = ownedNotices(ownedState({ auto: off, role: '', data: null, owned: null, meta: null }));
-  assert.deepEqual(none, [{ text: '自分のセーブを読むには、設定でワールドを登録してください。', kind: 'info', action: 'settings' }]);
+  assert.deepEqual(none, [{ text: 'セーブのファイルが登録されていません。', kind: 'info', action: 'register' }]);
   // 参加している側でデータがないとき（「参加しているワールドのため…」は出さない。取得元は上のバーのセーブ連携の表示に出る）
   const guest = ownedNotices(ownedState({ role: 'guest', data: null, owned: null, meta: null }));
   assert.deepEqual(guest.map((notice) => notice.text), ['ホストがまだこのワールドの所持パルを共有していません。']);
   assert.deepEqual(ownedNotices(ownedState({ role: 'guest', meta: { ...ownedState().meta, source: 'shared' } })), []);
   // 自動の読み込みを使っているのに登録がない（empty）ときも、同じ案内とボタン
-  const empty = ownedNotices(ownedState({ auto: { enabled: true, status: 'empty', worlds: [], worldId: '', error: '自分のセーブを読むには、設定でワールドを登録してください' } }));
-  assert.deepEqual(empty, [{ text: '自分のセーブを読むには、設定でワールドを登録してください。', kind: 'warning', action: 'settings' }]);
+  const empty = ownedNotices(ownedState({ auto: { enabled: true, status: 'empty', worlds: [], worldId: '', error: 'セーブのファイルが登録されていません' } }));
+  assert.deepEqual(empty, [{ text: 'セーブのファイルが登録されていません。', kind: 'warning', action: 'register' }]);
+});
+
+test('案内: 「設定タブの〜」とだけ書かず、1 文と行き先のボタンにする（読めないエラーは設定のセーブ連携、登録されていないプレイヤーはワールドの編集）', () => {
+  const error = ownedNotices(ownedState({ auto: { enabled: true, status: 'error', worlds: [{ id: 'W' }], worldId: '', error: '「テスト」を読めません（壊れています）。ファイルを登録し直してください' } }));
+  assert.deepEqual(error, [{ text: '「テスト」を読めません（壊れています）。ファイルを登録し直してください', kind: 'warning', action: 'settings' }]);
+  const players = ownedNotices(ownedState({ data: { source: 'handles', snapshot: {
+    files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] }, stats: {},
+    players: [{ uid: '00000000-0000-0000-0000-000000000002', name: 'Bob', level: 10 }],
+  } } }));
+  assert.deepEqual(players, [{ text: '登録されていないプレイヤーのファイルがあります: Bob（Players\\00000000000000000000000000000002.sav）。', kind: 'warning', action: 'editWorld' }]);
+  for (const notice of [...error, ...players]) assert.doesNotMatch(notice.text, /設定タブ/);
 });
 
 test('案内: この PC で読んだセーブに場所の分からないパル・読めなかった項目があれば知らせる（古い形の stats でも壊れない）', () => {

@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom, installResizeObserver } from '../helpers/dom.js';
-import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight, svgElement, empty, storageWarning } from '../../web/js/ui/dom.js';
+import {
+  el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight, svgElement, empty, storageWarning,
+  loadingState, errorState, setupHint,
+} from '../../web/js/ui/dom.js';
 
 // 行の部品（{ element, update, destroy }）。作った数・更新・破棄を数える
 function rows() {
@@ -309,4 +312,73 @@ test('storageWarning: この端末への保存に失敗したときの共通の�
   assert.equal(node.getAttribute('role'), 'alert');
   assert.equal(node.textContent, 'この端末に下書きを保存できませんでした（ページを閉じると消えます）');
   assert.equal(storageWarning('目標').className, 'form-errors storage-warning');
+});
+
+test('empty: icon にタブの名前を渡すと、文の上にそのタブのナビのアイコン（読み上げない枠）を出す', (t) => {
+  installDom(t);
+  const node = empty('条件に合うパルはいません。', button('条件をすべて解除'), { icon: 'owned' });
+  assert.deepEqual(node.children.map((child) => [child.tagName, child.className]), [['span', 'empty-icon'], ['p', ''], ['button', 'button']]);
+  const frame = node.querySelector('.empty-icon');
+  assert.equal(frame.getAttribute('aria-hidden'), 'true');
+  const svg = frame.children[0];
+  assert.equal(svg.tagName, 'svg');
+  assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
+  assert.equal(svg.getAttribute('class'), 'tab-icon');
+  assert.ok(svg.children.length > 0);
+  // 文の読み上げにアイコンは混ざらない（文とボタンの文だけ）
+  assert.equal(node.textContent, '条件に合うパルはいません。条件をすべて解除');
+});
+
+test('loadingState: empty と同じ見た目（.empty-state）で role="status"。アイコンは付けない', (t) => {
+  installDom(t);
+  const node = loadingState('所持パルを読み込み中…');
+  assert.equal(node.className, 'empty-state loading-state');
+  assert.equal(node.getAttribute('role'), 'status');
+  assert.equal(node.textContent, '所持パルを読み込み中…');
+  assert.equal(node.querySelector('.empty-icon'), null);
+});
+
+test('errorState: role="alert" の文と「もう一度読み込む」。押すと retry を呼び、終わるまで押せない（retry がなければボタンなし）', async (t) => {
+  installDom(t);
+  let finish;
+  let calls = 0;
+  const node = errorState('サーバに接続できません', () => { calls++; return new Promise((resolve) => { finish = resolve; }); });
+  assert.equal(node.className, 'error-state');
+  assert.equal(node.getAttribute('role'), 'alert');
+  assert.equal(node.querySelector('p').textContent, 'サーバに接続できません');
+  const again = node.querySelector('button');
+  assert.equal(again.textContent, 'もう一度読み込む');
+  const clicking = again.dispatch('click');
+  assert.equal(calls, 1);
+  assert.equal(again.disabled, true);
+  assert.equal(again.getAttribute('aria-busy'), 'true');
+  // 押している間にもう一度押しても呼ばない
+  await again.dispatch('click');
+  assert.equal(calls, 1);
+  finish();
+  await clicking;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(again.disabled, false);
+  // 失敗しても投げない（失敗の文は呼び出し側が新しい状態で描き直す）
+  const failing = errorState('失敗', () => Promise.reject(new Error('また失敗')));
+  await failing.querySelector('button').dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(failing.querySelector('button').disabled, false);
+  assert.equal(errorState('ボタンなし').querySelector('button'), null);
+});
+
+test('setupHint: 設定などへ移る案内は 1 文と行き先のボタン 1 つ（href ならリンク、run ならボタン）', async (t) => {
+  installDom(t);
+  const linkHint = setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: '#/settings?open=auto' } });
+  assert.equal(linkHint.className, 'setup-hint setup-hint-info');
+  assert.deepEqual(linkHint.children.map((child) => child.tagName), ['p', 'a']);
+  assert.equal(linkHint.querySelector('p').textContent, '所持パルのデータがありません。');
+  assert.equal(linkHint.querySelector('a').href, '#/settings?open=auto');
+  assert.equal(linkHint.querySelector('a').className, 'button secondary small');
+  let ran = 0;
+  const buttonHint = setupHint({ text: 'セーブのファイルが登録されていません。', action: { label: 'ワールドを登録', run: () => { ran++; } }, kind: 'warning' });
+  assert.equal(buttonHint.className, 'setup-hint setup-hint-warning');
+  await buttonHint.querySelector('button').dispatch('click');
+  assert.equal(ran, 1);
+  assert.deepEqual(setupHint({ text: '文だけ' }).children.map((child) => child.tagName), ['p']);
 });

@@ -10,6 +10,7 @@ import { findConflict } from '../core/index.js';
 import { validateRecordInput } from '../core/validate.js';
 import { DRAFT_PALS, sameDraftContent } from '../drafts.js';
 import { viewHeading, watchView, dataPending } from './shared.js';
+import { tabLabel } from './tabs.js';
 
 const palLabels = { parent1Id: '親1', parent2Id: '親2', childId: '子' };
 
@@ -140,7 +141,7 @@ function draftRow(context, draft, onRemove) {
 export function draftsView(context) {
   const { store, drafts } = context;
   const element = el('section', 'view drafts-view');
-  const heading = viewHeading('下書き');
+  const heading = viewHeading(tabLabel('drafts'));
   heading.classList.add('drafts-heading');
   let bulkRunning = false;
   let destroyed = false;
@@ -205,7 +206,7 @@ export function draftsView(context) {
     const items = visible();
     bulkRegister.disabled = bulkRunning || !items.length;
     bulkRemove.disabled = bulkRunning || !items.length;
-    if (dataPending(list, store.state)) {
+    if (dataPending(list, store.state, () => store.refresh())) {
       clearRows();
       count.textContent = '';
       return;
@@ -226,7 +227,7 @@ export function draftsView(context) {
       if (!rows.has(draft.id)) rows.set(draft.id, draftRow(context, draft, removeOne));
       rows.get(draft.id).update(draft, drafts.status(draft.id));
     }
-    if (!items.length) list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに登録」から作れます。'));
+    if (!items.length) list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに登録」から作れます。', null, { icon: 'drafts' }));
     else {
       // 付け直すとフォーカスと開いている候補が外れるため、位置の違う行（新しい行・送信に失敗して戻った行・元に戻した行）だけを差し込む。
       items.forEach((draft, index) => {

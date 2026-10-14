@@ -879,29 +879,74 @@ title 13 字・body 38 字。
 
 ### 完了の条件
 
-- [ ] `npm test` が通る（wording.test.js を含む）。
-- [ ] 9 タブとパル詳細を開き、h1 がタブ名（パル詳細はパル名）。継承ルートと理想個体で h1 の次の見出しが h2。
-- [ ] 理想個体・継承ルート・所持パルの「設定タブの〜」が 1 文＋ボタンになり、押すと設定の該当の欄が開いてフォーカスがある。
-- [ ] 一覧・所持パル・配合検索・理想個体の 0 件の画面に次の操作のボタンがある。キャッシュのない初回に取得を失敗させると「もう一度読み込む」が出て、押すと取り直す。
-- [ ] ログイン画面のキャッチコピーが消え、INV-2 の注記は残っている。ID の欄かパスワードの欄にフォーカスがある。
-- [ ] `grep -rn "設定タブ" web/js` で、画面に出る文に残っていない（コメントは可）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — ログイン画面の INV-2 の注記が残っている（判断事項 9）。互換 — CSV・GAS の列名、通知の id、過去の release-notes の文を変えていない（`wording.test.js` の許可リスト）。セキュリティ — アイコンは createElementNS、文は textContent（`test/static/security.test.js`）。性能 — 対象外。
+- [x] `npm test` が通る（wording.test.js を含む）。
+- [x] 9 タブとパル詳細を開き、h1 がタブ名（パル詳細はパル名）。継承ルートと理想個体で h1 の次の見出しが h2。
+- [x] 理想個体・継承ルート・所持パルの「設定タブの〜」が 1 文＋ボタンになり、押すと設定の該当の欄が開いてフォーカスがある。
+- [x] 一覧・所持パル・配合検索・理想個体の 0 件の画面に次の操作のボタンがある。キャッシュのない初回に取得を失敗させると「もう一度読み込む」が出て、押すと取り直す。
+- [x] ログイン画面のキャッチコピーが消え、INV-2 の注記は残っている。ID の欄かパスワードの欄にフォーカスがある。
+- [x] `grep -rn "設定タブ" web/js` で、画面に出る文に残っていない（コメントは可）。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — ログイン画面の INV-2 の注記が残っている（判断事項 9）。互換 — CSV・GAS の列名、通知の id、過去の release-notes の文を変えていない（`wording.test.js` の許可リスト）。セキュリティ — アイコンは createElementNS、文は textContent（`test/static/security.test.js`）。性能 — 対象外。
 
 ### TODO
 
-- [ ] `views/tabs.js`（`TABS`・`tabLabel`）を作り、app.js と全画面の見出しをそこから引く
-- [ ] パル詳細の h1 を「No.〈番号〉 〈名前〉」にし、hero の名前の重なりをなくす
-- [ ] 継承ルート・理想個体の h3 を h2 にし、CSS とテストを直す
-- [ ] README に表記の決まり、`test/static/wording.test.js` を作る
-- [ ] 表記ゆれ（産まれる・♂♀・＋・グローバルパルボックス・新しいバージョン・参加者・パッシブ・ID）を直す
-- [ ] ログイン画面の文を減らし、ラベル・エラー文・最初のフォーカスを直す
-- [ ] `setupHint` を作り、「設定タブの〜」を 1 文＋ボタンにする（owned.js:433 の文も）
-- [ ] ベルの空の文を「これまでの通知」ボタンに
-- [ ] `errorState`・`loadingState` を作り、`dataPending` で再試行を出す。読み込み中の文と句点をそろえる
-- [ ] `empty` にアイコンの枠を足し、5 か所に出す
-- [ ] 一覧・所持パル・配合検索・理想個体の 0 件に次の操作を付ける
-- [ ] 期待値の変わるテストを直し、新しいテストを足す
-- [ ] release-notes に 1 件、画面で確かめる
+- [x] `views/tabs.js`（`TABS`・`tabLabel`）を作り、app.js と全画面の見出しをそこから引く
+- [x] パル詳細の h1 を「No.〈番号〉 〈名前〉」にし、hero の名前の重なりをなくす
+- [x] 継承ルート・理想個体の h3 を h2 にし、CSS とテストを直す
+- [x] README に表記の決まり、`test/static/wording.test.js` を作る
+- [x] 表記ゆれ（産まれる・♂♀・＋・グローバルパルボックス・新しいバージョン・参加者・パッシブ・ID）を直す
+- [x] ログイン画面の文を減らし、ラベル・エラー文・最初のフォーカスを直す
+- [x] `setupHint` を作り、「設定タブの〜」を 1 文＋ボタンにする（owned.js:433 の文も）
+- [x] ベルの空の文を「これまでの通知」ボタンに
+- [x] `errorState`・`loadingState` を作り、`dataPending` で再試行を出す。読み込み中の文と句点をそろえる
+- [x] `empty` にアイコンの枠を足し、5 か所に出す
+- [x] 一覧・所持パル・配合検索・理想個体の 0 件に次の操作を付ける
+- [x] 期待値の変わるテストを直し、新しいテストを足す
+- [x] release-notes に 1 件、画面で確かめる
+
+### 実装の記録（2026-10-14、ブランチ `feature/copy-dead-ends`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ delete-undo・visual-parts、フェーズ 2 の find-merge・bell・roles・goals-merge はこちらを正とする）。文書の file:line（ad648b7）は関数名・文字列で探し直した。
+
+1. **見出し（手順 1）**: 新しい **`web/js/views/tabs.js`** に **`TABS`**（`[view, 名前]` の並び。外も中も `Object.freeze`）と **`tabLabel(view)`**（タブにない画面は ''）。import は何もしない（INV-2 の制限に触れない）。app.js はナビと `createViewMemory` の `views` を `TABS` から作る（前の app.js の `tabs` の配列はなくした）。9 画面とも `viewHeading(tabLabel('<view>'))`。
+   - パル詳細: h1 は `` `No.${pal.label} ${pal.ja}` ``（例「No.21 アルパオー」）。hero は `palIcon(pal, { large: true })` と `elementChips(pal)` だけ。CSS は `.pal-hero .pal-tile`・`.pal-hero .pal-label`（と `.dex-label`）を消し、`.pal-hero .pal-icon-large { flex: none; }` にした。パルが見つからないときの画面（h1 なし・文と「配合検索へ」）は句点を足しただけ。
+   - h1 の次の見出し: 継承ルートのカード（ui/route-view.js）・所持パルの欄の 2 つの箱（views/route.js）・理想個体の配合牧場の詳細の閉じた 1 行（views/ideal.js の `farmTitle`）を h3 → h2。見た目を変えないよう、CSS は `.route-card h2 { font-size: 15px; line-height: inherit; margin-bottom: 1em; }`（前の h3 の UA の余白）・`.route-owned-box h2`・`.ideal-farms-summary h2` に `line-height: inherit` を足した（h2 は全体で line-height 1.4 のため）。画面で 15px・14px を確かめた。設定のセーブ連携の「登録したワールド」（h2 の中の h3）は階層が正しいので変えていない。
+   - ロゴの副題（キャッチコピー）は消し、CSS の `.brand small` と `@media (width < 1200px)` も消した。ログイン画面の eyebrow を消したので `.eyebrow` の CSS も使われなくなり消した。
+2. **用語表と文言のテスト（手順 2）**: 用語表はリポジトリの README.md の「開発」の下の「### 表記の決まり」（9 行。文書の 8 行に「設定へ移る案内は 1 文と行き先のボタン／「設定タブの〜」とだけ書く」の行を足し、最後の行に「この端末だけ／この端末のみ」と「ID を変更」を入れた）。**`test/static/wording.test.js`**:
+   - **`stripComments(source)`**（export）: 文字列（' "）・テンプレート（`${}` の中はコードとして続ける）・正規表現（直前の意味のある文字が `( , = : [ ! & | ? { } ; + - * % < > ~ ^` か、`return` などのキーワードなら正規表現の始まり）の中の `//`・`/*` は残し、コメントだけを除く。範囲のコメントの中の改行は残す（失敗したときの行番号がずれないように）。この関数そのものの確かめのテストも置いた（文字列の URL・テンプレートの中のコメント・`/\/\//`・割り算・`/[/]…/`）。
+   - 使わない言い回し（`BANNED`）: 文書の 9 個に、`設定タブ`（完了の条件の grep を固定）・`この端末のみ`（README の用語集）・`名前を変更`・`名前の変更`・`新しい名前`（ID にそろえた）を足した。許可リスト（`ALLOWED`）は `web/js/release-notes.js` だけ（許可リストのファイルが実在することも確かめる）。CSV の列名「凝縮」・CSV の性別の値「オス」「メス」・キーワードの検索語（core/owned.js の `GENDER_WORDS`）は言い回しに入れていない。
+   - このテストで文書にない 2 か所が見つかった: 理想個体のトースト「名前の変更が終わってから保存してください」「…外してください」→「ID の変更が…」。
+3. **画面の文言（手順 3）**: 文書のとおり。今のコードで場所が変わっていたもの・すでに消えていたもの:
+   - すでになかった（飛ばした）: `views/owned.js:120`「グローバルボックスを表示」（owned-toolbar で場所のチップになった）、`views/ideal.js:375・380` の「オスとメス」（今は「♂ と ♀」）、`views/ideal.js:75` の組の出どころの文と `:168` の計算の説明の「参加している人」（D30 でなくした）。
+   - 名前の変更のダイアログは header-frame で ui/account-actions.js の `openRenameDialog` に移っていたので、そこを直した（題「ID を変更」・欄「新しい ID（20 文字まで）」・説明・`renameErrors`・トースト・USER_EXISTS の文）。ヘッダーの ID のメニュー（ui/account-menu.js）も「ID を変更」、ボタンの aria-label は「ログイン中の ID: 〈ID〉（ID の変更・ログアウト）」。設定は「ID を変更」「ID の変更を再試行」と説明・トースト。api.js は USER_NOT_FOUND「この ID は見つかりません。初めての方は新規登録へ。」・USER_EXISTS「この ID はすでに使われています。別の ID にするか、ログインしてください。」に加え、文書にない RENAMING・STORAGE・LOCAL_MOVE（LOCAL_MOVE は「設定の「ID の変更を再試行」を押してください」）も ID にした。ログインの入力の誤りも「ID は 20 文字以内で入力してください。」（数字の前後に空白。名前の変更と同じ）。
+   - 参加者: 設定の登録したワールドの行の「参加だけ」→「参加者」、登録のモーダルの「…いまは参加者と判定します」、ヘッダーのセーブ連携の役割（ui/owned-status.js の `roleLabel`）「参加者（ホストが共有した所持パルを表示します）」。
+   - 親の組の記号: 自動登録の保留・見送りの通知の `pairText` を「A＋B」に。旧本文を読む `OLD_ANOMALY`・`OLD_CONFLICT` は記号を見ない正規表現のままで、前の版の本文（「×」）は読み替えても「×」のまま（今の形で保存済みの「A×B：登録済みの配合…」もそのまま出す。書き換えない）。理想個体の牧場の帯のセル（絵の間の `span.ideal-farm-cell-x`・隠した文「（A♂＋B♀）」・title と aria-label）と詳細の行（`span.ideal-farm-x`）も「＋」。visual-parts の「式の ＋ → は文字のまま」と同じ扱い。
+   - 継承ルートの欄名は「運びたいパッシブ」（「（所持パルから探す）」を外した）。
+4. **ログイン画面（手順 4）**: 文書のとおり。h1「ログイン」「新規登録」、新規登録の説明は `p.muted.login-lead`、ラベル「ID（20 文字まで）」「共通パスワード」、注記はそのまま。フォーカスは `main.replaceChildren(panel)` の後に `(userId.value ? password : userId).focus()`（ログインと新規登録を切り替えたときも同じ。前の ID が残っている端末はパスワード）。
+5. **「設定タブの〜」を 1 文＋ボタンに（手順 5）**: **`setupHint({ text, action, kind = 'info' })`**（ui/dom.js）→ `div.setup-hint.setup-hint-{kind}` の中に `p`（文）と、`action.href` があれば `a.button.secondary.small`、`action.run` があれば `button.button.secondary.small`（action がなければ文だけ）。CSS は所持パルの案内の帯と同じ地と文字の大きさ（`.setup-hint-warning` は warning の地）。
+   - 継承ルート（所持パルのデータがなく、パッシブを選んでいるとき）: `setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: settingsHash(owned.state.linkedWorldId ?? '') } })`。理想個体: `empty('所持パルのデータがありません。', link('セーブ連携を開く', settingsHash(…)), { icon: 'ideal' })`。**行き先は文書の `settingsHash('')` ではなく、登録して読んでいるワールドがあればその ID**（そのワールドの行を開く。なければ文書どおり `#/settings?open=auto`）。
+   - 所持パルの案内（ui/owned-status.js の `ownedNotices`）: **未登録（自動の読み込みがオフでデータがない）と、自動の読み込みで登録が 1 つもない（`'empty'`）は、文書の `register` にした**（文「セーブのファイルが登録されていません。」＋「ワールドを登録」で `openWorldDialog(context)`。owned-status の記録 15 の「このテーマで決める」）。理由: 押せばこの画面のままモーダルで登録でき、設定へ移って「＋ ワールドを登録」を探す手間がない（行き止まりをなくす目的にいちばん近い）。owned-status のテストにあった「設定の操作（読み込み・登録）はこの画面に出さない」は、登録だけこの画面に出す形に直した（「今すぐ読み込む」は今までどおり設定とヘッダーだけ）。読めないエラー（`'error'`）は auto.error の文（空なら「セーブを読めませんでした」）＋action `settings`（「セーブ連携を開く」で `context.navigate(settingsHash(owned.state.linkedWorldId))`）。登録されていないプレイヤーのファイルは「登録されていないプレイヤーのファイルがあります: 〈名前〉（Players\…sav）。」＋action `editWorld`（「ワールドを編集」で `openWorldDialog(context, { world })`。world は `owned.state.auto.worlds` の `linkedWorldId` のもの。見つからなければ設定へ）。views/owned.js の `noticeActions` は `grant`・`register`・`settings`・`editWorld`・`unknownPlace`。web/js/owned.js の `'empty'` の文は「セーブのファイルが登録されていません」（設定の欄・ヘッダーの困っていることにも出るので「設定で」と書かない。ほかの auto.error と同じく句点なし）。
+   - **文書にない「設定タブの〜」**: ヘッダーのセーブ連携（ui/save-status.js）の未連携の title「…設定タブの「セーブ連携」で登録できます」→「セーブのファイルが登録されていません」。あわせて、そのポップオーバーの「設定を開く」の行き先を `#/settings` から `settingsHash(state.linkedWorldId || state.meta?.worldId || '')`（開いている間も書き換える）にした（セーブ連携の板から来るので、設定のセーブ連携のカードへ）。
+   - **文書にない行き止まり**: 理想個体の目標のダイアログの「未確認（所持パルのデータがありません）」に action「セーブ連携を開く」（`settingsHash(worldId)`）を足した（participant-self の記録 13 の申し送り。押すとダイアログを閉じるのは「設定で選ぶ」と同じ）。
+   - ベルの空: `div.notification-empty` の中に `p.muted`「新しい通知はありません。」と `button.button.secondary.small`「これまでの通知」。押すとパネルを閉じ、**ベルのボタンへフォーカスを移してから** `openNotificationList(notifications)` を開く（一覧を閉じるとベルへ戻る）。設定の「通知一覧」カードとプロジェクトの CLAUDE.md の記述はそのまま（bell）。
+6. **状態表示（手順 6）**: **`errorState(message, retry)`**（ui/dom.js）→ `div.error-state`（role=alert）の中に `p` と、retry があれば `button.button.secondary.small`「もう一度読み込む」（`runButton` で `retry()`。Promise の間は押せない。失敗しても投げない＝失敗の文は store の状態で描き直す）。`.empty-state` のクラスは付けず、error-container の地・on-error-container の文字・error の左の帯 4px（ライト・ダークとも画面で確かめた。ダーク rgb(90,28,38)・rgb(255,217,221)・帯 rgb(255,146,160)）。`.card-stack:has(> :is(.empty-state, .error-state):only-child)` で地を透明にする。**`loadingState(text)`** → `empty(text)` に `.loading-state` と role=status（アイコンなし）。
+   - **`dataPending(target, state, retry)`**（views/shared.js）: `state.error` があれば errorState、なければ `loadingState('登録済みの配合を読み込み中…')`。**同じ表示（クラスと文が同じ・syncList の行がない）が 1 つだけ出ていれば作り直さない**（押した「もう一度読み込む」のフォーカスを保ち、エラーを読み上げ直さない）。8 画面（配合検索・逆引き・一覧・パル詳細・継承ルート・理想個体・下書き・ウィッシュリスト）が `() => context.store.refresh()`（下書き・ウィッシュリストは `store.refresh()`）を渡す。理想個体は `showResults([])` で空にしてから呼んでいたのを、カードの説明の板だけ片付ける `showPending(state)` にした（同じ表示を作り直さないため）。エラーの文は文書どおり `state.error`（`fetchError` は使っていない）。
+   - 読み込み中の文: 所持パル・理想個体は `loadingState('所持パルを読み込み中…')`、設定の整合性の警告の「取得後に表示します。」は「読み込み中…」。**理想個体の「計算中…」も `loadingState`**（文書にない。role=status。`.empty-state` のクラスはあるので `.is-computing` の CSS はそのまま効く）。句点: 逆引き・配合検索（2 つ）・継承ルート（「配合は不要です。」「登録済みの配合ではたどり着けません。」）・パル詳細（見つからない）。
+7. **空の状態（手順 7）**: **`empty(text, action, { icon = '' } = {})`**（ui/dom.js）。icon にタブの名前を渡すと、文の前に `span.empty-icon`（aria-hidden）と `navIcon(icon)`（`svg.tab-icon`）。CSS は `.empty-icon { display: grid; place-items: center; height: 48px; margin-bottom: 8px; color: on-surface-variant }`・`.empty-icon svg { width: 40px; height: 40px; stroke-width: 1.5; }`。**ui/dom.js が ui/nav-icons.js を import する**（nav-icons.js も dom.js の `svgElement` を import するので互いに読み込むが、どちらもモジュールの読み込みの時点では相手を呼ばず、関数宣言は先に作られるので問題ない）。2 つ目の引数に操作が 2 つ以上あるときは `div.empty-actions`（中央寄せ・間 8px）に入れる。
+   - アイコンを出す所: 一覧（絞り込み 0 件と登録 0 件）・下書き・ウィッシュリスト・所持パル（「条件に合うパルはいません。」と、**文書にない「表示できる所持パルがありません。」**＝所持パルの画面の空の表示）・理想個体（組が出ないとき〔noPairs〕と所持パルのデータがないとき）。読み込み中・エラー・選ぶ前の案内（「目標のパルを選んでください。」など）・配合検索・逆引き・パル詳細には付けない。
+   - 一覧: 登録が 1 件以上あって登録者名で絞って 0 件なら「「〈入力の前後の空白を除いたもの〉」に合う登録はありません。」＋「絞り込みを解除」（間引いて待っている入力を取り消し、欄を空にして描き直し、ボタンが消えるので登録者名の欄へフォーカス）。登録が 1 件もないときは、**文書の「今の文」ではなく「登録された配合はまだありません。見つけた配合を登録しましょう。」**＋「配合を登録」（条件がないのに「条件に合う」と言わないため）。
+   - 所持パル: owned-toolbar で「条件をすべて解除」がもうあった（アイコンだけ足した）。
+   - 配合検索: 文書どおり（片親だけなら「この親の配合を登録」で `context.register({ parent1Id: p1 || p2 })`、両方なら「この組み合わせを登録」。押したときの親は今の値を読む）。
+   - 理想個体: `noPairs` の `!result.candidates` のとき `missingActions(target)` → 「逆引きで親を探す」（`buildHash('reverse', { c })` のリンク）と、`context.wishlist?.scope?.()` があるときだけ「ウィッシュリストに追加」。押すと `wishlist.add(target)`（null なら「配合を読み込んでから追加してください」、追加したら「〈パル〉をウィッシュリストに追加しました」のトースト）の後、押せない「ウィッシュリストにあります」にする。押せなくする前に、フォーカスがそのボタンにあれば「逆引きで親を探す」へ移す（owned-toolbar の B9 と同じ。disabled のボタンからフォーカスが body に落ちるため）。すでにあれば最初から押せない。ほかのタブでウィッシュリストが変わっても、この案内は描き直さない（次に結果を描くときに合う）。
+8. **release-notes**: 文書の案のまま（id `2026-10-14-copy-dead-ends`・title「見出しと案内をそろえました」13 字・body 38 字）。
+9. **テスト**: 1,428 → 1,448 件（`npm test` exit 0）。足したもの: test/static/wording.test.js（3 件）、dom.test.js（4 件: empty のアイコン・loadingState・errorState・setupHint）、views.test.js（5 件: 5 画面の h1 と `TABS`・パル詳細の h1 と hero・一覧の絞り込み 0 件と登録 0 件・配合検索の片親／両親・読み込み中と失敗と「もう一度読み込む」〔同じ失敗では作り直さない〕）、app.test.js（5 件: ログイン画面・前の ID が残っているときのフォーカス・9 タブの h1 とナビ・ベルの空と「これまでの通知」・キャッシュのない初回の取得の失敗から取り直し）、ideal-view.test.js（2 件: データがないときの「セーブ連携を開く」と読み込み中・目標を持っていないときの 2 つのボタン）、owned-status.test.js（1 件: 読めないエラーと登録されていないプレイヤーの action）。期待値を直したもの: account-menu.test.js・app.test.js（ログインのエラー・副題・aria-label・「産まれる子」・逆引きと配合検索の h1・一覧の 0 件の文・ID の変更・パル詳細の h1）・auto-register.test.js（「＋」。safeAutoNotice に今の本文と旧本文の確かめを足した）・ideal-view.test.js（h3 → h2 の 11 か所・牧場の帯の「＋」・所持者の注記は `p` で）・owned-status.test.js・owned-store.test.js・owned-view.test.js（未登録の「ワールドを登録」とモーダル・プレイヤーの「ワールドを編集」・継承ルートの案内・読み込み中）・route-view.test.js・save-status.test.js（「設定を開く」の行き先）・store.test.js・views.test.js・wishlist.test.js。web/ を前に戻す（`git stash push -u -- web/`）と 34 件が落ち 1 件が止まる（読み込めないテストのファイルもある）ことを確かめた。
+10. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/copy-dead-ends/`）**: (1) ログイン画面: h1「ログイン」・キャッチコピーなし・注記あり・ラベル 2 つ・フォーカスは ID の欄。「新規登録」で説明が出てフォーカスは ID、ID を入れてから切り替えるとパスワード（`01-login-light.png`・`02-signup-light.png`）。(2) ナビの 9 タブを順に押すと h1 がタブ名・aria-current もそのタブ。パル詳細は「No.21 アルパオー」で hero は絵と「無」だけ（`03-…`）。継承ルートのカードの見出しは h2 15px で h3 は 0 個（`04-…`）。(3) 所持パルのデータがない理想個体: アイコン・「所持パルのデータがありません。」・「セーブ連携を開く」（`#/settings?open=auto`）。押すと `#/settings` になり、フォーカスは「セーブ連携」の見出し（窓の中）（`05-…`・`06-…`）。継承ルートで運びたいパッシブを選ぶと 1 文＋「セーブ連携を開く」の帯、押すと同じ所へ（`07-…`）。(4) 配合検索で登録のないライコーンを親 1 に選ぶと「この親の配合を登録」、押すと親 1 がライコーンの登録のモーダル（`08-…`・`09-…`）。一覧で「該当なし」と絞ると「「該当なし」に合う登録はありません。」・アイコン・「絞り込みを解除」、押すと 80 件・159 行に戻り登録者名の欄にフォーカス（`10-…`）。下書き・ウィッシュリストの空にアイコン（`11-…`・`12-…`）。ベルの空に「これまでの通知」、押すとパネルが閉じて通知一覧（67 行）、Esc でベルへ（`13-…`・`14-…`）。(5) 所持パル（`owned/inject.js` の写し）: キーワードで 0 件にするとアイコン・「条件をすべて解除」、押すと 69 / 138 体に戻りキーワードの欄にフォーカス（`15-…`）。理想個体でライコーン（♂♀ を持っていない）: 2 つのボタン、「ウィッシュリストに追加」でトーストが出て「ウィッシュリストにあります」（押せない）になり、フォーカスは「逆引きで親を探す」（`16-…`・`17-…`）。(6) 牧場（`owned/ideal-farms/inject-farms.js` の写し）: アヌビス・所持者「すべて」で帯が「拠点 1 の牧場 A ♂ ＋ ♀ … ✓ 2 番」、隠した文「（アヌビス♂＋アヌビス♀）」、詳細の閉じた 1 行は h2 14px（`19-ideal-farms-light.png`）。(7) 読み込みの失敗: 開発用 API のモジュール（`/dev/…-api.js`）を `page.route` で差し替え、キャッシュを消して読み込み直すと、最初の全件の取得だけが失敗する。一覧に role=alert の「サーバでエラーが発生しました。時間をおいてお試しください。」と「もう一度読み込む」が出て、押すと取り直して 80 件の一覧になった（`07-fetch-error.js`・`20-…`・`21-…`。外への通信はしていない）。(8) 所持パルのデータを消すと、所持パルの案内が「セーブのファイルが登録されていません。」＋「ワールドを登録」、押すと URL は `#/owned` のまま「ワールドを登録」のモーダル（`26-…`・`27-…`）。(9) ダーク（`20-fetch-error-dark.png`〜`25-…`）。横のはみ出しは目で見た範囲でなし。終わった後にブラウザを閉じ、5191 番のサーバを止めた（待ち受け 0 件）。
+11. **後のテーマへの申し送り**:
+    - delete-undo: 初回の取得に失敗したとき、ヘッダーの同期状況・画面の errorState・app.js の `refresh()` のトーストの 3 か所に同じ文が出る（`20-fetch-error-light.png`）。トーストの決まりを直すときに、取得の失敗のトーストを出さない（画面とヘッダーで足りる）か決めてよい。errorState の「もう一度読み込む」は失敗してもトーストを出さない。
+    - visual-parts: 新しい部品の CSS は `.error-state`（error-container の地＋左の帯）・`.setup-hint`（`.setup-hint-warning`）・`.empty-icon`・`.empty-actions`・`.notification-empty`。状態チップの is-error と errorState の色をそろえるならここ。ui/icons.js を作るときも、`empty` は `navIcon(view)` を呼ぶだけなので、`navIcon` の名前と引数（タブの名前）を変えない（変えるなら ui/dom.js の `empty` も直す）。理想個体の「ウィッシュリストにあります」は disabled のボタン（押せないボタンの見た目の対象）。
+    - フェーズ 2 の find-merge・goals-merge: タブの名前と並びは views/tabs.js の `TABS` だけを直せば、ナビ・見出し・`createViewMemory` の `views` がそろう（配合検索 → 配合を探す、逆引き・一覧・下書き・ウィッシュリストを外す）。消すタブの画面が `tabLabel` を使っていれば、その画面ごと消える。一覧の 0 件の 2 つの文と「絞り込みを解除」・配合検索の「この親の配合を登録」は、配合を探すの全件表示・条件の 0 件へ引き継ぐ。理想個体の `missingActions` の「ウィッシュリストに追加」は goals-merge で「目標に登録」に替える（D5）。
+    - bell: ベルの空は `div.notification-empty`（`p.muted`＋「これまでの通知」）。「すべての通知を見る →」にするなら、このボタンを置き換える。設定の「通知一覧」カードとプロジェクトの CLAUDE.md の記述は残してある。
+    - roles: 参加者向けの案内も `setupHint`（1 文＋行き先）で作れる。設定の行き先は今までどおり `settingsHash(worldId)`（`open=auto` だけ）。
+    - そのほか: 文言を足すときは README の「表記の決まり」と `test/static/wording.test.js` の `BANNED` を見る（コメントは調べない）。
 
 ---
 

@@ -187,7 +187,7 @@ export function wishlistNotificationSource({ store, wishlist }) {
       id: `wishlist:${store.state.env}:${wish.palId}:${wish.readyAt}`,
       date: wish.readyAt,
       title: `${name}が作成可能になりました`,
-      body: 'ウィッシュリストのパルです。押すと逆引きで、生まれる配合を確認できます。',
+      body: 'ウィッシュリストのパルです。押すと逆引きで、産まれる配合を確認できます。',
       href,
     }] : [];
     return [...ready, ...wish.found.map(({ pair, at }) => {
