@@ -7,7 +7,7 @@ import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash } from '../../web/js/router.js';
-import { ownedView, OWNED_MEMORY, migrateFilter, DEFAULT_PLACES } from '../../web/js/views/owned.js';
+import { ownedView, ownedRowItem, OWNED_MEMORY, migrateFilter, DEFAULT_PLACES } from '../../web/js/views/owned.js';
 import { cleanSaved } from '../../web/js/core/boundary.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
@@ -205,7 +205,7 @@ test('所持パル画面: 同じ画面のまま絞り込みつきの URL が来�
   view.destroy();
 });
 
-test('所持パル画面: キーワードはスキルや属性でも探せ、一覧に出していないスキルで一致したときは行にその名前を出す', async (t) => {
+test('所持パル画面: キーワードはスキルや属性でも探せ、一致した行の下の段に、語ごとにどの項目の何に一致したかを必ず出す（D29。前は一覧に出していないスキル・説明だけ）', async (t) => {
   installDom(t);
   const data = {
     version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles',
@@ -219,21 +219,39 @@ test('所持パル画面: キーワードはスキルや属性でも探せ、一
     await query.dispatch('input');
     return view.element.querySelectorAll('.owned-row').map((row) => row.querySelectorAll('.owned-hit').map((node) => node.textContent));
   };
-  // 一覧に出していないスキルで一致したら、パッシブの下に一致したスキルだけを出す
+  // スキルで一致したら、行の下の段に「項目：名前」
   assert.deepEqual(await search('えあー'), [['アクティブスキル：エアーキャノン']]);
   assert.deepEqual(await search('猫の手'), [['パートナースキル：猫の手も借りたい']]);
-  // 説明文で一致したときは、名前の下に説明を添える（パッシブは説明で一致したときだけ）
+  // 説明文で一致したときは、名前の後ろに説明を添える。同じ項目（パッシブ）はまとめて 1 つに（全文は段の title）
   await search('空気の塊 作業速度');
   const [row] = view.element.querySelectorAll('.owned-row');
-  assert.deepEqual(row.querySelectorAll('.owned-hit').map((node) => [node.querySelector('.owned-hit-name').textContent, node.querySelector('.owned-hit-desc')?.textContent]), [
-    ['アクティブスキル：エアーキャノン', '高速で飛ぶ空気の塊を発射する。'],
-    ['パッシブ：職人気質', '作業速度 +50%'],
-    ['パッシブ：希少', '攻撃 +15% 防御 +15% 作業速度 +20%'],
+  assert.deepEqual(row.querySelectorAll('.owned-hit').map((node) => node.textContent), [
+    'アクティブスキル：エアーキャノン（高速で飛ぶ空気の塊を発射する。）',
+    'パッシブ：職人気質（作業速度 +50%）・希少（攻撃 +15% 防御 +15% 作業速度 +20%）',
   ]);
-  // 名前・属性・ラッキーなど、一覧に出している項目で一致したときは出さない
-  assert.deepEqual(await search('無 ラッキー'), [[]]);
+  assert.equal(row.querySelector('.owned-hits').title, [
+    'アクティブスキル：エアーキャノン（高速で飛ぶ空気の塊を発射する。）', 'パッシブ：職人気質（作業速度 +50%）', 'パッシブ：希少（攻撃 +15% 防御 +15% 作業速度 +20%）',
+  ].join('\n'));
+  // 名前・属性・ラッキー・所持者など、一覧に出している項目で一致したときも出す（何に一致したか分かるように）
+  assert.deepEqual(await search('無 ラッキー'), [['属性：無', '特徴：ラッキー']]);
+  assert.deepEqual(await search('モコロン'), [['パル名：モコロン', 'アクティブスキル：コロコロモコロン（モコロンの専用スキル。コロコロと転がりながら、敵を追いかける。攻撃後は目が回って動けなくなってしまう。）']]);
+  assert.deepEqual(await search('alice'), [['所持者：Alice'], ['所持者：Alice'], ['所持者：Alice']]);
   assert.deepEqual(await search(''), [[], [], []]);
   view.destroy();
+});
+
+test('所持パル画面: キーワードに一致した理由は、項目（見出し）ごとに 4 つまで出し、残りは「ほか N 件」（全文は title）', (t) => {
+  installDom(t);
+  const pal = normalizeOwned(snapshot, { pals, passives }).pals[0];
+  const notes = ['パル名', 'ニックネーム', '属性', 'パッシブ', 'パートナースキル', '所持者'].map((label) => ({ label, name: `${label}の値`, desc: '' }));
+  const row = ownedRowItem(pal, { notes });
+  const line = row.element.querySelector('.owned-hits');
+  assert.deepEqual(line.querySelectorAll('.owned-hit').map((node) => node.textContent), ['パル名：パル名の値', 'ニックネーム：ニックネームの値', '属性：属性の値', 'パッシブ：パッシブの値']);
+  assert.match(line.textContent, /ほか 2 件$/);
+  assert.equal(line.title.split('\n').length, 6);
+  // 要素は段落と 4 つと「ほか」まで（2,000 行で要素の数を増やさない）
+  assert.equal(descendants(line).length, 6);
+  row.destroy();
 });
 
 test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体値で絞り込む', async (t) => {
@@ -2227,7 +2245,7 @@ test('所持パル画面: 目標の印は名前の下ではなく行の下の段
   assert.deepEqual(withHits.children.map((node) => node.className), [
     'owned-badge badge-mark', 'owned-badge badge-mark', 'owned-badge badge-mark', 'owned-badge badge-mark', 'owned-hits',
   ]);
-  assert.deepEqual(withHits.querySelector('.owned-hits').querySelectorAll('.owned-hit-name').map((node) => node.textContent), ['パッシブ：希少']);
+  assert.deepEqual(withHits.querySelector('.owned-hits').querySelectorAll('.owned-hit').map((node) => node.textContent), ['パッシブ：希少（攻撃 +15% 防御 +15% 作業速度 +20%）']);
   assert.equal(mokoronRow(view).querySelector('.owned-passives').querySelector('.owned-hits'), null);
   // 印がなくなっても理由は段に残り、理由もなくなれば段ごと外す
   goals.set([]);

@@ -379,15 +379,26 @@ function fillPassiveList(list, ids, wanted, hints) {
   laterHint(more, 'ほかのパッシブ', () => [passiveList(rest)], hints);
 }
 
-// キーワードに一致した、一覧に出していない項目（スキル・説明）。行の下の段の印の後ろに 1 行で横に並べ（入り切らない分は省略）、title に全文
+// キーワードに一致した理由の、行に並べる項目（見出し）の数。残りは「ほか N 件」（全文は title）。理由の段落の要素は 2＋この数まで
+//（2,000 行の全部の行に理由が出ても要素を増やしすぎない）
+const HIT_GROUPS = 4;
+const noteText = (note) => `${note.name}${note.desc ? `（${note.desc}）` : ''}`;
+// キーワードに一致した理由（core/owned.js の keywordNotes。D29 で一致したすべての項目にした）。行の下の段の印の後ろに 1 行で、項目（見出し）ごとに
+// 1 つの要素「パッシブ：職人気質（作業速度 +50%）・希少」にまとめて横に並べる（それぞれ入り切らない分は省略）。title に 1 件ずつの全文
 function fillHits(line, notes) {
-  line.replaceChildren(...notes.map((note) => {
-    const hit = el('span', 'owned-hit');
-    hit.append(el('span', 'owned-hit-name', `${note.label}：${note.name}`));
-    if (note.desc) hit.append(el('span', 'owned-hit-desc', note.desc));
+  const groups = new Map();
+  for (const note of notes) {
+    if (!groups.has(note.label)) groups.set(note.label, []);
+    groups.get(note.label).push(noteText(note));
+  }
+  const shown = [...groups].slice(0, HIT_GROUPS);
+  line.replaceChildren(...shown.map(([label, texts]) => {
+    const hit = el('span', 'owned-hit', `${label}：${texts.join('・')}`);
+    hit.title = `${label}：${texts.join('・')}`;
     return hit;
   }));
-  line.title = notes.map((note) => `${note.label}：${note.name}${note.desc ? `（${note.desc}）` : ''}`).join('\n');
+  if (groups.size > shown.length) line.append(el('span', 'owned-hit-more', `ほか ${groups.size - shown.length} 件`));
+  line.title = notes.map((note) => `${note.label}：${noteText(note)}`).join('\n');
 }
 
 // 個体値の 4 セル（HP・攻・防・計）。数字と、下のミニバー（--v。計は合計の 1/3）。目標（targets）があれば、目標の縦線（--t）と
@@ -1330,7 +1341,11 @@ export function ownedView(context, route) {
     nextFrame(tick);
   }
   // 行に渡すもの（キーワードに一致した理由・目標の印）
-  const rowOptionsOf = (pal) => ({ notes: terms.length ? keywordNotes(pal, terms) : [], marks: shownMarks?.get(pal.id) ?? [] });
+  const rowOptionsOf = (pal) => {
+    const marks = shownMarks?.get(pal.id) ?? [];
+    // 一致した理由には、キーワードで一緒に探している目標の印も入れる（filterOwned の extraTexts と同じ文字）
+    return { notes: terms.length ? keywordNotes(pal, terms, marks) : [], marks };
+  };
   // 一覧の 1 行（ownedRowItem を、区切った書き換えに乗せる）。作ったばかりの行と、先頭から決まった数（FILL_NOW）の行はすぐ書き換え、
   // 残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。中身は変わったセルだけを書き換える
   //（一致の理由だけが変わったら理由の行だけ）

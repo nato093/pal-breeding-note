@@ -266,4 +266,16 @@ test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るの�
   const markedTotal = marked.reduce((sum, row) => sum + descendants(row.element).length, 0);
   console.log(`全部の行に印 6 個（2,000 行）の要素: ${markedTotal} 個`);
   assert.ok(markedTotal <= 78000, `印のある 2,000 行の要素が 78,000 を超えました: ${markedTotal}`);
+  // キーワードに一致した理由（D29 で、一致したすべての項目を出すようにした）。理由の段落は項目ごとに 1 つの要素で 4 つまで（説明は同じ要素の文）。
+  // 全部の行の印 6 個がキーワードに一致し（目標の印の 1 項目）、パッシブの説明にも一致したとき
+  const notes = [...marks.map((mark) => ({ label: '目標の印', name: mark, desc: '' })), { label: 'パッシブ', name: '希少', desc: '攻撃 +15% 防御 +15% 作業速度 +20%' }];
+  const many = ['パル名', 'ニックネーム', '属性', '性別', '特徴', 'パッシブ', 'パートナースキル', 'アクティブスキル', '所持者', '場所', '預けた人', '目標の印']
+    .map((label) => ({ label, name: `${label}の値`, desc: '説明' }));
+  const heaviestHits = descendants(ownedRowItem(boxed, { marks, notes: many }).element).length;
+  console.log(`1 行の要素（上の行と、どの項目にも一致した理由）: ${heaviestHits} 個`);
+  assert.ok(heaviestHits <= 47, `理由のある行の要素が 47 個を超えました: ${heaviestHits}`);
+  const hitRows = owned.pals.map((pal) => ownedRowItem(pal, { marks, notes }));
+  const hitTotal = hitRows.reduce((sum, row) => sum + descendants(row.element).length, 0);
+  console.log(`全部の行に印 6 個とキーワードの理由（2,000 行）の要素: ${hitTotal} 個`);
+  assert.ok(hitTotal <= 78000, `印と理由のある 2,000 行の要素が 78,000 を超えました: ${hitTotal}`);
 });
