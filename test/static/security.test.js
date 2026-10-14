@@ -89,6 +89,15 @@ test('静的検査: 廃止した共有・確認・登録者保存・権利ペー
   assert.doesNotMatch(user, /\bvar\b/);
 });
 
+test('静的検査: 所持パルの「リンクをコピー」（D31 で機能ごとなくした）のボタン・板・処理・CSS を残さない', async () => {
+  const files = await filesIn(new URL('../../web/', import.meta.url));
+  for (const file of files.filter((url) => /\.(js|html|css)$/.test(url.pathname))) {
+    assert.doesNotMatch(await readFile(file, 'utf8'), /owned-copy|owned-link-field|owned-link-note/, file.pathname);
+  }
+  const owned = await readFile(new URL('../../web/js/views/owned.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(owned, /リンクをコピー|copyLink|copySeq|clipboard|filterParams\(/);
+});
+
 test('静的検査: 最近使ったパルの保存キー・表示・処理を残さない', async () => {
   const files = await filesIn(new URL('../../web/', import.meta.url));
   for (const file of files.filter((url) => /\.(js|html|css)$/.test(url.pathname))) {

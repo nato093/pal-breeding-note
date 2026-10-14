@@ -156,23 +156,6 @@ export function filterFromParams(params) {
   });
 }
 
-/** 絞り込みを URL の形にする（リンクをコピー）。場所は既定でも必ず入れる（開いたタブの覚えている条件より URL を使わせる） */
-export function filterParams(filter) {
-  const params = new URLSearchParams();
-  if (filter.holder) params.set('holder', filter.holder);
-  params.set('place', filter.places.join(','));
-  if (filter.elements.length) params.set('el', filter.elements.join(','));
-  if (filter.palId) params.set('pal', filter.palId);
-  if (filter.passives.length) params.set('p', filter.passives.join(','));
-  if (filter.passiveMode !== 'include') params.set('pm', filter.passiveMode);
-  if (filter.query) params.set('q', filter.query);
-  if (filter.sort !== 'dex' || filter.dir !== SORT_DIRS.get(filter.sort)) params.set('sort', filter.sort);
-  if (filter.dir !== SORT_DIRS.get(filter.sort)) params.set('dir', filter.dir);
-  if (filter.stars) params.set('stars', String(filter.stars));
-  for (const [key] of TALENT_FILTERS) if (filter.talent[key] > 0) params.set(TALENT_PARAMS[key], String(filter.talent[key]));
-  return params;
-}
-
 // 絞り込みの入れ物（viewState と共有）を、作り直さずに next の項目だけにする（前の形の項目は消す）
 function adopt(target, next) {
   for (const key of Object.keys(target)) if (!Object.hasOwn(next, key)) delete target[key];
@@ -786,7 +769,7 @@ export function ownedView(context, route) {
     changed();
   }
 
-  // ---- 状態の行（結果の行）: 件数と内訳・効いている条件のチップ（入り切らない分は +n）・すべて解除・リンクをコピー・並べ替え。
+  // ---- 状態の行（結果の行）: 件数と内訳・効いている条件のチップ（入り切らない分は +n）・すべて解除・並べ替え。
   // 理想個体／継承ルートへのリンクは、パル・パッシブの見出しの行（D28） ----
   const count = el('p', 'result-note owned-count');
   const chipBox = el('div', 'filter-chips');
@@ -803,29 +786,6 @@ export function ownedView(context, route) {
   chipPopover.element.tabIndex = -1;
   chipPopover.element.setAttribute('aria-label', '隠れている条件');
   const resetButton = button('すべて解除', () => resetAll(), 'button secondary small owned-reset');
-  const copySlot = el('span', 'owned-copy-slot');
-  const copyButton = button('リンクをコピー', () => copyLink(), 'button secondary small owned-copy');
-  copySlot.append(copyButton);
-  // コピーできなかったとき（権限がない・HTTP など）は、リンクを欄に出して選ぶ
-  let linkUrl = '';
-  const linkInput = el('input');
-  linkInput.type = 'text';
-  linkInput.readOnly = true;
-  linkInput.setAttribute('aria-label', 'この条件のリンク');
-  // 板はコピーできなかったときだけ開く。ふだんのボタンは開閉のボタンではないので、開いていない間は aria-expanded を付けない
-  //（createPopover は anchor にいつも aria-expanded="false" を付ける）
-  const linkPopover = createPopover({ anchor: copyButton, wrapper: copySlot, className: 'picker-popover owned-link-field', focusOut: true,
-    onOpen: () => {
-      linkInput.value = linkUrl;
-      linkInput.focus();
-      linkInput.select?.();
-    },
-    onClose: () => copyButton.removeAttribute('aria-expanded') });
-  copyButton.removeAttribute('aria-expanded');
-  linkPopover.element.setAttribute('role', 'dialog');
-  linkPopover.element.tabIndex = -1;
-  linkPopover.element.setAttribute('aria-label', 'この条件のリンク');
-  linkPopover.element.append(el('p', 'owned-link-note', 'コピーできませんでした。下のリンクを選んでコピーしてください。'), linkInput);
   // 理想個体・継承ルートへのリンク（O-40）。もとにした欄（パル・パッシブ）の見出しの行の右端に置く（D28。前は状態の行の右端で、
   // 条件のチップの場所を狭めていた）。文は短く、長い名前は aria-label と title に
   const panelLink = (text, label) => {
@@ -850,7 +810,7 @@ export function ownedView(context, route) {
   // 見出しと区切りは理想個体のパネルと同じ部品・同じ CSS の決まり（views/shared.js の fieldHead・panelItem・panelLine。D28）:
   //   1 段目 [パル（見出しの行に「理想個体 →」）][パッシブ（見出しの行にパッシブの条件と「継承ルート →」）][キーワード]（見出しは入力の上）
   //   2 段目 1 行目 [所持者][個体値（以上）][★][属性 ▾]、2 行目 [場所のチップ]（見出しは入力の左、欄の間に縦の区切り線）
-  //   結果の行（状態の行）[件数][効いている条件のチップ][+n] … [目標の印][すべて解除][リンクをコピー][並べ替え]
+  //   結果の行（状態の行）[件数][効いている条件のチップ][+n] … [目標の印][すべて解除][並べ替え]
   const panel = el('section', 'owned-panel');
   panel.setAttribute('aria-label', '所持パルの絞り込み');
   const panelMain = el('div', 'owned-panel-main');
@@ -876,7 +836,7 @@ export function ownedView(context, route) {
   sortCaption.setAttribute('aria-hidden', 'true');
   sortField.append(sortCaption, sort);
   const statusRow = el('div', 'owned-status-row');
-  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, copySlot, sortField);
+  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, sortField);
   panel.append(panelMain, panelSub, statusRow);
   // ---- 列見出し（F069。押すとその並べ替え、もう一度で向きを反対に）。syncList の行の入れ物とは別の要素で、列の幅は CSS の
   // --owned-cols を行と共有する。パネルの下に貼り付く。並べ替えの選択（状態の行）と同じ filter.sort・filter.dir を使う ----
@@ -1297,32 +1257,6 @@ export function ownedView(context, route) {
     changed();
     if (moveFocus) query.focus({ preventScroll: true });
   }
-  // コピーの要求の番号（クリップボードの返事を待つ間に画面を閉じた・もう一度押したときは、前の返事で板を開かない）
-  let copySeq = 0;
-  async function copyLink() {
-    flushInputs();
-    const seq = ++copySeq;
-    // 所持者は画面で選んでいる値（自分が分からないときの自分は「すべて」として渡す）
-    const url = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams({ ...filter, holder: holderNow() }))}`;
-    linkUrl = url;
-    let copied = false;
-    try {
-      await globalThis.navigator.clipboard.writeText(url);
-      copied = true;
-    } catch {
-      // 権限がない・HTTP（clipboard がない）など。例外は出さず、下で欄に出して選ぶ
-    }
-    // 返事を待つ間に閉じた画面の板・document のリスナーを付け直さない
-    if (destroyed || seq !== copySeq) return;
-    if (copied) {
-      linkPopover.close({ focus: false });
-      toast('リンクをコピーしました');
-    } else if (linkPopover.isOpen()) {
-      linkInput.value = linkUrl;
-      linkInput.focus();
-      linkInput.select?.();
-    } else linkPopover.open();
-  }
   function flushInputs() {
     for (const input of pendingInputs) input.flush();
     talents.flush();
@@ -1622,7 +1556,6 @@ export function ownedView(context, route) {
       holderSelect.destroy();
       presetMenu.destroy();
       elementPopover.destroy();
-      linkPopover.destroy();
       chipPopover.destroy();
       jobSeq++;
       warmSeq++;
