@@ -40,8 +40,18 @@ export function field(label, input) {
 
 export function empty(text, action) {
   const node = el('div', 'empty-state');
-  node.append(el('span', 'empty-symbol', '◇'), el('p', '', text));
+  node.append(el('p', '', text));
   if (action) node.append(action);
+  return node;
+}
+
+/**
+ * この端末への保存に失敗したときの警告（hidden で出し入れする）。what は「下書き」「ウィッシュリスト」「目標」など、
+ * className は画面ごとの余白などのクラス（あれば）
+ */
+export function storageWarning(what, className = '') {
+  const node = el('p', `form-errors storage-warning ${className}`.trim(), `この端末に${what}を保存できませんでした（ページを閉じると消えます）`);
+  node.setAttribute('role', 'alert');
   return node;
 }
 

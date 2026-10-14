@@ -1,4 +1,4 @@
-import { el, button, empty } from '../ui/dom.js';
+import { el, button, empty, storageWarning } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { actionIcon, icons, breedingCard, breedingEquation } from '../ui/breeding-card.js';
 import { palsById } from '../ui/pal-icon.js';
@@ -160,15 +160,13 @@ export function draftsView(context) {
   const count = el('p', 'result-note');
   const toolbar = el('div', 'drafts-toolbar');
   toolbar.append(addWithDialog, count);
-  const storageWarning = el('p', 'form-errors drafts-warning',
-    'この端末に下書きを保存できませんでした。ページを閉じると、保存できなかった変更は失われます。');
-  storageWarning.setAttribute('role', 'alert');
+  const saveWarning = storageWarning('下書き', 'drafts-warning');
   const list = el('div', 'card-stack draft-list');
   const addEmpty = button('＋ 空の下書きを追加', () => {
     const draft = drafts.add();
     rows.get(draft?.id)?.element.querySelector('.picker-trigger')?.focus();
   }, 'button secondary drafts-add');
-  element.append(heading, toolbar, storageWarning, list, addEmpty);
+  element.append(heading, toolbar, saveWarning, list, addEmpty);
   const rows = new Map();
   // 送信中の下書きは登録済みとして隠す。端末には成功するまで残し、失敗したら理由を付けて行に戻す。
   const visible = (key) => drafts.list(key).filter((draft) => !drafts.status(draft.id).sending);
@@ -203,7 +201,7 @@ export function draftsView(context) {
     const ready = Boolean(drafts.scope());
     addWithDialog.disabled = !ready;
     addEmpty.disabled = !ready;
-    storageWarning.hidden = !drafts.saveFailed;
+    saveWarning.hidden = !drafts.saveFailed;
     const items = visible();
     bulkRegister.disabled = bulkRunning || !items.length;
     bulkRemove.disabled = bulkRunning || !items.length;

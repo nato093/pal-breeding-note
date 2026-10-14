@@ -7,7 +7,7 @@ const talent = (hp = 0, shot = 0, defense = 0) => ({ hp, shot, defense });
 const pal = (id, palId, gender, passives = [], stats = talent(), extra = {}) => ({ id, palId, gender, passives, talent: stats, egg: false, place: 'palbox', ...extra });
 const goal = (extra = {}) => cleanGoal({
   id: 'g1', name: '目標', palId: 'X', passives: ['P1', 'P2'], mode: 'include', targets: { hp: 100, shot: 100, defense: 100 },
-  cake: 'none', order: 'next', addedAt: '2026-10-08T00:00:00.000Z', worlds: {}, ...extra,
+  cake: 'none', addedAt: '2026-10-08T00:00:00.000Z', worlds: {}, ...extra,
 });
 
 test('理想個体の登録: 形を確かめ、読めない値は安全な既定値にする', () => {
@@ -28,7 +28,9 @@ test('理想個体の登録: 形を確かめ、読めない値は安全な既定
   assert.deepEqual(clean.passives, ['P1', 'P2', 'P3', 'P4']);
   // 文字列や範囲外の個体値は 0（気にしない）ではなく 100 にする
   assert.deepEqual(clean.targets, { hp: 100, shot: 100, defense: 50 });
-  assert.deepEqual([clean.mode, clean.cake, clean.order, clean.addedAt], ['include', 'none', 'next', '']);
+  assert.deepEqual([clean.mode, clean.cake, clean.addedAt], ['include', 'none', '']);
+  // 並べ方（order）はなくした（前に登録したものに残っていても読まない。保存し直すと消える）
+  assert.equal('order' in clean, false);
   // アルファの条件はなくした（前に登録したものに残っていても読まない）
   assert.equal('alpha' in cleanGoal({ id: 'g', palId: 'X', alpha: 'alpha' }), false);
   assert.deepEqual(Object.keys(clean.worlds), [WORLD]);
@@ -48,14 +50,33 @@ test('理想個体の登録: 読み込みは壊れた JSON を空にし、同じ
   assert.equal(parseGoals(JSON.stringify(many)).length, GOAL_LIMIT);
 });
 
-test('理想個体の登録: 同じ目標かは、完成の条件だけで（名前・完成の記録・ケーキ・並べ方を除き、パッシブの順番を問わずに）比べる', () => {
+test('理想個体の登録: 前の版が保存した目標（並べ方 order を含む）も捨てずに読み、保存し直すと order がない', () => {
+  // 前の版の cleanGoal が書いた形（order は 'next' か 'generations'）
+  const saved = [
+    { id: 'g1', name: '世代', palId: 'X', passives: ['P1'], mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'talent', order: 'generations', addedAt: '2026-10-08T00:00:00.000Z', worlds: {} },
+    { id: 'g2', name: '次の 1 回', palId: 'Y', passives: [], mode: 'only', targets: { hp: 0, shot: 100, defense: 90 }, cake: 'none', order: 'next', addedAt: '', worlds: {} },
+  ];
+  const goals = parseGoals(JSON.stringify(saved));
+  assert.deepEqual(goals.map((goal) => [goal.id, goal.name, goal.palId, goal.passives, goal.mode, goal.cake]),
+    [['g1', '世代', 'X', ['P1'], 'include', 'talent'], ['g2', '次の 1 回', 'Y', [], 'only', 'none']]);
+  assert.deepEqual(goals[1].targets, { hp: 0, shot: 100, defense: 90 });
+  const again = JSON.stringify(goals);
+  assert.doesNotMatch(again, /"order"/);
+  // 保存し直したものを読み直しても同じ（前の版のままのタブが読むときは、order の既定 'next' を足すだけで、goalKey は変わらない）
+  assert.deepEqual(parseGoals(again), goals);
+  assert.deepEqual(goals.map(goalKey), saved.map((goal) => goalKey(cleanGoal(goal))));
+});
+
+test('理想個体の登録: 同じ目標かは、完成の条件だけで（名前・完成の記録・ケーキを除き、パッシブの順番を問わずに）比べる', () => {
   assert.equal(goalKey(goal()), goalKey(goal({ id: 'g2', name: '別名', passives: ['P2', 'P1'], worlds: { [WORLD]: { checked: true, observedAt: '2026-10-08T00:00:00.000Z' } } })));
   assert.notEqual(goalKey(goal()), goalKey(goal({ mode: 'only' })));
   assert.notEqual(goalKey(goal()), goalKey(goal({ targets: { hp: 100, shot: 90, defense: 100 } })));
   // 前に登録したアルファの条件は見ない（同じ目標になる）
   assert.equal(goalKey(goal()), goalKey(goal({ alpha: 'alpha' })));
-  // ケーキと並べ方は作り方なので、違っても同じ目標（同じ完成で通知を重ねない）
-  assert.equal(goalKey(goal()), goalKey(goal({ cake: 'talent', order: 'generations' })));
+  // ケーキは作り方なので、違っても同じ目標（同じ完成で通知を重ねない）。前に保存した並べ方（order）が残っていても同じ目標
+  assert.equal(goalKey(goal()), goalKey(goal({ cake: 'talent' })));
+  assert.equal(goalKey(goal()), goalKey(goal({ order: 'generations' })));
+  assert.equal(goalKey(goal()), goalKey({ ...goal(), order: 'generations' }));
 });
 
 test('理想個体の登録: 完成品は、同じ種族で、パッシブの条件と個体値の目標を満たす個体（アルファかは問わず、グローバルも含み、タマゴは数えない）', () => {

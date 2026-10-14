@@ -465,21 +465,21 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 使われなくなったコード・CSS の片付け
 
-- 状態: 未着手 ／ ブランチ: `feature/cleanup-dead-code` ／ マージのコミット: （未）
+- 状態: 済（2026-10-14） ／ ブランチ: `feature/cleanup-dead-code` ／ マージのコミット: （未）
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 
-- [ ] ideal.test.js の idealPairs のテストを (a)(b)(c) に分け、一時スクリプトで値を比べてから idealPlan・直接の関数へ移す
-- [ ] ideal.perf.js を idealPlan だけにする
-- [ ] `core/ideal.js` の ORDERS・compare・compareGenerations・idealPairs を消す
-- [ ] `GOAL_ORDERS` と cleanGoal の order、画面の `order: 'next'` を消し、テストを直す
-- [ ] README.md:23 の理想個体の説明を直す
-- [ ] `core/route.js` の filterPartners・excludePartners・representative を消し、route.test.js を直す（views.test.js・router.test.js は残す）
-- [ ] `--md-sys-color-on-error-container` を定義し、定義の有無を確かめる静的テストを足す
-- [ ] 未使用の CSS を grep で確かめて消し、`.tab-symbol` の上書き・▸ の transition を直す
-- [ ] `empty()` とログイン画面の「◇」を消す
-- [ ] `storageWarning(what)` を作り、3 か所を置き換える
-- [ ] OPERATIONS.md に diag の 1 項目、README に強み、SOURCES.md に「作らない機能」、COMPARISON.md を書く
-- [ ] release-notes に 1 件
+- [x] ideal.test.js の idealPairs のテストを (a)(b)(c) に分け、一時スクリプトで値を比べてから idealPlan・直接の関数へ移す
+- [x] ideal.perf.js を idealPlan だけにする
+- [x] `core/ideal.js` の ORDERS・compare・compareGenerations・idealPairs を消す
+- [x] `GOAL_ORDERS` と cleanGoal の order、画面の `order: 'next'` を消し、テストを直す
+- [x] README.md:23 の理想個体の説明を直す
+- [x] `core/route.js` の filterPartners・excludePartners・representative を消し、route.test.js を直す（views.test.js・router.test.js は残す）
+- [x] `--md-sys-color-on-error-container` を定義し、定義の有無を確かめる静的テストを足す
+- [x] 未使用の CSS を grep で確かめて消し、`.tab-symbol` の上書き・▸ の transition を直す
+- [x] `empty()` とログイン画面の「◇」を消す
+- [x] `storageWarning(what)` を作り、3 か所を置き換える
+- [x] OPERATIONS.md に diag の 1 項目、README に強み、SOURCES.md に「作らない機能」、COMPARISON.md を書く
+- [x] release-notes に 1 件
 
 ### 18. [copy-dead-ends](phase-1d-small-fixes.md#copy-dead-ends-見出し用語案内の行き止まり)（M）
 
@@ -1036,7 +1036,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ## 次にやること
 
-- **フェーズ 1d の 3 番目 cleanup-dead-code から**（[phase-1d-small-fixes.md](phase-1d-small-fixes.md) の cleanup-dead-code の節。file:line は ad648b7 の時点なので、関数名・文字列で探し直す）。autoreg-success は 2026-10-14 に `feature/autoreg-success` で済ませた（マージは親のセッションが確かめてから。通知の `kind`・`worldId`・`batchId`、`notificationTags`・`groupNotifications`〔行の `ids`・`count`・`items`・`more`〕、自動登録の通知の残す数 `capNotices` の形は phase-1d の autoreg-success の「実装の記録」。フェーズ 2 の bell・autoreg-visibility と copy-dead-ends はその 9 の申し送りを見る）。participant-self も 2026-10-14 に `feature/participant-self` で済ませた（マージは親のセッションが確かめてから。設定の行き先 `settingsHash`・「このワールドでの自分」の行・`identityChanged` の形は participant-self の「実装の記録」。copy-dead-ends はその 13 の申し送りを見る）。以下は participant-self に着手する前の書き置き: **フェーズ 1d の 1 番目 participant-self から**（[phase-1d-small-fixes.md](phase-1d-small-fixes.md) の冒頭の「テーマの順番」「共通の決まり」「プランと違っていた点」を先に読む）。フェーズ 1b・1c（7 テーマとレビューの直し 2 本）は 2026-10-13 に済ませた。participant-self で「自分」を変えるときは、phase-1b-1c の owned-toolbar の「実装の記録」16 の申し送りと、所持者の選択肢の `holderChoices`（views/shared.js。所持パルと理想個体で同じ。owned-toolbar の 18）を見る。 2026-10-14 の D29 で、所持者の「自分の個体」は自分のプレイヤー名の選択肢（値 `mine`）になって既定になり、自分が後から分かったときの描き直し（`context.store` の購読）も入ったので、owned-toolbar の記録 21 と ideal-panel の 15 も見る（phase-1d の participant-self に追記した）。
+- **フェーズ 1d の 4 番目 copy-dead-ends から**（[phase-1d-small-fixes.md](phase-1d-small-fixes.md) の copy-dead-ends の節。file:line は ad648b7 の時点なので、関数名・文字列で探し直す）。cleanup-dead-code は 2026-10-14 に `feature/cleanup-dead-code` で済ませた（マージは親のセッションが確かめてから。`empty(text, action)` は「◇」を作らなくなり〔`div.empty-state` の中は文の `p` と操作だけ〕、保存失敗の警告は ui/dom.js の `storageWarning(what, className)`、色は `--md-sys-color-on-error-container` を定義した。copy-dead-ends・visual-parts は phase-1d の cleanup-dead-code の「実装の記録」12 の申し送りを見る）。autoreg-success は 2026-10-14 に `feature/autoreg-success` で済ませた（マージは親のセッションが確かめてから。通知の `kind`・`worldId`・`batchId`、`notificationTags`・`groupNotifications`〔行の `ids`・`count`・`items`・`more`〕、自動登録の通知の残す数 `capNotices` の形は phase-1d の autoreg-success の「実装の記録」。フェーズ 2 の bell・autoreg-visibility と copy-dead-ends はその 9 の申し送りを見る）。participant-self も 2026-10-14 に `feature/participant-self` で済ませた（マージは親のセッションが確かめてから。設定の行き先 `settingsHash`・「このワールドでの自分」の行・`identityChanged` の形は participant-self の「実装の記録」。copy-dead-ends はその 13 の申し送りを見る）。以下は participant-self に着手する前の書き置き: **フェーズ 1d の 1 番目 participant-self から**（[phase-1d-small-fixes.md](phase-1d-small-fixes.md) の冒頭の「テーマの順番」「共通の決まり」「プランと違っていた点」を先に読む）。フェーズ 1b・1c（7 テーマとレビューの直し 2 本）は 2026-10-13 に済ませた。participant-self で「自分」を変えるときは、phase-1b-1c の owned-toolbar の「実装の記録」16 の申し送りと、所持者の選択肢の `holderChoices`（views/shared.js。所持パルと理想個体で同じ。owned-toolbar の 18）を見る。 2026-10-14 の D29 で、所持者の「自分の個体」は自分のプレイヤー名の選択肢（値 `mine`）になって既定になり、自分が後から分かったときの描き直し（`context.store` の購読）も入ったので、owned-toolbar の記録 21 と ideal-panel の 15 も見る（phase-1d の participant-self に追記した）。
 - ユーザーの答え（2026-10-13）: (1) 今の制約のまま (2) ログイン画面では隠す（fix/phase-1a-answers で直した） (3) Worker にしない (4) test:perf の余裕は、落ちたら測り直す（予算は変えない） (5) 2 行分の高さを最初から取る（fix/phase-1a-answers で直した）。その後、ユーザーの判断で固定をやめ、空のときは 1 行分・改行が要るときだけ行が増える形にした（fix/passive-row-natural。phase-1a の popovers の「実装の記録」）。フェーズ 1b・1c の答え（2026-10-13。README の 3-1 の D20〜D27）: パッシブ欄は改行してパネルが伸びてよい・所持の状況は 2 段目の右端（D20）、1 段目の見出しは入力の上・見出しの行は固定しない（D21）、配合牧場の詳細は既定で閉じる（D22）、個体値の差は値の下・持ち主の札はそのまま（D23）、所持パルのパネル 172px のまま・条件を変えたら結果の先頭を見せる（D24）、目標の印は行の下の段に 4 つまで・行は 80px／64px の 2 つ（D25）、読み直しを 10 秒ごとにして仲間への反映は最大 約 20 秒（D26）、細部（所持パルの許可のボタンは帯だけ・詳細の 1 行と 0 組の要約を短く・所持の状況のリンクに場所・「全部持つ」は余白を詰めて残す）と「**細かな UI は聞かずに決めて報告に書く**」（D27）。フェーズ 1b・1c の後の画面の確認のフィードバック（2026-10-13。D28。`fix/phase-1bc-feedback`）: 所持パルの行の操作は「親にして検索」だけ（「目標に」「ここから継承ルート」はなくした。文字のラベルつきの 1 つのボタン）、パッシブ欄は改行してもチップをプルダウンの右にそろえる、所持パル・理想個体のパネルは見出しの書き方と区切りをそろえる（パッシブの条件はパッシブの見出しの行へ・2 段目は行ごとに区切り線・場所のチップはオンに ✓・状態の行は結果の行の地と並べ替えの見出し。高さは 1100px・パッシブ 0 個で所持パル 184px・理想個体 150.5px）。2 回目の画面の確認のフィードバック（2026-10-14。D29。`fix/feedback2-owned`。所持パル側と共通の分）: データ元の 1 行はなくす（上のバーと重なる・設定は左のナビから）、場所のチップの数と拠点の ▾ はなくす、キーワードは何に一致したかを必ず出す（「属性：闇」）、所持者は自分のプレイヤー名を既定に（「自分の個体」の選択肢はなくす。理想個体も）、所持パルの行の操作はなくす（親・逆引き・継承ルートの検索はフェーズ 3 の owned-detail のドロワーへ）。同じ 2 回目のフィードバックの理想個体の分（2026-10-14。D30。`fix/feedback2-ideal`）: 組のカードの数値（完成まで 平均 約 N 個）と内訳の文・「同じ種族どうし」・個体値の差（−N）・結果の上の要約の行・計算のしくみの説明（「?」。INV-2 の例外 b の一文もいっしょに、ユーザーの判断でなくした）・「この目標の組を置いた牧場はありません」（牧場がなければ帯を出さない）はなくす、ケーキ以外の条件でいちばん早く作れるケーキを提案する（3 通りを比べ、押しボタンに「最速」の印。差が 1 割未満なら手間の少ない方）、空き牧場の案内は所持者が自分のときも出す
 - 進め方（2026-10-12 のユーザーの回答）: ドキュメントのとおり（D1〜D27・3-3・3-7 の既定の扱い）。細かな UI は聞かずに最適な形に決めて実装し、報告に「こう決めた」と書く（D27。2026-10-13）。各テーマは `feature/<key>` でコミットし、`main` へ `--no-ff` でマージまで進める（push はしない）。**フェーズの終わりにまとめて報告する（2026-10-12 に変更）**。Codex はレビューにも実装にもフル活用してよい（読み込ませる情報に制限なし）。
 - 親が決めた点（フェーズ 1b・1c のレビューの直しで担当が挙げたもの。D27 により聞かずに決めた）: (a) 所持パルの並べ替えの名前を「〈何〉が〈向き〉」にそろえ、「良いパッシブ順」を「パッシブのランクが高い順」にした（owned-rows の 18。そのまま） (b) 理想個体で自分のプレイヤーを所持者に選ぶと、要約が「Alice（自分） の個体」になる（ideal-panel の 13。そのまま） (c) 所持の状況のリンクにタマゴとグローバルを除いた場所も渡す (d) 所持パルの「全部持つ」は余白を詰めて 1100px の余りを 30px にした（(c)(d) は `fix/phase-1bc-answers`）。気になる点はユーザーが画面で確かめてから直す

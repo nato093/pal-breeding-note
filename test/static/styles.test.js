@@ -47,6 +47,45 @@ test('静的検査: 所持パルの場所のチップ（押して切り替える
   assert.doesNotMatch(rule('.filter-chip'), /secondary-container/);
 });
 
+test('静的検査: 色のロール（--md-sys-color-*）は参照しているものをすべて定義し、error-container の上の文字（on-error-container）はライトとダークの両方で定義する', async () => {
+  const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
+  // ライトは最初の :root、ダークは @media (prefers-color-scheme: dark) の中の :root
+  const light = css.match(/^:root \{([^}]*)\}/m)?.[1] ?? '';
+  const dark = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/)?.[1] ?? '';
+  const defined = (block) => new Set([...block.matchAll(/(--md-sys-color-[a-z-]+):/g)].map((match) => match[1]));
+  const lightNames = defined(light);
+  const darkNames = defined(dark);
+  assert.ok(lightNames.size > 10 && darkNames.size > 10, 'ライトとダークの :root が読めません');
+  // 「変更あり」の札などの文字色。定義がないと値が無効になり、文字色が親から継がれる（前はこうなっていた）
+  assert.ok(lightNames.has('--md-sys-color-on-error-container'));
+  assert.ok(darkNames.has('--md-sys-color-on-error-container'));
+  // 参照している色はすべてライト（既定）に定義がある。ダークは上書きだけで、ダークにしかない色もない
+  const used = new Set([...css.matchAll(/var\((--md-sys-color-[a-z-]+)/g)].map((match) => match[1]));
+  assert.ok(used.has('--md-sys-color-on-error-container'));
+  for (const name of used) assert.ok(lightNames.has(name), `${name} の定義がありません`);
+  for (const name of darkNames) assert.ok(lightNames.has(name), `${name} はダークにしか定義がありません`);
+});
+
+test('静的検査: 動き（transition・animation）は、動きを減らす設定でないとき（prefers-reduced-motion: no-preference）だけ付ける', async () => {
+  const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
+  // ブロックの中身（入れ子の { } を数えて閉じ括弧まで）を外した残りに、transition・animation の指定がない
+  const start = css.indexOf('@media (prefers-reduced-motion: no-preference) {');
+  assert.ok(start >= 0);
+  let depth = 0;
+  let end = css.indexOf('{', start);
+  for (; end < css.length; end++) {
+    if (css[end] === '{') depth++;
+    else if (css[end] === '}' && --depth === 0) break;
+  }
+  const outside = css.slice(0, start) + css.slice(end + 1);
+  // 「animation: none」（止める指定）は外にあってよい
+  const motions = [...outside.matchAll(/(?:^|[;{\s])(transition|animation)\s*:\s*([^;}]+)/g)].filter((match) => match[2].trim() !== 'none');
+  assert.deepEqual(motions.map((match) => match[0].trim()), []);
+  // 開閉の ▸ は回る動きを、ブロックの中で付ける
+  const inside = css.slice(start, end + 1);
+  assert.match(inside, /\.owned-world-summary::before[^{]*\{\s*transition: transform/);
+});
+
 test('静的検査: scroll-margin-top にヘッダーの高さを足さない（html の scroll-padding-top がヘッダーと 8px を受け持つ。足すと着地点がヘッダーの分だけ下がる）', async () => {
   const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
   assert.match(css, /^html \{[^}]*scroll-padding-top: calc\(var\(--header-h\) \+ 8px\)/m);

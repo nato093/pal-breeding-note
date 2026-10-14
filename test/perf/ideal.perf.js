@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIndex } from '../../web/js/core/index.js';
-import { idealPairs, idealPlan } from '../../web/js/core/ideal.js';
+import { idealPlan } from '../../web/js/core/ideal.js';
 
-test('性能: 理想個体の提案は、同じ種族の ♂1000 × ♀1000（100 万組）でも 2 秒以内', () => {
+test('性能: 理想個体の配合の計画は、同じ種族の ♂1000 × ♀1000（100 万組）でも 2 秒以内', () => {
   let state = 0x49444541;
   const random = () => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
@@ -18,18 +18,20 @@ test('性能: 理想個体の提案は、同じ種族の ♂1000 × ♀1000（10
   const index = buildIndex([], [{ id: 'X', no: 1, variant: false }]);
   const measure = (label, input) => {
     const start = performance.now();
-    const result = idealPairs({ pals, index, target: 'X', ...input });
+    const result = idealPlan({ pals, index, target: 'X', ...input });
     const elapsed = performance.now() - start;
     console.log(`${label}: ${elapsed.toFixed(2)} ms（${result.total} 組）`);
     assert.ok(elapsed < 2000, `${label}が 2 秒を超えました: ${elapsed.toFixed(2)} ms`);
     return result;
   };
-  assert.equal(measure('パッシブの指定なし', {}).total, 1000000);
-  measure('パッシブ 2 個', { passives: ['P0', 'P1'] });
-  measure('パッシブ 4 個・ケーキあり', { passives: ['P0', 'P1', 'P2', 'P3'], cake: 'talent', mode: 'only' });
+  // 並べた組の数（別々の個体の組を選ぶ前）と、選んだ組の数（上限 20）
+  const all = measure('パッシブの指定なし', {});
+  assert.deepEqual([all.total, all.pairs.length], [1000000, 20]);
+  assert.equal(measure('パッシブ 2 個', { passives: ['P0', 'P1'] }).pairs.length, 20);
+  assert.equal(measure('パッシブ 4 個・ケーキあり', { passives: ['P0', 'P1', 'P2', 'P3'], cake: 'talent', mode: 'only' }).pairs.length, 20);
 });
 
-test('性能: 世代を重ねる並べ方は、全員が欲しいパッシブを持つ ♂1000 × ♀1000 と、キノコケーキで値が境目付近にばらける ♂200 × ♀200 でも 2 秒以内', () => {
+test('性能: 配合の計画（子を入れ替えながら作る世代の計算を含む）は、全員が欲しいパッシブを持つ ♂1000 × ♀1000 と、キノコケーキで値が境目付近にばらける ♂200 × ♀200 でも 2 秒以内', () => {
   let state = 0x47454e53;
   const random = () => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
@@ -44,25 +46,23 @@ test('性能: 世代を重ねる並べ方は、全員が欲しいパッシブを
   const index = buildIndex([], [{ id: 'X', no: 1, variant: false }]);
   const measure = (label, pals, input) => {
     const start = performance.now();
-    const { plan, ...rest } = input;
-    const result = (plan ? idealPlan : idealPairs)({ pals, index, target: 'X', passives: ['P0', 'P1'], order: 'generations', ...rest });
+    const result = idealPlan({ pals, index, target: 'X', passives: ['P0', 'P1'], ...input });
     const elapsed = performance.now() - start;
     console.log(`${label}: ${elapsed.toFixed(2)} ms（${result.total} 組）`);
     assert.ok(elapsed < 2000, `${label}が 2 秒を超えました: ${elapsed.toFixed(2)} ms`);
     return result;
   };
-  assert.equal(measure('世代・ケーキなし ♂1000×♀1000', make(1000, 0), {}).total, 1000000);
   // 配合の計画（完全体作成組・パッシブ厳選組・個体値厳選組の順に、別々の個体の組を上から選ぶ）
-  assert.equal(measure('計画・ケーキなし ♂1000×♀1000', make(1000, 0), { plan: true }).pairs.length, 20);
+  const plain = measure('計画・ケーキなし ♂1000×♀1000', make(1000, 0), {});
+  assert.deepEqual([plain.total, plain.pairs.length], [1000000, 20]);
   // 欲しいパッシブが足りない（配合では作れない）ときは、全部の組で個体値がそろうまでの平均を求める
-  assert.equal(measure('計画・足りないパッシブ・ケーキなし ♂1000×♀1000', make(1000, 0), { plan: true, passives: ['P0', 'P9'] }).pairs[0].group, 'talent');
-  measure('世代・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { cake: 'talent' });
+  assert.equal(measure('計画・足りないパッシブ・ケーキなし ♂1000×♀1000', make(1000, 0), { passives: ['P0', 'P9'] }).pairs[0].group, 'talent');
   // 配合の計画は、条件を満たす組すべてで世代の平均を求める。キノコケーキは最初の 1 個を実際の値で計算するので、
-  // 値が 0〜100 にばらけるなら ♂1000 × ♀1000、値が目標の近くに集まるなら（世代の並べ方と同じく）♂200 × ♀200 で 2 秒以内
-  assert.equal(measure('計画・キノコケーキ ♂1000×♀1000（0〜100）', make(1000, 0), { plan: true, cake: 'talent' }).pairs.length, 20);
-  assert.equal(measure('計画・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { plan: true, cake: 'talent' }).pairs.length, 20);
-  assert.equal(measure('計画・足りないパッシブ・キノコケーキ ♂1000×♀1000（0〜100）', make(1000, 0), { plan: true, cake: 'talent', passives: ['P0', 'P9'] }).pairs.length, 20);
-  assert.equal(measure('計画・足りないパッシブ・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { plan: true, cake: 'talent', passives: ['P0', 'P9'] }).pairs.length, 20);
+  // 値が 0〜100 にばらけるなら ♂1000 × ♀1000、値が目標の近くに集まるなら ♂200 × ♀200 で 2 秒以内
+  assert.equal(measure('計画・キノコケーキ ♂1000×♀1000（0〜100）', make(1000, 0), { cake: 'talent' }).pairs.length, 20);
+  assert.equal(measure('計画・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { cake: 'talent' }).pairs.length, 20);
+  assert.equal(measure('計画・足りないパッシブ・キノコケーキ ♂1000×♀1000（0〜100）', make(1000, 0), { cake: 'talent', passives: ['P0', 'P9'] }).pairs.length, 20);
+  assert.equal(measure('計画・足りないパッシブ・キノコケーキ ♂200×♀200（88〜100）', make(200, 88), { cake: 'talent', passives: ['P0', 'P9'] }).pairs.length, 20);
 });
 
 test('性能: 両親合わせて欲しいパッシブがそろう組（欲しいものを欠いて余計を 3〜4 個持つ親を含む）も 2 秒以内。表の作成と使い回しを分けて測る', async () => {

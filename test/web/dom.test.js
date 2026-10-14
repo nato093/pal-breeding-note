@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom, installResizeObserver } from '../helpers/dom.js';
-import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight, svgElement } from '../../web/js/ui/dom.js';
+import { el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight, svgElement, empty, storageWarning } from '../../web/js/ui/dom.js';
 
 // 行の部品（{ element, update, destroy }）。作った数・更新・破棄を数える
 function rows() {
@@ -288,4 +288,25 @@ test('svgElement: SVG の要素を名前空間つきで作り、属性を文字�
   assert.equal(node.tagName, 'circle');
   assert.deepEqual([node.getAttribute('cx'), node.getAttribute('r'), node.getAttribute('aria-hidden')], ['4', '2.5', 'true']);
   for (const name of ['style', 'STYLE', 'onload', 'OnClick']) assert.throws(() => svgElement('svg', { [name]: 'x' }), new RegExp(name), name);
+});
+
+test('empty: 文（と操作）だけの空の表示で、隠すだけの「◇」を作らない', (t) => {
+  installDom(t);
+  const action = button('追加する');
+  const node = empty('まだありません。', action);
+  assert.equal(node.className, 'empty-state');
+  assert.deepEqual(node.children.map((child) => child.tagName), ['p', 'button']);
+  assert.equal(node.textContent, 'まだありません。追加する');
+  assert.equal(node.querySelector('.empty-symbol'), null);
+  assert.deepEqual(empty('なし').children.map((child) => child.tagName), ['p']);
+});
+
+test('storageWarning: この端末への保存に失敗したときの共通の短い警告（role="alert"・画面ごとのクラスを足せる）', (t) => {
+  installDom(t);
+  const node = storageWarning('下書き', 'drafts-warning');
+  assert.equal(node.tagName, 'p');
+  assert.equal(node.className, 'form-errors storage-warning drafts-warning');
+  assert.equal(node.getAttribute('role'), 'alert');
+  assert.equal(node.textContent, 'この端末に下書きを保存できませんでした（ページを閉じると消えます）');
+  assert.equal(storageWarning('目標').className, 'form-errors storage-warning');
 });

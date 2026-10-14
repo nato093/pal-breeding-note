@@ -399,6 +399,21 @@ test('ウィッシュリスト画面: 選ぶとすぐ追加して選択欄を空
   assert.equal(view.element.querySelectorAll('.wishlist-row').length, 2);
 });
 
+test('ウィッシュリスト画面: この端末に保存できなかったときだけ、短い警告を出す', async (t) => {
+  const { body } = installDom(t);
+  const app = setup();
+  const view = wishlistView({ store: app.store, wishlist: app.wishlist });
+  body.append(view.element);
+  t.after(() => view.destroy());
+  const warning = view.element.querySelector('.wishlist-warning');
+  assert.equal(warning.hidden, true);
+  app.storage.fail = true;
+  await choose(view, TARGET);
+  assert.equal(warning.hidden, false);
+  assert.equal(warning.textContent, 'この端末にウィッシュリストを保存できませんでした（ページを閉じると消えます）');
+  assert.equal(warning.getAttribute('role'), 'alert');
+});
+
 test('ウィッシュリスト画面: 外すと一覧から消え、元に戻すと同じ位置に戻る', async (t) => {
   const { body } = installDom(t);
   const app = setup();

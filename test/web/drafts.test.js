@@ -114,6 +114,9 @@ test('下書き: 端末に保存できなければ警告し、入力は画面に
   assert.equal(rows(view).length, 1);
   assert.equal(warning.hidden, false);
   assert.match(warning.textContent, /保存できませんでした/);
+  // 共通の短い警告（ui/dom.js の storageWarning）
+  assert.equal(warning.textContent, 'この端末に下書きを保存できませんでした（ページを閉じると消えます）');
+  assert.equal(warning.getAttribute('role'), 'alert');
   app.storage.fail = false;
   app.drafts.update(app.drafts.list()[0].id, { parent1Id: 'SheepBall' });
   assert.equal(warning.hidden, true);

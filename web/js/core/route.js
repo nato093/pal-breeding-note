@@ -74,21 +74,6 @@ export function distancesTo(graph, target) {
   return distances;
 }
 
-function filterPartners(graph, excludePartners) {
-  const excluded = new Set(excludePartners ?? []);
-  if (!excluded.size) return graph;
-  const filtered = new Map();
-  for (const [from, outgoing] of graph) {
-    const edges = new Map();
-    for (const [to, options] of outgoing) {
-      const available = options.filter((option) => !excluded.has(option.partner));
-      if (available.length) edges.set(to, available);
-    }
-    filtered.set(from, edges);
-  }
-  return filtered;
-}
-
 function breadthFirstNodes(graph, from, to, blockedNodes = new Set(), blockedEdges = new Map()) {
   if (blockedNodes.has(from) || blockedNodes.has(to)) return null;
   if (from === to) return [from];
@@ -121,10 +106,9 @@ function routeFromNodes(graph, nodes) {
   };
 }
 
-export function shortestRoute(graph, from, to, { excludePartners } = {}) {
-  const available = filterPartners(graph, excludePartners);
-  const nodes = breadthFirstNodes(available, from, to);
-  return nodes ? routeFromNodes(available, nodes) : null;
+export function shortestRoute(graph, from, to) {
+  const nodes = breadthFirstNodes(graph, from, to);
+  return nodes ? routeFromNodes(graph, nodes) : null;
 }
 
 function sharesPrefix(nodes, prefix) {
@@ -140,27 +124,24 @@ function comparePaths(a, b, comparePal) {
   return 0;
 }
 
+// 各手順に、相手の候補のどれかで同じ組み合わせから別の子も登録されているか（multiChild）を足す
 function addStepDetails(route, index) {
-  const comparePal = palComparator(index.palOrder);
   return {
     ...route,
     steps: route.steps.map((step) => {
-      const representative = [...step.options].sort((a, b) => b.record.confirmCount - a.record.confirmCount
-        || comparePal(a.partner, b.partner) || compareId(a.record.id, b.record.id))[0];
       const multiChild = step.options.some(({ partner }) => {
         const records = index.byPair.get(pairKey(step.from, partner)) ?? [];
         return new Set(records.map((record) => record.childId)).size > 1;
       });
-      return { ...step, representative, multiChild };
+      return { ...step, multiChild };
     }),
   };
 }
 
-export function findRoutes(graph, index, from, to, { k = 5, slack = 3, excludePartners } = {}) {
+export function findRoutes(graph, index, from, to, { k = 5, slack = 3 } = {}) {
   if (!Number.isFinite(k) || k < 1 || !Number.isFinite(slack) || slack < 0) return { routes: [] };
   const limit = Math.floor(k);
-  const available = filterPartners(graph, excludePartners);
-  const first = breadthFirstNodes(available, from, to);
+  const first = breadthFirstNodes(graph, from, to);
   if (!first) return { routes: [] };
   const maxLength = first.length - 1 + Math.floor(slack);
   const accepted = [first];
@@ -180,7 +161,7 @@ export function findRoutes(graph, index, from, to, { k = 5, slack = 3, excludePa
         blockedEdges.get(spur).add(path[position + 1]);
       }
       // 根の手前を再訪させず、分岐点からの BFS でも単純路を保つ。
-      const tail = breadthFirstNodes(available, root.at(-1), to, new Set(root.slice(0, -1)), blockedEdges);
+      const tail = breadthFirstNodes(graph, root.at(-1), to, new Set(root.slice(0, -1)), blockedEdges);
       if (!tail) continue;
       const nodes = [...root.slice(0, -1), ...tail];
       const key = pathKey(nodes);
@@ -194,5 +175,5 @@ export function findRoutes(graph, index, from, to, { k = 5, slack = 3, excludePa
     candidates.delete(pathKey(next));
     accepted.push(next);
   }
-  return { routes: accepted.map((nodes) => addStepDetails(routeFromNodes(available, nodes), index)) };
+  return { routes: accepted.map((nodes) => addStepDetails(routeFromNodes(graph, nodes), index)) };
 }

@@ -374,7 +374,7 @@ async function boot() {
 
   function loginView(signup = false, previousId = store.state.userId) {
     const panel = el('section', 'login-panel');
-    panel.append(el('span', 'login-mark', '◇'), el('p', 'eyebrow', '仲間とつくる、配合の記録'),
+    panel.append(el('p', 'eyebrow', '仲間とつくる、配合の記録'),
       el('h1', '', signup ? '新規登録' : '冒険の発見を、\nみんなのノートに。'),
       el('p', 'muted', 'ID と共通パスワードを入力してください。'));
     const form = el('form', 'login-form');

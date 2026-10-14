@@ -1,4 +1,4 @@
-import { el, empty, link, button, syncList, clearList, trackHeight, svgElement } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, svgElement, storageWarning } from '../ui/dom.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
@@ -337,7 +337,7 @@ export function idealView(context, route) {
   // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ）を、名前を付けて目標として保存する（この端末だけ）。
   // 名前の変更・条件の更新はしない（外して保存し直す。I-18）
   const defaultName = () => `${palName(to)}${passives.length ? `（${passiveNames(passives)}）` : ''}`.slice(0, GOAL_NAME_MAX);
-  const goalConditions = () => ({ palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, order: 'next' });
+  const goalConditions = () => ({ palId: to, passives, mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake });
   const saveSlot = el('div', 'ideal-save-slot');
   saveSlot.hidden = !ideals;
   // 目標がないときは見えないまま場所を残す（選んだときに右が動かない）。保存済みは押せない印（aria-disabled）にし、フォーカスは残す
@@ -468,8 +468,7 @@ export function idealView(context, route) {
   // 保存した目標のダイアログ（表。完成済みを上に）。開いている間は、登録・所持パルが変わるたびに行を合わせる（同じ行は作り直さない）
   let goalsModal = null;
   let goalsClose = null;
-  const goalsWarning = el('p', 'form-errors', 'この端末に目標を保存できませんでした。ページを閉じると、保存できなかった変更は失われます。');
-  goalsWarning.setAttribute('role', 'alert');
+  const goalsWarning = storageWarning('目標');
   const goalsList = el('ul', 'ideal-goal-list');
   function openGoals() {
     if (!ideals || goalsModal) return;

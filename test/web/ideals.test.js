@@ -13,7 +13,7 @@ const ME = 'u-me';
 const sheep = (id, value, passives = ['Rare'], holderUid = ME) => ({ id, palId: 'SheepBall', gender: 'M', egg: false, place: 'palbox', passives, talent: talent(value), holderUid, holder: '仲間', placeLabel: 'パルボックス' });
 // セーブのプレイヤー（自分は「仲間」と同じ名前のプレイヤー）
 const PLAYERS = [{ uid: ME, name: '仲間' }, { uid: 'u-other', name: '他の人' }];
-const GOAL = { name: 'モコロン理想', palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: talent(100), cake: 'none', order: 'next' };
+const GOAL = { name: 'モコロン理想', palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: talent(100), cake: 'none' };
 
 function memoryStorage() {
   const map = new Map();
@@ -48,10 +48,26 @@ test('理想個体の登録: 追加・同じ条件の重複・ログイン前を
   assert.deepEqual(ideals.list().map((goal) => [goal.id, goal.mode]), [['id-2', 'only'], ['id-1', 'include']]);
   assert.ok(ideals.has(GOAL));
   assert.equal(JSON.parse(storage.map.get(KEY)).length, 2);
+  // 並べ方（order）は保存しない
+  assert.ok(JSON.parse(storage.map.get(KEY)).every((goal) => !('order' in goal)));
   // 形が合わない・ログインしていないときは登録しない
   assert.equal(ideals.add({ ...GOAL, palId: 'bad id' }), null);
   store.state.passcode = '';
-  assert.equal(ideals.add({ ...GOAL, order: 'generations' }), null);
+  assert.equal(ideals.add({ ...GOAL, cake: 'talent' }), null);
+});
+
+test('理想個体の登録: 前の版が保存した目標（並べ方 order つき）も読み、次に保存すると order が消える', () => {
+  const storage = memoryStorage();
+  const old = { id: 'old-1', name: '古い目標', palId: 'SheepBall', passives: ['Rare'], mode: 'include', targets: talent(100), cake: 'none', order: 'generations', addedAt: time(0), worlds: {} };
+  storage.map.set(KEY, JSON.stringify([old]));
+  const { ideals } = setup({ storage });
+  assert.deepEqual(ideals.list().map((goal) => [goal.id, goal.name]), [['old-1', '古い目標']]);
+  // 同じ完成の条件は、order が違っても同じ目標
+  assert.equal(ideals.add(GOAL), 'duplicate');
+  assert.equal(ideals.add({ ...GOAL, mode: 'only' }), 'added');
+  const saved = JSON.parse(storage.map.get(KEY));
+  assert.deepEqual(saved.map((goal) => goal.id), ['id-1', 'old-1']);
+  assert.ok(saved.every((goal) => !('order' in goal)));
 });
 
 test('理想個体の登録: 登録した時点で完成していても知らせず、未完成から完成に変わったら知らせる', (t) => {

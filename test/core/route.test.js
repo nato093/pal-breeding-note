@@ -86,12 +86,11 @@ test('経路: レコード順とマスター順をシャッフルしても全候
   assert.deepEqual(nodesOf(findRoutes(reference.graph, reference.index, 'A', 'D')), [['A', 'B', 'D'], ['A', 'C', 'D']]);
 });
 
-test('ステップ: 確認回数、相手順位、レコード ID の順で代表を選ぶ', () => {
+test('ステップ: 相手の候補は相手の順位、レコード ID の順に並べる（確認回数では並べない）', () => {
   const records = [rec('z', 'A', 'X', 'B', 9), rec('a', 'A', 'X', 'B', 9), rec('y', 'A', 'Y', 'B', 9), rec('d', 'A', 'D', 'B', 1)];
   const { index, graph } = setup(records);
   const step = findRoutes(graph, index, 'A', 'B').routes[0].steps[0];
   assert.deepEqual(step.options.map((option) => option.record.id), ['d', 'a', 'z', 'y']);
-  assert.equal(step.representative.record, records[1]);
   assert.equal(step.multiChild, false);
 });
 
@@ -99,25 +98,7 @@ test('ステップ: どの相手候補でも同じペアに異なる子が登録
   const records = [rec('ax', 'A', 'X', 'B', 10), rec('ay', 'A', 'Y', 'B'), rec('ac', 'A', 'Y', 'C')];
   const { index, graph } = setup(records);
   const step = findRoutes(graph, index, 'A', 'B').routes[0].steps[0];
-  assert.equal(step.representative.partner, 'X');
   assert.equal(step.multiChild, true);
-  assert.equal(findRoutes(graph, index, 'A', 'B', { excludePartners: ['Y'] }).routes[0].steps[0].multiChild, false);
-});
-
-test('excludePartners: 候補を除外し、空の辺を使わず別ルートを探す', () => {
-  const records = [rec('ab', 'A', 'X', 'B', 10), rec('ay', 'A', 'Y', 'B'), rec('bc', 'B', 'X', 'C'), rec('ad', 'A', 'Y', 'D'), rec('dc', 'D', 'Y', 'C')];
-  const { index, graph } = setup(records);
-  assert.deepEqual(shortestRoute(graph, 'A', 'C').nodes, ['A', 'B', 'C']);
-  const options = { excludePartners: new Set(['X']) };
-  assert.deepEqual(shortestRoute(graph, 'A', 'C', options).nodes, ['A', 'D', 'C']);
-  const result = findRoutes(graph, index, 'A', 'C', options);
-  assert.deepEqual(nodesOf(result), [['A', 'D', 'C']]);
-  const direct = findRoutes(graph, index, 'A', 'B', options).routes[0].steps[0];
-  assert.equal(direct.options.length, 1);
-  assert.equal(direct.representative.partner, 'Y');
-  assert.equal(shortestRoute(graph, 'A', 'C', { excludePartners: ['X', 'Y'] }), null);
-  assert.deepEqual(findRoutes(graph, index, 'A', 'C', { excludePartners: ['X', 'Y'] }), { routes: [] });
-  assert.equal(graph.get('A').get('B').length, 2);
 });
 
 test('INV-1: 経路の全ステップの全候補は入力レコードそのものを参照する', () => {
@@ -144,12 +125,12 @@ function createRandom(seed) {
   };
 }
 
-function enumeratePaths(records, from, to, excluded, rank) {
+function enumeratePaths(records, from, to, rank) {
   // 本実装のグラフを使わず、元レコードから総当たり用の辺を独立に作る。
   const adjacency = new Map();
   for (const record of records) {
-    for (const [carrier, partner] of [[record.parent1Id, record.parent2Id], [record.parent2Id, record.parent1Id]]) {
-      if (carrier === record.childId || excluded.has(partner)) continue;
+    for (const [carrier] of [[record.parent1Id, record.parent2Id], [record.parent2Id, record.parent1Id]]) {
+      if (carrier === record.childId) continue;
       if (!adjacency.has(carrier)) adjacency.set(carrier, new Set());
       adjacency.get(carrier).add(record.childId);
     }
@@ -194,13 +175,12 @@ test('ランダムグラフ: 固定シードの 200 ケースを全単純路と�
       }
       const from = ids[Math.floor(random() * count)];
       const to = ids[Math.floor(random() * count)];
-      const excluded = new Set(caseNo % 3 === 0 ? [ids[Math.floor(random() * count)]] : []);
       const { index, graph } = setup(records, master);
-      const all = enumeratePaths(records, from, to, excluded, index.palOrder);
+      const all = enumeratePaths(records, from, to, index.palOrder);
       const k = 1 + Math.floor(random() * 7);
       const slack = Math.floor(random() * 4);
-      const options = { k, slack, excludePartners: excluded };
-      const shortest = shortestRoute(graph, from, to, options);
+      const options = { k, slack };
+      const shortest = shortestRoute(graph, from, to);
       assert.equal(shortest?.length ?? null, all.length ? all[0].length - 1 : null);
       const result = findRoutes(graph, index, from, to, options);
       const expected = all.filter((nodes) => nodes.length <= all[0].length + slack).slice(0, k);
@@ -214,11 +194,9 @@ test('ランダムグラフ: 固定シードの 200 ケースを全単純路と�
         for (const [position, step] of route.steps.entries()) {
           assert.equal(step.from, route.nodes[position]);
           assert.equal(step.to, route.nodes[position + 1]);
-          assert.ok(step.options.includes(step.representative));
           assert.ok(step.options.length > 0);
           for (const option of step.options) {
             assert.ok(records.includes(option.record));
-            assert.ok(!excluded.has(option.partner));
             assert.equal(option.record.childId, step.to);
             assert.ok((option.record.parent1Id === step.from && option.record.parent2Id === option.partner)
               || (option.record.parent2Id === step.from && option.record.parent1Id === option.partner));
