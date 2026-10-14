@@ -111,6 +111,8 @@ const readable = (node) => (node.hidden || node.inert || node.getAttribute('aria
 function assertLoginOnly() {
   assert.ok(byClass('login-form'));
   assert.equal(byClass('app-footer'), undefined);
+  // 隠すだけの「◇」（.login-mark）は作らない
+  assert.equal(byClass('login-mark'), undefined);
   for (const name of signedInParts) assert.equal(byClass(name).hidden, true, name);
   assert.equal(byClass('sync-status').disabled, true);
   assert.equal(byClass('brand').inert, true);

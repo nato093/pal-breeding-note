@@ -1,4 +1,4 @@
-import { el, link, empty } from '../ui/dom.js';
+import { el, link, empty, storageWarning } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palTile, palsById } from '../ui/pal-icon.js';
 import { actionIcon, icons } from '../ui/breeding-card.js';
@@ -12,14 +12,12 @@ export function wishlistView(context) {
   const { store, wishlist } = context;
   const element = el('section', 'view wishlist-view');
   const panel = el('div', 'selection-panel');
-  const storageWarning = el('p', 'form-errors wishlist-warning',
-    'この端末にウィッシュリストを保存できませんでした。ページを閉じると、保存できなかった変更は失われます。');
-  storageWarning.setAttribute('role', 'alert');
+  const saveWarning = storageWarning('ウィッシュリスト', 'wishlist-warning');
   const note = el('p', 'result-note');
   const results = el('div');
   element.append(viewHeading('ウィッシュリスト'),
     el('p', 'wishlist-explanation', '作りたいパルを追加しておくと、配合が登録されて作れるようになったときに右上のベルで知らせます。'),
-    panel, storageWarning, note, results);
+    panel, saveWarning, note, results);
   let picker;
   let destroyed = false;
   let shown = null;
@@ -58,7 +56,7 @@ export function wishlistView(context) {
 
   function update() {
     if (destroyed) return;
-    storageWarning.hidden = !wishlist.saveFailed;
+    saveWarning.hidden = !wishlist.saveFailed;
     if (dataPending(results, store.state)) {
       note.textContent = '';
       shown = null;

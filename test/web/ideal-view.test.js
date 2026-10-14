@@ -631,7 +631,8 @@ test('理想個体画面: 「☆ 目標として保存」の板で名前を付�
   name.dispatch('keydown', { key: 'Enter', isComposing: true });
   assert.equal(ctx.ideals.list().length, 0);
   name.dispatch('keydown', { key: 'Enter' });
-  assert.deepEqual(ctx.ideals.list().map((goal) => [goal.name, goal.palId, goal.passives.join(','), goal.mode, goal.order]), [['最強モコロン', 'SheepBall', 'Rare', 'include', 'next']]);
+  // 並べ方（order）は保存しない（画面の並べ方の選択はない）
+  assert.deepEqual(ctx.ideals.list().map((goal) => [goal.name, goal.palId, goal.passives.join(','), goal.mode, 'order' in goal]), [['最強モコロン', 'SheepBall', 'Rare', 'include', false]]);
   // 板は閉じてボタンへフォーカスを戻す。同じ条件はもう保存できない（押せない印。フォーカスは残す）
   assert.equal(nameInput(view), undefined);
   assert.equal(document.activeElement, save);
@@ -763,6 +764,7 @@ test('理想個体画面: この端末に目標を保存できなかったら「
   const warning = dialog.querySelector('.form-errors');
   assert.equal(warning.hidden, false);
   assert.equal(warning.getAttribute('role'), 'alert');
+  assert.equal(warning.textContent, 'この端末に目標を保存できませんでした（ページを閉じると消えます）');
   view.destroy();
 });
 

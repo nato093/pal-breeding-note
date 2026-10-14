@@ -8,7 +8,6 @@ const HOST_UID = '00000000-0000-0000-0000-000000000001';
 
 export const GOAL_MODES = Object.freeze(['include', 'only']);
 export const GOAL_CAKES = Object.freeze(['none', 'talent', 'special']);
-export const GOAL_ORDERS = Object.freeze(['next', 'generations']);
 export const GOAL_STATS = Object.freeze(['hp', 'shot', 'defense']);
 export const GOAL_NAME_MAX = 30;
 // 1 人が登録できる数と、1 件で覚えるワールドの数（端末の保存を膨らませないため）
@@ -37,6 +36,7 @@ function cleanWorld(value) {
  * 登録した理想個体を検証して整える。形が合わないものは null（捨てる）。
  * worlds はワールドごとの完成の記録（checked: そのワールドで判定したか、complete: 完成しているか、
  * completedAt: 未完成から完成に変わったのを見た時刻〈通知に使う〉、observedAt: 判定に使ったセーブの時刻）。
+ * 前に保存した並べ方（order）は読まない（画面の並べ方の選択はなくなった。残っていても捨てずに読み、保存し直すと消える）。
  */
 export function cleanGoal(value) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !ID.test(value.id)) return null;
@@ -61,7 +61,6 @@ export function cleanGoal(value) {
     mode: oneOf(GOAL_MODES, value.mode, 'include'),
     targets,
     cake: oneOf(GOAL_CAKES, value.cake, 'none'),
-    order: oneOf(GOAL_ORDERS, value.order, 'next'),
     addedAt: validTime(value.addedAt) ? value.addedAt : '',
     worlds: Object.fromEntries(kept),
   };
@@ -86,7 +85,7 @@ export function parseGoals(source) {
 
 /**
  * 同じ目標かを比べるための文字列。完成の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標）だけで比べる
- * （ケーキと並べ方は作り方なので含めない。含めると、同じ完成で通知が重なる）。パッシブの順番は問わない。
+ * （ケーキは作り方なので含めない。含めると、同じ完成で通知が重なる）。パッシブの順番は問わない。
  */
 export function goalKey(goal) {
   return JSON.stringify([goal.palId, [...goal.passives].sort(), goal.mode, GOAL_STATS.map((key) => goal.targets[key])]);

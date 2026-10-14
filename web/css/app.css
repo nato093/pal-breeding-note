@@ -24,6 +24,8 @@
   --md-sys-color-outline-variant: #d4e2dc;
   --md-sys-color-error: #b03043;
   --md-sys-color-error-container: #fbe1e4;
+  /* error-container の地の上の文字（地に対して 8.62:1） */
+  --md-sys-color-on-error-container: #7a1626;
   --md-sys-color-on-error: #ffffff;
   --md-sys-color-warning: #805319;
   --md-sys-color-warning-container: #fff0cd;
@@ -54,6 +56,8 @@
   --owned-row-h: 64px;
   --owned-row-band-h: 80px;
   --owned-band-h: 16px;
+  /* 旧来の名前（--bg・--muted・--line など）。新しく書く CSS では M3 のロール（--md-sys-color-*）を使う。
+     旧名は、その CSS を触るついでに置き換える（一括では置き換えない） */
   --bg: var(--md-sys-color-surface);
   --surface: var(--md-sys-color-surface-container-low);
   --surface-soft: var(--md-sys-color-surface-container-high);
@@ -121,6 +125,7 @@
     --md-sys-color-outline-variant: #375052;
     --md-sys-color-error: #ff92a0;
     --md-sys-color-error-container: #5a1c26;
+    --md-sys-color-on-error-container: #ffd9dd;
     --md-sys-color-on-error: #3a0710;
     --md-sys-color-warning: #ffd284;
     --md-sys-color-warning-container: #453522;
@@ -431,7 +436,6 @@ img, svg { max-width: 100%; }
   background: transparent;
 }
 .nav-tab:hover { text-decoration: none; background: var(--state-hover); color: var(--md-sys-color-on-surface); }
-.tab-symbol { font-size: 20px; line-height: 1.1; }
 .nav-tab.active { color: var(--md-sys-color-on-secondary-container); background: transparent; }
 .app-main { max-width: var(--content-max); padding: 20px 24px 72px; margin: 0 auto; min-height: 65dvh; }
 /* 新しいバージョンの案内は、本文の流れから外した下端の固定のカード（出ても本文がずれない）。
@@ -756,7 +760,6 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .card-action svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .empty-state { text-align: center; padding: 40px 16px; color: var(--muted); }
 .empty-state p { max-width: 440px; margin: 0 auto 14px; font-size: 13px; }
-.empty-symbol { font-size: 45px; line-height: 1; color: var(--accent); opacity: .7; display: none; }
 /* 件数の行は空のときも 1 行の高さを保つ（件数が出たり消えたりして、下の結果が上下に動かないように） */
 .result-note { font-size: 12px; color: var(--muted); margin: 8px 0; min-height: 1lh; }
 .dialog {
@@ -862,7 +865,6 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
   padding: 5px 9px;
   margin-top: 10px;
 }
-.load-more { display: flex; margin: 24px auto 0; margin-top: 16px; }
 .pal-hero {
   background: var(--md-sys-color-surface-container-low);
   border-radius: 16px;
@@ -938,7 +940,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .settings-card p { overflow-wrap: anywhere; }
 .integrity-warning { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .login-panel { max-width: 420px; margin: 40px auto; }
-.login-mark { font-size: 72px; color: var(--accent); display: none; }
 .login-panel h1 { white-space: pre-line; font-size: 30px; font-weight: 700; line-height: 1.35; margin-bottom: 8px; }
 .login-form { background: var(--md-sys-color-surface-container-low); padding: 22px 24px; border: 0; border-radius: 16px; box-shadow: none; margin-top: 20px; }
 .login-form .button { width: 100%; margin-top: 4px; min-height: 40px; }
@@ -977,6 +978,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     @starting-style { opacity: 0; transform: scaleY(.9) translateY(-4px); }
   }
   .picker-trigger::after { transition: transform .2s var(--ease-emphasized); }
+  /* 開閉の ▸（設定の登録したワールドの行・配合牧場の詳細・同じ見込みの組）は、開くと回る */
+  .owned-world-summary::before, .ideal-farms-summary::before, .ideal-same-summary::before { transition: transform .15s ease; }
   /* 通知を開くとベルが一度だけ揺れ、未読の数はページを開いたときに一度だけ輪が広がる */
   .notification-button[aria-expanded="true"] svg { animation: ring .5s var(--ease-emphasized); transform-origin: 50% 15%; }
   .notification-badge::after {
@@ -1030,10 +1033,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 }
 @keyframes sync-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 /* 所持パル */
-.owned-import { padding: 14px 18px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin-bottom: 14px; }
-.owned-status { font-weight: 700; margin-bottom: 10px; overflow-wrap: anywhere; }
 .owned-import-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 8px 0; }
-.owned-import-row .owned-world, .owned-import-row .owned-self, .owned-folder-worlds select { width: auto; max-width: 520px; min-height: 44px; }
+.owned-import-row .owned-world, .owned-import-row .owned-self { width: auto; max-width: 520px; min-height: 44px; }
 .owned-help { font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
 .owned-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; }
 .owned-toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; }
@@ -1042,8 +1043,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-auto-state.state-ready { color: var(--md-sys-color-tertiary); }
 .owned-auto-state.state-permission { color: var(--warning); }
 /* セーブ連携: 登録したワールドの一覧と、配合牧場からの自動登録 */
-.owned-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
-.owned-section h3 { font-size: 15px; margin: 0 0 8px; }
 .owned-world-row .field-label, .owned-self-row .field-label { font-weight: 700; }
 /* このワールドでの自分（使うワールドと同じ並び。何に使うかの説明は選択の下の行） */
 .owned-self-note { flex-basis: 100%; margin-top: -6px; font-size: 12px; }
@@ -1055,7 +1054,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-world-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-height: 44px; padding: 0 0 0 4px; font-weight: normal; border-radius: 8px; list-style: none; }
 .owned-world-summary::-webkit-details-marker { display: none; }
 /* 開閉できることが閉じた状態でも分かるよう、行の頭に ▸ を出し、開くと下向きにする */
-.owned-world-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); transition: transform .15s ease; }
+.owned-world-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); }
 .owned-world-details[open] > .owned-world-summary::before { transform: rotate(90deg); }
 .owned-world-summary:hover { background: var(--state-primary); }
 .owned-world-state { flex: 0 0 auto; font-size: 12px; color: var(--muted); }
@@ -1089,9 +1088,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   background: var(--md-sys-color-surface-container-high);
   overflow-wrap: anywhere;
 }
-.owned-preview { margin: 8px 0; }
-.owned-preview p { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
-.owned-preview .button { margin-right: 8px; }
 .owned-notice-action { margin-left: 10px; min-height: 32px; padding: 4px 12px; }
 .owned-drop {
   flex: 1;
@@ -1105,8 +1101,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   border-color: var(--md-sys-color-outline-variant);
 }
 .owned-drop.dragging { border-color: var(--md-sys-color-primary); color: var(--accent); background: var(--state-primary); }
-.owned-folder-worlds { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.owned-folder-worlds p { margin: 0; width: 100%; font-size: 13px; }
 /* 所持パル: 絞り込みは sticky のパネル（owned-panel）。ヘッダーの下に固定し、高さは JS が画面の section の --panel-h に書く
    （owned-rows の列見出しの top・scroll-margin-top が使う）。理想個体のパネル（ideal-panel）と同じ組み方・同じ見出しと区切りの決まり
    （下の「固定の条件のパネルの共通の決まり」。D28）:
@@ -1553,7 +1547,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .passive-preset:hover { background: var(--state-hover); }
 /* 小さいチップ（文の中・候補の行・保存した目標の組み合わせ） */
 .passive-list.compact { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
-.ideal-extras .passive-list.compact, .ideal-warning .passive-list.compact { margin: 1px 2px; }
+.ideal-warning .passive-list.compact { margin: 1px 2px; }
 .ideal-carry { display: inline-flex; align-items: center; gap: 6px; }
 .route-passives { margin-bottom: 4px; }
 /* 所持パルがあるとき: 目標とパッシブで探し、開始は候補のチップで絞り込む（「すべて」が既定） */
@@ -1924,7 +1918,7 @@ button.ideal-farm-cell:hover { background: color-mix(in srgb, var(--md-sys-color
 .ideal-farms-summary { display: flex; align-items: center; gap: 6px; height: var(--farm-fold-h); min-height: 0; padding: 0 18px; border-radius: 16px; list-style: none; cursor: pointer; }
 .ideal-farms-summary::-webkit-details-marker { display: none; }
 /* 同じ見込みの組の畳みと同じ ▸（開くと下向き） */
-.ideal-farms-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); transition: transform .15s ease; }
+.ideal-farms-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); }
 .ideal-farms-fold[open] > .ideal-farms-summary::before { transform: rotate(90deg); }
 .ideal-farms-summary:hover { background: var(--state-hover); }
 .ideal-farms-summary h3 { min-width: 0; margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
@@ -2013,7 +2007,7 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-same-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 6px 18px; border-radius: 12px; list-style: none; font-size: 13px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
 .ideal-same-summary::-webkit-details-marker { display: none; }
 /* 所持パルの登録したワールドの折りたたみと同じ ▸（開くと下向き） */
-.ideal-same-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); transition: transform .15s ease; }
+.ideal-same-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); }
 .ideal-same[open] > .ideal-same-summary::before { transform: rotate(90deg); }
 .ideal-same-summary:hover { background: var(--state-hover); }
 .ideal-same-reason { font-weight: 400; }
@@ -2044,7 +2038,6 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .owned-auto-error { min-height: 1lh; font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 /* エラーがないときも見えないまま 1 行分の場所を残す（確かめるたびに点滅しない） */
 .owned-auto-error.is-empty { visibility: hidden; }
-.owned-warnings { margin: 0 0 10px; padding: 8px 12px 8px 28px; border-radius: 12px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }
 .owned-drop.disabled { opacity: .5; }
 /* パッシブ（ゲームのパル詳細画面の表示に合わせる）
    左の帯・枠・板の色はランクの区分（通常・金・水色・最上位・マイナス）ごとにゲーム画面から測った値。
@@ -2241,7 +2234,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .start-chip .pal-icon, .start-chip .picker-trigger .pal-icon { width: 26px; height: 26px; }
 .pal-hero .pal-label .dex-label { font-size: 13px; }
 .settings-card h2 { font-size: 16px; margin-bottom: 8px; }
-.owned-notice.notice-warning, .owned-warnings { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
+.owned-notice.notice-warning { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
 .owned-toggle input, input[type="checkbox"] { accent-color: var(--md-sys-color-primary); }
 .dialog-header, .dialog-footer { background: var(--md-sys-color-surface-container-high); border-color: transparent; padding: 16px 24px; }
 .dialog .card-stack { background: var(--md-sys-color-surface-container); }
