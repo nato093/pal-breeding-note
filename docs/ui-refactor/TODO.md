@@ -38,7 +38,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 - [x] 0-2. **`.gitignore` の扱いを確かめる**（済: 2026-10-12、セッション `c342c7a9`。ユーザーの判断で `.mso/`・`.playwright-cli/`・`Claude outputs/` を `.gitignore` に足し、ブランチ `docs/ui-refactor-plan` で単独のコミットにして `main` にマージした。経緯は README の「8-2」）
 - [x] 0-3. **`docs/ui-refactor/` をコミットするかを確かめる**（済: 2026-10-12、同じセッション。公開リポジトリなので、ユーザー名を含むパス・Steam ID・ワールドの ID を伏せてからコミットし、`main` にマージした。push はしていない）。以後も、どのブランチでも `git add -A`・`git add .` を使わない
 - [x] 0-4. **Codex の利用を確かめる**: フェーズ末のレビューで Codex（読み取り専用）を使ってよいか、目的を説明して許可を得る（プロジェクトの CLAUDE.md・グローバルの規約）。使う前に、シェルが起動するかを小さく試す（この環境では起動に失敗したことがある）（済: 2026-10-12。ユーザーの回答は「積極的にフル活用して良い。読み込ませる情報に制限もない。」。レビューも実装の委譲も、テーマごとに許可を取り直さなくてよい。Skill ツールからの呼び出しは権限の確認で止まったので、`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` を Bash で直接呼ぶ）
-- [x] 0-5. **コードが調査のときのままか確かめる**: `git diff c5c0683 --stat -- web/ test/` が空か（2026-10-12 に文書と `.gitignore` をコミットしたので、`git log -1` は `c5c0683` ではない。web/・test/ は変えていない）。変わったファイルがあれば、該当するテーマの文書の file:line を開き直す前提で進める（済: 2026-10-12。空だった。HEAD は `63fc066`）
+- [x] 0-5. **コードが調査のときのままか確かめる**: `git diff ad648b7 --stat -- web/ test/` が空か（2026-10-12 に文書と `.gitignore` をコミットしたので、`git log -1` は `ad648b7` ではない。web/・test/ は変えていない）。変わったファイルがあれば、該当するテーマの文書の file:line を開き直す前提で進める（済: 2026-10-12。空だった。HEAD は `ba99101`）
 - [x] 0-6. **付録とスクリーンショットを確かめる**: `docs/ui-refactor/appendix/` の 7 本（catalog・rejected・measurements・codex-reviews・other-session-plan・plan-snapshot・ideal-calc-plan）が開ける。`Claude outputs/ui-audit-2026-10/shots/{find,record,owned}/` に PNG（計 110 個）と `owned/inject.js`・`owned/inject2.js`・`owned/measure.js`・`record/measure.js`・`find/init-goto.js` がある（済: 2026-10-12。7 本と PNG 110 個（find 37・record 39・owned 34）、スクリプト 5 本がある）
 - [x] 0-7. **テストの基準**: `npm test` と `npm run test:perf` が、何も変えていない状態で通ることを確かめ、`test:perf` の値を phase-1a-foundation.md の「計測の記録」に書く（この値が、ideal-calc の「変える前の値」になる）（済: 2026-10-12。`npm test` 1,024 件・`test:perf` 3 件が通った。値は計測の記録）
 - [x] 0-8. **基準の計測を再現する**: `npm run dev` → `http://localhost:5173/?mock=1&seed=80`（新規登録で入る）→ 所持パルは `Claude outputs/ui-audit-2026-10/shots/owned/inject.js` で注入（手順は appendix/measurements.md の「モックでの再現の仕方」）。README「7-2」の表のうち 2 行以上（例: 配合検索で親を選ぶと 27px 下がる・ヘッダー scrollY=800 でベルが画面外）を同じ値で再現できることを確かめ、計測の記録に書く。終わったらブラウザと開発サーバを止める（済: 2026-10-12。2 行を同じ値で再現した（計測の記録）。注意: モックの配合は `Math.random` で作るので、seed が同じでも中身は毎回変わる。撮影のときの「ソルレイス」に配合があるとは限らないので、一覧の先頭の配合の親を選んで測った）
@@ -54,7 +54,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 両親合わせてパッシブがそろう組も完全体作成組にし、交換推奨と「変更あり」を全体の速さの目安で決める
 
-- 状態: 済 ／ ブランチ: `feature/ideal-calc` ／ マージのコミット: `76001f7`
+- 状態: 済 ／ ブランチ: `feature/ideal-calc` ／ マージのコミット: `f4375c9`
 - 実装で決めたこと・文書との違いは phase-1-0-ideal-calc.md の「実装の記録」。D19（別の子も登録されている組は速さで比べない）をユーザーに確かめて足した
 - 順番: UI 改善の統合プランにはないテーマ。2026-10-12 に足し、1a の前に置いた（今の行番号がそのまま使え、後のテーマが新しい計算の上で作れるため。README の「2-8」）
 
@@ -89,7 +89,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 自動登録の通知から配合表の答えを外す
 
-- 状態: 済 ／ ブランチ: `feature/inv2-notice` ／ マージのコミット: `9688079`
+- 状態: 済 ／ ブランチ: `feature/inv2-notice` ／ マージのコミット: `4655987`
 - 文書と違う形にしたこと: release-notes の本文は、見送りの通知にはタマゴの中身も出るので「親・タマゴの中身・登録済みの子だけを出します」にした（44 字）。テストの :406-407 相当は登録済みの子が 2 つで、並びは登録の順なので、どちらの順でも通る形にした。コメントの「配合表は〜」の言い回しも、`grep -n "表は"` が旧本文を読む所だけになるように直した
 
 - [x] auto-register.js に `AUTO_NOTICE_TITLES`・`anomalyText`・`conflictText` を足す
@@ -107,7 +107,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 同じ画面なら作り直さない遷移の契約
 
-- 状態: 済 ／ ブランチ: `feature/render-contract` ／ マージのコミット: `a1faa29`
+- 状態: 済 ／ ブランチ: `feature/render-contract` ／ マージのコミット: `55b54f3`
 - 文書と違う形にしたこと: 開始チップとパッシブの欄はビューの中で作り直すため（手順 6 の「要素が残る」は誤り）、views/shared.js に `keepFocus` を足し、開始チップに `data-focus-key` を付けた（keep-state で ui/focus.js に置き換える）。ほかに `syncPicker`・各ビューの `readRoute`（生成時は applyRoute を呼ばない）・理想個体の g での入力欄の合わせ直し（`showConditions`）・同じ URL への update は何もしない、を足した（phase-1a の render-contract の「実装の記録」）
 
 - [x] router.js に `sameScreen` を足し、onChange に第 2 引数を渡す
@@ -127,7 +127,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 読み戻しの境界の共通の検証
 
-- 状態: 済 ／ ブランチ: `feature/data-boundary` ／ マージのコミット: `d29d395`
+- 状態: 済 ／ ブランチ: `feature/data-boundary` ／ マージのコミット: `422bd53`
 - 文書と違う形にしたこと: `isObject`・`idText`・`screenHref`・`cleanSnapshot` などを足し、cleanRecords は届いた項目だけを直す（欠けた項目は足さない）、cleanOwnedPayload は文字列でない列名を '' にして列の位置を保つ、ワールドの行・プレイヤー・拠点は知っている項目だけを写す（後のテーマで項目を足すときはそこにも足す）、既読は保存するときも 2,000 件まで（phase-1a の data-boundary の「実装の記録」）
 
 - [x] core/boundary.js（int・intOrNull・text・oneOf・isoTime・list・worldId・cleanSaved）と単体テストを作る
@@ -146,7 +146,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 固定ヘッダー・状態・ID・重なり順の変数
 
-- 状態: 済 ／ ブランチ: `feature/header-frame` ／ マージのコミット: `517bcea`
+- 状態: 済 ／ ブランチ: `feature/header-frame` ／ マージのコミット: `72cd9ee`
 - 文書と違う形にしたこと: セーブ連携の状態の最大幅（22em・14em）をやめてワールド名だけを縮める形にし（測ると 22em では時刻と自動登録が切れた）、`ui/header-popup.js`（popovers で置き換える）・`formatShortTime`・`syncStatus` の部品を足し、`accountMenu({ store, renamer })` にした。読み込み中の印は `auto.status === 'checking'` の間も立てる（phase-1a の header-frame の「実装の記録」）
 
 - [x] app.css に `--header-h` と `--z-*` を足し、既存の z-index を置き換える
@@ -168,7 +168,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 差分更新・区切った描画・再計算の省略・ずれの解消
 
-- 状態: 済 ／ ブランチ: `feature/stable-render` ／ マージのコミット: `c4f26c4`
+- 状態: 済 ／ ブランチ: `feature/stable-render` ／ マージのコミット: `c40bcee`
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D18。D18 で画面が止まる時間の上限を決めた）
 - 文書と違う形にしたこと: 表 1 つで 300ms を超える条件（最大 491ms）があったので表の作成も区切り、組のループの区切りを 1,024 組ごと・最後の選び方をヒープ・見る組のキーを ID の表から引く形にし（20,000 行の偏った分布で 55 → 12 秒、区切りの最大 160 → 32ms）、所持パルは先頭の 200 行だけすぐ書き換えて残りを区切り・キーワードの文字列を使い回す形にした（`startSliced` の `firstBudget`・`syncOptions`・`renderWhenIdle`・`hasGenerationTable`・`prepareKeywords` を足した。20,000 行・同じ種族 6 割の理想個体は合計約 12 秒で D18 の「Worker を検討」に当たるが、Worker にはしていない。phase-1a の stable-render の「実装の記録」）
 
@@ -192,7 +192,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 位置と条件の保持・フォーカスの一般化
 
-- 状態: 済 ／ ブランチ: `feature/keep-state` ／ マージのコミット: `83232f2`
+- 状態: 済 ／ ブランチ: `feature/keep-state` ／ マージのコミット: `46875ef`
 - 文書と違う形にしたこと: 入力欄の合わせ直しは applyRoute の `restored`（エントリの条件を入れ直したとき）だけにし、起動では G-48 の保存を全画面に入れてから今のエントリで上書き、ワールドはどちらかが分からなければ比べず分かった所で所持者だけ外し、リンクの印は root（ヘッダーのリンクも先頭へ）に付けて ID のない新しいエントリは違う画面なら先頭、フォーカスは group が無ければ key と同じ名前の group へ移す形にした（`restoreScroll`・`routeKey`・`intIn`・`bool`・`passiveChip` の `focusGroup` を足し、`keepFocus` を消した。phase-1a の keep-state の「実装の記録」）
 
 - [x] ui/view-memory.js（エントリ・G-48 の保存・最後のタブ・clear）と単体テストを作る（restoreScroll も同じファイル）
@@ -214,7 +214,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ポップオーバーの共通化・パル選択・パッシブ選択
 
-- 状態: 済 ／ ブランチ: `feature/popovers` ／ マージのコミット: `b0c285e`
+- 状態: 済 ／ ブランチ: `feature/popovers` ／ マージのコミット: `5f031e6`
 - 文書と違う形にしたこと: `createPopover` に `tag`・`focusOut`・`place`・`onOpen` を足し（外側の pointerdown ではフォーカスを戻さない）、選んでいる行を見せるのは scrollIntoView ではなく一覧だけを動かす `scrollWithin`（offsetTop で測る。開く動きの途中で rect が縮むため）にし、describe に `orderLabel` を足し、登録件数は 1 件以上だけ文字を出し、所持パルのパル選択の候補を右端にそろえた（幅 920px で横にスクロールしたため）。注記は views/shared.js の `ownedSpeciesNotes`・`recordCountNotes`・`routeDistanceNotes`・`passivePresets`、語の分け方は core/kana.js の `queryTerms`（phase-1a の popovers の「実装の記録」）
 
 - [x] ui/popover.js（placeFloating・createPopover）を作り、pal-picker の配置と閉じる処理を移す（scrollWithin も同じファイル）
@@ -234,7 +234,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ### フェーズ 1a の終わり
 
-- 状態: 済（2026-10-13）。レビューの直しは `fix/phase-1a-review-nav`（マージ `7679322`）と `fix/phase-1a-review-render`（マージ `e55c843`）。指摘は Codex 7 件・観点別のエージェント 3 体（遷移と状態 6 件・データとヘッダー 7 件・描画と部品 8 件）・計測と画面の確認 4 件で、重なりを除いた 26 項目のうち 25 項目を直した（直さなかった 1 件: 手元のセーブのプレイヤーを 100 人で切る。Palworld のサーバの上限は 32 人で、共有も前から 100 人で切っているため）。直したことは phase-1a-foundation.md の各節の「実装の記録」、計測は「計測の記録」の 2026-10-13 の行
+- 状態: 済（2026-10-13）。レビューの直しは `fix/phase-1a-review-nav`（マージ `20b468f`）と `fix/phase-1a-review-render`（マージ `5358f2f`）。指摘は Codex 7 件・観点別のエージェント 3 体（遷移と状態 6 件・データとヘッダー 7 件・描画と部品 8 件）・計測と画面の確認 4 件で、重なりを除いた 26 項目のうち 25 項目を直した（直さなかった 1 件: 手元のセーブのプレイヤーを 100 人で切る。Palworld のサーバの上限は 32 人で、共有も前から 100 人で切っているため）。直したことは phase-1a-foundation.md の各節の「実装の記録」、計測は「計測の記録」の 2026-10-13 の行
 
 - [x] `npm test`・`npm run test:perf` が通る（1,246 件・7 件）
 - [x] 計測の取り直し（[phase-1a の「フェーズ 1a の終わりにすること」](phase-1a-foundation.md#フェーズ-1a-の終わりにすること)の表: 配合検索で親を選ぶ・パッシブを足す・所持パルの行・フォーカス・ヘッダー・パル詳細・一覧の並べ替え）。値は[計測の記録](phase-1a-foundation.md#計測の記録実装した人が書き足す)に書く
@@ -253,7 +253,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 個体値の目標を「チェックつき・空欄＝条件なし」に
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/talent-target` ／ マージのコミット: `6b22653`
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/talent-target` ／ マージのコミット: `09cf920`
 - 順番: 統合プランの表では ideal-panel の後。ideal-panel で今の入力欄を動かした後に部品へ差し替える手戻りをなくすため、先にした（phase-1b-1c の「テーマの順番」。逆でも成り立つ）
 
 - [x] `ui/talent-input.js` を作る（値の形・チェックと draft・間引き・presets・destroy）
@@ -271,7 +271,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 理想個体の条件を sticky の 2 段パネルに
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-panel` ／ マージのコミット: `42d4aa2`
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-panel` ／ マージのコミット: `e43126d`
 - 文書と違う形にしたこと: ユーザーの決定 D20（所持の状況を 2 段目の右端へ・パッシブのチップは改行してパネルが伸びる・`max-height` なし）。高さは 1100px・パッシブ 0 個で 140.4px（130px を超えた）。保存済みのボタンは disabled ではなく aria-disabled、計算のしくみは先に「?」のダイアログへ移した（中身は 14 項目のまま）（phase-1b-1c の ideal-panel の「実装の記録」）
 
 - [x] ResizeObserver のモックと `trackHeight` があるか確かめ、なければ足す
@@ -291,7 +291,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 要約・数値・説明を短くそろえ、組の親で達否を見せる
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-results` ／ マージのコミット: `39416cb`
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-results` ／ マージのコミット: `39e969a`
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 - 文書と違う形にしたこと: `hint` に `close()` を足し、外側を押して閉じたときはフォーカスを戻さない（popover.js の決まり）。要約は `div.result-note.ideal-summary`、所持者が自分の個体のときは「 · 自分の個体」。読めなかった確認では最終確認を進めない。計算のしくみは「条件のある各ステータス」と ideal-calc の文。畳みは間に畳まない組が入ったら分け、理由は summary の中。強調は欲しいパッシブを選んだときだけ・個体値のセルは理想個体のカードだけで、差は値の下に小さく出す（phase-1b-1c の ideal-results の「実装の記録」）
 
@@ -311,7 +311,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 牧場の状態を残し、牧場の判定を絵と押せる行に
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-farms` ／ マージのコミット: `551fdee`
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/ideal-farms` ／ マージのコミット: `a858567`
 - 直し: `fix/ideal-farms-collapse`（D22。帯の下の詳細を既定で閉じた 1 行にし、開閉は覚える。閉じている間は目標・判定が変わっても結果の top が動かない。phase-1b-1c の ideal-farms の「実装の記録」15）
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 - 文書と違う形にしたこと: 牧場の名前・完全性・使用中・空きは描くときのデータから求める（`farmContext`）。`farmCompleteness` の uncertain は判定に使えない牧場の数。帯は固定の 3 か所＋「ほか n か所」、置く組のない牧場は一覧にあれば「— N 番」で押せる。詳細の個体は palTile ではなく絵・名前・個体値・パッシブの小さな形。フォーカスは押したボタンに残す。帯の高さは固定だが、帯の下の詳細の高さは判定で変わる（結果の top はアヌビスで 806px。ユーザーに確かめる）（phase-1b-1c の ideal-farms の「実装の記録」）
@@ -339,7 +339,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 読み込みの状態を固定スロットに、データ元を 1 行に
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/owned-status` ／ マージのコミット: `ac116ae`
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/owned-status` ／ マージのコミット: `5433291`
 - 文書と違う形にしたこと: `checkedAt` は読めた確認（unchanged・guest・imported）と共有の成功だけで進める。`activityText` に `now` を足した。`'empty'` も「設定でワールドを登録」の案内とボタンにした。確かめている間（busy・checking）は案内を前のまま描かない。状態のスロットは輪の場所を残した左寄せ（右寄せは layout-shift が出た）。許可のボタンの場所は自動の読み込みを使うときだけ残す。理想個体の要約の「最終確認」は 1 行のスロットに移し、`span.ideal-checked` ごと外した。「見る」は `changeRoute`。`linkLabel` を消した。継承ルートのテストは owned-view.test.js に置いた。参加者の反映は最大 約 41 秒（ユーザーに確かめる）（phase-1b-1c の owned-status の「実装の記録」）
 
 - [x] owned.js に `activity` と `checkedAt` を足し、各所で入れる（busy は変えない）
@@ -359,7 +359,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 所持パルの絞り込みを sticky のパネルに
 
-- 状態: 済（2026-10-13） ／ ブランチ: `feature/owned-toolbar` ／ マージのコミット: `3d3aeb4`（2,000 行のキーワード入力の Long Task は、ユーザーの判断〔D24〕で owned-rows の完了の条件へ移した）
+- 状態: 済（2026-10-13） ／ ブランチ: `feature/owned-toolbar` ／ マージのコミット: `c520c8a`（2,000 行のキーワード入力の Long Task は、ユーザーの判断〔D24〕で owned-rows の完了の条件へ移した）
 - 文書と違う形にしたこと: パネルは 1 段目 [パル][パッシブ 1fr][キーワード]・2 段目 [所持者][場所][パッシブの条件][個体値＋「まとめて ▾」][★][属性 ▾]・状態の行（件数・条件のチップ・すべて解除・リンクをコピー・並べ替え・理想個体／継承ルートへ）にした（1100px・パッシブ 0 個で 172.39px。130px・理想個体の 140.4px より高い。ユーザーに確かめる）。「すべて 90 以上」「すべて 100」は 1 つのメニュー、属性 ▾ の中は選んだ数、O-40 のリンクの文は短く。URL の条件が来たら URL に無い条件は既定に戻す。拠点を選ぶとその拠点の個体とタマゴだけ。`ideals.selfUids()`・passiveSelector の `disabled`・ui/popover.js の focusOut の relatedTarget（理想個体の保存の板の「保存」を押しても保存されなかったのが直った。release-notes に別に 1 件）を足した。`.owned-toggle` は設定が使うので残した。2,000 行のキーワード入力で Long Task 81〜120ms（main も 126〜157ms）が残る（phase-1b-1c の owned-toolbar の「実装の記録」）
 
 - [x] 絞り込みの値の新しい形と `migrateFilter` を作り、テストする
@@ -404,7 +404,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ### フェーズ 1b・1c の終わり
 
-- 状態: 済（2026-10-13）。レビューの直しは `fix/phase-1bc-review-owned`（マージ `828814a`）と `fix/phase-1bc-review-ideal`（マージ `8b2ebfa`）。ユーザーの答えの反映は `fix/phase-1bc-answers`（マージ `e2675b2`。D25〜D27。README の 3-1）。指摘は Codex 6 件・観点別のエージェント 3 体（安定性 7 件・互換 3 件・操作性 15 件）・計測 3 件で、重なりを除いた 31 項目のうち 29 項目（所持パル B1〜B14・理想個体と共通 A1〜A15）を直した。直さなかった 2 項目: 足りないパッシブの案内が出入りすると帯・結果が動く（利用者が自分でパッシブを足し外ししたときだけ。D20 と同じ考え方）、モーダルのダイアログを開いたまま裏のページがホイールでスクロールする（前からあり・全ダイアログ共通。「次にやること」の気づいたことに書いた）。互換の「パルボックスが 10,000 ページを超えると図と文字が食い違う」は実際には起きないので項目から外した。計測は phase-1a-foundation.md の「計測の記録」の 2026-10-13 の「フェーズ 1b・1c の終わり」の行
+- 状態: 済（2026-10-13）。レビューの直しは `fix/phase-1bc-review-owned`（マージ `0c92401`）と `fix/phase-1bc-review-ideal`（マージ `1924c16`）。ユーザーの答えの反映は `fix/phase-1bc-answers`（マージ `856fca9`。D25〜D27。README の 3-1）。指摘は Codex 6 件・観点別のエージェント 3 体（安定性 7 件・互換 3 件・操作性 15 件）・計測 3 件で、重なりを除いた 31 項目のうち 29 項目（所持パル B1〜B14・理想個体と共通 A1〜A15）を直した。直さなかった 2 項目: 足りないパッシブの案内が出入りすると帯・結果が動く（利用者が自分でパッシブを足し外ししたときだけ。D20 と同じ考え方）、モーダルのダイアログを開いたまま裏のページがホイールでスクロールする（前からあり・全ダイアログ共通。「次にやること」の気づいたことに書いた）。互換の「パルボックスが 10,000 ページを超えると図と文字が食い違う」は実際には起きないので項目から外した。計測は phase-1a-foundation.md の「計測の記録」の 2026-10-13 の「フェーズ 1b・1c の終わり」の行
 
 - [x] `npm test`・`npm run test:perf`（新しい `test/perf/owned.perf.js` を含む。2,000 行の予算）が通る
 - [x] 計測の取り直し（[phase-1b-1c の「フェーズの終わりにすること」](phase-1b-1c-ideal-owned.md#フェーズの終わりにすること)の表: 所持パルでパッシブを足す・結果が減る絞り込み・行の高さ・理想個体のパッシブ追加・読み直しの帯）
@@ -1040,4 +1040,4 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 - 親が決めた点（フェーズ 1b・1c のレビューの直しで担当が挙げたもの。D27 により聞かずに決めた）: (a) 所持パルの並べ替えの名前を「〈何〉が〈向き〉」にそろえ、「良いパッシブ順」を「パッシブのランクが高い順」にした（owned-rows の 18。そのまま） (b) 理想個体で自分のプレイヤーを所持者に選ぶと、要約が「Alice（自分） の個体」になる（ideal-panel の 13。そのまま） (c) 所持の状況のリンクにタマゴとグローバルを除いた場所も渡す (d) 所持パルの「全部持つ」は余白を詰めて 1100px の余りを 30px にした（(c)(d) は `fix/phase-1bc-answers`）。気になる点はユーザーが画面で確かめてから直す
 - 次に気にすること: 所持パルのパネルの 2 段目の 1 行目（D28 の後は所持者・個体値・★・属性）は 1100px で余りが 約 31px。文字の幅の違うフォントで折り返すと、行の頭に区切り線が付いたまま回る（幅 1080px 以下だけ並びを変えて区切り線を外している）。場所のチップは D28 で 1 行を使うので、件数の桁が増えても 1100px で約 130px の余りがある（前の「所持者と場所で余り 約 18px」は当たらなくなった）。1 行の要素の数の上限は印のある行で 41 にした（2,000 行・全部の行に印 4 つ以上で 70,701 ノード。全部の行が最も多い形だと理論上 82,000 で予算 80,000 を超えうる。fix/phase-1bc-answers の記録）
 - 気づいたこと: (1) Codex は Skill ツールから呼ぶと権限の確認で止まる。`bash ~/.claude/skills/delegate-codex/codex-delegate.sh --stdin` に JSON（`mode`・`timeout_s`・`project_dir`・`task`）を渡して Bash で直接呼ぶ。Codex の中ではシェルが起動しないが、node_repl で読み取り・テスト・計算はできる。(2) モックの配合は `Math.random` なので、計測では配合のある親を選び直す。(3) `npm run test:perf` は PC の負荷で 1.5〜2 倍揺れる。前後を比べるときは `git stash` で続けて測る。(4) 画像の 4 体の画面の確認は `Claude outputs/ui-audit-2026-10/shots/owned/inject-kabuki.js`・`check-kabuki.js`。(5) モックは読み込み直すとユーザーを作り直すので、配合のキャッシュから起動した後の全件取得で USER_NOT_FOUND になりログイン画面に戻る（キャッシュの読み出しを確かめるときは、読み込み直した直後の描画を記録する）。(6) core/ の中のファイルには、コメントでも `localStorage`・`window`・`document`・`fetch`・`api.js`・`store.js` の語を書かない（test/core/shared.test.js の静的検査）。(7) 性能の予算の注入は `Claude outputs/ui-audit-2026-10/shots/owned/inject-rows-2000.js`・`inject-rows-20000.js`（inject.js の写し。画面に出る行がちょうどその数）。ログイン画面ではヘッダーの同期状況のボタンにもエラーの文が出るので、playwright で「新規登録」を押すときは `exact: true` にする。JS ヒープは CDP の `HeapProfiler.collectGarbage` の後に `Runtime.getHeapUsage` で測った。(8) playwright-cli は各コマンドの後にアクセシビリティのツリーを作るので、行の多い画面の Long Task は同じコマンドの中で画面を開き直して測る（`Claude outputs/ui-audit-2026-10/shots/owned/owned-rows/longtask3.js`）。(9) ブラウザの tagName は大文字（テストの偽 DOM は小文字）。比べるときは `toLowerCase()`。(10) 先祖の要素（body・#app・一覧の入れ物）に `:has()` を足さない（行を出し入れするたびに body から下のスタイルを計算し直させ、2,000 行のキーワードの入力が止まった。phase-1b-1c の owned-rows の「実装の記録」12）。(11) モーダルのダイアログを開いたまま、裏のページがホイールでスクロールする（前からあり、全ダイアログ共通。未対応）。(12) この PC は Palworld などの負荷（CPU 56〜60%）で test:perf が 2〜4 倍揺れる。落ちたら測り直し、前後は同じ node のプロセスで交互に測る（予算は変えない）。(13) ポップオーバーは開くときに `@starting-style` の scaleY(.9) で縮めて出すので、開いた直後の getBoundingClientRect は板の中の位置がずれる。板の中の位置は offsetTop で測る（ui/passive-picker.js の `listTop`）。フォーカスの枠も入るときに 6px → 2px へ動く（focus-in）ので、枠を測るのは終わってから。(14) 画面の確認の playwright のスクリプトは、Bash の heredoc にバッククォートや `${}` を含めると失敗することがあるので、Write でファイルにしてから `run-code --filename` で流す。
-- 最終更新: 2026-10-14（セッション `96293c69`。2 回目のフィードバックのうち理想個体の分〔`fix/feedback2-ideal`。D30。マージは親のセッションが確かめてから〕。その前に、所持パル側と共通の分〔`fix/feedback2-owned`。D29。マージ `a33bf78`〕。2026-10-13 の更新: フェーズ 1b・1c の後のユーザーのフィードバックの反映〔`fix/phase-1bc-feedback`。D28〕のほか、フェーズ 1b・1c〔talent-target・ideal-panel・ideal-results・ideal-farms・owned-status・owned-toolbar・owned-rows〕と、そのレビューの直し 2 本〔所持パル・理想個体と共通〕、ユーザーの答えの反映〔`fix/phase-1bc-answers`。D25〜D27〕を済ませた）
+- 最終更新: 2026-10-14（セッション `96293c69`。2 回目のフィードバックのうち理想個体の分〔`fix/feedback2-ideal`。D30。マージは親のセッションが確かめてから〕。その前に、所持パル側と共通の分〔`fix/feedback2-owned`。D29。マージ `73348e6`〕。2026-10-13 の更新: フェーズ 1b・1c の後のユーザーのフィードバックの反映〔`fix/phase-1bc-feedback`。D28〕のほか、フェーズ 1b・1c〔talent-target・ideal-panel・ideal-results・ideal-farms・owned-status・owned-toolbar・owned-rows〕と、そのレビューの直し 2 本〔所持パル・理想個体と共通〕、ユーザーの答えの反映〔`fix/phase-1bc-answers`。D25〜D27〕を済ませた）

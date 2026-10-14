@@ -1,6 +1,6 @@
 # 付録: Codex のプランレビューの履歴（7 回）
 
-> 2026-10-12 に書き出した。**正は README と phase-*.md**。Codex（gpt-6.1-sol・sandbox read-only・reasoning effort high）が、統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`）を 7 回レビューした記録。どの回も Codex はファイルを変えておらず、HEAD は `c5c0683` のまま（各回の「検証」の欄）。
+> 2026-10-12 に書き出した。**正は README と phase-*.md**。Codex（gpt-6.1-sol・sandbox read-only・reasoning effort high）が、統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`）を 7 回レビューした記録。どの回も Codex はファイルを変えておらず、HEAD は `ad648b7` のまま（各回の「検証」の欄）。
 
 ## 読み方
 
@@ -767,7 +767,7 @@ Codex の再レビュー結果は「まだ直すべき」です。前回の 20 �
   (実行前後で差分なし)
 ```
 - 食い違いはありません。read_only で差分はゼロ、HEAD も変わっておらず、偽装ヘッダの警告も出ていません。
-- 私自身も Codex の実行中と終了後に `git rev-parse HEAD` と `git status --porcelain` を確認しました。HEAD は c5c0683 のまま、未追跡の 3 件（`.mso/`・`.playwright-cli/`・`Claude outputs/`）も開始時と同じでした。
+- 私自身も Codex の実行中と終了後に `git rev-parse HEAD` と `git status --porcelain` を確認しました。HEAD は ad648b7 のまま、未追跡の 3 件（`.mso/`・`.playwright-cli/`・`Claude outputs/`）も開始時と同じでした。
 - Codex は最初の PowerShell 実行に失敗し（`helper_unknown_error: setup refresh had errors`）、その後は node_repl MCP でファイルを読んでいます。
 - プランの行番号とコードの file:line はどちらも Codex の主張で、私は照合していません。
 
