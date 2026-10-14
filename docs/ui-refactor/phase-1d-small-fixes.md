@@ -1079,28 +1079,63 @@ title 8 字・body 46 字。
 
 ### 完了の条件
 
-- [ ] `npm test` が通る。
-- [ ] モック（`?mock=1&seed=40`）で、一覧を下までスクロールして最下段のカードを削除 → トーストが画面の下中央に出て、行の右端の編集・削除に重ならない（14-toast-undo-after-delete.png と比べる）。
-- [ ] 「元に戻す」付きのトーストが 6 秒出て、マウスを乗せている間は消えず、線も止まる。キーボードで「元に戻す」にフォーカスしている間も止まる。
-- [ ] 通信を失敗させると、赤い地のトーストが × 付きで 6 秒出る。
-- [ ] 一覧の「親の順」の行を削除するとき、確認のカードの親の左右が押した行と同じ。
-- [ ] 下書きを 2 件作って一括削除 → 確認なしで消え、「元に戻す」で同じ順に戻る。
-- [ ] 「新しいバージョン」のスナックバーが出ているとき、トーストがその上に出て重ならない。
-- [ ] 動きを減らす設定（OS の設定）では、トーストがすぐ消える。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — `toast()` の今の呼び出しがそのまま動き、`drafts.removeMany` の戻り値を変えていない。共有する配合の削除の確認は残している（判断事項 7）。セキュリティ — 残り時間は `style.setProperty`、文は textContent（`test/static/security.test.js`）。INV-2・性能 — 対象外。
+- [x] `npm test` が通る。
+- [x] モック（`?mock=1&seed=40`）で、一覧を下までスクロールして最下段のカードを削除 → トーストが画面の下中央に出て、行の右端の編集・削除に重ならない（14-toast-undo-after-delete.png と比べる）。
+- [x] 「元に戻す」付きのトーストが 6 秒出て、マウスを乗せている間は消えず、線も止まる。キーボードで「元に戻す」にフォーカスしている間も止まる。
+- [x] 通信を失敗させると、赤い地のトーストが × 付きで 6 秒出る。
+- [x] 一覧の「親の順」の行を削除するとき、確認のカードの親の左右が押した行と同じ。
+- [x] 下書きを 2 件作って一括削除 → 確認なしで消え、「元に戻す」で同じ順に戻る。
+- [x] 「新しいバージョン」のスナックバーが出ているとき、トーストがその上に出て重ならない。
+- [x] 動きを減らす設定（OS の設定）では、トーストがすぐ消える。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — `toast()` の今の呼び出しがそのまま動き、`drafts.removeMany` の戻り値を変えていない。共有する配合の削除の確認は残している（判断事項 7）。セキュリティ — 残り時間は `style.setProperty`、文は textContent（`test/static/security.test.js`）。INV-2・性能 — 対象外。
 
 ### TODO
 
-- [ ] toast.js に時間の定数・kind・止める・閉じるボタン・閉じる動き・2 つのリストを入れる
-- [ ] toast.test.js を作る
-- [ ] トーストの位置（下中央）・エラーの見た目・残り時間の線の CSS を直す
-- [ ] スナックバーとの位置関係（`--snackbar-offset`）を決め、stable-render の幅の式を見直す
-- [ ] syncInBackground と操作の失敗のトーストを `kind: 'error'` にする
-- [ ] 配合の削除の確認を `leftParent` 付きにし、確認の文を定数から作る
-- [ ] drafts.js に `removeAll`・`restoreMany` を足す
-- [ ] 下書きの一括削除を確認なし＋元に戻すにし、drafts.test.js の 3 つのテストを直す
-- [ ] dialog.test.js の移し替えのテストが通ることを確かめる
-- [ ] release-notes に 1 件、画面で確かめる
+- [x] toast.js に時間の定数・kind・止める・閉じるボタン・閉じる動き・2 つのリストを入れる
+- [x] toast.test.js を作る
+- [x] トーストの位置（下中央）・エラーの見た目・残り時間の線の CSS を直す
+- [x] スナックバーとの位置関係（`--snackbar-offset`）を決め、stable-render の幅の式を見直す
+- [x] syncInBackground と操作の失敗のトーストを `kind: 'error'` にする
+- [x] 配合の削除の確認を `leftParent` 付きにし、確認の文を定数から作る
+- [x] drafts.js に `removeAll`・`restoreMany` を足す
+- [x] 下書きの一括削除を確認なし＋元に戻すにし、drafts.test.js の 3 つのテストを直す
+- [x] dialog.test.js の移し替えのテストが通ることを確かめる
+- [x] release-notes に 1 件、画面で確かめる
+
+### 実装の記録（2026-10-14、ブランチ `feature/delete-undo`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ visual-parts、フェーズ 2 の autoreg-visibility・register-entry、フェーズ 3 の drawer、任意の F085 はこちらを正とする）。文書の file:line（ad648b7）は関数名・文字列で探し直した。
+
+1. **トーストの部品（手順 1。web/js/ui/toast.js）**: export は `TOAST_DURATION`（3000）・`ACTION_DURATION`（6000）・`ERROR_DURATION`（6000）と `toast(message, { action, actionLabel = '元に戻す', duration, kind = 'info' } = {})`（戻り値は閉じる関数 `dismiss`。何度呼んでもよい）。既定の時間は文書どおり `duration ?? (kind === 'error' ? ERROR_DURATION : action ? ACTION_DURATION : TOAST_DURATION)`。今の呼び出しは変えずに動く（duration を渡していた所はもとからない）。
+   - DOM: 表示先 `div.toast-region`（aria-live なし）の中に `div.toast-list`（aria-live="polite"）と `div.toast-alerts`（aria-live なし）。トーストは `div.toast`（エラーは `.toast-error` と role=alert、操作つきは `.with-action`）の中に `span.toast-message`・`button.button.toast-action`・（エラーだけ）`button.toast-close`（文字「×」・aria-label と title「閉じる」）。長さは `style.setProperty('--toast-duration', '<ms>ms')`。**文書との違い**: 残り時間の線の目印を CSS の `.toast:has(.toast-action)` から、JS が付ける `.with-action` のクラスにした（:has() を減らし、エラーのトーストの「入力し直す」も同じ扱いにする）。
+   - 止める: `pointerenter`・`pointerleave`・`focusin`・`focusout`（`relatedTarget` がトーストの中なら止めたまま）。マウスもフォーカスもなくなったら、残り時間（`Date.now()` で測る）から再開する。止めている間は `.paused`。元に戻すを押した後（操作の終わりを待つ間）は再開しない。
+   - 閉じる動き: 文書どおり（`matchMedia` がない・動きを減らす設定ならすぐ `remove()`。そうでなければ `.leaving` を付けて中のボタンを disabled にし、150ms〔`LEAVE_MS`〕後に remove。2 回目以降は何もしない）。
+   - ダイアログを閉じたときの移し替え: リストごとに、次の表示先の同じリストへ移す（`.leaving` のものは移さない）。**文書にない 2 つ**: (a) 本文に前の表示先が残っていれば使い回す（前は、ダイアログに出している間に覚えている表示先が変わると、本文に 2 つ目の表示先を作ることがあった）。(b) 移したトーストは、フォーカスがまだ中にあるかを確かめ直し（ダイアログを閉じるとフォーカスは前の場所へ戻る）、線は `--toast-delay`（経った時間の負の値）で続きから描く（付け直すと CSS の animation が初めからになり、線とタイマーがずれるため）。
+   - 元に戻すの操作が投げたら、その文をエラーのトーストで知らせる（前はふつうのトースト）。
+2. **位置と見た目（手順 2。web/css/app.css）**:
+   - `.toast-region` は、**文書の `left: calc(var(--drawer) + (100% - var(--drawer)) / 2); transform: translateX(-50%)` ではなく** `left: calc(var(--drawer) + 24px); right: 24px; max-width: 460px; margin: 0 auto`（左右の端を決め、幅を 460px までにして auto の余白で中央へ）。同じ位置になるうえ、transform を使わないのでトースト・スナックバーの出る動き（transform・translate）とぶつからず、フェーズ 3 のドロワーは `right` を変えるだけで残りの幅の中央に寄せられる。`bottom: calc(24px + var(--snackbar-offset, 0px))`、z-index は今までどおり `var(--z-toast)`（50）、`pointer-events: none`（トーストだけ auto）。中の 2 つのリストは `display: grid; gap: 8px` で、両方にトーストがあるときだけ間 8px（`.toast-list:not(:empty) + .toast-alerts:not(:empty)`）。ふつうの知らせが上、エラーが下（新しいものはそれぞれのリストの下）。
+   - ダイアログの中とログイン画面: `dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banner { left: 24px; }`（窓の幅の下中央。ログイン画面はナビがないので本文の中央と同じ。文書はダイアログだけ）。
+   - `.toast-message { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }`: 長いエラーの文で × が 2 行目に落ちた（画面で確かめた）ので、文が 12em を下回るまでは文を折り返し、操作と × を同じ行の右端に残す。
+   - エラー: `.toast-error`（error-container の地・on-error-container の文字〔8.62:1。ダーク 9.96:1〕・error の左の帯 4px・右の余白 8px。画面の errorState と同じ色）、`.toast-error .toast-action` は error の色（地に対して 5.07:1。ダーク 6.06:1）、フォーカスの輪郭は on-error-container。`.toast-close` は 32×32px・丸・透明の地・`color: currentColor`・20px の「×」、hover で currentColor の 10%。
+   - 残り時間の線: `.toast.with-action::after { animation: countdown var(--toast-duration, 3s) linear var(--toast-delay, 0ms) forwards; }` と `.toast.paused::after { animation-play-state: paused; }`（どちらも動きを減らす設定のブロックの中。shorthand が play-state を running に戻すので、paused の規則を後に置く）。線の色は `currentColor`（エラーの地でも見える）。コメントの「toast の既定の 3 秒」は直した。
+   - 閉じる動き: `.toast.leaving { opacity: 0; transform: translateY(8px); transition: opacity .15s linear, transform .15s var(--ease-emphasized); }` はブロックの中、`.toast.leaving { pointer-events: none; }` だけ外。
+3. **スナックバーとの関係（手順 2。TODO の「stable-render の幅の式を見直す」）**:
+   - 新しいバージョンのスナックバー（`.update-banner`）も下中央にした: `left: calc(var(--drawer) + 24px); right: 24px; width: fit-content; min-width: 300px; max-width: 720px; margin: 0 auto`。stable-render の `max-width: min(720px, calc(100% - var(--drawer) - 48px - 484px))` と、狭い窓で横に並べるための `.has-update-banner .toast-region { width: min(460px, …, max(200px, calc(100% - var(--drawer) - 372px))) }` は消した（縦に積むので、どの幅でも横に重ならない）。z-index は今までどおり `--z-snackbar`（40）でトーストより下。
+   - **`--snackbar-height` はなかったので足した**: ui/update-banner.js が、初めて帯を出したときから `trackHeight(element, document.documentElement, '--snackbar-height')`（ui/dom.js。ResizeObserver で追う）で帯の高さを html に書き、出すたびにすぐ測る（`measure()`。ResizeObserver の知らせを待つ間に出たトーストが帯に重ならないように）。`--snackbar-offset` は `.has-update-banner { --snackbar-offset: calc(var(--snackbar-height, 64px) + 8px); }`。**文書の `:root:has(.update-banner:not([hidden]))` は使わず**、帯が出ている間に html に付く `.has-update-banner`（owned-rows で :has() から置き換えたもの）を使った（先祖に :has() を足さない決まり）。
+   - 測った値（モック。version.js と version.json を page.route で差し替え、本物の経路で帯を出した）: 帯の高さ 67.83px。1100px で帯 x 324〜857・トースト x 361〜821、920px で帯 x 234〜767・トースト x 271〜731。どちらも帯とトーストの間 8px・重なりなし。帯を閉じるとトーストは下から 24px に戻る。
+4. **エラーをエラーとして出す（手順 3）**: `kind: 'error'` にしたもの: syncInBackground の失敗（「入力し直す」付きのときも）、`toast(error.message)` の全部（配合カードの削除・ヘッダーのセーブ連携の「今すぐ読み込む」と許可・設定のセーブ連携〔ドロップ・保存・使うワールド・今すぐ読み込む・許可・CSV・共有の削除・登録の削除〕・所持パルの許可・設定〔最新に更新・ID の変更・統合〕・ヘッダーの同期状況）、元に戻すの失敗「元に戻せませんでした」（下書き・目標）、「配合を登録できませんでした。…」（下書き 1 件の登録）、「この端末に保存できませんでした（ページを閉じると消えます）」（このワールドでの自分）、ドロップの「このブラウザでは、ファイルを登録できません」「フォルダは登録できません。…」。決め方: 操作が失敗したこと（「できませんでした」「できません」・投げられたエラー）を知らせるものだけ。案内（「先に ① に…貼ってください」「ID の変更が終わってから…」など）と一部だけの知らせ（同じ名前のファイル・対象外のファイル・「このブラウザに保存できないため…」）はふつうのまま。
+   - **初回の取得の失敗（copy-dead-ends の記録 11 の申し送り）**: app.js の `refresh()`（起動と、タブに戻ったときの読み直し）は、**まだ配合を何も読めていない（`state.env` がない）ときはトーストを出さない**（同じ文が画面の errorState〔role=alert・「もう一度読み込む」〕とヘッダーの同期状況に出ているので、3 か所目は重ねない）。前に読んだ配合（キャッシュ・前の取得）を出したままの失敗は、画面が古い配合のままで気づきにくいので、エラーのトースト（× と 6 秒。ヘッダーの「更新できませんでした」とあわせて）。ログアウトした（認証の失敗）ときはログイン画面で知らせるので出さない（ヘッダーの同期状況を押したときも同じ）。
+5. **配合の削除の確認（手順 4）**: 文書どおり。app.js の `remove(record, { leftParent = '' } = {})` がプレビューを `breedingCard(record, {}, { preview: true, leftParent })` で作り、文は `` `仲間の画面からも消えます。削除後 ${ACTION_DURATION / 1000} 秒間は元に戻せます。` ``。breeding-card.js は `context.remove(record, { leftParent: focusParent ? '' : leftParent })`（相手 → 子のカード〈パル詳細〉は両親の形のまま）。共有する配合の削除の確認は残している（判断事項 7）。
+6. **下書きの一括削除（手順 5）**: `drafts.removeAll(ids, key = scope())` → `{ draft, index }[]`（index は消す前の位置。小さい順）か null（消せるものがない・名前の変更中）。`drafts.restoreMany(items, key)` → 戻した数（key がない・名前の変更中・配列でなければ 0。index の小さい順に、今の長さに丸めて差し込む。同じ ID がもうあれば飛ばす。保存は 1 回）。`removeMany` は `removeAll(…)?.length ?? 0`（戻り値は件数のまま）。views/drafts.js の `removeAll()` は確認をやめ、押した時点で見えている下書き（送信中を除く）を消して「〈n〉 件の下書きを削除しました」＋「元に戻す」（戻せなければ「元に戻せませんでした」のエラー）。**文書にない 2 つ**: (a) 押した一括削除は押せなくなってフォーカスを失うので、フォーカスがそこにあれば「＋ 空の下書きを追加」へ移す（次の Tab でトーストの「元に戻す」に届く。画面で確かめた。G-42 の決まりの統一はしていない）。(b) 1 件の削除の元に戻すも、戻せなかったら「元に戻せませんでした」のエラーを出す（前は何も出なかった）。
+7. **release-notes**: 文書の案のまま（id `2026-10-14-delete-undo`・title「元に戻すを長めに」8 字・body 46 字）。
+8. **テスト**: 1,448 → 1,459 件（`npm test` exit 0）。新しい test/web/toast.test.js（7 件: 3・6・6 秒と `--toast-duration`・マウスで止める・フォーカスで止める・エラーの role とリストと ×・元に戻すと操作の失敗・閉じる動きと matchMedia・ダイアログからの移し替えと `--toast-delay`）は、変える前のコードで落ちることを確かめた（定数の import で読み込めない）。drafts.test.js: 「一括削除は確認してから全件を消す」→「確認なしで全件を消し、元に戻すで同じ順に戻す」（後から足した下書きは後ろに残る・フォーカスの移し先）、ストアの `removeAll`・`restoreMany`（消す前の位置・丸め・同じ ID・名前の変更中・`removeMany` の件数）、名前の変更中の元に戻すはエラーのトースト、「送信中で隠れている下書き」から確認の手順を外し、「確認中に送信に失敗して戻った下書き」は「押した時点で見えていた下書きだけを消し、後で戻った下書きは残す」に変えた（書き直した一括削除のテストは、変える前のコードで確認のダイアログが閉じずに止まることを確かめた）。app.test.js: 初回の取得の失敗でトーストを出さない（ヘッダーに同じ文）、キャッシュを出しているときの失敗はエラーのトースト、「親の順」の行の確認のカードの左右と文（breeding-card の leftParent を外すと落ちることを確かめた）。version.test.js: 帯の高さを `--snackbar-height` に書く。dialog.test.js は変えずに通った。
+9. **画面（モック `?mock=1&seed=40`・1100×900。`Claude outputs/ui-audit-2026-10/shots/delete-undo/`）**: (1) 一覧を下までスクロールして最下段のカードを削除: 確認の文「仲間の画面からも消えます。削除後 6 秒間は元に戻せます。」、トーストは x 361〜821（本文の中央 590.5 にトーストの中央 591）・下から 24px で、見えているカードの操作（x 979〜1045）とパルの絵に重ならない。線は countdown 6s、5.6 秒で残り 6.4 秒で消えた（`02-delete-bottom.js`・`03-toast-bottom-center-light.png`）。(2) マウスを乗せると `.paused`・線の animation-play-state が paused になり、7 秒たっても線の長さ（scaleX 0.745）が変わらず、離すと残り約 4.7 秒で消えた。キーボードで「元に戻す」にフォーカスしても同じ（`05-pause.js`）。(3) 開発用 API のモジュールを page.route で差し替えて削除を失敗させると、`.toast-alerts` に role=alert の「削除できませんでした。サーバでエラーが発生しました。…」が error-container の地（ライト rgb(251,225,228)・文字 rgb(122,22,38)・帯 4px rgb(176,48,67)）と 32×32 の ×（閉じる）で出て、6 秒で消え、× で閉じた（`07-error.js`・`08-error-toast-light.png`・`-dark.png`）。(4) 「親の順」で同じ配合の左右が逆の 2 行（タマコッコ＋ミルフィー／ミルフィー＋タマコッコ）の削除を押すと、確認のカードはどちらも押した行と同じ左右（`04-confirm-sides-*.png`）。(5) 下書き 2 件（モコロン・ツッパニャン）を一括削除 → 確認なしで消え、フォーカスは「＋ 空の下書きを追加」、Tab で「元に戻す」、Enter で同じ順に戻った（`09-drafts.js`・`10-…`・`11-…`）。(6) 新しいバージョンのスナックバー（上の 3）（`12-snackbar.js`・`12-snackbar-toast-*.png`）。(7) 動きを減らす設定（`page.emulateMedia({ reducedMotion: 'reduce' })`）では `.leaving` を付けずにすぐ消え、設定なしでは `.leaving` の 152ms 後に消えた（`13-reduced-motion.js`）。(8) ダイアログの中（下書きの「続けて下書きに登録」）: トーストはダイアログの中の表示先に出て窓の下中央、Esc で閉じると本文の表示先（本文の下中央）へ移り、`--toast-delay` が経った時間（-446ms・-1020ms）になった（`14-dialog.js`・`14-…`・`15-…`）。(9) キャッシュのない初回の取得の失敗: errorState とヘッダーに同じ文が出て、トーストは 0 件。「もう一度読み込む」で取り直せた（`16-fetch-error.js`）。(10) ダーク（`*-dark.png`）。横のはみ出しは目で見た範囲でなし。終わった後にブラウザを閉じ、5191 番のサーバを止めた（待ち受け 0 件）。
+10. **後のテーマへの申し送り**:
+    - visual-parts: トーストの × は ui/toast.js の `if (error)` の中で作る `button.toast-close`（文字「×」・aria-label と title「閉じる」）。SVG のアイコンに替えるときは、そこで文字を空にして icons.js のアイコンを append し、aria-label は残す（CSS の `.toast-close` の `font-size: 20px; line-height: 1` を svg の大きさに置き換える）。エラーのトーストの色は errorState と同じ（`--md-sys-color-error-container`・`--md-sys-color-on-error-container`・`--md-sys-color-error` の帯）なので、状態チップの is-error とそろえるならここも見る。
+    - フェーズ 2 の autoreg-visibility: 自動登録のトーストに「見る」を足すと操作つきになり、6 秒・止まる・線が付く（`toast(text, { action, actionLabel: '見る' })`）。
+    - フェーズ 2 の register-entry: 下書きの一括削除は `drafts.removeAll`・`drafts.restoreMany` をそのまま使う（確認なし＋元に戻す。フォーカスの移し先は帯の中の「空の下書きを追加」に読み替える）。F019 のトースト「下書きに残しました」＋「破棄」も操作つきなので 6 秒になる。
+    - フェーズ 3 の drawer: トーストの表示先と新しいバージョンのスナックバーは、どちらも `left: calc(var(--drawer) + 24px); right: 24px; margin: 0 auto`（transform なし）。ドロワーを開いている間は、両方の `right` を `calc(var(--side-drawer-width) + 24px)` にすれば残りの幅の下中央に寄る（文書の「左へずらす」は transform ではなく right で）。トーストを帯の上に積む `--snackbar-offset`（`.has-update-banner` の上で `--snackbar-height` から作る）はそのまま使える。重なり順は `--z-drawer`（30）＜ `--z-snackbar`（40）＜ `--z-toast`（50）。トーストの表示先は一番手前の `dialog[open]`（なければ body）なので、ドロワーは文書どおり `<aside>` で作る。
+    - 任意の F085（8 秒・Ctrl+Z）: `ACTION_DURATION` を 8000 にすれば、確認の文（app.js）と線（`--toast-duration`）もそろう（CSS に 3s・6s の直書きはない。`var(--toast-duration, 3s)` の 3s は渡し忘れたときの既定）。
 
 ---
 
