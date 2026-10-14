@@ -1,6 +1,6 @@
 # フェーズ 1d: 小さく効く修正（実装ドキュメント）
 
-> 2026-10-12 に、統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`）・別セッションのプラン（[appendix/other-session-plan.md](appendix/other-session-plan.md)）・付録の案の全文（[appendix/catalog.md](appendix/catalog.md) の「フェーズ 1d」）を読み、**HEAD `c5c0683` のコードを開いて確かめて**書いた。file:line はこの時点の行。フェーズ 1a〜1c を入れた後は行がずれるので、**着手の前に必ず開き直す**（関数名・文字列で探す）。
+> 2026-10-12 に、統合プラン（`~/.claude/plans/ui-jaunty-lampson.md`）・別セッションのプラン（[appendix/other-session-plan.md](appendix/other-session-plan.md)）・付録の案の全文（[appendix/catalog.md](appendix/catalog.md) の「フェーズ 1d」）を読み、**HEAD `ad648b7` のコードを開いて確かめて**書いた。file:line はこの時点の行。フェーズ 1a〜1c を入れた後は行がずれるので、**着手の前に必ず開き直す**（関数名・文字列で探す）。
 >
 > この文書だけで実装に入れるように書いてある。迷ったときの優先順位は「統合プランの決定事項（D1〜D8）・判断事項 → この文書 → catalog.md の案の『直し』 → 案の『提案』」。
 
@@ -1160,7 +1160,7 @@ title 11 字・body 35 字。
 
 ## コードで確かめた結果、統合プラン・案と違っていた点（まとめ）
 
-書くときに HEAD `c5c0683` のコードを開いて確かめた。統合プランの file:line（`views/ideal.js:143・374`、`views/owned-settings.js:224・302・389-395`、`views/ideal.js:506`、`views/owned.js:229`、`ideals.js:72`、`auto-register.js:197-208・228・294`、`ui/notifications.js:54・89`、`app.css:617`、`views.test.js:54-67`、`router.test.js:22-25`）はすべて合っていた。違っていた点・この文書で決めた点は次のとおり（各テーマの「経緯」にも書いた）。
+書くときに HEAD `ad648b7` のコードを開いて確かめた。統合プランの file:line（`views/ideal.js:143・374`、`views/owned-settings.js:224・302・389-395`、`views/ideal.js:506`、`views/owned.js:229`、`ideals.js:72`、`auto-register.js:197-208・228・294`、`ui/notifications.js:54・89`、`app.css:617`、`views.test.js:54-67`、`router.test.js:22-25`）はすべて合っていた。違っていた点・この文書で決めた点は次のとおり（各テーマの「経緯」にも書いた）。
 
 | テーマ | 統合プラン・案 | コードで確かめたこと | この文書での扱い |
 |---|---|---|---|

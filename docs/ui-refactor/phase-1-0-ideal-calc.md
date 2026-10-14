@@ -1,7 +1,7 @@
 # フェーズ 1-0: 理想個体の計算の修正（実装ドキュメント）
 
 > 2026-10-12 作成（セッション `c342c7a9-c95f-4617-a85e-addf82fc4085`）。中身は、別セッション `3a639e8d-78d3-4ff2-befa-079ccbc82365` が作った計算の修正プラン（原文の写し: [appendix/ideal-calc-plan.md](appendix/ideal-calc-plan.md)）を、ほかのテーマと同じ型に書き直したもの。
-> 本文の file:line は、HEAD `c5c0683`（web/ と test/ に未コミットの変更なし）のコードを**実際に開いて確かめた行**。プランの file:line もすべて合っていた。
+> 本文の file:line は、HEAD `ad648b7`（web/ と test/ に未コミットの変更なし）のコードを**実際に開いて確かめた行**。プランの file:line もすべて合っていた。
 > 正の順: README の決定事項（D1〜D18）と判断事項 ＞ このドキュメント ＞ プランの原文。プランの方針は変えていない（README の [2-8](README.md#2-8-理想個体の計算の修正別セッション-3a639e8d) のとおり、ユーザーが「内容は承認済み」と答えた）。原文が書いていない実装の形（`measureOf` の物差しの出どころ・見送った牧場の戻り値・並びの比べる順の細部・画像の 4 体の値）は、この文書で決めて、その箇所に「原文は書いていない」と明記した。
 
 ## このフェーズの目的
@@ -27,7 +27,7 @@
 
 ## コードで確かめた結果（2026-10-12）
 
-1. プランの file:line（core/ideal.js:718・:814・:816・:826・:833、views/ideal.js:160-166・:411、test/core/ideal.test.js:295・:566・:638・:697、test/web/ideal-view.test.js:508）は、すべて HEAD `c5c0683` の行と合っていた。
+1. プランの file:line（core/ideal.js:718・:814・:816・:826・:833、views/ideal.js:160-166・:411、test/core/ideal.test.js:295・:566・:638・:697、test/web/ideal-view.test.js:508）は、すべて HEAD `ad648b7` の行と合っていた。
 2. **`core/ideal.js` は `./index.js` しか import できない**（test/import.test.js:43-44）。`prefer`・`watch` のキーは `core/ideal-farms.js` の `planPairKey`（`${male.id}|${female.id}`）と同じ形を、`core/ideal.js` の中で作る（ideal-farms.js を import しない）。
 3. `generationTable` のキャッシュのキー（core/ideal.js:452）は `[wanted, mode, cake, hp, shot, defense, reach]`。`parentExtras` を足すときは、実効の値に正規化してからこの並びに足す。
 4. `buildGenerationTable` の `value()`（:436）は範囲を確かめずに配列を引く。範囲外の引数（余計の数が上限を超えるなど）でも、黙って別の状態の値を返す。
