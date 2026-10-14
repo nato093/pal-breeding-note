@@ -258,7 +258,8 @@ test('自動登録: 対応が未設定のプレイヤーの配合は通知だけ
   const t = await setup({ farms: [sheepFarm(P2)] });
   await t.run();
   assert.equal(t.creates.length, 0);
-  assert.deepEqual(t.auto.notices().map((n) => [n.title, n.href]), [['プレイヤーの対応が未設定です', '#/settings']]);
+  // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする（router.js の settingsHash）
+  assert.deepEqual(t.auto.notices().map((n) => [n.title, n.href]), [['プレイヤーの対応が未設定です', '#/settings?world=W1&open=auto']]);
   t.auto.setMapping(P2, '仲間');
   await t.auto.idle();
   assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
@@ -402,6 +403,26 @@ test('自動登録: 牧場の上の突然変異タマゴが登録済みと食い
   assert.equal(notice.title, '自動登録を保留した配合');
   assert.match(notice.body, /子 タマコッコ）と食い違うため、保留しました$/);
   assert.doesNotMatch(`${notice.title}${notice.body}`, /ヤクモマル|ツッパニャン|表は/);
+});
+
+test('自動登録: 前の版が保存した「プレイヤーの対応が未設定です」の行き先（#/settings）は、読み出すときにそのワールドの行き先にする（id はそのまま）', async () => {
+  const t = await setup({ farms: [] });
+  const key = 't.autoBreeding.notices.test.自分';
+  const date = '2026-10-06T00:00:00.000Z';
+  const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+  t.storage.set(key, JSON.stringify([
+    { id: `auto-breed:test:unmapped:${WORLD}:00000000-0000-0000-0000-000000000002`, date, title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。', href: '#/settings' },
+    // 未設定の通知でないもの・すでに行き先のあるものは変えない
+    { id: 'auto-breed:test:conflict:f2:e2', date, title: '自動登録を保留した配合', body: 'A×B', href: '#/settings' },
+    { id: `auto-breed:test:unmapped:${WORLD}:p-3`, date, title: 'プレイヤーの対応が未設定です', body: '', href: '#/list' },
+  ]));
+  assert.deepEqual(t.auto.notices().map((n) => [n.id, n.href]), [
+    [`auto-breed:test:unmapped:${WORLD}:00000000-0000-0000-0000-000000000002`, `#/settings?world=${WORLD}&open=auto`],
+    ['auto-breed:test:conflict:f2:e2', '#/settings'],
+    [`auto-breed:test:unmapped:${WORLD}:p-3`, '#/list'],
+  ]);
+  // 保存し直さない（旧コードのまま開いているタブが読んでも、前と同じ形）
+  assert.equal(JSON.parse(t.storage.get(key))[0].href, '#/settings');
 });
 
 test('自動登録: 前の版が保存した通知の「表は X」は、読み出すときに外す（id はそのまま）', async () => {
@@ -711,7 +732,8 @@ test('自動登録（読み戻しの検証）: 保存した通知に日時のな
   ]));
   const notices = t.auto.notices();
   assert.deepEqual(notices.map((n) => n.id), ['auto-breed:test:unmapped:W1:c', 'auto-breed:test:unmapped:W1:d']);
-  assert.deepEqual(notices.map((n) => [n.title.length, n.body.length, n.href ?? '']), [[40, 200, ''], [3, 0, '#/settings']]);
+  // 前の版の「未設定」の行き先（設定タブの先頭）は、そのワールドの行き先に読み替える（外の URL は捨てたまま）
+  assert.deepEqual(notices.map((n) => [n.title.length, n.body.length, n.href ?? '']), [[40, 200, ''], [3, 0, '#/settings?world=W1&open=auto']]);
   // 件数は NOTICE_MAX（50 件）まで
   t.storage.set(key, JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ id: `auto-breed:test:unmapped:W1:${i}`, date, title: '未設定' }))));
   assert.equal(t.auto.notices().length, 50);

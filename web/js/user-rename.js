@@ -3,6 +3,8 @@ import { userIdKey, validateUserId } from './core/user.js';
 
 // サーバで実行されなかったことが確かなエラー。記録を消して、名前を入力し直せるようにする。
 const NOT_EXECUTED = new Set(['VALIDATION', 'USER_EXISTS', 'USER_NOT_FOUND', 'AUTH']);
+// このワールドでの自分（self-player.js）のキーの末尾のワールド ID（32 桁の 16 進の大文字）
+const SELF_WORLD = /^[0-9A-F]{32}$/;
 
 function readJson(storage, key) {
   let source = null;
@@ -70,6 +72,24 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     if (!entries.some(([, userId]) => isOld(userId))) continue;
     ok = writeJson(storage, key, Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId]))) && ok;
   }
+  // このワールドでの自分（self-player.js。ワールドごとに UID の文字列 1 つ）。移し先に値があっても、改名した本人の設定で上書きする
+  const selfFrom = `${namespace}.ideals.self.${env}.${oldKey}.`;
+  const selfTo = `${namespace}.ideals.self.${env}.${newKey}.`;
+  if (selfFrom !== selfTo) {
+    // 名前に「.」があっても別の人のキーを拾わないよう、残りがワールド ID だけのキーにする
+    for (const key of storageKeys(storage).filter((item) => item.startsWith(selfFrom) && SELF_WORLD.test(item.slice(selfFrom.length)))) {
+      let value = null;
+      try { value = storage.getItem(key); } catch { /* 読めなければ移さない。 */ }
+      if (typeof value !== 'string') continue;
+      try {
+        storage.setItem(`${selfTo}${key.slice(selfFrom.length)}`, value);
+      } catch {
+        ok = false;
+        continue;
+      }
+      try { storage.removeItem(key); } catch { /* 消せなくても、新しい名前では移し先を読む。 */ }
+    }
+  }
   return ok;
 }
 
@@ -77,7 +97,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
  * 自分の名前を変える。サーバでの変更と、この端末のデータの移動をまとめて行う。
  * 途中で止まっても同じ opId でやり直せるよう、終わるまで予定を端末に残す。
  */
-export function createRenamer({ store, drafts, wishlist, ideals, notifications, storage, namespace = 'pal-note' }) {
+export function createRenamer({ store, drafts, wishlist, ideals, self, notifications, storage, namespace = 'pal-note' }) {
   const planKey = `${namespace}.rename`;
 
   function readPlan() {
@@ -98,6 +118,8 @@ export function createRenamer({ store, drafts, wishlist, ideals, notifications, 
     for (const key of keys(`${namespace}.wishlist.${plan.env}.`)) wishlist?.reload(key);
     for (const key of keys(`${namespace}.ideals.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.notifications.read.`)) notifications?.reload(key);
+    // このワールドでの自分はワールドごとのキーなので、どのキーでも読み直させる
+    self?.reload(`${namespace}.ideals.self.`);
     return ok;
   }
 

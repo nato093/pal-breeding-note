@@ -84,6 +84,42 @@ test('端末内の移動: 大小だけの変更はキーが同じなので、中
   assert.deepEqual(read(storage, 'pal-note.wishlist.prod.taro'), [{ palId: 'SheepBall' }]);
 });
 
+test('端末内の移動: このワールドでの自分（ワールドごと）も新しい名前へ移して元を消し、移し先にあっても本人の設定で上書きする', () => {
+  const W1 = 'ABCDEF0123456789ABCDEF0123456789';
+  const W2 = 'FEDCBA9876543210FEDCBA9876543210';
+  const UID = '00000000-0000-0000-0000-000000000001';
+  const storage = memoryStorage();
+  storage.setItem(`pal-note.ideals.self.prod.taro.${W1}`, UID);
+  storage.setItem(`pal-note.ideals.self.prod.taro.${W2}`, 'abcd1234');
+  storage.setItem(`pal-note.ideals.self.prod.jiro.${W2}`, 'ffff0000');
+  // 別の環境・名前に「.」のある別の人（taro.x）のキーは移さない
+  storage.setItem(`pal-note.ideals.self.test.taro.${W1}`, UID);
+  storage.setItem(`pal-note.ideals.self.prod.taro.x.${W1}`, UID);
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.jiro.${W1}`), UID);
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.jiro.${W2}`), 'abcd1234');
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.taro.${W1}`), null);
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.taro.${W2}`), null);
+  assert.equal(storage.getItem(`pal-note.ideals.self.test.taro.${W1}`), UID);
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.taro.x.${W1}`), UID);
+  // 大小だけの変更はキーが同じなので、そのまま
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'jiro', 'JIRO'), true);
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.jiro.${W1}`), UID);
+  // 移し先に保存できなければ元を残し、失敗を返す
+  storage.setItem(`pal-note.ideals.self.prod.hanako.${W1}`, UID);
+  storage.failing.add(`pal-note.ideals.self.prod.saburo.${W1}`);
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Hanako', 'Saburo'), false);
+  assert.equal(storage.getItem(`pal-note.ideals.self.prod.hanako.${W1}`), UID);
+});
+
+test('名前の変更: 端末のデータを移したら、このワールドでの自分を読み直させる', () => {
+  const reloads = [];
+  const store = { state: { env: 'prod', userId: 'Jiro' } };
+  const renamer = createRenamer({ store, self: { reload: (key) => reloads.push(key) }, storage: memoryStorage() });
+  renamer.followServer('jiro', 'Jiro', 'prod');
+  assert.deepEqual(reloads, ['pal-note.ideals.self.']);
+});
+
 test('端末内の移動: 移し先に保存できなければ元を残し、失敗を返す', () => {
   const storage = memoryStorage();
   storage.setItem('pal-note.drafts.prod.taro', JSON.stringify([{ id: 'a', registrant: 'Taro' }]));

@@ -95,6 +95,21 @@ test('理想個体の登録: 自分のプレイヤーは「登録者の対応」
   assert.deepEqual([...ownPlayerUids(players, { userId: 'Hanako', users: ['Taro'] })], []);
 });
 
+test('理想個体の登録: 「このワールドでの自分」（selfUid）がプレイヤーにいれば、その 1 人だけを自分にする（対応・同じ名前より先）', () => {
+  const players = [{ uid: 'p1', name: 'Taro' }, { uid: 'p2', name: 'ｊｉｒｏ' }, { uid: 'p3', name: 'Hanako' }];
+  const users = ['Taro', 'Jiro', 'Hanako'];
+  // ゲーム内の名前とノートの ID が違う人（参加者など）も、選んだプレイヤーが自分になる
+  assert.deepEqual([...ownPlayerUids(players, { userId: 'Saburo', users, selfUid: 'p3' })], ['p3']);
+  // 同じ名前・登録者の対応で決まる人でも、選んだプレイヤーだけ（A → B と変えたときに A が残らない）
+  assert.deepEqual([...ownPlayerUids(players, { userId: 'Jiro', users, mapping: { p1: 'Jiro' }, selfUid: 'p3' })], ['p3']);
+  // プレイヤーにいない selfUid（別のワールドの値・プレイヤーが消えた）は無視して、今の規則に戻る
+  assert.deepEqual([...ownPlayerUids(players, { userId: 'jiro', users, selfUid: 'p9' })], ['p2']);
+  assert.deepEqual([...ownPlayerUids(players, { userId: 'Saburo', users, selfUid: 'p9' })], []);
+  // ログアウト中（ID が空）は、選んでいても空
+  assert.deepEqual([...ownPlayerUids(players, { userId: '', users, selfUid: 'p3' })], []);
+  assert.deepEqual([...ownPlayerUids(players, { userId: undefined, users, selfUid: 'p3' })], []);
+});
+
 test('理想個体の登録: 自分の個体は、所持者が自分・自分が預けた拠点のパル・ホストならグローバルパルボックス', () => {
   const HOST = '00000000-0000-0000-0000-000000000001';
   const players = [{ uid: HOST, name: 'Host' }, { uid: 'p2', name: 'Guest' }];

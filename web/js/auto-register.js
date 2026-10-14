@@ -9,6 +9,7 @@ import { createSpeciesResolver } from './core/owned.js';
 import { findConflict } from './core/index.js';
 import { userIdKey } from './core/user.js';
 import { isObject, isoTime, text, idText, list, screenHref } from './core/boundary.js';
+import { settingsHash } from './router.js';
 
 // 重複などの失敗は決着として送り直さない。通信やサーバの失敗は、次に新しいセーブを読んだときにもう一度送る。
 // 認証切れ（ログアウトされる）は記録せずに止める。ログインし直したら送り直す。
@@ -38,6 +39,8 @@ export const conflictText = (pair, registered) => `${pair}：登録済みの配�
 // 前の版の本文の形（親・配合表の子・新しいタマゴの中身か登録済みの子を並べたもの）
 const OLD_ANOMALY = /^(.+?)：表は.*?、新しいタマゴは(.+)$/;
 const OLD_CONFLICT = /^(.+?)：表は.*?、登録は(.+)$/;
+// 「プレイヤーの対応が未設定です」の id（auto-breed:<環境>:unmapped:<ワールド ID>:<プレイヤーの UID>）
+const UNMAPPED_NOTICE = /^auto-breed:[^:]*:unmapped:([^:]+):/;
 
 // 保存した通知の形を確かめる（id 200 字・日時が読めること・題名 40 字・本文 200 字・href は画面内のハッシュ 300 字まで）。
 // 通知欄に出すときは notifications.js の cleanNotification がさらに 20 字・60 字に切る
@@ -49,6 +52,15 @@ function cleanSavedNotice(value) {
   const href = screenHref(value.href);
   if (href) notice.href = href;
   return notice;
+}
+
+/**
+ * 前の版が保存した「プレイヤーの対応が未設定です」の行き先（設定タブの先頭 '#/settings'）を、そのワールドの行を開いて未設定の登録者に
+ * フォーカスする URL（router.js の settingsHash）にする。id は変えない（既読の記録が効く）。保存し直さず、読み出すたびに直す
+ */
+export function unmappedHref(notice) {
+  const worldId = UNMAPPED_NOTICE.exec(notice.id)?.[1];
+  return worldId && notice.href === '#/settings' ? { ...notice, href: settingsHash(worldId) } : notice;
 }
 
 /**
@@ -230,8 +242,9 @@ export function createAutoRegister({
 
   function readNotices(env, userId) {
     const saved = env && userId ? readJson(noticeKey(env, userId), []) : [];
-    // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）。形を確かめてから、配合表の答えを外す
-    return list(saved, { max: NOTICE_MAX, map: cleanSavedNotice }).map(safeAutoNotice);
+    // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）。形を確かめてから、配合表の答えを外し、
+    // 前の版の「未設定」の行き先を直す
+    return list(saved, { max: NOTICE_MAX, map: cleanSavedNotice }).map(safeAutoNotice).map(unmappedHref);
   }
 
   // 同じ ID の通知は足さない。新しい順に NOTICE_MAX 件まで残す
@@ -266,7 +279,8 @@ export function createAutoRegister({
     id: unmappedId(ctx, uid), date: ctx.importedAt,
     title: 'プレイヤーの対応が未設定です',
     body: `${players.find((p) => p.uid === uid)?.name || 'セーブのプレイヤー'}の配合を登録できません。設定で登録者を選んでください。`,
-    href: '#/settings',
+    // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする
+    href: settingsHash(ctx.worldId),
   });
 
   async function run(ctx) {

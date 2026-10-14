@@ -230,3 +230,103 @@ test('理想個体の登録: selfUids は表示しているワールドの自分
   assert.deepEqual([...ideals.selfUids()], []);
   assert.equal(ideals.mine(), null);
 });
+
+// 「このワールドでの自分」（selfUid）を選べる形（app.js と同じく identity に selfUid を渡す）。chosen はワールド ID → UID
+function setupSelf({ userId = '新人', pals = null, at = time(0), chosen = {} } = {}) {
+  const store = fakeSubject({ env: 'test', userId, passcode: '入力', renaming: false, users: ['仲間', '他の人', '新人'] });
+  const owned = fakeSubject({ owned: pals ? { players: PLAYERS, pals } : null, meta: pals ? { worldId: WORLD_A, worldName: 'テスト', saveUpdatedAt: at } : null });
+  let ids = 0;
+  const ideals = createIdealStore({
+    store, owned, storage: memoryStorage(), now: () => Date.UTC(2026, 9, 8, 1, 0), uuid: () => `id-${++ids}`,
+    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: {}, selfUid: chosen[worldId] ?? '' }),
+  });
+  const show = (list, saveUpdatedAt) => {
+    owned.state.owned = { players: PLAYERS, pals: list };
+    owned.state.meta = { worldId: WORLD_A, worldName: 'テスト', saveUpdatedAt };
+    owned.emit();
+  };
+  const notices = () => idealNotificationSource({ store, ideals })().map(cleanNotification);
+  return { store, owned, ideals, show, notices, chosen };
+}
+
+test('理想個体の登録（このワールドでの自分）: 同じセーブの時刻で自分を選ぶと判定し直し、そのとき完成していたものは完成済みにして知らせない', () => {
+  // 名前の違う人（新人）は自分のプレイヤーが分からず、判定しない
+  const { ideals, notices, chosen } = setupSelf({ pals: [sheep('x', 100, ['Rare'], 'u-other')] });
+  ideals.add(GOAL);
+  ideals.add({ ...GOAL, name: '未完成の目標', mode: 'only', passives: ['Rare', 'Legend'] });
+  assert.deepEqual(ideals.list().map((goal) => goal.worlds), [{}, {}]);
+  let emitted = 0;
+  ideals.subscribe(() => emitted++);
+  chosen[WORLD_A] = 'u-other';
+  assert.equal(ideals.identityChanged(), true);
+  assert.equal(emitted, 1);
+  const [unfinished, done] = ideals.list();
+  assert.deepEqual(done.worlds[WORLD_A], { checked: true, complete: true, completedAt: '', observedAt: time(0), worldName: 'テスト' });
+  assert.equal(unfinished.worlds[WORLD_A].complete, false);
+  assert.deepEqual(notices(), []);
+  assert.deepEqual(ideals.mine().map((pal) => pal.id), ['x']);
+});
+
+test('理想個体の登録（このワールドでの自分）: 前から完成して知らせていたものは、本人を変えても完成のままなら completedAt を残す', () => {
+  const { ideals, show, notices, chosen } = setupSelf({ userId: '仲間', pals: [sheep('a', 90)] });
+  ideals.add(GOAL);
+  show([sheep('a', 90), sheep('b', 100), sheep('x', 100, ['Rare'], 'u-other')], time(1));
+  const [notice] = notices();
+  assert.equal(ideals.list()[0].worlds[WORLD_A].completedAt, time(1));
+  // 自分を別のプレイヤー（完成品を持っている）にしても、通知は消えず重ならない
+  chosen[WORLD_A] = 'u-other';
+  ideals.identityChanged();
+  assert.equal(ideals.list()[0].worlds[WORLD_A].completedAt, time(1));
+  assert.deepEqual(notices().map((item) => item.id), [notice.id]);
+  // 完成品を持たないプレイヤーにすると未完成になり、通知も消える
+  show([sheep('a', 90), sheep('b', 100), sheep('y', 90, ['Rare'], 'u-other')], time(1));
+  ideals.identityChanged();
+  assert.equal(ideals.list()[0].worlds[WORLD_A].complete, false);
+  assert.deepEqual(notices(), []);
+});
+
+test('理想個体の登録（このワールドでの自分）: 選んだ後に新しいセーブで新しく完成したものは知らせ、選んだ時点で完成していたものは後でも知らせない', () => {
+  const { ideals, show, notices, chosen } = setupSelf({ pals: [sheep('x', 100, ['Rare'], 'u-other')] });
+  ideals.add(GOAL);
+  ideals.add({ ...GOAL, name: 'パッシブなし', passives: [], mode: 'only' });
+  chosen[WORLD_A] = 'u-other';
+  ideals.identityChanged();
+  assert.deepEqual(notices(), []);
+  // 次のセーブで、パッシブのない完成品を手に入れた
+  show([sheep('x', 100, ['Rare'], 'u-other'), sheep('z', 100, [], 'u-other')], time(1));
+  assert.deepEqual(notices().map((item) => item.body), ['「パッシブなし」の条件を満たす個体が「テスト」の所持パルにいます。']);
+});
+
+test('理想個体の登録（このワールドでの自分）: 自分が分からなくなったら記録を書き換えずに購読者だけ呼び、名前の変更中は書き換えない', () => {
+  const { ideals, store, notices, chosen } = setupSelf({ pals: [sheep('x', 100, ['Rare'], 'u-other')] });
+  ideals.add(GOAL);
+  chosen[WORLD_A] = 'u-other';
+  ideals.identityChanged();
+  const before = JSON.stringify(ideals.list());
+  let emitted = 0;
+  ideals.subscribe(() => emitted++);
+  // プレイヤーにいない UID（別のワールドの値）を選んでいる＝自分が分からない
+  chosen[WORLD_A] = 'u-gone';
+  assert.equal(ideals.identityChanged(), false);
+  assert.equal(emitted, 1);
+  assert.equal(JSON.stringify(ideals.list()), before);
+  assert.equal(ideals.mine(), null);
+  // 名前の変更中は書き換えない（終わった後の store の通知で判定し直される）
+  chosen[WORLD_A] = 'u-me';
+  store.state.renaming = true;
+  assert.equal(ideals.identityChanged(), false);
+  assert.equal(JSON.stringify(ideals.list()), before);
+  assert.deepEqual(notices(), []);
+});
+
+test('理想個体の登録（このワールドでの自分）: identityKey は表示しているワールドと自分のプレイヤーの UID で、データがなければ空', () => {
+  const { ideals, show, chosen } = setupSelf({ userId: '仲間' });
+  assert.equal(ideals.identityKey(), '');
+  show([sheep('a', 90)], time(0));
+  assert.equal(ideals.identityKey(), `${WORLD_A}|u-me`);
+  // 読み直し（同じ本人）では変わらない
+  show([sheep('a', 95)], time(1));
+  assert.equal(ideals.identityKey(), `${WORLD_A}|u-me`);
+  chosen[WORLD_A] = 'u-other';
+  assert.equal(ideals.identityKey(), `${WORLD_A}|u-other`);
+});

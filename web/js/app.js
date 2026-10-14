@@ -4,6 +4,7 @@ import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
 import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { createIdealStore, idealNotificationSource } from './ideals.js';
+import { createSelfStore } from './self-player.js';
 import { createPlanMemory } from './ideal-plan-memory.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
@@ -83,17 +84,21 @@ async function boot() {
   const autoRegister = createAutoRegister({
     store, owned, storage: safeStorage(browserStorage), namespace, toast, onNotice: () => notifications.changed(),
   });
+  // このワールドでの自分（設定で選ぶ。この端末に ID・環境・ワールドごと）
+  const self = createSelfStore({ store, storage: browserStorage, namespace });
   // 登録した理想個体（この端末に ID・環境ごと）。自分の個体で完成を判定して知らせる。
-  // 自分のプレイヤーは、配合牧場の自動登録と同じ「登録者の対応」（なければ同じ名前）で決める
+  // 自分のプレイヤーは「このワールドでの自分」、なければ配合牧場の自動登録と同じ「登録者の対応」（なければ同じ名前）で決める
   const ideals = createIdealStore({
     store, owned, storage: browserStorage, namespace,
-    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId) }),
+    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId), selfUid: self.get(worldId) }),
   });
+  // 自分を変えたら（別のタブの変更も）、同じセーブのまま完成を判定し直す（そのとき完成しているものは知らせない）
+  self.subscribe(() => ideals.identityChanged());
   const notifications = createNotificationStore({
     store, storage: browserStorage, namespace,
     sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), idealNotificationSource({ store, ideals }), autoRegister.notices],
   });
-  const renamer = createRenamer({ store, drafts, wishlist, ideals, notifications, storage: browserStorage, namespace });
+  const renamer = createRenamer({ store, drafts, wishlist, ideals, self, notifications, storage: browserStorage, namespace });
   renamer.resumeLocal();
   const root = document.getElementById('app');
   const header = el('header', 'app-header');
@@ -293,6 +298,8 @@ async function boot() {
     drafts,
     wishlist,
     ideals,
+    // このワールドでの自分（設定のセーブ連携で選ぶ。理想個体・所持パルは変わったら描き直す）
+    self,
     // 理想個体の配合の計画の基準（配合牧場の中身が最後に変わったときのおすすめ）
     planMemory: createPlanMemory({ storage: browserStorage, namespace }),
     notifications,
@@ -615,11 +622,12 @@ async function boot() {
   wishlist.subscribe(notifications.changed);
   ideals.subscribe(notifications.changed);
   owned.subscribe(autoRegister.evaluate);
-  // 別のタブで下書き・ウィッシュリスト・理想個体の登録・既読を書き換えたら読み直す。
+  // 別のタブで下書き・ウィッシュリスト・理想個体の登録・このワールドでの自分・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {
     drafts.reload(event.key);
     wishlist.reload(event.key);
     ideals.reload(event.key);
+    self.reload(event.key);
     notifications.reload(event.key);
   });
   // 配信された版（version.json）を 5 分ごとと、タブに戻ったときに確かめる。版の無いローカルでは確かめない。
