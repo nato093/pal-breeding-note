@@ -453,22 +453,39 @@ title 11 字・body 43 字。
 
 ### 完了の条件
 
-- [ ] `npm test` がすべて通る。
-- [ ] 自動登録が 2 件起きた後（実機のホストのセーブか、テストと同じ手順の注入で）、ベルの数が 1 増え、開くと「配合を自動登録しました」「〈親1〉♂＋〈親2〉♀ → 〈子〉（〈拠点〉） ほか 1 件」の 1 行が出る。押すと配合検索のその組に移る。
-- [ ] 設定の「通知一覧」でも同じ 1 行で出る。
-- [ ] 成功の通知が 20 件を超えても、「プレイヤーの対応が未設定です」の通知は残っている（テストで確認）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 成功の通知の本文は登録したレコードだけで作り、配合表の子が出ない（テストで固定）。互換 — kind のない古い通知が 1 件 1 行で出て、旧コードのタブが成功の通知を読んでも壊れない。成功の通知が増えても未対応・異常の通知が追い出されない。セキュリティ — href は `#/` で始まるものだけ、名前は textContent（`test/static/security.test.js`）。性能 — 登録 1 件ごとに localStorage を 1 回書くだけ。
+- [x] `npm test` がすべて通る。
+- [x] 自動登録が 2 件起きた後（実機のホストのセーブか、テストと同じ手順の注入で）、ベルの数が 1 増え、開くと「配合を自動登録しました」「〈親1〉♂＋〈親2〉♀ → 〈子〉（〈拠点〉） ほか 1 件」の 1 行が出る。押すと配合検索のその組に移る。
+- [x] 設定の「通知一覧」でも同じ 1 行で出る。
+- [x] 成功の通知が 20 件を超えても、「プレイヤーの対応が未設定です」の通知は残っている（テストで確認）。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 成功の通知の本文は登録したレコードだけで作り、配合表の子が出ない（テストで固定）。互換 — kind のない古い通知が 1 件 1 行で出て、旧コードのタブが成功の通知を読んでも壊れない。成功の通知が増えても未対応・異常の通知が追い出されない。セキュリティ — href は `#/` で始まるものだけ、名前は textContent（`test/static/security.test.js`）。性能 — 登録 1 件ごとに localStorage を 1 回書くだけ。
 
 ### TODO
 
-- [ ] `cleanNotification` に kind・worldId・batchId を通す（`NOTIFICATION_KINDS`）とテスト
-- [ ] `groupNotifications` を作り、テストする
-- [ ] ベル（未読の数・パネル）と通知一覧をまとめ表示にする
-- [ ] `registeredNotice` を作り、登録が確定するごとに `saveNotices` で残す
-- [ ] `saveNotices` で成功 20 件・それ以外 50 件に分けて残す
-- [ ] 拠点名の引き方（なければ「配合牧場」）
-- [ ] 既存のテスト（auto-register.test.js:241・356・406・474）を直し、新しいテストを足す
-- [ ] release-notes に 1 件、画面で確かめる
+- [x] `cleanNotification` に kind・worldId・batchId を通す（`NOTIFICATION_KINDS`）とテスト
+- [x] `groupNotifications` を作り、テストする
+- [x] ベル（未読の数・パネル）と通知一覧をまとめ表示にする
+- [x] `registeredNotice` を作り、登録が確定するごとに `saveNotices` で残す
+- [x] `saveNotices` で成功 20 件・それ以外 50 件に分けて残す
+- [x] 拠点名の引き方（なければ「配合牧場」）
+- [x] 既存のテスト（auto-register.test.js:241・356・406・474）を直し、新しいテストを足す
+- [x] release-notes に 1 件、画面で確かめる
+
+### 実装の記録（2026-10-14、ブランチ `feature/autoreg-success`）
+
+実装のときに決めたこと・文書と違う形にしたこと（フェーズ 2 の bell・autoreg-visibility と copy-dead-ends はこちらを正とする）。
+
+1. **通知の形（手順 1。`web/js/notifications.js`）**: `NOTIFICATION_KINDS`（`Object.freeze(['auto-registered'])`）。正しい値だけを写す部品を **`notificationTags(value) → { kind?, worldId?, batchId? }`** として export し、`cleanNotification` の最後で足す（文書は cleanNotification の中に直接書く形だったが、自動登録の保存した通知の読み戻し〔auto-register.js の `cleanSavedNotice`〕も同じ確かめ方を使うので 1 か所にした）。kind は `NOTIFICATION_KINDS` にある文字列だけ、worldId は core/boundary.js の `worldId`（＝ `ownedWorldId`。32 桁の 16 進を大文字にそろえる）、batchId は `/^[0-9A-Za-z:._+-]{1,64}$/`。ない・不正なら項目ごと付けない（release-notes の通知の形は変わらない）。
+2. **まとめ（手順 2）**: **`groupNotifications(list) → rows`**。行は `{ ...最初の通知, ids, count, items, more? }`（`id`・`date`・`time`・`title`・`href`・`kind`・`worldId`・`batchId` は最初の通知のもの）。文書の戻り値に **`items`**（まとめた元の通知〔cleanNotification の後〕の配列）と **`more`**（count が 2 以上の行だけ。「ほか N 件」）を足した。まとめるのは種類が `GROUPED_KINDS`（今は `auto-registered` だけ）で batchId のある通知で、鍵は kind・worldId（ないときは ''）・batchId。ほかは 1 件 1 行（`ids: [id]`・`count: 1`）。行の位置は、まとめた中でいちばん上の通知の位置。文書との違い: 本文は「最初の本文＋『 ほか N 件』」を `clip(…, BODY_MAX)` し直すのではなく、**最初の本文の方を `BODY_MAX - more.length - 1` 字に縮めてから「 ほか N 件」を足す**（長い本文でも件数が切れずに 60 字に収まる）。
+3. **ベルと通知一覧（手順 3。`web/js/ui/notifications.js`）**: 文書どおり。未読の数と aria-label は `groupNotifications(notifications.unread()).length`、パネルは開いた時点の未読の id（元の id）で絞ってからまとめ、既読にするのは元の id 全部。通知一覧は `groupNotifications(notifications.list())` で、未読の印は `row.ids.some(…)`。`listKey` は行ごとの ids を \t、行を \n でつないだもの。こう決めた（細かな UI）: (a) まとめた行（リンク、行き先がなければ li）の `title` に、まとめた通知の本文を改行でつないで全部出す（「ほか N 件」の中身を重ねて見られる）。(b) 「ほか N 件」は `span.notification-more`（`white-space: nowrap`。web/css/app.css）にして、折り返しで「ほ／か 1 件」と分かれないようにした（改行しない空白 U+00A0 では、日本語の文字の間で折り返すので効かなかった）。(c) 題名は「配合を自動登録しました」のまま（件数は本文の「ほか N 件」だけ）。日付・未読の印の見せ方はほかの通知と同じ。
+4. **成功の通知（手順 4。`web/js/auto-register.js`）**: `registeredNotice(ctx, record, farmLabel)`（export しない）は文書どおりの形: id `auto-breed:<env>:registered:<record.id>`・date と batchId は `ctx.importedAt`・kind `auto-registered`・worldId `ctx.worldId`・title「配合を自動登録しました」・body「〈親1〉♂＋〈親2〉♀ → 〈子〉（〈拠点〉）」（性別が '' なら記号なし）・href `buildHash('search', { p1, p2 })`。`run` の成功の経路（`store.mutate` → `finish` → `registered++` の直後）で `saveNotices(ctx, [registeredNotice(…)])` をすぐ呼ぶ（`same` では止めない。`allowDifferentChild` で送った後に食い違いが見つかっても残す）。拠点名は `farmLabel(ctx, candidate)`: `candidate.evidence[0].farmId` → `ctx.snapshot.breedFarms` の牧場の `baseId` → `owned.state.meta.worldId === ctx.worldId` のときだけ `owned.state.owned.bases` の `label`（「拠点 1」。ギルドが複数なら「拠点 1（ギルド名）」）。なければ「配合牧場」。件数のトースト「配合を自動登録しました（n件）」は残した。
+5. **残す数（手順 4）**: `capNotices(notices)` が並び（新しい順）のまま、成功（`kind === 'auto-registered'` か id が `/^auto-breed:[^:]*:registered:/`）を `SUCCESS_MAX`（20）件、それ以外を `NOTICE_MAX`（50）件まで残す。`saveNotices` は足して日時の新しい順に並べた後に通す（文書の「並べて分けて、もう一度並べる」と同じ結果）。文書にない点: **`readNotices` も読み出しの上限を 50 → 70（20＋50）件にし、同じ `capNotices` を通す**（50 のままだと、新しいタブが保存した 70 件のうち古い未対応の通知を読み出しで落とし、次の保存で消してしまうため）。前の「未設定 80 件 → 50 件」のテストはそのまま通る。
+6. **互換**: 旧コードのタブは kind・worldId・batchId を `cleanSavedNotice` で捨てるので、成功の通知を 1 件 1 行で出す（壊れない）。旧タブが通知を保存すると、成功の通知もこの 3 つが消えた形で書き戻され、日時順に 50 件で切られる。新しいタブはそれを id で成功と数える（上限の分け方は戻る）が、kind がないのでまとめず 1 件 1 行で出す（id から kind・batchId を補う読み替えはしていない。旧タブは配信の後に開き直すまでの間だけなので）。保存先・既読のキー（`<namespace>.autoBreeding.notices.<env>.<userIdKey>`・`<namespace>.notifications.read.<userIdKey>`）は変えていない（名前の変更の移動もそのまま）。INV-2: 本文は登録したレコードの親・性別・子と拠点だけ（突然変異タマゴの登録でもタマゴの中身を出さない。テストで固定）。配合表を読むのは今までどおり auto-register.js だけ。
+7. **テスト**: 1,412 → 1,422 件。足したもの: test/web/notifications.test.js（kind・worldId・batchId の確かめ、まとめ、長い本文、ベル、通知一覧の 5 件）、test/web/auto-register.test.js（成功の通知の形、拠点が分からないとき、同じ読み込みの 2 件、途中で止まったとき、20 件と 50 件の 5 件。setup に `worldId` の引数を足した〔既定は今までの 'W1'。32 桁でない worldId は捨てるため〕）。期待値を直したもの（文書の 4 か所。ad648b7 の行番号で確かめた。今は別の行）: :241 対応づけの後（「未設定」が消えて成功だけ残る）、:356 突然変異タマゴ（成功だけで、本文はレコードから）、:406 性別で変わる組み合わせを送った後の食い違い（成功と保留の 2 件）、:474 登録の送信中に新しいセーブを読んだとき（見送りと成功の 2 件）。ほかの既存のテストは変わらなかった。auto-register.js と ui/notifications.js を前に戻す（`git stash push -- web/js/auto-register.js web/js/ui/notifications.js`）と 11 件落ちることを確かめた。
+8. **画面（モック・1100px。`Claude outputs/ui-audit-2026-10/shots/autoreg-success/`）**: モックでは自動登録は起きないので、`registeredNotice` と同じ形の通知を保存先 `pal-note.local.autoBreeding.notices.test.alice` に入れて読み込み直した（モックは読み込み直すとユーザーが消えるので、そのたびに Alice で新規登録し直した。既読と通知はこの端末に残る）。(1) 更新内容をすべて既読にした後、同じ読み込みの 2 件を入れると、ベルの数は 1（aria-label「通知（未読 1 件）」）で、開くと「配合を自動登録しました」「モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1） ほか 1 件」の 1 行（title に 2 件の本文。`01-bell-grouped-light.png`）。押すとパネルが閉じ、`#/search?p1=SheepBall&p2=SwordCutlassfish` で親 1・親 2 の入った配合検索へ移った（`02-search-pair-light.png`）。(2) 同じ読み込みに 3 件目、古い形の成功（kind・worldId・batchId なし）と「プレイヤーの対応が未設定です」を足すと、ベルは 3（パネルは開いた時点の未読だけを出すので、3 件目は単独の行。`03-bell-unread-light.png`）。設定の「通知一覧」では、同じ読み込みの 3 件が「… ほか 2 件」の 1 行、古い形と未設定は 1 件 1 行（`04-list-grouped-light.png`）。(3) ダークでも同じ（`05-bell-grouped-dark.png`・`06-list-grouped-dark.png`。通知一覧では、未読の残る読み込みの行にだけ「未読」）。(4) 01 は「ほか N 件」の塊にする前で「ほか／1 件」と分かれていた。直した後は「ほか 1 件」がまとまって次の行へ回る（`07-bell-wrap-light.png`）。横のはみ出しなし。実機のホストのセーブでの自動登録は見ていない（テストの run と同じ経路）。
+9. **後のテーマへの申し送り**:
+   - bell（フェーズ 2）: 種類は `NOTIFICATION_KINDS` に足し、`notificationTags` が写す（palId もここに足せる）。まとめるのは `GROUPED_KINDS` にある種類だけ（種類を足してもまとめない）。まとめた行の `ids`・`count`・`items`・`more` で、個別の既読・「すべての通知を見る →」・種類のチップを行の単位で作れる。未読の数は、まとめた行の数（`groupNotifications(unread()).length`）にしてある。自動登録の通知の残す数は auto-register.js の `capNotices`（成功 20・それ以外 50）。
+   - autoreg-visibility（フェーズ 2）: トースト「配合を自動登録しました（n件）」は `run` の最後に残してある。成功はベルに残るので、トーストの「見る」はベルを開くか、まとめた行の href（最初に登録した組の配合検索）へ移す形にできる。裏のタブの題名の数も、まとめた行の未読の数を使えばベルとそろう。
+   - copy-dead-ends: 成功の通知の親の記号は「＋」（用語表の親の組）に先にそろえた。保留・見送りの通知の `pairText` はまだ「×」なので、そろえるときは `anomalyText`・`conflictText` と、旧本文を読む `OLD_ANOMALY`・`OLD_CONFLICT`（旧本文は「×」のまま）に気をつける。
 
 ---
 
