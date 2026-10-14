@@ -285,7 +285,7 @@
 - パル選択: `web/js/ui/pal-picker.js:16-166`。キー操作は検索欄の ↑↓・Enter・Esc だけ（`:140-151`）。トリガーで文字を打っても開かない。Enter は `position >= 0` のときだけ選ぶ（`:150`）。
 - ヘッダーにパル検索はない。`app.js` に `keydown` の処理はない（あるのは `web/js/ui/notifications.js` と `pal-picker.js:140` だけ）。
 - パッシブの説明は `title` だけ（`web/js/ui/passive-picker.js:20`）。キーボードで出ない。
-- ナビのアイコンの表（`web/js/ui/nav-icons.js:2-12`）に `pal` はない。
+- ナビのアイコンの表（`web/js/ui/nav-icons.js:2-12`）に `pal` はない（追記 2026-10-14: visual-parts の後は、アイコンの定義は `web/js/ui/icons.js` の `ICONS` にある。nav-icons.js は `navIcon(view)` だけ）。
 - テスト: `test/web/views.test.js:91-99`（親に使う配合は相手 → 子、`＋` を含まない）。
 
 ### 実装の手順

@@ -1,6 +1,7 @@
 import passives from '../../data/passives.js';
 import { normalizeQuery, queryTerms } from '../core/kana.js';
-import { el, button, syncList } from './dom.js';
+import { el, button, syncList, setDisabled } from './dom.js';
+import { icon } from './icons.js';
 import { createPopover, scrollWithin } from './popover.js';
 
 export const passivesById = new Map(passives.map((passive) => [passive.id, passive]));
@@ -28,8 +29,10 @@ export function passiveChip(id, { onRemove, focusGroup = '', compact = false } =
   }
   chip.title = [passive?.ja ?? id, rank ? `ランク ${rank}` : '', passive?.desc ?? ''].filter(Boolean).join('\n');
   if (onRemove) {
-    const remove = button('×', onRemove, 'passive-remove');
+    // × は SVG のアイコン（ui/icons.js の close）。名前は aria-label
+    const remove = button('', onRemove, 'passive-remove');
     remove.setAttribute('aria-label', `${passive?.ja ?? id} を外す`);
+    remove.append(icon('close', { className: 'close-icon' }));
     if (focusGroup) {
       remove.setAttribute('data-focus-key', `passive-chip:${focusGroup.replace(/^passive:/, '')}:${id}`);
       remove.setAttribute('data-focus-fallback', focusGroup);
@@ -135,7 +138,7 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
   function renderButton() {
     const full = state.selected.length >= max;
     add.textContent = full ? `最大 ${max} 個まで` : 'パッシブを追加…';
-    add.disabled = full || state.disabled;
+    setDisabled(add, full || state.disabled, full ? `パッシブは最大 ${max} 個まで選べます` : '');
     element.classList.toggle('is-disabled', state.disabled);
   }
 

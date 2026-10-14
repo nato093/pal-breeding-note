@@ -219,6 +219,8 @@ test('通知一覧: 開いている間に元が消えた通知を外し、開く
   assert.deepEqual(titles(modal.dialog), ['作れる', 'お知らせ']);
   // 未読の印は開いた時点のまま残す。
   assert.equal(modal.dialog.querySelectorAll('.unread-chip').length, 1);
+  // 未読の印は状態のチップ（statusChip の info。前のクラス名 unread-chip は残す）
+  assert.equal(modal.dialog.querySelector('.unread-chip').className, 'status-chip is-info unread-chip');
   await modal.dialog.querySelector('.notification-link').dispatch('click');
   assert.equal(modal.dialog.open, false);
   items.pop();

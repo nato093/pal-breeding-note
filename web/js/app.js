@@ -106,7 +106,9 @@ async function boot() {
   const brand = link('', buildHash('search'), 'brand');
   // 狭い窓では文字を隠してマークだけにする（CSS）ので、名前は aria-label で持つ
   brand.setAttribute('aria-label', 'パル配合ノート（配合検索へ）');
-  const mark = el('span', 'brand-mark', '◇');
+  // 菱形の印は CSS のマスクで描く（中身の文字は持たない。読み上げで「◇」と読まれないよう aria-hidden）
+  const mark = el('span', 'brand-mark');
+  mark.setAttribute('aria-hidden', 'true');
   const brandText = el('span', 'brand-text');
   // ロゴの副題（キャッチコピー）は copy-dead-ends でなくした（見出しはタブ名にそろえる）
   brandText.append(el('strong', '', 'パル配合ノート'));

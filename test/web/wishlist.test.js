@@ -394,6 +394,9 @@ test('ウィッシュリスト画面: 選ぶとすぐ追加して選択欄を空
   assert.equal(rows[0].querySelector('a').href, '#/reverse?c=MoonQueen');
   assert.match(rows[1].textContent, /メルパカ.*まだ作れません/);
   assert.equal(rows[1].querySelector('a'), null);
+  // 状態の印は 1 つの部品（statusChip。前のクラス名 wishlist-status は残す）
+  assert.deepEqual(rows.map((row) => row.querySelector('.wishlist-status').className),
+    ['status-chip is-ready wishlist-status', 'status-chip is-neutral wishlist-status']);
   await choose(view, TARGET);
   assert.match(body.textContent, /セレムーンはすでにウィッシュリストにあります/);
   assert.equal(view.element.querySelectorAll('.wishlist-row').length, 2);

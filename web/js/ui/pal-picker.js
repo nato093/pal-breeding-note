@@ -2,6 +2,7 @@ import pals from '../../data/pals.js';
 import { normalizeQuery } from '../core/kana.js';
 import { searchPals } from '../core/pal-search.js';
 import { el, button } from './dom.js';
+import { icon } from './icons.js';
 import { palTile, palsById } from './pal-icon.js';
 import { createPopover, scrollWithin } from './popover.js';
 
@@ -11,18 +12,8 @@ export function filterPals(query) {
   return searchPals(activePals, query).map(({ pal }) => pal);
 }
 
-const SVG = 'http://www.w3.org/2000/svg';
-// 選んでいる行の右の ✓（HTML の文字列を使わずに描く）
-function checkMark() {
-  const svg = document.createElementNS(SVG, 'svg');
-  svg.setAttribute('class', 'picker-check');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('aria-hidden', 'true');
-  const path = document.createElementNS(SVG, 'path');
-  path.setAttribute('d', 'M3 8.5 6.5 12 13 4.5');
-  svg.append(path);
-  return svg;
-}
+// 選んでいる行の右の ✓（定義は ui/icons.js）
+const checkMark = () => icon('check', { className: 'picker-check' });
 
 /**
  * パルを 1 体選ぶ欄。押すと候補のポップオーバーを開き、名前・英名・番号・属性・パートナースキルで探せる。
@@ -37,7 +28,9 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder 
   const wrapper = el('div', 'picker');
   const labelNode = el('span', 'field-label', label);
   const trigger = button('', () => open(), 'picker-trigger');
-  const clear = button('×', () => select(''), 'picker-clear');
+  // × は SVG のアイコン（ui/icons.js の close）。名前は aria-label
+  const clear = button('', () => select(''), 'picker-clear');
+  clear.append(icon('close', { className: 'close-icon' }));
   clear.setAttribute('aria-label', `${label}の選択を解除`);
   clear.title = `${label}の選択を解除`;
   const control = el('div', 'picker-control');

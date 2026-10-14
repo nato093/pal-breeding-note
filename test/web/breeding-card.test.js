@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom } from '../helpers/dom.js';
 import { breedingCard } from '../../web/js/ui/breeding-card.js';
+import { genderMark, palTile } from '../../web/js/ui/pal-icon.js';
 
 const record = { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
   registrant: '仲間', memo: '記録のメモ', confirmCount: 8, updatedAt: '2026-10-04T00:00:00Z' };
@@ -75,4 +76,32 @@ test('配合行: 指定した親を左に表示し、性別も入れ替えるが
   assert.equal(source.parent1Gender, 'M');
   const same = breedingCard({ ...source, parent2Id: source.parent1Id }, {}, { leftParent: source.parent1Id });
   assert.deepEqual(same.querySelectorAll('.gender').map((node) => node.textContent), ['♂', '♀']);
+});
+
+test('配合行: 削除済みの配合は状態のチップ（statusChip の warning。前のクラス名 warning-chip は残す）', (t) => {
+  installDom(t);
+  const card = breedingCard({ ...record, deleted: true }, {}, { preview: true });
+  const chip = card.querySelector('.warning-chip');
+  assert.deepEqual([chip.tagName, chip.className, chip.textContent], ['span', 'status-chip is-warning warning-chip', '削除済み']);
+  assert.equal(breedingCard(record, {}, { preview: true }).querySelector('.warning-chip'), null);
+});
+
+test('genderMark: 性別の印は文字の ♂♀ のまま（色の丸い地は CSS）、読み上げは「オス」「メス」。inline なら文の中に置く色だけの印', (t) => {
+  installDom(t);
+  const male = genderMark('M');
+  assert.equal(male.tagName, 'span');
+  assert.equal(male.className, 'gender gender-M');
+  assert.deepEqual([male.textContent, male.getAttribute('role'), male.getAttribute('aria-label'), male.title], ['♂', 'img', 'オス', 'オス']);
+  const female = genderMark('F', { inline: true });
+  assert.equal(female.className, 'gender gender-F gender-inline');
+  assert.deepEqual([female.textContent, female.getAttribute('role'), female.getAttribute('aria-label')], ['♀', 'img', 'メス']);
+  // 性別が分からない（空・知らない値）ときは印を作らない
+  assert.equal(genderMark(''), null);
+  assert.equal(genderMark('X'), null);
+  // palTile（所持パルの行・配合カード・パル選択）は同じ部品を使う。性別の要素を増やさない（2,000 行の DOM の予算）
+  const tile = palTile('SheepBall', { gender: 'F', genderFirst: true });
+  const mark = tile.querySelector('.gender');
+  assert.deepEqual([mark.className, mark.textContent, mark.getAttribute('aria-label')], ['gender gender-F', '♀', 'メス']);
+  assert.equal(tile.querySelectorAll('.gender').length, 1);
+  assert.equal(palTile('SheepBall').querySelector('.gender'), null);
 });

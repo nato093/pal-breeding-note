@@ -1,4 +1,5 @@
-import { el, empty, link, button, syncList, clearList, trackHeight, svgElement, storageWarning, loadingState } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, storageWarning, loadingState, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
+import { icon } from '../ui/icons.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
@@ -6,10 +7,10 @@ import { createPopover } from '../ui/popover.js';
 import { hint } from '../ui/hint.js';
 import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { palsById, palTile, palIcon } from '../ui/pal-icon.js';
+import { palsById, palTile, palIcon, genderMark } from '../ui/pal-icon.js';
 import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/passive-picker.js';
 import { talentInput } from '../ui/talent-input.js';
-import { actionIcon, icons } from '../ui/breeding-card.js';
+import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts } from '../core/owned.js';
@@ -100,18 +101,8 @@ const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}
 // 個体の持ち主（手持ち・パルボックスなどは所持者、拠点のパルは預けた人）。分からなければ空
 const ownerOf = (pal) => (pal.place === 'base' ? pal.lastOwner || '' : pal.holder === '不明' ? '' : pal.holder || '');
 
-// 組の目的のアイコン（12px の SVG。王冠＝完全体作成組、つながった 2 つの輪＝パッシブ厳選組、3 本のバー＝個体値厳選組）。
-// フェーズ 1d の visual-parts で ui/icons.js に移す
-const GROUP_SHAPES = {
-  complete: [['path', { d: 'M1.5 9.8 1 3.4l2.8 2.2L6 1.8l2.2 3.8L11 3.4l-.5 6.4z', fill: 'currentColor' }]],
-  passive: [['circle', { cx: 4.2, cy: 6, r: 2.8 }], ['circle', { cx: 7.8, cy: 6, r: 2.8 }]].map(([tag, shape]) => [tag, { ...shape, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4 }]),
-  talent: [[1, 7, 4], [4.8, 4, 7], [8.6, 1, 10]].map(([x, y, height]) => ['rect', { x, y, width: 2.4, height, rx: 0.5, fill: 'currentColor' }]),
-};
-function groupIcon(group) {
-  const icon = svgElement('svg', { viewBox: '0 0 12 12', width: 12, height: 12, 'aria-hidden': 'true', focusable: 'false', class: 'ideal-tier-icon' });
-  for (const [tag, attributes] of GROUP_SHAPES[group] ?? []) icon.append(svgElement(tag, attributes));
-  return icon;
-}
+// 組の目的のアイコン（12px。王冠＝完全体作成組、つながった 2 つの輪＝パッシブ厳選組、3 本のバー＝個体値厳選組。定義は ui/icons.js）
+const groupIcon = (group) => icon(`group-${group}`, { className: 'ideal-tier-icon' });
 
 /**
  * 組のカード: 番号と札の 1 行、♂♀ の行、（あれば）登録の注意。数値の行・内訳の文・「同じ種族どうし」は出さない（D30）。
@@ -142,8 +133,10 @@ function pairCard(pair, rank, { placed = '', changed = false, farmTo = '', highl
     return node;
   };
   tags.append(tag('group', `ideal-tier group-${pair.group}`, GROUP_LABELS[pair.group] ?? '', TAG_HINTS[pair.group] ?? '', groupIcon(pair.group)));
-  if (changed) tags.append(tag('changed', 'ideal-changed', '変更あり', TAG_HINTS.changed));
-  if (placed) tags.append(tag('placed', 'ideal-placed', joinName(placed, 'に配置中'), TAG_HINTS.placed));
+  // 状態の印は状態のチップ（ui/dom.js の statusChip と同じクラス）の形。「変更あり」は warning（tertiary は primary と同じ色で、
+  // 完成済みなどの ready と見分けられないため）、「配置中」は info。押すと説明が開くボタンのまま
+  if (changed) tags.append(tag('changed', 'status-chip is-warning ideal-changed', '変更あり', TAG_HINTS.changed));
+  if (placed) tags.append(tag('placed', 'status-chip is-info ideal-placed', joinName(placed, 'に配置中'), TAG_HINTS.placed));
   if (farmTo) tags.append(tag('farmTo', 'ideal-farm-to', `→ ${joinName(farmTo, 'へ')}`, TAG_HINTS.farmTo));
   // 2 体の持ち主が違う組（X-28。だれと相談して置くか）。どちらかが分からなければ出さない
   const owners = [ownerOf(pair.male), ownerOf(pair.female)];
@@ -380,9 +373,14 @@ export function idealView(context, route) {
     const text = registered ? '★ 保存済み' : '☆ 目標として保存';
     if (saveButton.textContent !== text) saveButton.textContent = text;
     saveButton.classList.toggle('is-placeholder', !to);
-    saveButton.disabled = !to;
-    saveButton.setAttribute('aria-disabled', String(registered));
-    saveButton.title = to ? goalSummary(goalConditions()) : '';
+    // 目標がないときは押せない（見えないまま場所を残す）。保存済みは押せない印（aria-disabled）でフォーカスを残す。
+    // title は押せない理由と、保存される条件の要約（I-20）
+    if (!to) setDisabled(saveButton, true, '目標のパルを選ぶと保存できます');
+    else {
+      const summary = goalSummary(goalConditions());
+      setDisabled(saveButton, registered, '同じ条件の目標があります', { focusable: true });
+      saveButton.title = registered ? `同じ条件の目標があります\n${summary}` : summary;
+    }
     // 保存できなくなったら（目標を外した・保存済みになった）板を閉じる
     if ((!to || registered) && saveBoard.isOpen()) saveBoard.close({ focus: Boolean(to) });
   }
@@ -496,7 +494,7 @@ export function idealView(context, route) {
     const row = el('li', 'ideal-goal');
     const title = el('div', 'ideal-goal-title');
     title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), el('strong', '', goal.name));
-    const state = el('span', 'ideal-goal-status');
+    const state = statusChip('', 'neutral', 'ideal-goal-status');
     // 自分のプレイヤーが分からない（未確認）ときだけ、状態の下に設定への行き先（このワールドでの自分を選ぶ）を出す
     const action = link('', '#/settings', 'button secondary small ideal-goal-action');
     action.setAttribute('data-focus-key', `goal-action:${goal.id}`);
@@ -510,13 +508,13 @@ export function idealView(context, route) {
     recall.setAttribute('data-focus', 'recall');
     // ダイアログは画面の遷移で閉じないので、呼び出したら閉じる（リンクの遷移はそのまま進む）
     recall.addEventListener('click', () => goalsModal?.close());
-    const remove = actionIcon(`「${goal.name}」を目標から外す`, icons.remove, () => removeGoal(goal), 'danger-text');
+    const remove = actionIcon(`「${goal.name}」を目標から外す`, 'remove', () => removeGoal(goal), 'danger-text');
     remove.setAttribute('data-focus', 'remove');
     row.append(title, goal.passives.length ? passiveList(goal.passives, { compact: true }) : el('span', 'muted', '—'),
       el('small', 'muted ideal-goal-summary', goalSummary(goal)), stateCell, recall, remove);
     const update = (item) => {
       row.classList.toggle('done', item.status.done);
-      state.classList.toggle('ready', item.status.done);
+      setChipTone(state, item.status.done ? 'ready' : 'neutral');
       if (state.textContent !== item.status.text) state.textContent = item.status.text;
       action.hidden = !item.status.action;
       if (item.status.action) {
@@ -631,11 +629,12 @@ export function idealView(context, route) {
 
   // 牧場の行の個体（絵・名前と性別・個体値。passives なら小さなパッシブのチップも）。同じ種族の 2 体は個体値で見分ける
   const talentLine = (pal) => `HP ${pal.talent.hp}・攻 ${pal.talent.shot}・防 ${pal.talent.defense}`;
-  const genderMark = (pal) => el('span', `gender gender-${pal.gender}`, pal.gender === 'M' ? '♂' : '♀');
+  // 性別は文字の ♂♀ の色だけ（牧場の行・帯の小さな絵の横。丸い地は置かない）。分からなければ何も置かない
+  const genderOf = (pal) => [genderMark(pal.gender, { inline: true })].filter(Boolean);
   function farmPal(pal, { passives = false } = {}) {
     const node = el('span', 'ideal-farm-pal');
     const name = el('span', 'ideal-farm-pal-name');
-    name.append(el('strong', '', pal.name), genderMark(pal));
+    name.append(el('strong', '', pal.name), ...genderOf(pal));
     node.append(palIcon(palsById.get(pal.palId)), name, el('small', 'ideal-farm-talent', talentLine(pal)));
     if (passives && pal.passives.length) node.append(passiveList(pal.passives, { compact: true }));
     return node;
@@ -704,9 +703,9 @@ export function idealView(context, route) {
     pals.setAttribute('aria-hidden', 'true');
     [item.farm.male, item.farm.female].forEach((pal, index) => {
       if (index) pals.append(el('span', 'ideal-farm-cell-x', '＋'));
-      const icon = el('span', 'ideal-farm-cell-pal');
-      icon.append(palIcon(palsById.get(pal.palId)), genderMark(pal));
-      pals.append(icon);
+      const cellPal = el('span', 'ideal-farm-cell-pal');
+      cellPal.append(palIcon(palsById.get(pal.palId)), ...genderOf(pal));
+      pals.append(cellPal);
     });
     const arrow = el('span', 'ideal-farm-cell-arrow', '→');
     arrow.setAttribute('aria-hidden', 'true');

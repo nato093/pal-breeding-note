@@ -116,3 +116,102 @@ test('静的検査: 所持パルの行の高さの見積もり（JS の ROW_ESTI
   // 出すものがないときに 1 行の場所を残す規則（.ideal-farms:empty）は、D30 でなくした（詳細ごと hidden にする）
   assert.equal(rule('.ideal-farms:empty'), '');
 });
+
+// WCAG 2.x の相対輝度とコントラスト比（#rrggbb）
+function contrast(a, b) {
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255)
+      .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high + 0.05) / (low + 0.05);
+}
+// ライトは最初の :root、ダークは @media (prefers-color-scheme: dark) の中の :root
+async function themes() {
+  const css = await readFile(new URL('../../web/css/app.css', import.meta.url), 'utf8');
+  const light = css.match(/^:root \{([^}]*)\}/m)?.[1] ?? '';
+  const dark = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/)?.[1] ?? '';
+  const value = (block, name) => block.match(new RegExp(String.raw`(?:^|[;\s])${name}: ([^;]+);`))?.[1].trim() ?? '';
+  return { css, light: (name) => value(light, name), dark: (name) => value(dark, name) || value(light, name), darkOnly: (name) => value(dark, name) };
+}
+
+test('静的検査: 性別の色はトークン（--gender-male・--gender-female・--on-gender）でライトとダークに持ち、♀ はエラーの赤を使わない。文字は地に 4.5:1 以上（visual-parts）', async () => {
+  const { css, light, dark, darkOnly } = await themes();
+  for (const name of ['--gender-male', '--gender-female', '--on-gender']) {
+    assert.match(light(name), /^#[0-9a-f]{6}$/, `ライトの ${name}`);
+    assert.match(darkOnly(name), /^#[0-9a-f]{6}$/, `ダークの ${name}`);
+  }
+  const escape = (text) => text.replace(/[[\]().:"]/g, '\$&');
+  const rule = (selector) => css.match(new RegExp(String.raw`^${escape(selector)} \{([^}]*)\}`, 'm'))?.[1] ?? '';
+  assert.match(rule('.gender-M'), /var\(--gender-male\)/);
+  assert.match(rule('.gender-F'), /var\(--gender-female\)/);
+  // 前は ♂ が水属性の色、♀ がエラーの赤（ごみ箱のボタンと同じ色）だった
+  for (const selector of ['.gender-M', '.gender-F']) assert.doesNotMatch(rule(selector), /--danger|--md-sys-color-error|--Water/, selector);
+  // 文の中の色（ライトは白と背景、ダークは行の地と背景）と、丸い地の上の文字（--on-gender）
+  for (const name of ['--gender-male', '--gender-female']) {
+    for (const ground of ['#ffffff', light('--md-sys-color-surface')]) assert.ok(contrast(light(name), ground) >= 4.5, `${name} / ${ground}`);
+    for (const ground of [dark('--md-sys-color-surface-container-low'), dark('--md-sys-color-surface')]) assert.ok(contrast(dark(name), ground) >= 4.5, `ダークの ${name} / ${ground}`);
+    assert.ok(contrast(light(name), light('--on-gender')) >= 4.5, `${name} の地の文字`);
+    assert.ok(contrast(dark(name), dark('--on-gender')) >= 4.5, `ダークの ${name} の地の文字`);
+  }
+});
+
+test('静的検査: 入力欄の枠（outline）は背景と白に 3:1 以上。属性チップの白い文字は 4.5:1 以上で、チップだけの色（--element-chip）にしてアバターの属性の色は変えない（visual-parts）', async () => {
+  const { css, light, dark } = await themes();
+  for (const ground of ['#ffffff', light('--md-sys-color-surface')]) assert.ok(contrast(light('--md-sys-color-outline'), ground) >= 3, `outline / ${ground}`);
+  for (const ground of [dark('--md-sys-color-surface'), dark('--md-sys-color-surface-container-low')]) assert.ok(contrast(dark('--md-sys-color-outline'), ground) >= 3, `ダークの outline / ${ground}`);
+  assert.match(css, /^\.element-chip \{[^}]*background: var\(--element-chip, var\(--element, var\(--Neutral\)\)\)/m);
+  const elements = ['Neutral', 'Fire', 'Water', 'Grass', 'Electric', 'Ice', 'Ground', 'Dark', 'Dragon'];
+  for (const element of elements) {
+    const own = css.match(new RegExp(String.raw`^\.element-${element} \{([^}]*)\}`, 'm'))?.[1] ?? '';
+    const chip = own.match(/--element-chip: (#[0-9a-f]{6})/)?.[1] ?? light(`--${element}`);
+    assert.ok(contrast(chip, '#ffffff') >= 4.5, `${element} のチップ ${chip}`);
+  }
+  // .pal-avatar（属性の色の丸）が使う元の色はそのまま
+  assert.deepEqual(elements.map((element) => light(`--${element}`)), ['#787d88', '#d25337', '#247fbc', '#498132', '#937309', '#258790', '#9a693d', '#8159a7', '#665bc2']);
+  // 配合の式の「＋」は文字の色（on-surface-variant。前は outline で背景に 1.79:1）
+  assert.match(css, /^\.equation-symbol \{[^}]*color: var\(--md-sys-color-on-surface-variant\)/m);
+});
+
+test('静的検査: 押せないボタンは opacity で薄くせず（M3 の無効の色）、押して処理している間（aria-busy）は今の色のまま。select の開閉の印はパル選択と同じ ∨（CSS の data URI）', async () => {
+  const { css, light, darkOnly } = await themes();
+  const escape = (text) => text.replace(/[[\]().:"]/g, '\$&');
+  const rule = (selector) => css.match(new RegExp(String.raw`^${escape(selector)} \{([^}]*)\}`, 'm'))?.[1] ?? '';
+  assert.match(rule('button:disabled'), /cursor: default/);
+  assert.doesNotMatch(rule('button:disabled'), /opacity/);
+  // 無効の色は処理中のボタン（runButton が disabled と aria-busy を付ける）には当てない
+  assert.match(css, /^button:disabled:not\(\[aria-busy="true"\]\)[^{]*\{[^}]*color: color-mix\(in srgb, var\(--md-sys-color-on-surface\) 38%, transparent\)/m);
+  assert.match(css, /:disabled[^{]*:not\(\[aria-busy="true"\]\)[^{]*\{[^}]*background: color-mix\(in srgb, var\(--md-sys-color-on-surface\) 12%, transparent\)/);
+  // select は OS の ▼ をやめ、色ごとの data URI（data URI の SVG は currentColor を使えない）
+  assert.match(css, /^select \{[^}]*appearance: none[^}]*background-image: var\(--select-arrow\)/m);
+  for (const value of [light('--select-arrow'), darkOnly('--select-arrow')]) assert.match(value, /^url\("data:image\/svg\+xml,/);
+  assert.notEqual(light('--select-arrow'), darkOnly('--select-arrow'));
+  // パッシブのチップの × は 24×24px（WCAG 2.5.8）
+  assert.match(rule('.passive-remove'), /inline-size: 24px/);
+  assert.match(rule('.passive-remove'), /block-size: 24px/);
+});
+
+test('静的検査: 状態の印は 1 つの部品（.status-chip と tone）。tone ごとの地と文字はライトとダークで 4.5:1 以上で、前のクラス名に色・角・地の規則を残さない（visual-parts）', async () => {
+  const { css, light, dark } = await themes();
+  // var(--x) をライト・ダークの値にする（ダークに上書きがなければライトの値）
+  const resolve = (get, value) => value.replace(/^var\((--[a-z-]+)\)$/, (_, name) => get(name));
+  assert.match(css, /^\.status-chip \{[^}]*border-radius: 4px[^}]*font-size: 11px[^}]*white-space: nowrap/m);
+  for (const tone of ['ready', 'warning', 'error', 'info', 'neutral']) {
+    const body = css.match(new RegExp(String.raw`^\.status-chip\.is-${tone} \{([^}]*)\}`, 'm'))?.[1] ?? '';
+    const background = body.match(/background: (var\(--[a-z-]+\))/)?.[1];
+    const color = body.match(/(?:^|[;\s])color: (var\(--[a-z-]+\))/)?.[1];
+    assert.ok(background && color, `${tone} の地と文字`);
+    for (const [theme, get] of [['ライト', light], ['ダーク', dark]]) {
+      const ratio = contrast(resolve(get, background), resolve(get, color));
+      assert.ok(ratio >= 4.5, `${theme}の ${tone}: ${ratio.toFixed(2)}`);
+    }
+  }
+  // 前のクラス名（テストと画面の中の探し方のために残す）の規則は、置き場所の調整（幅・折り返し・余白）だけ（コメントは除いて見る）
+  const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const name of ['unread-chip', 'warning-chip', 'wishlist-status', 'owned-auto-state', 'owned-world-state', 'ideal-changed', 'ideal-placed', 'ideal-goal-status']) {
+    for (const [, selector, body] of plain.matchAll(new RegExp(String.raw`([^{}]*\.${name}(?![\w-])[^{}]*)\{([^}]*)\}`, 'g'))) {
+      assert.doesNotMatch(body, /background|(?:^|[;\s])color:|border-radius/, selector.trim());
+    }
+  }
+});

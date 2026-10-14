@@ -1296,30 +1296,89 @@ title 11 字・body 35 字。
 
 ### 完了の条件
 
-- [ ] `npm test` が通る。
-- [ ] モックでライトとダークの両方を撮り、所持パル・理想個体・配合カードの ♂♀ が丸い地で見分けられ、♀ がごみ箱の赤と違う色。ダークの ♂ が沈んで見えない（`Claude outputs/l-dark-rows.png` と比べる）。
-- [ ] 入力欄・パル選択の枠がはっきり見え、同じ行の select とパル選択の上端がそろう（`Claude outputs/ui-audit-2026-10/shots/owned/30-ideal-empty.png`・`01-owned-default.png` と比べる）。select の印がパル選択と同じ ∨。
-- [ ] パッシブのチップの × を押しやすい（24×24px）。
-- [ ] 状態の印（未読・削除済み・作成可能・完成済み・変更あり・配置中・自動登録 オン/オフ・読み込みの状態）が同じ形のチップ。
-- [ ] 押せないボタンが灰色で、マウスを乗せると理由が出る。
-- [ ] ダークのタブでファビコンが明るい地になる。読み上げでロゴのリンクに「◇」が読まれない（アクセシビリティのツリーで確かめる）。
-- [ ] data/SOURCES.md の表を読み、案の ID や古い記述がない。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: セキュリティ — アイコンは createElementNS（`test/static/security.test.js`）。select の印の data URI は今の CSP の範囲で、CSP を変えていない。配信する画像に Codex の生成画像を使っていない（判断事項 5）。互換 — クラス名を残し、ほかのテーマ・テストの探し方が壊れない。INV-2・性能 — 対象外。
+- [x] `npm test` が通る。
+- [x] モックでライトとダークの両方を撮り、所持パル・理想個体・配合カードの ♂♀ が丸い地で見分けられ、♀ がごみ箱の赤と違う色。ダークの ♂ が沈んで見えない（`Claude outputs/l-dark-rows.png` と比べる）。
+- [x] 入力欄・パル選択の枠がはっきり見え、同じ行の select とパル選択の上端がそろう（`Claude outputs/ui-audit-2026-10/shots/owned/30-ideal-empty.png`・`01-owned-default.png` と比べる）。select の印がパル選択と同じ ∨。
+- [x] パッシブのチップの × を押しやすい（24×24px）。
+- [x] 状態の印（未読・削除済み・作成可能・完成済み・変更あり・配置中・自動登録 オン/オフ・読み込みの状態）が同じ形のチップ。
+- [x] 押せないボタンが灰色で、マウスを乗せると理由が出る。
+- [x] ダークのタブでファビコンが明るい地になる。読み上げでロゴのリンクに「◇」が読まれない（アクセシビリティのツリーで確かめる）。
+- [x] data/SOURCES.md の表を読み、案の ID や古い記述がない。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: セキュリティ — アイコンは createElementNS（`test/static/security.test.js`）。select の印の data URI は今の CSP の範囲で、CSP を変えていない。配信する画像に Codex の生成画像を使っていない（判断事項 5）。互換 — クラス名を残し、ほかのテーマ・テストの探し方が壊れない。INV-2・性能 — 対象外。
 
 ### TODO
 
-- [ ] 性別の色のトークン（ライト・ダーク）と、styles.test.js の確かめ
-- [ ] `genderMark()` を作り、palTile と所持パルの人間の行を置き換える（理想個体の文は色だけ）
-- [ ] outline・属性チップ（`--element-chip`）・式の「＋」の色を直す
-- [ ] `.picker` の並び・ラベルの間隔・select の ∨・パッシブの × を直す
-- [ ] `statusChip()` を作り、8 種類の状態の印を置き換える（クラス名は残す）
-- [ ] 押せないボタンの見た目と `setDisabled()`、理由を出す 4 か所
-- [ ] `ui/icons.js` を作り、navIcon・actionIcon・ベルをそこから呼ぶ
-- [ ] 閉じる「×」4 か所を SVG に替え、テストを aria-label で探す形に
-- [ ] favicon.svg のダーク対応と、ロゴの「◇」を空にして aria-hidden
-- [ ] data/SOURCES.md に画像の作り方の表
-- [ ] （任意）ロゴの描き直しをユーザーに確かめる
-- [ ] release-notes に 1 件、ライト・ダークで画面を確かめる
+- [x] 性別の色のトークン（ライト・ダーク）と、styles.test.js の確かめ
+- [x] `genderMark()` を作り、palTile と所持パルの人間の行を置き換える（理想個体の文は色だけ）
+- [x] outline・属性チップ（`--element-chip`）・式の「＋」の色を直す
+- [x] `.picker` の並び・ラベルの間隔・select の ∨・パッシブの × を直す
+- [x] `statusChip()` を作り、8 種類の状態の印を置き換える（クラス名は残す）
+- [x] 押せないボタンの見た目と `setDisabled()`、理由を出す 4 か所
+- [x] `ui/icons.js` を作り、navIcon・actionIcon・ベルをそこから呼ぶ
+- [x] 閉じる「×」4 か所を SVG に替え、テストを aria-label で探す形に
+- [x] favicon.svg のダーク対応と、ロゴの「◇」を空にして aria-hidden
+- [x] data/SOURCES.md に画像の作り方の表
+- [ ] （任意）ロゴの描き直しをユーザーに確かめる（見送り: 2026-10-14。任意のため）
+- [x] release-notes に 1 件、ライト・ダークで画面を確かめる
+
+### 実装の記録（2026-10-14、ブランチ `feature/visual-parts`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のフェーズ 2 の find-merge・register-entry・goals-merge、フェーズ 3 の pal-detail・owned-detail・farm-board、フェーズ 4 の game-assets・任意の空の状態の絵はこちらを正とする）。文書の file:line（ad648b7）は関数名・文字列・クラス名で探し直した。細かな UI は指示のとおり担当が決めた（下の「決めたこと」）。
+
+1. **色のトークン（手順 1・3）**: 文書の値のまま。`:root` に `--gender-male: #1b6ca8`・`--gender-female: #c0306a`・`--on-gender: #ffffff`、ダークのブロックに `#7cc4ff`・`#ff8cc6`・`#0c171a`。ライトの `--md-sys-color-outline` を `#a9bfb8` → `#6f8a84`。属性チップだけの色 `--element-chip`（`.element-Neutral` など 5 つのクラスに足した。無 `#70747e`・炎 `#c54e34`・水 `#237ab4`・雷 `#907109`・氷 `#238089`）と `.element-chip { background: var(--element-chip, var(--element, var(--Neutral))) }`。`--Neutral` などの元の色は変えていない（`.pal-avatar` が使う）。式の「＋」（`.equation-symbol`）は `--md-sys-color-on-surface-variant`。
+   - 計算した比（WCAG の相対輝度の式。セッションの一時フォルダの小さなスクリプトで、文書の値をすべて計算し直して一致を確かめた）: ♂ #1b6ca8 は白に 5.59・#f3f7f4 に 5.17、♀ #c0306a は 5.42・5.02、ダークの ♂ #7cc4ff は #1a2b30 に 7.82・#111e22 に 9.08、♀ #ff8cc6 は 6.86・7.97、丸い地の上の文字はライトの白が ♂ に 5.59・♀ に 5.42、ダークの #0c171a が 9.71・8.51。outline #6f8a84 は #f3f7f4 に 3.44・白に 3.72（ダークの #5f7c79 は #111e22 に 3.77・#1a2b30 に 3.24 で変えていない）。属性チップは白に 無 4.68・炎 4.65・水 4.65・雷 4.61・氷 4.65（前は 4.13〜4.47）、草 4.70・地 4.71・闇 5.36・竜 5.47 はそのまま。「＋」は白に 5.02・#f3f7f4 に 4.64。test/static/styles.test.js が同じ式でトークンの比を確かめる（下の 10）。ブラウザでは計算した色（getComputedStyle）がトークンの値になっていることを確かめた（開発ツールのコントラストの表示は使っていない）。
+   - **outline を使うほかの所も濃くなった**（セカンダリボタン・場所のチップ・条件のチップ・属性 ▾・まとめて ▾・パネルの欄の間の縦線・★ の輪郭 ☆・ヘッダーのセーブ連携の点〔古い・読み込み中〕・下書きの空の欄の点線）。ライトとダークで撮って、セカンダリボタンの枠も強すぎないので、文書の「ボタンの枠だけ中間の色」は入れていない（決めたこと）。
+2. **genderMark（手順 2）**: **`genderMark(gender, { inline = false } = {}) → HTMLSpanElement | null`**（web/js/ui/pal-icon.js。export）。`span.gender.gender-M`（`gender-F`。inline なら `gender-inline` も）・文字は ♂♀ のまま・`role="img"`・aria-label と title は「オス」「メス」。性別が 'M'・'F' 以外（空など）は null（前の palTile は空でない知らない値を ♀ にしていた）。
+   - 使う所: palTile（配合カード・所持パルの行・理想個体の組の ♂♀ 行・継承ルート・パル選択はここを通る）と、所持パルの人間の行（views/owned.js の `palCellTile`）。理想個体の配合牧場の詳細の行（`farmPal`）と帯のセル（`stripCell`）は DOM の部品だったので `genderMark(gender, { inline: true })`（色だけ。帯のセルは aria-hidden の中）。文の中の ♂♀（「所持 ♂11 ♀10」・件数の行・aria-label の「（名前♂＋名前♀）」など）は文字のまま。
+   - CSS: `.gender-M { color: var(--gender-male) }`・`.gender-F { color: var(--gender-female) }`（文の中の色）と、丸い地 `.gender:not(.gender-inline)`（18×18px・`display: inline-grid`・12px・`color: var(--on-gender)`・地はトークン）。**名前の左に置く `.pal-name-line` の `align-items` を baseline → center にした**（18px の丸の中の文字の baseline で並べると、丸が名前より下にずれた。決めたこと）。
+   - 要素の数: 前と同じ 1 つの span（属性が 3 つ増えるだけ）なので、所持パルの行の要素は変わらない（`test/perf/owned.perf.js` の 1 行 35・41・47 以下と 2,000 行 80,000 以下はそのまま通る）。画面（138 体・1100px）で所持パルの画面の要素は 2,174 → 2,176（パル選択の解除の × の svg と path の 2 つ。行は同じ）。
+3. **入力欄の間隔・select の ∨・パッシブの ×（手順 4）**:
+   - `.field-label` は `margin: 0`、`.picker` は `display: flex; flex-direction: column; gap: 4px`（`position: relative` は残す。候補の板はその基準）。個別の上書きは今のコードに残っていた `.pair-selection .field-label { margin-bottom: 0 }`・`.list-filters .field-label { margin-bottom: 0 }` と、パネルのラベルの `margin: 0` を消した（文書の :914・:1074 の `.owned-filter-group`・`.ideal-register` はもうなかった）。`.list-filters .field { gap: 8px; margin-bottom: 0 }` は文書どおり残した（一覧の 2 つの欄だけ 8px）。`.pair-selection > .picker` と所持パル・理想個体のパネルの `> .picker`（grid の subgrid）は詳細度が高いのでそのまま。
+   - 測った値（1100px）: 配合検索の親1・親2、継承ルートの目標とパッシブ、登録のダイアログの親1・親2・子・登録者・メモは、どれもラベルの下端から入力の上端まで 4px で、同じ行の上端がそろう（継承ルート 144.3・144.3、ダイアログ 245.6 × 3）。一覧の絞り込みは 8px のまま。所持パル・理想個体のパネルは前からそろっていて、パネルの高さも変わらない（下の 9）。
+   - **select の ∨**: CSS 変数 **`--select-arrow`**（ライトとダークの `:root` に、線の色 on-surface-variant〔#5b7471・#b1c7bf〕の data URI。12px の格子の `M2 4.25 6 8.25l4-4`・線 1.5）と `select { appearance: none; padding-right: 30px; background-image: var(--select-arrow); background-position: right 9px center; background-size: 12px }`。**位置は文書の `right 12px` ではなく `right 9px`**（∨ の中心が右端から 16px になり、パル選択の `.picker-trigger::after` と検索つきの選択の `.search-select-trigger::after`〔枠線を 45° 回した ∨〕と同じ位置。所持者の選択は選択肢が 12 を超えると検索つきの選択に入れ替わるので、そろえた。決めたこと）。`padding` を短く書いていた select は右を空け直した: `.owned-panel-sub select`・`.ideal-panel-sub select`（3px 28px 3px 10px。検索つきの選択と同じ）、`.owned-sort`（0 26px 0 8px）。高さは変えていない（40・32・24px）。
+   - **パッシブの ×**: `.passive-remove` を 24×24px の丸（`display: inline-grid`・`border-radius: 50%`・ホバーで currentColor の 12%）。**左右に負の余白（`margin: 0 -5px 0 -7px`）を付け、チップの幅は前と同じ**（押せる範囲はチップの余白と間に重ねる。チップの幅が変わるとパネルの改行が変わり、高さが動くため。決めたこと）。チップの min-height 32px に収まる。押せないとき（所持パルのパッシブの条件「なし」）は、チップが暗い地なので無効の色（下の 5）にせず、文字色のまま `opacity: .45`（`.passive-chip > .passive-remove:disabled`）。
+4. **状態チップ（手順 5）**: **`statusChip(text, tone = 'neutral', className = '') → HTMLSpanElement`** と **`setChipTone(node, tone) → node`**（web/js/ui/dom.js。export）。`span.status-chip.is-<tone>`（className があれば後ろに）。tone は `ready`・`warning`・`error`・`info`・`neutral`（知らない値は neutral）。`setChipTone` は tone のクラスだけを付け替える（テストの DOM に classList.remove がないので toggle）。
+   - CSS: `.status-chip { display: inline-block; border: 0; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; line-height: 1.6; white-space: nowrap }` と tone ごとの地と文字。**余白は文書の `1px 8px` ではなく `0 6px`**（理想個体の組の札〔`.ideal-tier`〕と同じ高さ 17.6px・同じ余白にして、同じ行に並んだときにそろえる。決めたこと）。**neutral の文字は on-surface**（文書は決めていなかった。地 surface-container-highest に on-surface-variant は 4.04:1 で足りない〔前の `.wishlist-status` はこの色だった〕ので、on-surface〔11.81:1・ダーク 9.00:1〕にした）。ほかの比: ready 6.73（ダーク 6.93）・warning 5.87（8.29）・error 8.62（9.96）・info 6.60（6.77）。`.status-chip:empty { visibility: hidden }`（読み込みの状態は自動の読み込みがオフのとき文が空で、横のボタンを動かさないよう場所だけ残す）。
+   - 置き換え（クラス名は 3 つ目の引数で残した）: 未読 `statusChip('未読', 'info', 'unread-chip')`（ui/notifications.js）、削除済み `statusChip('削除済み', 'warning', 'warning-chip')`（ui/breeding-card.js）、ウィッシュリスト `statusChip(作成可能 | まだ作れません, ready | neutral, 'wishlist-status')`、理想個体の目標のダイアログの状態 `statusChip('', 'neutral', 'ideal-goal-status')` と `setChipTone(完成済み ? 'ready' : 'neutral')`（長い「完成済み: Alice · パルボックス 4 ページ・4 行 4 列 ほか 1 体」は列の幅で折り返す `.ideal-goal-status { white-space: normal }`）、設定の「配合の自動登録: オン／オフ／対象外」`statusChip('', 'neutral', 'owned-world-state')`＋`setChipTone(オン ? 'ready' : 'neutral')`、読み込みの状態 `statusChip('', 'neutral', 'owned-auto-state')`＋`setChipTone(AUTO_TONES[status])`（views/owned-settings.js の `AUTO_TONES`: ready → ready・permission → warning・empty／error → error・checking と off → neutral。幅をそろえる `min-width: 7em` と中央寄せは残した）。
+   - 理想個体の「変更あり」「〈牧場〉に配置中」は押すと説明が開くボタン（`tag(…)`）のまま、クラスを `status-chip is-warning ideal-changed`・`status-chip is-info ideal-placed` にした（同じ形のチップ。組の札の共通の規則〔`.ideal-tier, .ideal-farm-to, .ideal-owners`〕からは外した）。「変更あり」の出たときの動き（`changed-pop`）はそのまま。
+   - 消した前の見た目の規則: `.unread-chip`・`.warning-chip`・`.wishlist-status`（と `.ready`）・`.owned-auto-state.state-*`・`.owned-world-state.on`・`.ideal-changed`・`.ideal-placed`・`.ideal-goal-status.ready` の色・角・地・余白。前の修飾のクラス（`ready`・`on`・`state-<status>`）も付けなくなった（ideal-view.test.js の `'ideal-goal-status ready'` の className の確かめは tone の確かめにした）。
+   - **「→ 〈牧場〉へ」（`.ideal-farm-to`）は error-container のまま**（文書の 8 種類に入っていない。帯のセルの「⇄ 1 番へ」・詳細の「交換推奨」・2×2 の入れ替わるセルと同じ交換推奨の色で、カードと牧場の帯を色で結ぶ。「変更あり」は D10 で同じカードに付くが、「牧場の中身が変わってから新しく入った」という別の知らせなので warning。決めたこと）。所持パルのバッジ（ラッキー・アルファ・タマゴ・目標の印）と組の種類の札は文書どおり変えていない。
+5. **押せないボタン（手順 6）**:
+   - CSS: `button:disabled { cursor: default; }`（`opacity` をやめた。`button[aria-busy="true"]` はこの後のまま）。**無効の色は `button:disabled:not([aria-busy="true"]), .button[aria-disabled="true"]` に付けた**（文書は `button:disabled` に `color` を足す形だったが、`runButton` は処理中に disabled と aria-busy を両方付けるので、処理中の塗りのボタンの文字が灰色になる。処理中は前と同じ今の色のまま）。塗りのボタン `:is(.button.primary, .button.danger, .register-button):is(:disabled, [aria-disabled="true"]):not([aria-busy="true"])` は地を on-surface の 12%・枠なし・影なし。**枠のボタン（`.button.secondary`）は文書の「地 12%」ではなく、M3 の outlined と同じ「地は透明・枠を on-surface の 12%」**（塗りと枠のボタンの形の違いを押せないときも残す。決めたこと）。アイコンのボタン・quiet・パッシブの追加欄などは文字の色だけ。
+   - 前の個別の規則: `.ideal-save[aria-disabled="true"] { opacity: .55 }` は消して上の共通の規則に（`.button[aria-disabled="true"] { cursor: default }` も足した）。ヘッダーの同期状況（`.sync-status`）は押せないときも文を薄くしない決まり（header-frame の記録 2）なので、`.sync-status:disabled { opacity: 1 }` を `.sync-line .sync-status:disabled { color: var(--muted) }` にした（無効の色より詳細度を上げる）。
+   - **`setDisabled(node, disabled, reason = '', { focusable = false } = {}) → node`**（web/js/ui/dom.js。export）: 押せないときは `title = reason`、押せるときは `title = ''`（同じ所で変えて古い理由を残さない）。**文書の形に `focusable` を足した**: true なら `disabled` にせず `aria-disabled="true|false"` で押せない印にする（押した後もフォーカスを残すボタン。押したときの処理は呼び出し側が aria-disabled を見て止める）。false のときは `aria-disabled` を外す。
+   - 理由を出す所: 下書きの行の「登録」（「親1・親2・子を選ぶと登録できます」）、一括登録・一括削除（下書きがない「下書きがありません」、一括登録の途中は両方「登録しています」）、理想個体の「☆ 目標として保存」（目標がない「目標のパルを選ぶと保存できます」〔ボタンは見えないまま場所を残すので、title は出ない〕、保存済みは `focusable` で「同じ条件の目標があります」。保存済みの title は理由の次の行に保存した条件の要約〔I-20〕を続ける）、パッシブの追加欄の上限（「パッシブは最大 4 個まで選べます」。ボタンの文字は今までどおり「最大 4 個まで」）。**文書にない 1 か所**: 所持パルの状態の行の「すべて解除」（「既定から変えた条件はありません」。毎日使う画面でいつも見える押せないボタンなので足した）。`runButton` の処理中は理由を出さない（setDisabled を呼ばない）。
+   - 理由を出していない押せないボタン: 理想個体の「ウィッシュリストにあります」（文が理由）、所持パルのパッシブの条件「なし」の間のパッシブの追加欄（見出しの行の「なし」の押しボタンが隣にある。passive-picker.js の `update({ disabled })` は理由を受けない）、設定のセーブ連携の読み込み中・ID の変更中のボタン、閉じる動きの間のトーストのボタン、新しいバージョンの「確認中…」。見た目は同じ灰色。
+6. **アイコン（手順 7）**: 新しい **web/js/ui/icons.js**:
+   - **`ICONS`**（`Object.freeze`）: 名前 → 図形の文字列の配列（`<tag attr="…"/>` の決まった形。24px の格子）か `{ box, shapes }`（ほかの格子）。名前は ナビの 9 個（views/tabs.js の `TABS` のキー: `search`・`reverse`・`route`・`list`・`drafts`・`owned`・`ideal`・`wishlist`・`settings`）・`edit`・`remove`・`bell`・`close`（`M6 6l12 12M18 6 6 18`）・**`check`**（パル選択の ✓）・**`group-complete`・`group-passive`・`group-talent`**（理想個体の組の目的の札。`box: 12`・塗りの図形は `stroke="none"`。前は views/ideal.js の `GROUP_SHAPES`。ideal-results の記録 6 の「visual-parts で ui/icons.js に移す」）。`check` と組の目的の 3 つは文書の一覧にないが、アイコンの定義を 1 か所に集める目的で足した。
+   - **`icon(name, { className = 'icon' } = {}) → SVGSVGElement`**: ui/dom.js の `svgElement` で作る（`class`・`viewBox`・`aria-hidden="true"`・`focusable="false"`・`fill="none"`・`stroke="currentColor"`・`stroke-width="2"`・round）。図形の文字列は `shape()`（nav-icons.js から移した）で要素にする。知らない名前は中身のない svg（投げない）。線の太さは CSS で決める。
+   - 呼ぶ側: **`navIcon(view)`**（ui/nav-icons.js。名前と引数は変えていない＝ui/dom.js の `empty(text, action, { icon })` もそのまま）は `icon(view, { className: 'tab-icon' })` を返すだけ。**`actionIcon(label, name, action, className)`**（ui/breeding-card.js）の 2 つ目は **パスの文字列 → icons.js の名前**（`'edit'`・`'remove'`）に変えた。breeding-card.js の `icons`・`svgIcon` は消した（呼ぶ所は drafts・ideal・wishlist の 3 画面と配合カード。どれも名前に直した）。ベルは `icon('bell')`（ui/notifications.js の `BELL` は消した）、パル選択の ✓ は `icon('check', { className: 'picker-check' })`（16px で描くので CSS の線を 2 → 3 にして前と同じ 2px の太さ）、組の目的は `icon('group-<目的>', { className: 'ideal-tier-icon' })`。
+   - 線の太さ: ナビ 2（選択中 2.5）・ベル 1.8・カード 1.7・空の状態 1.5 は CSS のまま（文書の「2 にそろえてよい」は、太く見えるかを確かめてまでそろえる理由がないので見送った。決めたこと）。
+   - 読み込みの順: ui/dom.js → nav-icons.js → icons.js → ui/dom.js（`svgElement`）が互いに読み込むが、どれもモジュールの読み込みの時点では相手を呼ばない（関数の宣言と固定の表だけ）ので問題ない（dom.js の先頭のコメントを直した）。
+   - **閉じる「×」を SVG に**: ダイアログ（ui/dialog.js。`button.icon-button.dialog-close`。`dialog-close` のクラスを足して中央寄せ）・パル選択の解除（ui/pal-picker.js の `clear`。28×28px）・パッシブのチップ（ui/passive-picker.js の `passiveChip` の `remove`。24×24px）・エラーのトースト（ui/toast.js の `button.toast-close`。32×32px）。中身は `icon('close', { className: 'close-icon' })`（CSS の `.close-icon` で 20×20px にそろえた。× の線そのものは 10px 角）、文字は空、aria-label は今までどおり（「閉じる」「〈ラベル〉の選択を解除」「〈パッシブ〉 を外す」。トーストは title も「閉じる」）。前の `font-size: 18px／20px; line-height: 1` は消した。
+   - 変えていないもの（文書どおり・範囲の外）: 入れ替えの「⇄」、配合の式の「＋」「→」と ✓／—、場所のチップのオンの ✓（CSS の content）、チェックボックスの ✓ とロゴの菱形（CSS のマスクの data URI。icons.js の要素では描けない）、セーブ連携の状態の回る輪（ui/owned-status.js の `svgElement`。アイコンの表ではなく動きの部品）。
+7. **ファビコンとロゴ（手順 8）**: `web/favicon.svg` の 2 つの path に `class="bg"`・`class="mark"` を付け、`<style>@media (prefers-color-scheme: dark){.bg{fill:#65d7bc}.mark{stroke:#102f2e}}</style>`。ヘッダーのロゴの `span.brand-mark` は中身なし・`aria-hidden="true"`（app.js）。CSS の `.brand-mark` の `font-size: 0`・`color` は要らなくなったので消した（菱形は今までどおり `::after` のマスク）。ロゴの描き直し（任意）は見送った（TODO に書いた）。
+8. **data/SOURCES.md（手順 9）**: 「画像の扱い」の下に `### 置き場所ごとの画像の作り方` の表（文書の 7 行。ナビの行は「左のナビのアイコン・操作のボタン（編集・削除・ベル）・閉じるなどの記号」、ファビコンの行にダークの `@media` を足し、性別の 2 行目は「性別（今の表示）」にした）と、生成画像を配信物に使わない 1 行、変更記録（理由と影響）。案の ID は書いていない。
+9. **画面（モック `?mock=1&seed=80`・1100×900、ライトとダーク。`Claude outputs/ui-audit-2026-10/shots/visual-parts/`）**: 変える前を `before/`、後を `after/` に撮った（`measure.js`）。所持パルは `inject.js`（owned/inject.js の写し）、「変更あり」は cleanup-dead-code の `inject-v1.js` → アヌビス・所持者「すべて」で基準（`baseline.js`）→ `inject-v2.js`、設定のセーブ連携の状態は owned-status の `wrap.js`（`window.__owned`）で入れた。
+   - **パネルの高さは変わっていない**: 所持パル 1100px・パッシブ 0 個で 184px（ライト・ダーク）、パッシブ 4 個で 222px（D28 の記録と同じ。4 個のチップはどれも 133px）、理想個体はアヌビス・パッシブ 0 個で 150.5px、組のカード 171px（札の行 29px）、所持パルの行 64px（目標があると 80px）、一覧の配合カード 69.69px（`panels.js`・`tags.js`）。幅 920px も所持パル 221px・理想個体 150.5px で、変える前（149e103 の web/・dev/・scripts/dev-server.mjs を一時フォルダに書き出して 5192 番で動かした）と同じ。select の右の余白が増えた分（★ の select が 18px 広い）でも 2 段目の行の数は変わらない。横のはみ出しは 920・1100px の所持パル・理想個体・一覧・設定・下書きでなし（`narrow.js`・`narrow-before.js`）。
+   - ♂♀: 所持パルの行・理想個体の組の行・配合カードで、♂ #1b6ca8・♀ #c0306a の 18px の丸に白い文字（ダークは #7cc4ff・#ff8cc6 に #0c171a）。ごみ箱のボタン（ライト #b03043・ダーク #ff92a0）と ♀ は別の色。ダークの ♂ は沈まない（`Claude outputs/l-dark-rows.png` の前の暗い青の文字と比べた）。モックの配合には親の性別がない（親の性別が付くのは配合牧場からの自動登録だけ）ので、配合カードは一覧の帯の先頭に画面の部品 `breedingCard` で性別つき・削除済みの記録のカードを 2 枚足して撮った（`cards.js`。カードの高さ 64.69px）。理想個体の帯と牧場の詳細は色だけの ♂♀（`after/*-10-ideal-changed.png`）。
+   - 枠・select: 入力欄とパル選択の枠は #6f8a84（ダーク #5f7c79）。select（所持者・★・並べ替え・使うワールド・このワールドでの自分・登録者・一覧の並べ替え）の ∨ はパル選択と同じ形・同じ位置（`after/*-zoom-*.png`）。
+   - パッシブの ×: 24×24px（svg 20px）、ホバーで丸い地。パル選択の解除の × 28×28px、ダイアログの × 36×36px、トーストの × 32×32px（svg はどれも 20px）（`states.js`）。
+   - 状態のチップ: 未読（通知一覧。info）・削除済み（warning）・作成可能（ready）・まだ作れません（neutral）・完成済み（ready）・変更あり（warning）・配置中（info）・配合の自動登録 オン（ready）／対象外（neutral）・読み込み済み（ready）／確認中…（neutral）／許可が必要（warning）／エラー（error）が同じ形（高さ 17.6px）。組の札の行では、組の目的の札・「→ 〈牧場〉へ」・持ち主の札とも 17.6px でそろう。
+   - 押せないボタン: 下書きの一括登録（塗り → 灰色の地と文字）・一括削除（枠 → 薄い枠と灰色の文字）・行の「登録」・理想個体の「★ 保存済み」（aria-disabled・フォーカスは残る）・所持パルの「すべて解除」・パッシブの追加欄「最大 4 個まで」が灰色で、title に理由（ブラウザの title の吹き出しはスクリーンショットに写らないので、属性で確かめた）。
+   - ファビコン: 同じ SVG を開いて `emulateMedia` で描くと、ライトは #067b70 の地に白、ダークは #65d7bc の地に #102f2e（`favicon.js`・`after/*-20-favicon.png`）。**ブラウザのタブそのものの表示は、ヘッドレスでは撮れないので確かめていない**（Chrome は SVG のファビコンの中の prefers-color-scheme を見るが、テーマを変えてもすぐには替わらないことがある）。
+   - ロゴのリンクのアクセシビリティのツリー: `link "パル配合ノート（配合検索へ）"` の下は `strong: パル配合ノート` だけ（「◇」なし）。
+   - 属性チップ（パル詳細）: 無 rgb(112,116,126)・炎 rgb(197,78,52)・水 rgb(35,122,180)・雷 rgb(144,113,9)・氷 rgb(35,128,137)、闇は元の色。
+   - 終わった後にブラウザを閉じ、5191・5192 番のサーバを止めた（待ち受け 0 件）。
+10. **テスト**: 1,459 → 1,470 件（`npm test` exit 0）。足したもの: test/web/icons.test.js（3 件: `icon` の形・知らない名前・class、定義の名前の一覧と凍結・組の目的の 12px の格子、`navIcon`・`actionIcon` が名前で引く）、dom.test.js（2 件: `statusChip`・`setChipTone`、`setDisabled` の理由と focusable）、breeding-card.test.js（2 件: 削除済みの状態のチップ、`genderMark` と palTile）、styles.test.js（4 件: 性別のトークンと比・♀ がエラーの赤を使わない、outline と属性チップの比・元の属性の色が変わらない・「＋」の色、押せないボタンに opacity がなく aria-busy を除く・select の `--select-arrow`・パッシブの × 24px、状態チップの tone の比〔ライト・ダーク〕と前のクラス名に色・角・地の規則がない）。確かめを足したもの: drafts（理由の title 3 か所）・passive-picker（上限の理由・× の SVG）・owned-view（人間の行の genderMark・ダイアログの × は aria-label で・「すべて解除」の理由・自動登録のオン／対象外と読み込みの状態の tone）・ideal-view（配置中・変更あり の chip・目標の状態の tone・保存ボタンの理由）・toast（× の SVG と文）・notifications（未読のチップ）・wishlist（作成可能・まだ作れません）・pal-picker（× の SVG）・app（ロゴの「◇」がない・aria-hidden）。web/ を前に戻す（`git stash push -u -- web/`）と 26 件が落ち、読み込めないファイル（icons.test.js・dom.test.js）と、途中で止まるファイル（owned-view.test.js。止めて数えた）があることを確かめた。`npm run test:perf` 12 件すべて通過。テストの偽 DOM（test/helpers/dom.js）は変えていない。
+11. **release-notes**: 文書の案のまま（id `2026-10-14-visual-parts`・title「性別とボタンを見やすく」11 字・body 35 字。`String.length` で数えた）。
+12. **後のテーマへの申し送り**:
+    - find-merge・register-entry・goals-merge（2）: ナビのアイコンの定義は **ui/icons.js の `ICONS`** に移った（文書の `nav-icons.js:4,6・:7・:10` の代わりに `ICONS` の `reverse`・`list`・`drafts`・`wishlist` を消す。nav-icons.js は `navIcon` だけ）。消すタブの名前を空の状態の `empty(…, { icon })` が使っていれば（一覧 `list`・下書き `drafts`・ウィッシュリスト `wishlist`）、その呼び出しも直す。goals-merge の「☆ 目標に登録」の星は `icon('wishlist')`（`ICONS.wishlist` を残すか、名前を `star` に変えて使う）。register-entry の親の性別の押しボタンの記号と色は `genderMark(gender)`（丸い地）か `--gender-male`・`--gender-female`。新しく押せないボタンを作るときは `setDisabled(node, disabled, reason, { focusable })`（フォーカスを残すなら focusable）。
+    - pal-detail・owned-detail（3）: 性別は `genderMark()`、ナビのアイコンは `navIcon(view)`（16px にするなら CSS で）。状態の印（「配合中」「片親」「同性」「空き」「読めませんでした」など。farm-board）は `statusChip(text, tone, className)` で、tone は ready（配合中）・warning（片親・同性）・neutral（空き）・error（読めませんでした）を目安に。「→ 〈牧場〉へ」と牧場の帯・詳細の交換推奨は error-container のまま（上の 4）なので、farm-board で交換の色をそろえ直すならここも見る。
+    - game-assets（4）: `genderMark()` の span の textContent（♂♀）・role・aria-label は残し、見た目だけゲームの記号にする（丸い地は `.gender:not(.gender-inline)`）。属性チップは `--element-chip`（白い文字に 4.5:1）を残す。
+    - 任意の空の状態の線画（4）: `ICONS` に足す（24px の格子・線・currentColor。`{ box, shapes }` で別の格子も書ける）。
+    - そのほか: select の ∨ は `--select-arrow`（右から 16px）で、select に `padding` を短く書くときは右を 26〜30px 空ける。チップの中の押せる × は 24px にして負の余白でチップの幅を変えない形が使える。状態の印の色・角・地は `.status-chip.is-<tone>` だけで決め、前のクラス名には置き場所の調整だけを書く（styles.test.js が確かめる）。
+    - 文書: phase-2-structure.md（find-merge・register-entry・goals-merge の `nav-icons.js` を消す手順）と phase-3-4-drawer-data.md（pal-detail の現状）に、アイコンの定義が `ui/icons.js` の `ICONS` に移ったことの追記を足した。README の 5-4 にこのテーマの部品を足した。docs/OPERATIONS.md には色・アイコン・押せないボタンの記述がないので変えていない。
 
 ---
 

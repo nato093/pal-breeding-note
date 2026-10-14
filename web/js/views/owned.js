@@ -1,5 +1,5 @@
-import { el, field, empty, loadingState, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight } from '../ui/dom.js';
-import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
+import { el, field, empty, loadingState, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight, setDisabled } from '../ui/dom.js';
+import { palTile, humanIcon, palsById, genderMark } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { hint } from '../ui/hint.js';
@@ -240,9 +240,10 @@ function palCellTile(pal) {
   if (pal.human?.icon) unknown.append(humanIcon(pal.human.icon));
   const label = el('span', 'pal-label');
   const name = el('strong', '', pal.name);
-  if (pal.gender) {
+  const mark = genderMark(pal.gender);
+  if (mark) {
     const line = el('span', 'pal-name-line');
-    line.append(el('span', `gender gender-${pal.gender}`, pal.gender === 'M' ? '♂' : '♀'), name);
+    line.append(mark, name);
     label.append(line);
   } else label.append(name);
   unknown.append(label);
@@ -1134,7 +1135,7 @@ export function ownedView(context, route) {
     // 隠れていたチップも、外した後のフォーカスの行き先になれるよう inert を外しておく（どれが隠れるかは描いた後に measureChips が決め直す）
     for (const wrap of chipBox.children) wrap.inert = false;
     syncList(chipBox, items, { key: (item) => item.key, create: chipRow, fallbackFocus: query });
-    resetButton.disabled = !items.length;
+    setDisabled(resetButton, !items.length, '既定から変えた条件はありません');
     afterLayout(measureChips);
   }
   // 「+n」の板: 隠れたチップを並べる。focus は板を作り直した後にフォーカスを置く項目の番号（範囲の外なら最後の項目）。

@@ -67,6 +67,9 @@ test('パッシブ選択: 候補を押すとその場で onChange を 1 回呼�
   // 選んだものは候補から外れ、チップになる
   assert.equal(option('Rare'), null);
   assert.deepEqual(selector.element.querySelectorAll('.passive-remove').map((node) => node.getAttribute('aria-label')), ['希少 を外す']);
+  // チップの × は文字ではなく SVG のアイコン（チップの文は名前だけ）
+  const remove = selector.element.querySelector('.passive-remove');
+  assert.deepEqual([remove.textContent, remove.querySelector('svg').getAttribute('class')], ['', 'close-icon']);
   await option('Legend').dispatch('click');
   assert.deepEqual(changes, [['Rare'], ['Rare', 'Legend']]);
   assert.match(selector.element.querySelector('.picker-status').textContent, /あと 2 個まで選べます/);
@@ -161,6 +164,8 @@ test('パッシブ選択: max 個に達したら閉じて最後のチップの �
   assert.equal(search(), null);
   assert.equal(add.disabled, true);
   assert.equal(add.textContent, '最大 4 個まで');
+  // 押せない理由（setDisabled の title）
+  assert.equal(add.title, 'パッシブは最大 4 個まで選べます');
   assert.equal(document.activeElement.getAttribute('data-focus-key'), 'passive-chip:欲しいパッシブ:WorldTree_ATK');
   // 押せないボタンでは開かない
   await add.dispatch('click');
@@ -168,6 +173,7 @@ test('パッシブ選択: max 個に達したら閉じて最後のチップの �
   assert.equal(search(), null);
   await document.activeElement.dispatch('click');
   assert.equal(add.disabled, false);
+  assert.equal(add.title, '');
   assert.equal(document.activeElement, add);
   assert.equal(selector.element.querySelectorAll('.passive-chip').length, 3);
 });

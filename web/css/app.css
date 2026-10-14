@@ -20,7 +20,8 @@
   --md-sys-color-surface-container-highest: #dfe9e4;
   --md-sys-color-on-surface: #172c2b;
   --md-sys-color-on-surface-variant: #5b7471;
-  --md-sys-color-outline: #a9bfb8;
+  /* 入力欄・パル選択・セカンダリボタンの枠。背景 #f3f7f4 に 3.44:1・白に 3.72:1（WCAG 1.4.11 の 3:1。前の #a9bfb8 は 1.79・1.94） */
+  --md-sys-color-outline: #6f8a84;
   --md-sys-color-outline-variant: #d4e2dc;
   --md-sys-color-error: #b03043;
   --md-sys-color-error-container: #fbe1e4;
@@ -43,6 +44,13 @@
   --Ground: #9a693d;
   --Dark: #8159a7;
   --Dragon: #665bc2;
+  /* 性別の色（♂・♀ の文字と丸い地）と、丸い地の上の文字（ui/pal-icon.js の genderMark）。♀ はエラーの赤（ごみ箱のボタン）と分ける。
+     ♂ は白に 5.59・背景に 5.17、♀ は白に 5.42・背景に 5.02。白い文字は ♂ の地に 5.59・♀ の地に 5.42 */
+  --gender-male: #1b6ca8;
+  --gender-female: #c0306a;
+  --on-gender: #ffffff;
+  /* select の開閉の印（パル選択と同じ ∨。data URI の SVG は currentColor を使えないので、色〔on-surface-variant〕ごとに持つ） */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4.25 6 8.25l4-4' fill='none' stroke='%235b7471' stroke-width='1.5'/%3E%3C/svg%3E");
   /* パル濃縮（★）の色（ゲームの青い星に寄せる）と、個体値のミニバーの色・地 */
   --condense: #2b67c9;
   --talent-bar: color-mix(in srgb, var(--md-sys-color-primary) 60%, transparent);
@@ -135,6 +143,11 @@
     --elevation-2: 0 1px 2px #0000004d, 0 2px 6px 2px #00000026;
     --elevation-3: 0 4px 8px 3px #00000040, 0 1px 3px #0000004d;
     --condense: #8db7ff;
+    /* ♂ は行の地 #1a2b30 に 7.82・背景に 9.08、♀ は 6.86・7.97。#0c171a の文字は ♂ の地に 9.71・♀ の地に 8.51 */
+    --gender-male: #7cc4ff;
+    --gender-female: #ff8cc6;
+    --on-gender: #0c171a;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4.25 6 8.25l4-4' fill='none' stroke='%23b1c7bf' stroke-width='1.5'/%3E%3C/svg%3E");
   }
 }
 
@@ -146,8 +159,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 /* 押せないボタンは矢印のまま。読み込み中のカーソルは、押して処理している間（runButton が aria-busy を付ける）だけ */
-button:disabled { opacity: .55; cursor: default; }
+button:disabled { cursor: default; }
 button[aria-busy="true"] { cursor: wait; }
+/* 押せないボタン（M3 の無効。opacity で薄くすると塗りのボタンが「薄い緑のボタン」に見えたため）: 文字は on-surface の 38%、
+   塗りのボタンは地を on-surface の 12%、枠のボタンは枠を 12% にする。押して処理している間（aria-busy。runButton が disabled も付ける）は
+   今の色のまま。押せない理由は title（ui/dom.js の setDisabled）。保存済みの目標のように、フォーカスを残す押せないボタンは aria-disabled */
+button:disabled:not([aria-busy="true"]), .button[aria-disabled="true"] { color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent); }
+.button[aria-disabled="true"] { cursor: default; }
+:is(.button.primary, .button.danger, .register-button):is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  border-color: transparent;
+  box-shadow: none;
+}
+.button.secondary:is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) { background: transparent; border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent); }
 a { color: var(--md-sys-color-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button:hover { filter: none; }
@@ -247,8 +271,6 @@ img, svg { max-width: 100%; }
   width: 32px;
   border-radius: 10px 10px 10px 3px;
   background: var(--md-sys-color-primary);
-  color: var(--accent-ink);
-  font-size: 0;
   position: relative;
 }
 .brand strong { font-size: 15px; display: block; line-height: 1.3; }
@@ -270,7 +292,7 @@ img, svg { max-width: 100%; }
   text-overflow: ellipsis;
 }
 .sync-status:hover:not(:disabled) { background: var(--state-hover); }
-.sync-status:disabled { opacity: 1; }
+.sync-line .sync-status:disabled { color: var(--muted); }
 .sync-error {
   flex: none;
   border-radius: 100px;
@@ -538,14 +560,27 @@ img, svg { max-width: 100%; }
 }
 .notification-item:last-child { border-bottom: 0; }
 .notification-meta { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--muted); }
-.unread-chip {
+/* 状態の印（ui/dom.js の statusChip。未読・削除済み・作成可能・完成済み・変更あり・配置中・自動登録のオン／オフ・読み込みの状態）。
+   形は理想個体の組の札（.ideal-tier）と同じ高さ・余白で、色は tone（地と文字はどれも 4.5:1 以上）。前のクラス名（.unread-chip など）は
+   探すための名前として残し、見た目はここだけで決める */
+.status-chip {
+  display: inline-block;
+  border: 0;
   border-radius: 4px;
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
+  padding: 0 6px;
   font-size: 11px;
   font-weight: 700;
-  padding: 0 6px;
+  line-height: 1.6;
+  white-space: nowrap;
 }
+/* 文が空のときは見えないまま場所を残す（読み込みの状態の自動の読み込みがオフのときなど。横のボタンが動かない） */
+.status-chip:empty { visibility: hidden; }
+.status-chip.is-ready { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+.status-chip.is-warning { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
+.status-chip.is-error { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.status-chip.is-info { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+/* 地 surface-container-highest に on-surface-variant の文字は 4.04:1 で足りないので、文字は on-surface（11.81:1。ダーク 9.00:1） */
+.status-chip.is-neutral { background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); }
 .notification-title { font-size: 14px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 .notification-body { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 /* まとめた行の「ほか N 件」（ui/notifications.js）。折り返しで分けない */
@@ -560,12 +595,13 @@ img, svg { max-width: 100%; }
 .pair-selection > .picker { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; }
 .pair-selection > .picker:first-child { grid-column: 1; }
 .pair-selection > .picker:last-child { grid-column: 3; }
-.pair-selection .field-label { margin-bottom: 0; }
 .pair-selection .picker-trigger { height: 100%; }
 .swap-button { grid-column: 2; grid-row: 2; justify-self: center; align-self: center; border: 1px solid var(--md-sys-color-outline-variant); }
+/* ラベルと入力の間は .field・.picker の gap 4px だけ（ラベルの margin は 0。前は .field が gap 4px＋margin 4px の 8px、.picker が margin の
+   4px だけで、同じ行の select とパル選択の上端が 4px ずれた） */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; min-width: 0; }
-.field-label { font-size: 12px; font-weight: 700; display: block; margin-bottom: 4px; color: var(--md-sys-color-on-surface-variant); }
-.picker { min-width: 0; position: relative; }
+.field-label { font-size: 12px; font-weight: 700; display: block; margin: 0; color: var(--md-sys-color-on-surface-variant); }
+.picker { display: flex; flex-direction: column; gap: 4px; min-width: 0; position: relative; }
 .picker-control { position: relative; }
 .picker-trigger {
   position: relative;
@@ -613,8 +649,6 @@ img, svg { max-width: 100%; }
   border-radius: 100px;
   background: transparent;
   color: var(--muted);
-  font-size: 18px;
-  line-height: 1;
 }
 .picker-clear:hover { background: var(--state-hover); }
 .picker-trigger .pal-tile, .picker-option .pal-tile { min-height: 30px; gap: 8px; }
@@ -673,7 +707,8 @@ img, svg { max-width: 100%; }
 /* 選んでいる行は背景を付けず、名前を primary の色にして右に ✓（矢印で動かしている行と見分ける） */
 .picker-option.is-selected { font-weight: 700; }
 .picker-option.is-selected .pal-tile { color: var(--md-sys-color-primary); }
-.picker-check { flex: none; width: 16px; height: 16px; margin-left: auto; fill: none; stroke: var(--md-sys-color-primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* ✓ は 24px の格子（ui/icons.js の check）を 16px で描くので、線 3 で前の 2px と同じ太さ */
+.picker-check { flex: none; width: 16px; height: 16px; margin-left: auto; fill: none; stroke: var(--md-sys-color-primary); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 /* 行の右の注記（所持数・登録件数・回数）と、名前以外で一致したときの添え書き */
 .picker-badge { flex: none; margin-left: auto; font-size: 12px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
 .picker-badge + .picker-check { margin-left: 8px; }
@@ -690,25 +725,41 @@ img, svg { max-width: 100%; }
 .pal-avatar text { fill: #fff; text-anchor: middle; font-family: inherit; }
 .avatar-initial { font-size: 27px; font-weight: 800; }
 .avatar-number { font-size: 11px; }
-.element-Neutral { --element: var(--Neutral); }
-.element-Fire { --element: var(--Fire); }
-.element-Water { --element: var(--Water); }
+/* --element-chip は属性チップ（.element-chip。白い文字）だけの色。元の色で白に 4.5:1 に届かない 5 色を暗くした
+   （無 4.13 → 4.68・炎 4.17 → 4.65・水 4.34 → 4.65・雷 4.47 → 4.61・氷 4.25 → 4.65。草・地・闇・竜は元の色で 4.70〜5.47） */
+.element-Neutral { --element: var(--Neutral); --element-chip: #70747e; }
+.element-Fire { --element: var(--Fire); --element-chip: #c54e34; }
+.element-Water { --element: var(--Water); --element-chip: #237ab4; }
 .element-Grass { --element: var(--Grass); }
-.element-Electric { --element: var(--Electric); }
-.element-Ice { --element: var(--Ice); }
+.element-Electric { --element: var(--Electric); --element-chip: #907109; }
+.element-Ice { --element: var(--Ice); --element-chip: #238089; }
 .element-Ground { --element: var(--Ground); }
 .element-Dark { --element: var(--Dark); }
 .element-Dragon { --element: var(--Dragon); }
 .element-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-.element-chip { color: #fff; background: var(--element, var(--Neutral)); padding: 2px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.element-chip { color: #fff; background: var(--element-chip, var(--element, var(--Neutral))); padding: 2px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
 .pal-tile { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 64px; color: var(--md-sys-color-on-surface); }
 a.pal-tile:hover { color: var(--md-sys-color-primary); text-decoration: none; }
 .pal-label { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .pal-label strong { font-size: inherit; }
 .gender { font-weight: 800; }
-.pal-name-line { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
-.gender-M { color: var(--Water); }
-.gender-F { color: var(--danger); }
+.pal-name-line { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+/* 性別の印（ui/pal-icon.js の genderMark）。文字の ♂♀ を色の丸い地に置く。文の中・牧場の行（.gender-inline）は文字の色だけ */
+.gender-M { color: var(--gender-male); }
+.gender-F { color: var(--gender-female); }
+.gender:not(.gender-inline) {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  border-radius: 50%;
+  color: var(--on-gender);
+  font-size: 12px;
+  line-height: 1;
+}
+.gender-M:not(.gender-inline) { background: var(--gender-male); }
+.gender-F:not(.gender-inline) { background: var(--gender-female); }
 .card-stack { display: grid; }
 .breeding-card {
   display: grid;
@@ -725,7 +776,8 @@ a.pal-tile:hover { color: var(--md-sys-color-primary); text-decoration: none; }
 .breeding-equation > .pal-tile { min-height: 36px; gap: 7px; font-size: 13px; }
 .breeding-equation .pal-icon { width: 34px; height: 34px; }
 .breeding-equation > .pal-tile:last-child { color: var(--md-sys-color-tertiary); }
-.equation-symbol { color: var(--md-sys-color-outline); font-size: 14px; text-align: center; line-height: 1; }
+/* 配合の式の「＋」は文字の色（on-surface-variant。白に 5.02・背景に 4.64。前は outline で背景に 1.79） */
+.equation-symbol { color: var(--md-sys-color-on-surface-variant); font-size: 14px; text-align: center; line-height: 1; }
 .equation-symbol.arrow { color: var(--md-sys-color-tertiary); }
 .card-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 11px; color: var(--muted); }
 .card-meta > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
@@ -899,8 +951,6 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   border-radius: 50%;
   background: transparent;
   color: currentColor;
-  font-size: 20px;
-  line-height: 1;
 }
 .toast-close:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 /* 閉じる動きの間（150ms）は押せない（ui/toast.js が中のボタンも押せなくする） */
@@ -935,15 +985,6 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .route-options > .breeding-equation { padding: 8px 0; }
 .route-options > .breeding-equation + .breeding-equation { border-top: 1px dashed var(--line); }
 .route-warning { grid-column: 2; color: var(--warning); font-size: 12px; }
-.warning-chip {
-  display: inline-block;
-  border-radius: 8px;
-  background: var(--warning-bg);
-  color: var(--warning);
-  font-size: 12px;
-  padding: 5px 9px;
-  margin-top: 10px;
-}
 .pal-hero {
   background: var(--md-sys-color-surface-container-low);
   border-radius: 16px;
@@ -958,7 +999,6 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-hero .pal-icon-large { flex: none; }
 .list-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
 .list-filters .field { gap: 8px; margin-bottom: 0; }
-.list-filters .field-label { margin-bottom: 0; }
 .list-filters input, .list-filters select { height: 40px; }
 .button.small { min-height: 32px; padding: 4px 12px; border-radius: 100px; font-size: 12px; }
 .drafts-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -973,16 +1013,6 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .wishlist-main { display: flex; flex: 1; align-items: center; gap: 14px; min-width: 0; min-height: 48px; color: var(--ink); }
 a.wishlist-main:hover { text-decoration: none; }
 a.wishlist-main:hover .pal-tile { color: var(--accent); }
-.wishlist-status {
-  border-radius: 4px;
-  background: var(--md-sys-color-surface-container-highest);
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-.wishlist-status.ready { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 .wishlist-hint { margin-left: auto; color: var(--md-sys-color-primary); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .draft-row {
   display: grid;
@@ -1126,10 +1156,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-help { font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
 .owned-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; }
 .owned-toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; }
-/* 状態の文（確認中…・読み込み済み・許可が必要など）は幅をそろえ、横のボタンが動かないようにする */
-.owned-auto-state { min-width: 7em; font-size: 12px; color: var(--muted); }
-.owned-auto-state.state-ready { color: var(--md-sys-color-tertiary); }
-.owned-auto-state.state-permission { color: var(--warning); }
+/* 状態のチップ（確認中…・読み込み済み・許可が必要など）は幅をそろえ、横のボタンが動かないようにする */
+.owned-auto-state { min-width: 7em; text-align: center; }
 /* セーブ連携: 登録したワールドの一覧と、配合牧場からの自動登録 */
 .owned-world-row .field-label, .owned-self-row .field-label { font-weight: 700; }
 /* このワールドでの自分（使うワールドと同じ並び。何に使うかの説明は選択の下の行） */
@@ -1145,8 +1173,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-world-summary::before { content: '▸'; flex: 0 0 auto; width: 1em; color: var(--muted); }
 .owned-world-details[open] > .owned-world-summary::before { transform: rotate(90deg); }
 .owned-world-summary:hover { background: var(--state-primary); }
-.owned-world-state { flex: 0 0 auto; font-size: 12px; color: var(--muted); }
-.owned-world-state.on { color: var(--md-sys-color-tertiary); }
+.owned-world-state { flex: 0 0 auto; }
 .owned-world-label { flex: 1 1 16em; overflow-wrap: anywhere; }
 .owned-world-details[open] > .owned-breeding, .owned-world-details[open] > .owned-world-pals { margin-top: 8px; padding: 8px 0 4px; border-top: 1px solid var(--line); }
 /* 登録・編集のモーダル: ① パスと ② ドロップを同じ幅で縦に並べる */
@@ -1211,7 +1238,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 /* 見出しの行と入力の行を 3 つの欄でそろえる（パッシブが改行しても、パルとキーワードは 1 行目の高さのまま） */
 .owned-panel-main > .picker, .owned-panel-main > .passive-selector, .owned-panel-main > .owned-keyword { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; gap: 0; margin: 0; }
 .owned-panel-main > .picker > .picker-control, .owned-panel-main > .owned-keyword > input { align-self: start; }
-.owned-panel-sub select { width: auto; min-height: 32px; padding: 3px 10px; }
+.owned-panel-sub select { width: auto; min-height: 32px; padding: 3px 28px 3px 10px; }
 .owned-panel .search-select select, .owned-panel .search-select-trigger { width: 150px; min-height: 32px; }
 /* 幅が狭いとき（幅 920px など）は、2 段目の 1 行目を [所持者][★][属性 ▾] と [個体値（以上）] の 2 行にする（★・属性を所持者の横へ寄せる。
    個体値は行の頭に来るので区切り線を付けない） */
@@ -1335,7 +1362,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-status-row .button.small { flex: none; min-height: 24px; padding: 0 10px; }
 /* 並べ替え（見出しつき。結果の行の右端） */
 .owned-sort-field { flex: none; display: inline-flex; align-items: center; gap: 6px; margin: 0; }
-.owned-sort { flex: none; width: 12.5em; min-height: 24px; height: 24px; padding: 0 8px; font-size: 12px; }
+.owned-sort { flex: none; width: 12.5em; min-height: 24px; height: 24px; padding: 0 26px 0 8px; font-size: 12px; }
 /* 理想個体・継承ルートへのリンク（パル・パッシブの見出しの行の右端） */
 .owned-panel-link { flex: none; margin-left: auto; font-size: 12px; font-weight: 700; white-space: nowrap; }
 /* 固定のパネルと列見出しの下に、条件を変えたときの一覧の先頭（O-05）・フォーカスの先が隠れない（html の scroll-padding-top がヘッダーの分） */
@@ -1739,19 +1766,18 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .ideal-save { min-height: 40px; min-width: 10.5em; }
 /* 目標を選ぶ前は見えないまま場所を残す（選んだときに右が動かない） */
 .ideal-save.is-placeholder { visibility: hidden; }
-.ideal-save[aria-disabled="true"] { opacity: .55; cursor: default; }
 .ideal-save-popover { left: auto; right: 0; width: 320px; display: grid; gap: 8px; padding: 12px; }
 .ideal-save-popover .field { margin: 0; }
 .ideal-save-note { margin: 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .ideal-save-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.ideal-panel-sub select { width: 150px; min-height: 32px; padding: 3px 10px; }
+.ideal-panel-sub select { width: 150px; min-height: 32px; padding: 3px 28px 3px 10px; }
 /* ---- 固定の条件のパネルの共通の決まり（理想個体・所持パル。D28: 2026-10-13 のユーザーのフィードバック「項目の区切りと、どれが何の設定か
    ぱっと見で分かるように」）。部品は views/shared.js の fieldHead・panelItem・panelLine ----
    見出し: どこでも同じ書き方（11px・太字・on-surface-variant・字間を少し空ける）。値（入力・押しボタン・チップの文字）より小さく色を落とし、
      見出しと値が同じ重さで並ばないようにする。1 段目は入力の上（見出しの行 .field-head。その欄の条件やリンクを右に添える）、2 段目は入力の左。
    区切り: 2 段目は行（.panel-line）ごとに欄（.panel-item）を並べ、欄の間に縦の短い線（背景の 1px × 18px。要素を足さない）と左右 9〜10px の間。
      所持パルは下の結果の行を地の色の帯にして、条件の欄と結果を分ける */
-:is(.ideal-panel, .owned-panel) .field-label { margin: 0; font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .04em; white-space: nowrap; color: var(--md-sys-color-on-surface-variant); }
+:is(.ideal-panel, .owned-panel) .field-label { font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .04em; white-space: nowrap; color: var(--md-sys-color-on-surface-variant); }
 :is(.ideal-panel-main, .owned-panel-main) > * > .field-label { align-self: center; }
 :is(.ideal-panel, .owned-panel) .field-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
 /* 見出しの行の押しボタン（パッシブの条件）は高さ 24px に詰める（見出しの行が高くならないように） */
@@ -1903,8 +1929,9 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 .ideal-pair-head { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 /* 配合の計画の組の目的（完全体作成組／パッシブ厳選組／個体値厳選組）と、変更あり・配置中の印 */
 .ideal-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
-/* 札は押すと説明が開くボタン（ui/hint.js）。組の目的は 12px のアイコンつき */
-.ideal-tier, .ideal-changed, .ideal-placed, .ideal-farm-to, .ideal-owners {
+/* 札は押すと説明が開くボタン（ui/hint.js）。組の目的は 12px のアイコンつき。「変更あり」「配置中」は状態のチップ（.status-chip）で、
+   形はこの札と同じ */
+.ideal-tier, .ideal-farm-to, .ideal-owners {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -1922,8 +1949,6 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 .ideal-tier.group-complete { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .ideal-tier.group-passive { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 .ideal-tier.group-talent { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
-.ideal-changed { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
-.ideal-placed { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .ideal-farm-to { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 /* 配合牧場の判定 */
 .ideal-missing-note:empty { display: none; }
@@ -2117,12 +2142,11 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-goal-title { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
 .ideal-goal-title > .pal-tile { flex: none; }
 .ideal-goal-summary { min-width: 0; }
-.ideal-goal-status { font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
-.ideal-goal-status.ready { color: var(--md-sys-color-primary); }
+/* 状態のチップ。「完成済み: Alice · パルボックス 2 ページ・1 行 2 列」のように長いことがあるので、列の幅で折り返す */
+.ideal-goal-status { white-space: normal; overflow-wrap: anywhere; }
 /* 状態と、未確認のときの「設定で選ぶ」（状態の下） */
 .ideal-goal-state { display: grid; justify-items: start; gap: 4px; min-width: 0; }
 .ideal-goal-empty { padding: 12px 0; }
-.owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
 .owned-auto-error { min-height: 1lh; font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 /* エラーがないときも見えないまま 1 行分の場所を残す（確かめるたびに点滅しない） */
 .owned-auto-error.is-empty { visibility: hidden; }
@@ -2242,7 +2266,11 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .passive-rank-m2 { --rank-icon: url('../img/passive/rank-2.png'); }
 .passive-rank-m3 { --rank-icon: url('../img/passive/rank-3.png'); }
 .passive-rank-m2 .passive-rank, .passive-rank-m3 .passive-rank { transform: scaleY(-1); }
-.passive-remove { border: 0; background: transparent; padding: 0 2px; font-size: 16px; line-height: 1; color: inherit; min-height: 0; }
+/* チップの ×（24×24px の丸いボタン。WCAG 2.5.8）。左右の負の余白でチップの余白と間に重ね、チップの幅は前（約 12px の文字の ×）と同じにする */
+.passive-remove { display: inline-grid; place-items: center; flex: none; inline-size: 24px; block-size: 24px; margin: 0 -5px 0 -7px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; min-height: 0; }
+.passive-remove:hover:not(:disabled) { background: color-mix(in srgb, currentColor 12%, transparent); }
+/* チップは暗い地なので、押せないときも文字色のまま薄くする（無効の色 on-surface の 38% は暗い地に沈む） */
+.passive-chip > .passive-remove:disabled { color: inherit; opacity: .45; }
 /* 所持パル */
 /* .owned-world は設定の「使うワールド」の選択欄 */
 .owned-world { font-weight: 700; margin: 0 0 2px; }
@@ -2292,7 +2320,11 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .primary:hover { box-shadow: var(--elevation-2); }
 .secondary:hover, .quiet:hover { background: var(--state-primary); }
 .icon-button:hover { background: var(--state-hover); }
-select { background-color: transparent; }
+/* 閉じる・外す ×（ui/icons.js の close）は 20px にそろえる（前は文字の × で 16〜20px）。押せる範囲はボタンの側で 24px 以上 */
+.close-icon { display: block; flex: none; width: 20px; height: 20px; }
+.dialog-close { display: inline-grid; place-items: center; }
+/* select は OS の ▼ をやめ、パル選択と同じ ∨（--select-arrow。中心は右端から 16px で、パル選択・検索つきの選択の ∨ と同じ位置） */
+select { appearance: none; padding-right: 30px; background-color: transparent; background-image: var(--select-arrow); background-repeat: no-repeat; background-position: right 9px center; background-size: 12px; }
 select option { background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface); }
 input:hover, select:hover, textarea:hover { border-color: var(--md-sys-color-on-surface); }
 input:focus-visible, select:focus-visible, textarea:focus-visible {

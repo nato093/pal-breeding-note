@@ -127,13 +127,18 @@ test('下書き: 追加した空の行でパル名から直接選び、3 つ揃�
   const view = mount(t, app);
   assert.match(view.element.textContent, /下書きはありません/);
   assert.equal(buttonNamed(view.element, '一括登録').disabled, true);
+  // 押せないボタンは、マウスを乗せると理由が出る（setDisabled の title）
+  assert.equal(buttonNamed(view.element, '一括登録').title, '下書きがありません');
+  assert.equal(buttonNamed(view.element, '一括削除').title, '下書きがありません');
   await buttonNamed(view.element, '＋ 空の下書きを追加').dispatch('click');
+  assert.deepEqual([buttonNamed(view.element, '一括登録').disabled, buttonNamed(view.element, '一括登録').title], [false, '']);
   const [row] = rows(view);
   assert.deepEqual(row.querySelectorAll('.picker-trigger').map((node) => node.textContent), ['パルを選択', 'パルを選択', 'パルを選択']);
   assert.equal(document.activeElement, row.querySelector('.picker-trigger'));
   assert.equal(iconNamed(row, '編集').tagName, 'button');
   const register = buttonNamed(row, '登録');
   assert.equal(register.disabled, true);
+  assert.equal(register.title, '親1・親2・子を選ぶと登録できます');
   const pickers = row.querySelectorAll('.picker');
   await choose(pickers[0], 'モコロン');
   await choose(pickers[1], 'フラリーナ');
@@ -143,6 +148,8 @@ test('下書き: 追加した空の行でパル名から直接選び、3 つ揃�
   assert.equal(rows(view)[0], row);
   assert.equal(document.activeElement, pickers[2].querySelector('.picker-trigger'));
   assert.equal(register.disabled, false);
+  // 押せるようになったら理由を消す（古い理由を残さない）
+  assert.equal(register.title, '');
   assert.deepEqual(pals(app.drafts.list()[0]), complete);
   assert.equal(view.element.querySelector('.result-note').textContent, '1 件の下書き');
   assert.equal(app.calls.length, 0);
@@ -241,6 +248,9 @@ test('下書き: 一括登録は問題のない行だけ登録し、未選択・
   const done = buttonNamed(view.element, '一括登録').dispatch('click');
   await flush();
   assert.equal(buttonNamed(view.element, '一括登録').disabled, true);
+  // 一括登録の途中は「登録しています」（下書きはあるので「下書きがありません」ではない）
+  assert.equal(buttonNamed(view.element, '一括登録').title, '登録しています');
+  assert.equal(buttonNamed(view.element, '一括削除').title, '登録しています');
   let [dialog] = openDialogs();
   assert.match(dialog.textContent, /別の結果として登録しますか？.*登録しようとしている下書き.*クレメーオ.*登録済みの配合.*セレムーン/);
   await buttonNamed(dialog, '登録しない').dispatch('click');

@@ -118,6 +118,10 @@ test('トースト: エラーは role=alert で .toast-alerts に、ふつうの
   const dismiss = error.querySelector('.toast-close');
   assert.equal(dismiss.tagName, 'button');
   assert.equal(dismiss.getAttribute('aria-label'), '閉じる');
+  // × は文字ではなく SVG のアイコン（ui/icons.js の close。トーストの文の読み上げに混ざらない）
+  assert.equal(dismiss.textContent, '');
+  assert.equal(dismiss.querySelector('svg').getAttribute('class'), 'close-icon');
+  assert.equal(error.textContent, '削除できませんでした。サーバでエラーが発生しました');
   // ふつうの知らせには × を付けない
   assert.equal(list.querySelector('.toast-close'), null);
   await dismiss.dispatch('click');

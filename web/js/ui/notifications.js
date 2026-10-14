@@ -1,9 +1,7 @@
-import { el, button, link, empty } from './dom.js';
+import { el, button, link, empty, statusChip } from './dom.js';
 import { openDialog } from './dialog.js';
-import { svgIcon } from './breeding-card.js';
+import { icon } from './icons.js';
 import { groupNotifications } from '../notifications.js';
-
-const BELL = 'M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0';
 
 const formatDate = (time) => new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' }).format(new Date(time));
 
@@ -26,7 +24,7 @@ function notificationList(rows, unread, onOpen) {
     const date = el('time', '', formatDate(notification.time));
     date.setAttribute('datetime', notification.date);
     meta.append(date);
-    if (notification.ids.some((id) => unread.has(id))) meta.append(el('span', 'unread-chip', '未読'));
+    if (notification.ids.some((id) => unread.has(id))) meta.append(statusChip('未読', 'info', 'unread-chip'));
     content.append(meta, el('strong', 'notification-title', notification.title));
     if (notification.body) content.append(notificationBody(notification));
     if (notification.count > 1) content.title = notification.items.map((item) => item.body).join('\n');
@@ -76,7 +74,7 @@ export function notificationMenu(notifications, { onOpen } = {}) {
   trigger.setAttribute('aria-expanded', 'false');
   const badge = el('span', 'notification-badge');
   badge.setAttribute('aria-hidden', 'true');
-  trigger.append(svgIcon(BELL), badge);
+  trigger.append(icon('bell'), badge);
   wrapper.append(trigger);
 
   function update() {

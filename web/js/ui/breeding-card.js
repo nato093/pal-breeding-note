@@ -1,27 +1,14 @@
-import { el, button, formatTime, runButton } from './dom.js';
+import { el, button, formatTime, runButton, statusChip } from './dom.js';
+import { icon } from './icons.js';
 import { palTile } from './pal-icon.js';
 import { toast } from './toast.js';
 
-export const icons = {
-  edit: 'M14 5l5 5M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z',
-  remove: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
-};
-
-export function svgIcon(path) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  const drawing = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  drawing.setAttribute('d', path);
-  svg.append(drawing);
-  return svg;
-}
-
-export function actionIcon(label, path, action, className = '') {
+/** 絵だけの操作のボタン（編集・削除など）。name は ui/icons.js のアイコンの名前、label は読み上げの名前と title */
+export function actionIcon(label, name, action, className = '') {
   const node = button('', action, `icon-button card-action ${className}`.trim());
   node.setAttribute('aria-label', label);
   node.title = label;
-  node.append(svgIcon(path));
+  node.append(icon(name));
   return node;
 }
 
@@ -48,13 +35,13 @@ export function breedingCard(record, context = {}, { preview = false, focusParen
   const equation = breedingEquation(record, { focusParent, leftParent });
   const metadata = el('div', 'card-meta');
   metadata.append(el('span', '', record.registrant || '登録者未指定'), el('time', 'updated-time', `更新 ${formatTime(record.updatedAt, true)}`));
-  if (record.deleted) metadata.append(el('span', 'warning-chip', '削除済み'));
+  if (record.deleted) metadata.append(statusChip('削除済み', 'warning', 'warning-chip'));
   card.append(equation, metadata);
   if (record.memo) card.append(el('p', 'card-memo', record.memo));
   if (preview) return card;
   const actions = el('div', 'card-actions');
-  const edit = actionIcon('編集', icons.edit, () => context.register(record));
-  const remove = actionIcon('削除', icons.remove, async () => {
+  const edit = actionIcon('編集', 'edit', () => context.register(record));
+  const remove = actionIcon('削除', 'remove', async () => {
     // 確認のカードは押した行と同じ左右で出す（相手 → 子の形〔focusParent〕のカードは両親の形のまま）
     await runButton(remove, () => context.remove(record, { leftParent: focusParent ? '' : leftParent }), (error) => toast(error.message, { kind: 'error' }));
   }, 'danger-text');

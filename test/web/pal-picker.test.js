@@ -149,7 +149,9 @@ test('パル選択: × は選択中だけ表示し、解除後はトリガーへ
   assert.equal(clear.hidden, false);
   assert.equal(clear.getAttribute('aria-label'), '親1の選択を解除');
   assert.equal(clear.title, '親1の選択を解除');
-  assert.equal(clear.textContent, '×');
+  // × は文字ではなく SVG のアイコン（名前は aria-label。押せる範囲は CSS で 28px）
+  assert.equal(clear.textContent, '');
+  assert.equal(clear.querySelector('svg').getAttribute('class'), 'close-icon');
   assert.equal(clear.parentElement, trigger.parentElement);
   assert.equal(trigger.querySelector('button'), null);
   await trigger.dispatch('click');

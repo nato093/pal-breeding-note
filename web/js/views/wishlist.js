@@ -1,7 +1,7 @@
-import { el, link, empty, storageWarning } from '../ui/dom.js';
+import { el, link, empty, storageWarning, statusChip } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palTile, palsById } from '../ui/pal-icon.js';
-import { actionIcon, icons } from '../ui/breeding-card.js';
+import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { findByChild } from '../core/index.js';
 import { buildHash } from '../router.js';
@@ -49,9 +49,9 @@ export function wishlistView(context) {
   function row(palId, craftable) {
     const item = el('li', `wishlist-row${craftable ? ' craftable' : ''}`);
     const main = craftable ? link('', buildHash('reverse', { c: palId }), 'wishlist-main') : el('div', 'wishlist-main');
-    main.append(palTile(palId, { clickable: false }), el('span', `wishlist-status${craftable ? ' ready' : ''}`, craftable ? '作成可能' : 'まだ作れません'));
+    main.append(palTile(palId, { clickable: false }), statusChip(craftable ? '作成可能' : 'まだ作れません', craftable ? 'ready' : 'neutral', 'wishlist-status'));
     if (craftable) main.append(el('span', 'wishlist-hint', '逆引きで見る →'));
-    item.append(main, actionIcon(`${palsById.get(palId).ja}をウィッシュリストから外す`, icons.remove, () => remove(palId), 'danger-text'));
+    item.append(main, actionIcon(`${palsById.get(palId).ja}をウィッシュリストから外す`, 'remove', () => remove(palId), 'danger-text'));
     return item;
   }
 
