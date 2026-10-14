@@ -103,7 +103,7 @@ test('所持パル: 所持者と場所は入れ物で決め、拠点のタマゴ
   assert.deepEqual(byId.a.passiveNames, ['職人気質', '希少']);
 });
 
-test('所持パル: 許す個体（所持者）・場所のグループ・拠点・パル・パッシブ・キーワードで絞り込む', () => {
+test('所持パル: 許す個体（所持者）・場所のグループ・パル・パッシブ・キーワードで絞り込む（拠点ごとの絞り込み〔bases〕は D29 でなくした）', () => {
   const ids = (filter) => filterOwned(owned.pals, filter).map((p) => p.id).sort();
   const all = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
   assert.deepEqual(ids({}), all);
@@ -116,10 +116,8 @@ test('所持パル: 許す個体（所持者）・場所のグループ・拠点
   assert.deepEqual(ids({ places: ['party', 'global'] }), ['a', 'f']);
   assert.deepEqual(ids({ places: null }), all);
   assert.deepEqual(ids({ places: [] }), []);
-  // 拠点を選ぶと、その拠点の個体と、その拠点に置いたタマゴだけ（場所のグループとも重ねる）
-  assert.deepEqual(ids({ bases: [BASE] }), ['c', 'd']);
-  assert.deepEqual(ids({ bases: [BASE], places: ['base'] }), ['c']);
-  assert.deepEqual(ids({ bases: ['ほかの拠点'] }), []);
+  // 拠点の ID を渡しても絞らない（D29 でなくした）
+  assert.deepEqual(ids({ bases: ['ほかの拠点'] }), all);
   assert.deepEqual(ids({ palId: 'SheepBall' }), ['a', 'b', 'c']);
   assert.deepEqual(ids({ passives: ['CraftSpeed_up2', 'Rare'] }), ['a']);
   assert.deepEqual(ids({ query: '職人' }), ['a', 'b', 'd']);

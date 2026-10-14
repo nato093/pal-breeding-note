@@ -1133,10 +1133,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 @media (max-width: 1080px) {
   .owned-panel .panel-line > .owned-talent-item.panel-item { order: 1; margin-left: 0; padding-left: 0; background: none; }
 }
-/* 場所のチップ（aria-pressed で複数選択。件数は絞り込む前の数）。押して切り替えるチップなので、オンは secondary-container の地と ✓、
+/* 場所のチップ（aria-pressed で複数選択。件数は出さない〔D29〕）。押して切り替えるチップなので、オンは secondary-container の地と ✓、
    オフは枠だけ（D28。結果の行の条件のチップ〔× で外すタグ〕と見分けられるように） */
 .place-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.place-chip, .place-chip-more {
+.place-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1150,19 +1150,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   font-weight: 700;
   white-space: nowrap;
 }
-.place-chip:hover:not([aria-pressed="true"]), .place-chip-more:hover { background: var(--state-hover); }
+.place-chip:hover:not([aria-pressed="true"]) { background: var(--state-hover); }
 .place-chip[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: var(--md-sys-color-secondary-container); }
 .place-chip[aria-pressed="true"]::before { content: '✓'; margin-right: -1px; font-size: 12px; line-height: 1; }
-.place-chip-count { font-weight: 400; font-variant-numeric: tabular-nums; }
-.place-bases-slot { position: relative; display: inline-flex; margin-left: -2px; }
-.place-chip-more { padding: 3px 7px; }
-.place-chip-more.is-active { border-color: var(--md-sys-color-primary); color: var(--md-sys-color-primary); }
-.place-bases { width: 280px; display: grid; gap: 8px; padding: 10px; }
-.place-base-list { display: grid; gap: 2px; max-height: min(50vh, 360px); overflow-y: auto; }
-.place-base { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.place-base:hover { background: var(--state-hover); }
-.place-base-count { margin-left: auto; font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
-.place-bases > .button { justify-self: end; }
 /* 属性 ▾（選んだ属性はボタンの中に小さなチップで出す）。開くと 9 個のトグル（選んでいないものは枠だけ） */
 .owned-element-slot { position: relative; display: inline-flex; }
 .owned-element-button {
@@ -1726,7 +1716,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
    パネルが伸びないように） */
 @media (max-width: 1080px) {
   .owned-panel .place-chips { gap: 3px; }
-  .owned-panel :is(.place-chip, .place-chip-more) { padding-left: 7px; padding-right: 7px; font-size: 11px; gap: 4px; }
+  .owned-panel .place-chip { padding-left: 7px; padding-right: 7px; font-size: 11px; gap: 4px; }
 }
 /* 個体値の部品を詰める（理想個体・所持パルの固定パネルで共通）: 各欄の「以上」は見出しに 1 回だけ、増減のボタンを隠して数値欄を狭める
    （↑↓ キーでは増減できる）。プリセットのボタンも高さ 32px */

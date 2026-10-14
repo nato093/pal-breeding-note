@@ -18,7 +18,6 @@ import {
   filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel,
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
-import { normalizeQuery, queryTerms } from '../core/kana.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
 import { ELEMENTS } from '../../data/pals.js';
 
@@ -64,8 +63,9 @@ export const OWNED_MEMORY = {
   holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'mine' || value === 'global' || /^(player|base):\S/.test(value)) ? value : ''),
   // 選んだ場所のグループ（PLACE_ORDER の値）。無い（前の形の保存）ときは undefined で、migrateFilter が place・eggs・globals から作る
   places: (value) => (Array.isArray(value) ? placeList(value) : undefined),
-  // 拠点の ID（空ならすべての拠点）
-  bases: (value) => list(value, { max: BASES_MAX, map: (id) => idText(id, 40) || null, key: (id) => id }),
+  // 拠点の ID（D29 より前の形。拠点ごとの絞り込みはなくした）。読み戻して migrateFilter に渡すだけ（場所を拠点とタマゴの中にする）。
+  // 無ければ undefined（今の形の保存には書かない）
+  bases: (value) => (Array.isArray(value) ? list(value, { max: BASES_MAX, map: (id) => idText(id, 40) || null, key: (id) => id }) : undefined),
   // 属性（マスターの ID〔Fire など〕。どれかを持つ個体）
   elements: (value) => list(value, { max: ELEMENT_KEYS.length, map: (key) => oneOf(key, ELEMENT_KEYS, null), key: (key) => key }),
   palId: (value) => (typeof value === 'string' && palsById.has(value) ? value : ''),
@@ -87,10 +87,11 @@ export const OWNED_MEMORY = {
 /**
  * 絞り込みの値を今の形にする（古い viewState・保存・URL も同じ口で読み替える。どの値も OWNED_MEMORY で確かめる）。
  * 前の形: place（1 つ）→ places: [place]、place '' → 既定、eggs: false → places から 'egg' を外す、globals: true → 'global' を足す、
- * 所持者 base:<id> → 所持者なし・bases: [id]・places: ['base', 'egg']（拠点のタマゴも拠点の持ち物。eggs: false なら 'base' だけ）、
- * 所持者 global → 所持者なし・places: ['global']。places は PLACE_ORDER の順に並べる。
+ * 所持者 base:<id> → 所持者なし・places: ['base', 'egg']（拠点のタマゴも拠点の持ち物。eggs: false なら 'base' だけ）、
+ * 所持者 global → 所持者なし・places: ['global']、拠点の ID（bases・URL の base。D29 で拠点ごとの絞り込みをなくした）→ places を拠点と
+ * タマゴの中だけにする（どちらもなければ ['base', 'egg']。どの拠点かは見ない）。places は PLACE_ORDER の順に並べる。
  * place と eggs・globals の組み合わせで places が空になる古い保存（{ place: 'egg', eggs: false } など）は、place を選んでいない既定に戻す
- * @returns {{ holder: string, places: string[], bases: string[], elements: string[], palId: string, passives: string[],
+ * @returns {{ holder: string, places: string[], elements: string[], palId: string, passives: string[],
  *   passiveMode: string, query: string, sort: string, dir: 'asc' | 'desc', stars: number, talent: { hp: number, shot: number, defense: number } }}
  */
 export function migrateFilter(old) {
@@ -103,18 +104,19 @@ export function migrateFilter(old) {
     // そのときは場所を選んでいない既定（タマゴ・グローバルの表示はそのまま）に戻す
     if (!places.length) places = shown([...PLACE_ORDER]);
   }
-  let { holder, bases } = saved;
+  let { holder } = saved;
   if (holder.startsWith('base:')) {
-    const id = idText(holder.slice(5), 40);
-    bases = id ? [id] : [];
     places = saved.eggs === false ? ['base'] : ['base', 'egg'];
     holder = '';
   } else if (holder === 'global') {
     places = ['global'];
     holder = '';
+  } else if (saved.bases?.length) {
+    const atBase = places.filter((group) => group === 'base' || group === 'egg');
+    places = atBase.length ? atBase : ['base', 'egg'];
   }
   return {
-    holder, places: PLACE_ORDER.filter((group) => places.includes(group)), bases, elements: saved.elements, palId: saved.palId,
+    holder, places: PLACE_ORDER.filter((group) => places.includes(group)), elements: saved.elements, palId: saved.palId,
     passives: saved.passives, passiveMode: saved.passiveMode, query: saved.query, ...sortOf(saved.sort, saved.dir), stars: saved.stars, talent: saved.talent,
   };
 }
@@ -125,14 +127,15 @@ function sortOf(value, dir) {
   return { sort: key, dir: resolved };
 }
 
-// URL の絞り込みの名前（どれかがあれば、URL がすべての条件を決める。sort・dir は並べ替えだけで、あれば入れる）
+// URL の絞り込みの名前（どれかがあれば、URL がすべての条件を決める。sort・dir は並べ替えだけで、あれば入れる）。
+// base は D29 より前のリンクの拠点（場所を拠点とタマゴにする読み替えにだけ使う）
 const FILTER_PARAMS = ['holder', 'place', 'base', 'el', 'pal', 'p', 'pm', 'q', 'stars', 'hp', 'at', 'df'];
 const commaList = (value) => (value ?? '').split(',').filter(Boolean);
 
 /**
- * URL の絞り込み（holder・place〔カンマ区切り。前の 1 つの形も同じ〕・base・el・pal・p・pm・q・stars・hp・at・df）を、
+ * URL の絞り込み（holder・place〔カンマ区切り。前の 1 つの形も同じ〕・base〔前の形〕・el・pal・p・pm・q・stars・hp・at・df）を、
  * 確かめてから今の形にする（未知の場所・属性・パル、範囲の外の数、長すぎる文字は捨てる）。絞り込みの名前が 1 つも無ければ null。
- * URL に無い条件は既定（リンクが条件のすべてを決める）。前の形の所持者（base:・global）は migrateFilter で読み替える
+ * URL に無い条件は既定（リンクが条件のすべてを決める）。前の形の所持者（base:・global）と拠点（base）は migrateFilter で読み替える
  */
 export function filterFromParams(params) {
   if (!FILTER_PARAMS.some((key) => params.has(key))) return null;
@@ -154,7 +157,6 @@ export function filterParams(filter) {
   const params = new URLSearchParams();
   if (filter.holder) params.set('holder', filter.holder);
   params.set('place', filter.places.join(','));
-  if (filter.bases.length) params.set('base', filter.bases.join(','));
   if (filter.elements.length) params.set('el', filter.elements.join(','));
   if (filter.palId) params.set('pal', filter.palId);
   if (filter.passives.length) params.set('p', filter.passives.join(','));
@@ -208,9 +210,6 @@ const HEAD_WORDS = {
   dex: { asc: '小さい順', desc: '大きい順' }, passives: HIGH_LOW, level: HIGH_LOW, stars: { desc: '多い順', asc: '少ない順' },
   talent: HIGH_LOW, hp: HIGH_LOW, shot: HIGH_LOW, defense: HIGH_LOW, place: { asc: 'ボックス順', desc: 'ボックスの逆順' },
 };
-// 場所の検索欄を出す拠点の数
-const BASE_SEARCH_OVER = 12;
-
 // 行に出す値の署名（一致の理由・印を除く）と、一致の理由の署名。理由を入れ忘れると、キーワードを変えても古い理由が残る
 const boxText = (box) => (box ? `${box.page}.${box.row}.${box.column}` : '');
 // 個体のデータ（読み込みごとに作り直され、中は変えない）ごとに 1 回だけ作る（キーワードを打つたびに 2,000 行ぶん作らない）
@@ -767,41 +766,16 @@ export function ownedView(context, route) {
   const holderSelect = searchSelect({ label: '所持者', options: [['', 'すべて']], value: filter.holder,
     onChange: (value) => { filter.holder = value; changed(); } });
 
-  // 場所のチップ（件数つき・複数選択。件数は絞り込む前の数で、0 の場所は出さない）。拠点が 2 つ以上なら、拠点のチップの右の ▾ で拠点を選ぶ
+  // 場所のチップ（複数選択。0 体の場所は出さない）。件数は出さない（D29「場所の選択肢にパルの数が書かれているが、これも不要」）。
+  // 前は拠点のチップの右に ▾（拠点ごとのチェックの板）があったが、拠点のチップとの違いが分からないのでなくした（D29）
   const placeBox = el('div', 'place-chips');
   placeBox.setAttribute('role', 'group');
   placeBox.setAttribute('aria-label', '場所');
   const placeChips = new Map();
-  const baseSlot = el('span', 'place-bases-slot');
-  const baseMore = button('▾', () => (basePopover.isOpen() ? basePopover.close() : basePopover.open()), 'place-chip-more');
-  baseMore.setAttribute('aria-haspopup', 'dialog');
-  baseSlot.append(baseMore);
-  const basePopover = createPopover({ anchor: baseMore, wrapper: baseSlot, className: 'picker-popover place-bases', focusOut: true,
-    onOpen: () => renderBases({ focus: true }) });
-  basePopover.element.setAttribute('role', 'dialog');
-  // 中の余白を押してもフォーカスが中に残る（focusOut で閉じない）ように、板そのものもフォーカスを受けられるようにする（下の 3 つも同じ）
-  basePopover.element.tabIndex = -1;
-  basePopover.element.setAttribute('aria-label', '拠点を選ぶ');
-  const baseSearch = el('input', 'picker-search');
-  baseSearch.type = 'search';
-  baseSearch.placeholder = '拠点の名前で探す';
-  baseSearch.setAttribute('aria-label', '拠点を検索');
-  baseSearch.addEventListener('input', () => renderBases());
-  const baseList = el('div', 'place-base-list');
-  const baseClear = button('すべての拠点', () => {
-    filter.bases = [];
-    // 押すとこのボタンは押せなくなり（disabled）、フォーカスが body に落ちて板が閉じるので、先に板の先頭（検索欄か最初の拠点）へ移す
-    if (globalThis.document?.activeElement === baseClear) (baseSearch.parentElement ? baseSearch : baseList.querySelector('input'))?.focus();
-    renderPlaces(owned.state);
-    changed();
-  }, 'button secondary small');
-  basePopover.element.append(baseList, baseClear);
   for (const group of PLACE_ORDER) {
-    const chip = button('', () => togglePlace(group), 'place-chip');
+    const chip = button(placeGroupLabel(group), () => togglePlace(group), 'place-chip');
     chip.setAttribute('data-value', group);
-    chip.append(el('span', 'place-chip-label', placeGroupLabel(group)), el('span', 'place-chip-count', ''));
     placeBox.append(chip);
-    if (group === 'base') placeBox.append(baseSlot);
     placeChips.set(group, chip);
   }
   function togglePlace(group) {
@@ -809,46 +783,6 @@ export function ownedView(context, route) {
     filter.places = PLACE_ORDER.filter((item) => (item === group ? on : filter.places.includes(item)));
     renderPlaces(owned.state);
     changed();
-  }
-  // 拠点ごとのチェック（拠点が 12 を超えたら検索欄つき）。チェックは使い回し、変わった値だけを書き換える
-  function baseRow(base) {
-    const row = el('label', 'place-base');
-    const check = el('input');
-    check.type = 'checkbox';
-    const name = el('span', 'place-base-name');
-    const count = el('span', 'place-base-count');
-    row.append(check, name, count);
-    let id = base.id;
-    check.addEventListener('change', () => {
-      filter.bases = check.checked ? [...new Set([...filter.bases, id])] : filter.bases.filter((item) => item !== id);
-      renderPlaces(owned.state);
-      changed();
-    });
-    const item = {
-      element: row,
-      update(next) {
-        id = next.id;
-        const n = statsOf(owned.state.owned).baseCounts.get(next.id) ?? 0;
-        if (name.textContent !== next.label) name.textContent = next.label;
-        if (count.textContent !== `${n} 体`) count.textContent = `${n} 体`;
-        check.checked = filter.bases.includes(next.id);
-        check.setAttribute('aria-label', `${next.label}（${n} 体）`);
-      },
-    };
-    item.update(base);
-    return item;
-  }
-  function renderBases({ focus = false } = {}) {
-    if (!basePopover.isOpen()) return;
-    const all = owned.state.owned?.bases ?? [];
-    const searching = all.length > BASE_SEARCH_OVER;
-    if (searching && baseSearch.parentElement !== basePopover.element) basePopover.element.insertBefore(baseSearch, baseList);
-    if (!searching && baseSearch.parentElement) baseSearch.remove();
-    const terms = searching ? queryTerms(baseSearch.value) : [];
-    const shown = all.filter((base) => terms.every((term) => normalizeQuery(base.label).includes(term)));
-    syncList(baseList, shown, { key: (base) => base.id, create: baseRow, empty: () => el('p', 'muted', '当てはまる拠点がありません。') });
-    baseClear.disabled = !filter.bases.length;
-    if (focus) (searching ? baseSearch : baseList.querySelector('input'))?.focus();
   }
 
   // 属性（9 個のトグルを ▾ で開く。複数は OR）。ボタンには選んだ数だけを出し（幅を変えずパネルの段が増えない）、名前は aria-label・
@@ -1115,17 +1049,13 @@ export function ownedView(context, route) {
     return Number.isFinite(top) && top < fixedBottom() - 1 ? top : null;
   }
 
-  // ---- データごとに 1 回だけ作るもの（場所の件数・拠点の件数・所持者の許す個体） ----
+  // ---- データごとに 1 回だけ作るもの（場所ごとの数〔0 体の場所のチップを隠す・グローバルの数〕・所持者の許す個体） ----
   let stats = null;
   function statsOf(data) {
     if (stats?.data === data) return stats;
     const counts = new Map();
-    const baseCounts = new Map();
-    for (const pal of data?.pals ?? []) {
-      counts.set(pal.placeGroup, (counts.get(pal.placeGroup) ?? 0) + 1);
-      if (pal.baseId) baseCounts.set(pal.baseId, (baseCounts.get(pal.baseId) ?? 0) + 1);
-    }
-    stats = { data, counts, baseCounts, baseIds: new Set([...(data?.bases ?? []).map((base) => base.id), ...baseCounts.keys()]) };
+    for (const pal of data?.pals ?? []) counts.set(pal.placeGroup, (counts.get(pal.placeGroup) ?? 0) + 1);
+    stats = { data, counts };
     return stats;
   }
   // 所持者で許す個体の ID の Set（理想個体と同じ意味）。データ・所持者・自分のプレイヤーが変わったときだけ作り直す。
@@ -1163,38 +1093,17 @@ export function ownedView(context, route) {
       holderSelect.update({ options: choices, value: valid ? filter.holder : '' });
     });
   }
-  // データにない拠点（別のワールド・なくなった拠点）は外す（読み込み前は残す）
-  function pruneBases(state) {
-    if (!state.owned || !filter.bases.length) return;
-    const known = statsOf(state.owned).baseIds;
-    const kept = filter.bases.filter((id) => known.has(id));
-    if (kept.length === filter.bases.length) return;
-    filter.bases = kept;
-    if (!syncingFilters) renderResults();
-  }
   function renderPlaces(state) {
     const { counts } = statsOf(state.owned);
     for (const [group, chip] of placeChips) {
-      const n = counts.get(group) ?? 0;
-      chip.hidden = n === 0;
+      chip.hidden = !counts.get(group);
       chip.setAttribute('aria-pressed', String(filter.places.includes(group)));
-      chip.setAttribute('aria-label', `${placeGroupLabel(group)}（${n} 体）`);
-      const countNode = chip.children[1];
-      if (countNode.textContent !== String(n)) countNode.textContent = String(n);
     }
-    const hideMore = (state.owned?.bases?.length ?? 0) < 2 || placeChips.get('base').hidden;
-    baseSlot.hidden = hideMore;
-    baseMore.hidden = hideMore;
-    baseMore.classList.toggle('is-active', filter.bases.length > 0);
-    baseMore.setAttribute('aria-label', filter.bases.length ? `拠点を選ぶ（${filter.bases.length} か所を選択中）` : '拠点を選ぶ');
-    if (hideMore && basePopover.isOpen()) basePopover.close({ focus: false });
-    renderBases();
   }
   function renderFilters(state) {
     syncingFilters = true;
     try {
       renderHolders(state);
-      pruneBases(state);
       renderPlaces(state);
       renderElements();
       showSort();
@@ -1222,10 +1131,6 @@ export function ownedView(context, route) {
       add('holder', `所持者: ${name}`, () => { filter.holder = ''; });
     }
     if (!sameList(filter.places, DEFAULT_PLACES)) add('places', `場所: ${placesText()}`, () => { filter.places = [...DEFAULT_PLACES]; });
-    if (filter.bases.length) {
-      const baseName = (id) => state.owned?.bases?.find((base) => base.id === id)?.label ?? '拠点';
-      add('bases', `拠点: ${filter.bases.map(baseName).join('・')}`, () => { filter.bases = []; });
-    }
     if (filter.elements.length) add('elements', `属性: ${filter.elements.map((key) => ELEMENTS[key]).join('・')}`, () => { filter.elements = []; });
     if (filter.palId) add('pal', `パル: ${palsById.get(filter.palId)?.ja ?? filter.palId}`, () => { filter.palId = ''; });
     if (filter.passiveMode === 'none') add('passiveMode', 'パッシブなし', () => { filter.passiveMode = 'include'; });
@@ -1769,7 +1674,6 @@ export function ownedView(context, route) {
       talents.destroy();
       modeChoice.destroy();
       holderSelect.destroy();
-      basePopover.destroy();
       presetMenu.destroy();
       elementPopover.destroy();
       linkPopover.destroy();
