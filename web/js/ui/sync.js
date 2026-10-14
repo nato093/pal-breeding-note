@@ -7,7 +7,7 @@ export async function syncInBackground(store, pending, { failure, retry, done } 
   try { response = await pending; } catch (error) {
     // ログアウト時はログイン画面で、取り消しは元の操作の失敗で知らせている。
     if (!store.state.passcode || error.code === 'CANCELED') return;
-    toast(`${failure}。${error.message}`, retry ? { action: () => retry(error), actionLabel: '入力し直す' } : {});
+    toast(`${failure}。${error.message}`, { kind: 'error', ...(retry ? { action: () => retry(error), actionLabel: '入力し直す' } : {}) });
     try { await store.refresh(); } catch { /* 取得の失敗は同期状態に表示される。 */ }
     return;
   }

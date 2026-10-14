@@ -15,7 +15,7 @@ import { createViewMemory, restoreScroll } from './ui/view-memory.js';
 import { captureFocus, restoreFocus } from './ui/focus.js';
 import { cleanSaved, idText, isObject, worldId } from './core/boundary.js';
 import { userIdKey } from './core/user.js';
-import { toast } from './ui/toast.js';
+import { toast, ACTION_DURATION } from './ui/toast.js';
 import { syncInBackground } from './ui/sync.js';
 import { syncProgress } from './ui/sync-progress.js';
 import { syncStatus } from './ui/sync-status.js';
@@ -354,9 +354,10 @@ async function boot() {
         sourceId: source.id, targetId: target.id, expectedEtags: { source: source.etag, target: target.etag },
       }), { done: () => toast('既存の登録に統合しました'), failure: '統合できませんでした', retry });
     },
-    async remove(record) {
-      if (!await confirmDialog('この配合を削除しますか？', '削除後、3 秒間は元に戻せます。', {
-        preview: breedingCard(record, {}, { preview: true }), confirmText: '削除', danger: true,
+    // 共有する配合なので確認してから消す（判断事項 7）。確認のカードの親の左右は、押した行（leftParent）とそろえる
+    async remove(record, { leftParent = '' } = {}) {
+      if (!await confirmDialog('この配合を削除しますか？', `仲間の画面からも消えます。削除後 ${ACTION_DURATION / 1000} 秒間は元に戻せます。`, {
+        preview: breedingCard(record, {}, { preview: true, leftParent }), confirmText: '削除', danger: true,
       })) return;
       syncInBackground(store, store.mutate('delete', { id: record.id, expectedEtag: record.etag }), {
         failure: '削除できませんでした',
@@ -614,8 +615,12 @@ async function boot() {
     }
     sync.update(state);
   });
+  // 取得の失敗は、ヘッダーの同期状況（と、まだ何も読めていなければ画面の errorState の「もう一度読み込む」）に出る。
+  // トーストは、前に読んだ配合を出したままのとき（裏の読み直しの失敗）だけエラーで重ねる。ログアウトしたらログイン画面で知らせる
   async function refresh(options) {
-    try { await store.refresh(options); } catch (error) { toast(error.message); }
+    try { await store.refresh(options); } catch (error) {
+      if (store.state.passcode && store.state.env) toast(error.message, { kind: 'error' });
+    }
   }
   // 送信待ちの操作は、サーバに届く前にページを閉じると失われる。
   window.addEventListener('beforeunload', (event) => {

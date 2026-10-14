@@ -102,7 +102,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   const fileDrop = dropZone('ここにファイルをドロップ（何回かに分けても足せます）', (event) => {
     // ハンドルは drop イベントの中で受け取る必要がある
     const pending = handlesFromDrop(event.dataTransfer);
-    addDropped(pending, draft).catch((error) => toast(error.message));
+    addDropped(pending, draft).catch((error) => toast(error.message, { kind: 'error' }));
   });
   const draftList = el('ul', 'owned-draft');
   const dropField = el('div', 'owned-step');
@@ -118,7 +118,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
       toast(outcome.persisted ? '保存しました。次からは自動で読み込みます' : 'このブラウザに保存できないため、ページを開いている間だけ使います');
       modal.close();
     } catch (error) {
-      toast(error.message);
+      toast(error.message, { kind: 'error' });
     } finally {
       saving = false;
       renderDraft();
@@ -171,10 +171,10 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   async function addDropped(pending, target) {
     const dropped = await pending;
     if (target && draft !== target) { toast('パスを変えたため、さっきドロップしたファイルは使いません。もう一度ドロップしてください'); return; }
-    if (!dropped.supported) { toast('このブラウザでは、ファイルを登録できません'); return; }
+    if (!dropped.supported) { toast('このブラウザでは、ファイルを登録できません', { kind: 'error' }); return; }
     if (saving) { toast('保存しています。終わってからドロップしてください'); return; }
     if (!draft) { toast('先に ① にワールドのフォルダのパスを貼ってください'); return; }
-    if (dropped.failed) toast('フォルダは登録できません。フォルダを開いて、中のファイルを選んでドロップしてください');
+    if (dropped.failed) toast('フォルダは登録できません。フォルダを開いて、中のファイルを選んでドロップしてください', { kind: 'error' });
     if (dropped.duplicates.length) toast(`同じ名前のファイルが 2 つ以上あります（${dropped.duplicates.join('、')}）。1 つずつドロップしてください`);
     if (dropped.ignored.length) toast(`対象外のファイルは登録しません（${dropped.ignored.join('、')}）`);
     for (const file of dropped.files) draft.files.set(file.path, file);
@@ -210,9 +210,9 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
 
   // ---- 状態（読み込み・許可） ----
   const autoState = el('span', 'owned-auto-state');
-  const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message)), 'button secondary');
+  const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
   // 許可はクリックの中で（await を挟まずに）求める
-  const grant = button('読み込みを許可', () => runButton(grant, () => owned.grantAndRefresh(), (error) => toast(error.message)), 'button primary');
+  const grant = button('読み込みを許可', () => runButton(grant, () => owned.grantAndRefresh(), (error) => toast(error.message, { kind: 'error' })), 'button primary');
   const stateRow = el('div', 'owned-import-row');
   stateRow.append(autoState, grant, autoNow);
   const autoError = el('p', 'owned-auto-error');
@@ -225,7 +225,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   let worldMode = '';
   worldSelect.addEventListener('change', () => {
     const run = worldMode === 'auto' ? owned.selectAutoWorld(worldSelect.value) : owned.setViewWorld(worldSelect.value);
-    Promise.resolve(run).catch((error) => toast(error.message));
+    Promise.resolve(run).catch((error) => toast(error.message, { kind: 'error' }));
   });
   const status = el('dl', 'owned-settings-status');
 
@@ -295,7 +295,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       const found = await owned.ownedOf(world.id);
       if (!found) { toast('このワールドの所持パルがまだありません'); return; }
       downloadCsv(found.owned, found.importedAt);
-    }, (error) => toast(error.message)), 'button secondary');
+    }, (error) => toast(error.message, { kind: 'error' })), 'button secondary');
     busyButtons.push([csv, () => !view.hasOwned]);
     const row = el('div', 'owned-import-row');
     row.append(csv);
@@ -303,7 +303,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     if (view.sharedAt && world.kind !== 'guest') {
       const remove = button('共有した所持パルを削除', async () => {
         if (!await confirmDialog('共有した所持パルを削除しますか？', 'スプレッドシートから、このワールドの所持パルを消します。仲間の画面にも表示されなくなります。セーブは変わりません。', { confirmText: '削除', danger: true })) return;
-        await runButton(remove, async () => { await owned.deleteShared(world.id); toast('共有した所持パルを削除しました'); }, (error) => toast(error.message));
+        await runButton(remove, async () => { await owned.deleteShared(world.id); toast('共有した所持パルを削除しました'); }, (error) => toast(error.message, { kind: 'error' }));
       }, 'button quiet danger-text');
       busyButtons.push([remove, () => false]);
       row.append(remove);
@@ -335,7 +335,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   let selfAuto = false;
   selfSelect.addEventListener('change', () => {
     if (!selfWorld || !context.self) return;
-    if (!context.self.set(selfWorld, selfSelect.value) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）');
+    if (!context.self.set(selfWorld, selfSelect.value) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）', { kind: 'error' });
   });
   // 出すのは、ログイン中で、表示しているワールド（ホストでも参加者でも。参加者は共有から来たプレイヤー）にプレイヤーがいるときだけ
   function renderSelf() {
@@ -421,7 +421,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         const remove = button('削除', async (event) => {
           event?.preventDefault?.();
           if (!await confirmDialog('このワールドの登録を削除しますか？', 'このブラウザに登録したファイルの記録を消します。セーブと、共有された所持パルは変わりません。', { confirmText: '削除', danger: true })) return;
-          await runButton(remove, async () => { await owned.removeWorld(world.id); toast('登録を削除しました'); }, (error) => toast(error.message));
+          await runButton(remove, async () => { await owned.removeWorld(world.id); toast('登録を削除しました'); }, (error) => toast(error.message, { kind: 'error' }));
         }, 'button quiet danger-text');
         busyButtons.push([edit, () => false], [remove, () => false]);
         const actions = el('span', 'owned-registered-actions');

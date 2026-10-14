@@ -488,7 +488,7 @@ export function idealView(context, route) {
       return;
     }
     toast(`「${goal.name}」を目標から外しました`, {
-      action: () => { if (!ideals.restore(removed.goal, removed.index, key)) toast('元に戻せませんでした'); },
+      action: () => { if (!ideals.restore(removed.goal, removed.index, key)) toast('元に戻せませんでした', { kind: 'error' }); },
     });
   }
   // 1 行（列: パル・名前／パッシブ／条件の要約／状態〔と「設定で選ぶ」〕／呼び出す・外す）。保存した目標の中身は変わらないので、update は状態だけ

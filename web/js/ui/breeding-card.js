@@ -55,7 +55,8 @@ export function breedingCard(record, context = {}, { preview = false, focusParen
   const actions = el('div', 'card-actions');
   const edit = actionIcon('編集', icons.edit, () => context.register(record));
   const remove = actionIcon('削除', icons.remove, async () => {
-    await runButton(remove, () => context.remove(record), (error) => toast(error.message));
+    // 確認のカードは押した行と同じ左右で出す（相手 → 子の形〔focusParent〕のカードは両親の形のまま）
+    await runButton(remove, () => context.remove(record, { leftParent: focusParent ? '' : leftParent }), (error) => toast(error.message, { kind: 'error' }));
   }, 'danger-text');
   // 一覧の差分更新（syncList）で、同じカードの同じボタンへフォーカスを戻すための目印
   edit.setAttribute('data-focus', 'edit');

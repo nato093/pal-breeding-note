@@ -434,7 +434,8 @@ img, svg { max-width: 100%; }
 .nav-tab.active { color: var(--md-sys-color-on-secondary-container); background: transparent; }
 .app-main { max-width: var(--content-max); padding: 20px 24px 72px; margin: 0 auto; min-height: 65dvh; }
 /* 新しいバージョンの案内は、本文の流れから外した下端の固定のカード（出ても本文がずれない）。
-   右下のトースト（幅 460px・右の余白 24px）とぶつからないよう、左のナビの右から、トーストの左までに収める */
+   トーストと同じく、左のナビを除いた本文の幅の下中央に置く（左右 24px の余白の中で、中身の幅〔300〜720px〕に合わせて中央へ）。
+   トーストはこの上に積む（.has-update-banner の --snackbar-offset）ので、横に並べるための幅の式は要らない */
 .update-banner {
   display: flex;
   align-items: center;
@@ -444,10 +445,11 @@ img, svg { max-width: 100%; }
   position: fixed;
   bottom: 24px;
   left: calc(var(--drawer) + 24px);
-  width: auto;
+  right: 24px;
+  width: fit-content;
   min-width: 300px;
-  max-width: min(720px, calc(100% - var(--drawer) - 48px - 484px));
-  margin: 0;
+  max-width: 720px;
+  margin: 0 auto;
   padding: 12px 16px;
   border: 0;
   border-radius: 12px;
@@ -456,14 +458,10 @@ img, svg { max-width: 100%; }
   z-index: var(--z-snackbar);
   box-shadow: var(--elevation-3);
 }
-/* 拡大して窓の幅が 928px を切ると、案内（最小 300px）とトースト（460px）が横に並ばず重なる（トーストが上に出て「閉じる」を隠す）。
-   案内が出ている間は、トーストの領域を案内の右（間 24px）から右の余白までに縮める（372px = 案内の左の余白 24 + 最小 300 + 間 24 + 右の余白 24）。
-   928px 以上では 460px のまま。案内が出ている間は ui/update-banner.js が html に .has-update-banner を付ける
-   （前の body:has(.update-banner…) は、本文の要素を出し入れするたびに画面全体をたどり、所持パルの 2,000 行でキーワードの入力が
-   100ms 以上止まった。owned-rows） */
-.has-update-banner .toast-region {
-  width: min(460px, calc(100% - 48px), max(200px, calc(100% - var(--drawer) - 372px)));
-}
+/* 案内が出ている間は、ui/update-banner.js が html に .has-update-banner を付け、案内の高さを --snackbar-height に書く。
+   トーストの領域はその分（と間 8px）だけ上げる。:has() で帯を探すと、本文の要素を出し入れするたびに画面全体をたどり、
+   所持パルの 2,000 行でキーワードの入力が 100ms 以上止まった（owned-rows）ので、クラスで切り替える */
+.has-update-banner { --snackbar-offset: calc(var(--snackbar-height, 64px) + 8px); }
 .update-banner-message { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
 .update-banner-hint { margin: 2px 0 0; font-size: 13px; color: inherit; opacity: .8; }
 .update-banner-actions { display: flex; gap: 8px; }
@@ -845,7 +843,22 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .preflight-record { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 5px 0; }
 .warning-text { color: var(--warning); font-size: 13px; margin: 10px 0; }
 .form-errors { font-size: 13px; overflow-wrap: anywhere; }
-.toast-region { position: fixed; bottom: 24px; right: 24px; width: min(460px, calc(100% - 48px)); z-index: var(--z-toast); display: grid; gap: 8px; pointer-events: none; }
+/* トーストは、左のナビを除いた本文の幅の下中央（行の右端の編集・削除にも、左端のパルの絵にも重ならない）。幅は 460px まで。
+   中はふつうの知らせ（.toast-list・aria-live）とエラー（.toast-alerts・role=alert）の 2 つのリスト（ui/toast.js） */
+.toast-region {
+  position: fixed;
+  bottom: calc(24px + var(--snackbar-offset, 0px));
+  left: calc(var(--drawer) + 24px);
+  right: 24px;
+  max-width: 460px;
+  margin: 0 auto;
+  z-index: var(--z-toast);
+  pointer-events: none;
+}
+/* ダイアログの中（top layer）では窓の下中央。ログイン画面（ナビなし）では窓の幅の下中央 */
+dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banner { left: 24px; }
+.toast-list, .toast-alerts { display: grid; gap: 8px; }
+.toast-list:not(:empty) + .toast-alerts:not(:empty) { margin-top: 8px; }
 .toast {
   pointer-events: auto;
   background: var(--md-sys-color-inverse-surface);
@@ -860,9 +873,38 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
   gap: 8px;
   font-size: 14px;
 }
+/* 文が長くても、操作と × は同じ行の右端に残す（文は 12em を下回るまで折り返す） */
+.toast-message { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
 .toast-action { background: transparent; color: var(--md-sys-color-primary-container); border: 0; }
 /* トーストは明暗が反転した背景なので、フォーカスの輪郭も反転色にする（primary では見分けにくい） */
 .toast :focus-visible { outline-color: var(--md-sys-color-inverse-on-surface); }
+/* エラーは error-container の地と左の帯（画面の errorState と同じ）。右端の × で閉じる */
+.toast-error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  border-left: 4px solid var(--md-sys-color-error);
+  padding-right: 8px;
+}
+.toast-error .toast-action { color: var(--md-sys-color-error); }
+.toast-error :focus-visible { outline-color: var(--md-sys-color-on-error-container); }
+.toast-close {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: currentColor;
+  font-size: 20px;
+  line-height: 1;
+}
+.toast-close:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+/* 閉じる動きの間（150ms）は押せない（ui/toast.js が中のボタンも押せなくする） */
+.toast.leaving { pointer-events: none; }
 .route-explanation { color: var(--muted); font-size: 13px; }
 .route-results { display: grid; gap: 12px; }
 .route-card { padding: 16px 18px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; }
@@ -1005,7 +1047,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   .nav-tab::before { transition: transform .25s var(--ease-emphasized), opacity .15s linear; }
   .nav-tab .tab-icon { transition: stroke-width .2s var(--ease-emphasized); }
   .button[aria-busy="true"]::after, .register-button[aria-busy="true"]::after { animation: sweep 1.2s ease-in-out infinite; }
-  .toast:has(.toast-action)::after { animation: countdown 3s linear forwards; }
+  /* 残り時間の線の長さは ui/toast.js が --toast-duration で渡す。ダイアログから移したときは経った分だけ先から（--toast-delay）。
+     マウスが乗っている・フォーカスがある間（.paused）は止める（JS のタイマーと同じ） */
+  .toast.with-action::after { animation: countdown var(--toast-duration, 3s) linear var(--toast-delay, 0ms) forwards; }
+  .toast.paused::after { animation-play-state: paused; }
   /* セーブの読み込み中は、文を変えずに点だけを明滅させる */
   .save-status-button.is-busy::before { animation: save-busy .8s ease-in-out infinite alternate; }
   /* メニューは開いた位置から下へ開く（M3 のメニュー） */
@@ -1040,6 +1085,12 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   .toast {
     transition: opacity .15s linear, transform .3s var(--ease-decelerate);
     @starting-style { opacity: 0; transform: translateY(12px); }
+  }
+  /* 閉じるときは薄くなりながら 8px 下がってから消える（150ms。ui/toast.js の LEAVE_MS）。動きを減らす設定ではすぐ消す */
+  .toast.leaving {
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .15s linear, transform .15s var(--ease-emphasized);
   }
   .update-banner {
     transition: opacity .2s linear, translate .3s var(--ease-decelerate);
@@ -2317,16 +2368,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, currentColor 28%, transparent), transparent);
   transform: translateX(-100%);
 }
-/* 元に戻せる通知は、元に戻せる残り時間（toast の既定の 3 秒）を下端の細い線で示す */
-.toast:has(.toast-action) { position: relative; overflow: hidden; }
-.toast:has(.toast-action)::after {
+/* 操作つきのトースト（.with-action）は、元に戻せる残り時間（ui/toast.js の ACTION_DURATION の 6 秒。--toast-duration）を下端の細い線で示す */
+.toast.with-action { position: relative; overflow: hidden; }
+.toast.with-action::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   height: 2px;
-  background: var(--md-sys-color-inverse-on-surface);
+  /* 文字の色（ふつうは反転色、エラーは on-error-container） */
+  background: currentColor;
   opacity: .35;
   transform-origin: left center;
 }

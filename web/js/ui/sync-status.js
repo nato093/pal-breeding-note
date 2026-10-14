@@ -51,7 +51,8 @@ export function syncStatus({ store, locked = () => false }) {
       await store.refresh();
       toast('最新の記録に更新しました');
     } catch (error) {
-      toast(error.message);
+      // ログアウトした（認証の失敗）ときはログイン画面で知らせる
+      if (store.state.passcode) toast(error.message, { kind: 'error' });
     } finally {
       refreshing = false;
       trigger.removeAttribute('aria-busy');

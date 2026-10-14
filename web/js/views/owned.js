@@ -615,7 +615,7 @@ export function ownedView(context, route) {
   // 読めないエラーは設定のセーブ連携（読んでいるワールドの行を開く）へ
   const linkedWorld = () => owned.state.auto?.worlds?.find((world) => world.id === owned.state.linkedWorldId) ?? null;
   const noticeActions = {
-    grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) },
+    grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message, { kind: 'error' })) },
     register: { label: 'ワールドを登録', run: () => openWorldDialog(context) },
     settings: { label: 'セーブ連携を開く', run: () => context.navigate(settingsHash(owned.state.linkedWorldId ?? '')) },
     editWorld: {
