@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom } from '../helpers/dom.js';
 import releaseNotes from '../../web/js/release-notes.js';
-import { TITLE_MAX, BODY_MAX, notificationTime, cleanNotification, createNotificationStore } from '../../web/js/notifications.js';
+import { TITLE_MAX, BODY_MAX, NOTIFICATION_KINDS, notificationTime, cleanNotification, groupNotifications, createNotificationStore } from '../../web/js/notifications.js';
 import { notificationMenu, openNotificationList } from '../../web/js/ui/notifications.js';
 
 function memoryStorage() {
@@ -224,4 +224,116 @@ test('通知一覧: 開いている間に元が消えた通知を外し、開く
   items.pop();
   notifications.changed();
   assert.deepEqual(titles(modal.dialog), ['作れる', 'お知らせ']);
+});
+
+// 自動登録の成功の通知（auto-register.js の registeredNotice と同じ形）
+const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+// まとめた行の本文の末尾
+const more = (count) => ` ほか ${count} 件`;
+const success =(id, body, { batchId = '2026-10-14T01:00:00.000Z', worldId = WORLD, date = batchId } = {}) => ({
+  id, date, kind: 'auto-registered', worldId, batchId, title: '配合を自動登録しました', body, href: `#/search?p1=${id}&p2=B`,
+});
+
+test('通知: 種類・ワールド・まとめの単位（kind・worldId・batchId）は正しい値だけを残し、ない通知には付けない', () => {
+  assert.deepEqual(NOTIFICATION_KINDS, ['auto-registered']);
+  const base = { id: 'a', date: '2026-10-14', title: '題名', body: '本文' };
+  const time = notificationTime(base.date);
+  assert.deepEqual(cleanNotification(base), { ...base, time });
+  // ワールド ID は大文字にそろえる
+  assert.deepEqual(cleanNotification({ ...base, kind: 'auto-registered', worldId: WORLD.toLowerCase(), batchId: '2026-10-14T01:00:00.000Z' }),
+    { ...base, time, kind: 'auto-registered', worldId: WORLD, batchId: '2026-10-14T01:00:00.000Z' });
+  for (const wrong of [
+    { kind: 'release' }, { kind: 'AUTO-REGISTERED' }, { kind: ['auto-registered'] },
+    { worldId: 'W1' }, { worldId: WORLD.slice(1) }, { worldId: `${WORLD}0` }, { worldId: 12 },
+    { batchId: '' }, { batchId: '2026 10 14' }, { batchId: '<b>' }, { batchId: 'x'.repeat(65) }, { batchId: 7 },
+  ]) assert.deepEqual(cleanNotification({ ...base, ...wrong }), { ...base, time }, JSON.stringify(wrong));
+  assert.equal(cleanNotification({ ...base, batchId: 'x'.repeat(64) }).batchId, 'x'.repeat(64));
+});
+
+test('通知のまとめ: 自動登録の成功は、同じワールド・同じ読み込み（batchId）の分を 1 行にし、いちばん上の通知の位置に置く', () => {
+  const list = [
+    success('s1', 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）'),
+    { id: 'other', date: '2026-10-14', title: 'ほかの通知', body: '' },
+    success('s2', 'ツッパニャン♂＋モコロン♀ → タマコッコ（拠点 1）'),
+    // 読み込みが違う・ワールドが違う・batchId がない・kind がないものはまとめない
+    success('s3', '別の読み込み', { batchId: '2026-10-14T00:59:00.000Z' }),
+    success('s4', '別のワールド', { worldId: '0123456789ABCDEF0123456789ABCDEF' }),
+    { ...success('s5', 'batchId なし'), batchId: undefined },
+    { ...success('s6', 'kind なし'), kind: undefined },
+    success('s7', 'クレメーナ♂＋フォレーオ♀ → クレメーナ（配合牧場）'),
+  ].map(cleanNotification);
+  const rows = groupNotifications(list);
+  assert.deepEqual(rows.map((row) => row.ids), [['s1', 's2', 's7'], ['other'], ['s3'], ['s4'], ['s5'], ['s6']]);
+  assert.deepEqual(rows.map((row) => row.count), [3, 1, 1, 1, 1, 1]);
+  // 本文は最初の通知の本文に「ほか N 件」、題名・日時・行き先も最初の通知のもの
+  const [first] = rows;
+  assert.equal(first.body, 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）' + more(2));
+  assert.deepEqual([first.id, first.title, first.date, first.time, first.href, first.kind], ['s1', '配合を自動登録しました', list[0].date, list[0].time, '#/search?p1=s1&p2=B', 'auto-registered']);
+  assert.deepEqual(first.items.map((item) => item.body), [list[0].body, list[2].body, list[7].body]);
+  // 足した「ほか N 件」は more にも入れる（通知欄が折り返しで分けずに出す）
+  assert.equal(first.more, 'ほか 2 件');
+  // 1 件だけの行は元の本文のまま
+  assert.equal(rows[2].body, '別の読み込み');
+  assert.equal(rows[2].more, undefined);
+  assert.equal(rows[1].body, '');
+  assert.deepEqual(groupNotifications([]), []);
+});
+
+test('通知のまとめ: 本文が長くても「ほか N 件」を残して 60 字に収める', () => {
+  const long = 'あ'.repeat(BODY_MAX);
+  const rows = groupNotifications([success('s1', long), success('s2', '二件目'), success('s3', '三件目')].map(cleanNotification));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].body.length, BODY_MAX);
+  assert.ok(rows[0].body.endsWith(`…${more(2)}`), rows[0].body);
+});
+
+test('ベル: 同じ読み込みの自動登録 3 件が未読なら、数は 1・パネルは 1 行で、開くと 3 件とも既読になる', async (t) => {
+  const { body } = installDom(t);
+  const items = [
+    success('s1', 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）'),
+    success('s2', '二件目'),
+    success('s3', '三件目'),
+  ];
+  const { notifications } = setup({ sources: [() => items] });
+  const menu = notificationMenu(notifications);
+  body.append(menu.element);
+  const [trigger] = menu.element.children;
+  const badge = menu.element.querySelector('.notification-badge');
+  assert.equal(badge.textContent, '1');
+  assert.equal(trigger.getAttribute('aria-label'), '通知（未読 1 件）');
+  await trigger.dispatch('click');
+  const panel = menu.element.querySelector('.notification-panel');
+  assert.equal(panel.querySelectorAll('.notification-item').length, 1);
+  assert.deepEqual(titles(panel), ['配合を自動登録しました']);
+  assert.equal(panel.querySelector('.notification-body').textContent, 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）' + more(2));
+  // 「ほか N 件」は折り返しで分けない塊にする
+  assert.equal(panel.querySelector('.notification-more').textContent, 'ほか 2 件');
+  const link = panel.querySelector('.notification-link');
+  assert.equal(link.href, '#/search?p1=s1&p2=B');
+  // まとめた通知の本文は、行に重ねたときの説明に全部出す
+  assert.equal(link.title, 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）\n二件目\n三件目');
+  assert.deepEqual(notifications.unread(), []);
+  assert.equal(badge.hidden, true);
+  menu.close();
+  // 同じ読み込みに後から 1 件増えても、未読の数はまとめた行の数
+  items.push(success('s4', '四件目'), success('s5', '五件目'));
+  notifications.changed();
+  assert.equal(badge.textContent, '1');
+});
+
+test('通知一覧: 同じ読み込みの自動登録は 1 行にまとめ、どれかが未読なら未読の印を付けて、全部を既読にする', (t) => {
+  installDom(t);
+  const items = [success('s1', '一件目'), success('s2', '二件目'), { id: 'b', date: '2026-10-13', title: 'お知らせ' }];
+  const { notifications } = setup({ sources: [() => items] });
+  notifications.markRead(['s1', 'b']);
+  const modal = openNotificationList(notifications);
+  assert.equal(modal.dialog.querySelectorAll('.notification-item').length, 2);
+  assert.deepEqual(titles(modal.dialog), ['配合を自動登録しました', 'お知らせ']);
+  assert.equal(modal.dialog.querySelector('.notification-body').textContent, `一件目${more(1)}`);
+  assert.equal(modal.dialog.querySelectorAll('.unread-chip').length, 1);
+  assert.deepEqual(notifications.unread(), []);
+  // 開いている間にまとめた行が増えたら描き直す
+  items.push(success('s3', '三件目'));
+  notifications.changed();
+  assert.equal(modal.dialog.querySelector('.notification-body').textContent, `一件目${more(2)}`);
 });

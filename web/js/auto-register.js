@@ -1,7 +1,8 @@
 // 配合牧場からの自動登録。ホストのセーブを読み込むたびに、牧場の親 2 体と産んだタマゴを見て、
 // 前に読んだときと親が同じ牧場に新しく現れたタマゴを、その親の配合として登録する（子は配合表で決める）。
-// 登録できないもの（登録済みと食い違う・登録者が未設定・表と合わない）は通知だけ出す。
-// 配合表を使うのは照合だけ（INV-2 の例外）。画面での表示や検索には使わず、通知にも配合表の答え（表の子）を出さない。
+// 登録できないもの（登録済みと食い違う・登録者が未設定・表と合わない）は通知だけ出す。登録できた配合も、ベルの通知に残す。
+// 配合表を使うのは照合だけ（INV-2 の例外）。画面での表示や検索には使わず、通知にも配合表の答え（表の子）を出さない
+// （登録できた配合の通知は、登録したレコード〔登録済みの記録〕だけで作る）。
 import pals from '../data/pals.js';
 import { decodeBreeding, breedChild, isGenderDependent } from './core/breeding.js';
 import { findNewBreedings, mappedUser, resolveRegistrant } from './core/auto-breeding.js';
@@ -9,13 +10,20 @@ import { createSpeciesResolver } from './core/owned.js';
 import { findConflict } from './core/index.js';
 import { userIdKey } from './core/user.js';
 import { isObject, isoTime, text, idText, list, screenHref } from './core/boundary.js';
-import { settingsHash } from './router.js';
+import { buildHash, settingsHash } from './router.js';
+import { notificationTags } from './notifications.js';
 
 // 重複などの失敗は決着として送り直さない。通信やサーバの失敗は、次に新しいセーブを読んだときにもう一度送る。
 // 認証切れ（ログアウトされる）は記録せずに止める。ログインし直したら送り直す。
 const MUTATION_ERRORS = new Set(['DUPLICATE', 'PAIR_CONFLICT', 'ID_CONFLICT', 'VALIDATION', 'CONFLICT', 'NOT_FOUND']);
 const FLIP = { M: 'F', F: 'M' };
+// 残す通知の数。登録できた配合（成功）は新しい 20 件、それ以外（未設定・見送り・保留）は新しい 50 件で、別々に数える
+// （成功がいくら増えても、対応の必要な通知を追い出さない）
 const NOTICE_MAX = 50;
+const SUCCESS_MAX = 20;
+const SUCCESS = 'auto-registered';
+// 成功の通知の id（auto-breed:<環境>:registered:<レコードの ID>）。旧コードのタブが書き直して kind が消えても、id で成功と分かる
+const REGISTERED = /^auto-breed:[^:]*:registered:/;
 const PENDING_MAX = 200;
 const EVIDENCE_MAX = 10;
 // セーブのプレイヤーと登録者の対応（ワールドごと）。プレイヤーは共有と同じ 100 人まで、uid 40 字・ノートの ID 20 字
@@ -42,7 +50,8 @@ const OLD_CONFLICT = /^(.+?)：表は.*?、登録は(.+)$/;
 // 「プレイヤーの対応が未設定です」の id（auto-breed:<環境>:unmapped:<ワールド ID>:<プレイヤーの UID>）
 const UNMAPPED_NOTICE = /^auto-breed:[^:]*:unmapped:([^:]+):/;
 
-// 保存した通知の形を確かめる（id 200 字・日時が読めること・題名 40 字・本文 200 字・href は画面内のハッシュ 300 字まで）。
+// 保存した通知の形を確かめる（id 200 字・日時が読めること・題名 40 字・本文 200 字・href は画面内のハッシュ 300 字まで。
+// 種類・ワールド・まとめの単位は notifications.js の notificationTags で正しい値だけ）。
 // 通知欄に出すときは notifications.js の cleanNotification がさらに 20 字・60 字に切る
 function cleanSavedNotice(value) {
   if (!isObject(value) || !idText(value.id, 200) || LEGACY_NOTICE.test(value.id)) return null;
@@ -51,7 +60,32 @@ function cleanSavedNotice(value) {
   const notice = { id: value.id, date, title: text(value.title, 40), body: text(value.body, 200) };
   const href = screenHref(value.href);
   if (href) notice.href = href;
-  return notice;
+  return Object.assign(notice, notificationTags(value));
+}
+
+const isSuccess = (notice) => notice.kind === SUCCESS || REGISTERED.test(notice.id);
+// 並び（新しい順）のまま、成功は SUCCESS_MAX 件・それ以外は NOTICE_MAX 件まで残す
+function capNotices(notices) {
+  let successes = 0;
+  let others = 0;
+  return notices.filter((notice) => (isSuccess(notice) ? ++successes <= SUCCESS_MAX : ++others <= NOTICE_MAX));
+}
+
+const genderMark = (gender) => (gender === 'M' ? '♂' : gender === 'F' ? '♀' : '');
+/**
+ * 登録できた配合の通知（成功）。id はレコードごと（同じ読み込みで後から登録した分も、同じ id で捨てられない）。
+ * まとめは通知欄の表示だけで行う（notifications.js の groupNotifications。同じワールド・同じ batchId〔読み込んだ日時〕を 1 行に）。
+ * 本文は登録したレコードの親・性別・子と牧場の拠点だけ（配合表で求めた子を「表は」「予想は」として出さない。INV-2）
+ */
+function registeredNotice(ctx, record, farmLabel) {
+  const parentText = (id, gender) => `${palName(id)}${genderMark(gender)}`;
+  return {
+    id: `auto-breed:${ctx.env}:registered:${record.id}`, date: ctx.importedAt,
+    kind: SUCCESS, worldId: ctx.worldId, batchId: ctx.importedAt,
+    title: '配合を自動登録しました',
+    body: `${parentText(record.parent1Id, record.parent1Gender)}＋${parentText(record.parent2Id, record.parent2Gender)} → ${palName(record.childId)}（${farmLabel}）`,
+    href: buildHash('search', { p1: record.parent1Id, p2: record.parent2Id }),
+  };
 }
 
 /**
@@ -244,16 +278,16 @@ export function createAutoRegister({
     const saved = env && userId ? readJson(noticeKey(env, userId), []) : [];
     // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）。形を確かめてから、配合表の答えを外し、
     // 前の版の「未設定」の行き先を直す
-    return list(saved, { max: NOTICE_MAX, map: cleanSavedNotice }).map(safeAutoNotice).map(unmappedHref);
+    return capNotices(list(saved, { max: NOTICE_MAX + SUCCESS_MAX, map: cleanSavedNotice })).map(safeAutoNotice).map(unmappedHref);
   }
 
-  // 同じ ID の通知は足さない。新しい順に NOTICE_MAX 件まで残す
+  // 同じ ID の通知は足さない。新しい順に、成功は SUCCESS_MAX 件・それ以外は NOTICE_MAX 件まで残す
   function saveNotices(ctx, added, removedIds = new Set()) {
     const stored = readJson(noticeKey(ctx.env, ctx.userId), []);
     const before = readNotices(ctx.env, ctx.userId);
     const ids = new Set(before.map((n) => n.id));
-    const next = [...before.filter((n) => !removedIds.has(n.id)), ...added.filter((n) => !ids.has(n.id) && ids.add(n.id))]
-      .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, NOTICE_MAX);
+    const next = capNotices([...before.filter((n) => !removedIds.has(n.id)), ...added.filter((n) => !ids.has(n.id) && ids.add(n.id))]
+      .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)));
     const unchanged = Array.isArray(stored) && next.length === stored.length && next.every((n, i) => n.id === stored[i]?.id);
     if (unchanged) return;
     storage.set(noticeKey(ctx.env, ctx.userId), JSON.stringify(next));
@@ -282,6 +316,13 @@ export function createAutoRegister({
     // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする
     href: settingsHash(ctx.worldId),
   });
+  // 登録した配合の牧場がある拠点の名前（例「拠点 1」）。表示中の所持パルが同じワールドのときだけ引き、分からなければ「配合牧場」
+  const farmLabel = (ctx, candidate) => {
+    const farmId = candidate.evidence[0]?.farmId;
+    const baseId = (ctx.snapshot.breedFarms ?? []).find((farm) => farm?.id === farmId)?.baseId;
+    const base = baseId && owned.state.meta?.worldId === ctx.worldId ? owned.state.owned?.bases?.find((b) => b.id === baseId) : null;
+    return base?.label || '配合牧場';
+  };
 
   async function run(ctx) {
     const table = await getTable();
@@ -320,6 +361,8 @@ export function createAutoRegister({
         await store.mutate('create', allowDifferentChild ? { record, allowDifferentChild } : { record });
         finish(ctx, candidate.key);
         registered++;
+        // 確定した登録は、この後で止まっても（セーブ・ログイン・設定が変わった）失わないよう、すぐに始めたときの保存先へ残す
+        saveNotices(ctx, [registeredNotice(ctx, record, farmLabel(ctx, candidate))]);
         // 別の結果として送ると、サーバは食い違いを調べない。送るまでの間に、性別の並びまで同じ食い違う登録が
         // 増えていないかを、応答の全件で確かめ直す
         if (allowDifferentChild) {

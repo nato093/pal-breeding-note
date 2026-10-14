@@ -5,6 +5,7 @@ import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, ApiError } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { createAutoRegister, safeAutoNotice, AUTO_NOTICE_TITLES } from '../../web/js/auto-register.js';
+import { cleanNotification, groupNotifications } from '../../web/js/notifications.js';
 import { moveUserStorage } from '../../web/js/user-rename.js';
 
 const PASS = '自動登録の試験用';
@@ -23,7 +24,7 @@ function memoryStorage() {
   return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) };
 }
 
-async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null } = {}) {
+async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1' } = {}) {
   const development = createDevelopmentApi();
   // サーバの手前で止める・次の登録を断る（手動の登録が送信待ちのまま・取り消される場面を作る）
   let serverGate = null;
@@ -45,8 +46,8 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
   }
   const owned = {
     state: {
-      role: 'host', uploadReady: true, busy: false, linkedWorldId: 'W1',
-      local: { importedAt: '2026-10-05T23:59:00.000Z', world: { id: 'W1' }, snapshot: { players, breedFarms: emptied(farms) } },
+      role: 'host', uploadReady: true, busy: false, linkedWorldId: worldId,
+      local: { importedAt: '2026-10-05T23:59:00.000Z', world: { id: worldId }, snapshot: { players, breedFarms: emptied(farms) } },
     },
   };
   const creates = [];
@@ -264,8 +265,8 @@ test('自動登録: 対応が未設定のプレイヤーの配合は通知だけ
   await t.auto.idle();
   assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
   assert.deepEqual(t.auto.mapping(), { [P2]: '仲間' });
-  // 対応づけたプレイヤーの「未設定」の通知は消える
-  assert.deepEqual(t.auto.notices(), []);
+  // 対応づけたプレイヤーの「未設定」の通知は消え、登録した配合の通知だけが残る
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['配合を自動登録しました']);
 });
 
 test('自動登録: 同じ名前のユーザーが後から増えたら、その人で登録する', async () => {
@@ -383,7 +384,9 @@ test('自動登録: 突然変異タマゴが産まれても、親の組み合わ
   const t = await setup({ farms: [{ ...farm('f1', ghosts, []), eggs: [{ localId: 'm1', characterId: 'BOSS_DomeArmorDragon', itemId: 'PalEgg_MutationPal_05' }] }] });
   await t.run();
   assert.deepEqual(registered(t.store), ['GhostDragon_Fire(M)×GhostDragon_Fire(F)>GhostDragon_Fire:自分']);
-  assert.deepEqual(t.auto.notices(), []);
+  // 異常の通知は出さず、登録した配合の通知だけ。本文は登録したレコードだけで作る（タマゴの中身〔シェルガドラ〕も出さない。INV-2）
+  assert.deepEqual(t.auto.notices().map((n) => [n.title, n.body]), [['配合を自動登録しました', 'ヘルバーン♂＋ヘルバーン♀ → ヘルバーン（配合牧場）']]);
+  assert.doesNotMatch(t.auto.notices()[0].body, /シェルガドラ|表は|予想は/);
 });
 
 test('自動登録: 前の版の「照合が合いません」の通知は出さない', async () => {
@@ -530,10 +533,12 @@ test('自動登録: 性別で変わる組み合わせを別の結果として送
   await registerElsewhere(t, { parent1Id: 'CatMage', parent1Gender: 'M', parent2Id: 'FoxMage', parent2Gender: 'F', childId: 'SheepBall' });
   await t.run();
   assert.equal(t.creates[0].allowDifferentChild, true);
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録を保留した配合']);
+  // 登録はできているので、成功の通知も残す
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['配合を自動登録しました', '自動登録を保留した配合']);
   // 登録済みの子は両方（並びは登録の順）
-  assert.match(t.auto.notices()[0].body, /子 (クレメーナ・モコロン|モコロン・クレメーナ)）/);
-  assert.doesNotMatch(t.auto.notices()[0].body, /フォレーオ|表は/);
+  const conflict = t.auto.notices()[1];
+  assert.match(conflict.body, /子 (クレメーナ・モコロン|モコロン・クレメーナ)）/);
+  assert.doesNotMatch(conflict.body, /フォレーオ|表は/);
 });
 
 test('自動登録: サーバで食い違いと分かった配合は、同じセーブの間は送り直さず、一覧を取り直して手元で判定する', async () => {
@@ -600,7 +605,8 @@ test('自動登録: 登録の送信中に新しいセーブを読んでも、表
   t.lay();
   release();
   await t.auto.idle();
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録しなかったタマゴ']);
+  // 送信中だった登録も確定したので、成功の通知も残る
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録しなかったタマゴ', '配合を自動登録しました']);
 });
 
 test('自動登録: ブラウザへの保存が途中から失敗しても、メモリの新しい記録で判定する', async () => {
@@ -737,4 +743,100 @@ test('自動登録（読み戻しの検証）: 保存した通知に日時のな
   // 件数は NOTICE_MAX（50 件）まで
   t.storage.set(key, JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ id: `auto-breed:test:unmapped:W1:${i}`, date, title: '未設定' }))));
   assert.equal(t.auto.notices().length, 50);
+});
+
+// 成功の通知（ベルに残す。docs/ui-refactor/phase-1d-small-fixes.md の autoreg-success）
+const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+const FIRST_READ = '2026-10-06T00:00:00.000Z';
+
+test('自動登録（成功の通知）: 登録が確定すると、登録したレコードの親・子・拠点と、配合検索のその組への行き先を通知に残す', async () => {
+  const t = await setup({ worldId: WORLD });
+  Object.assign(t.owned.state, { meta: { worldId: WORLD }, owned: { bases: [{ id: 'b', label: '拠点 1' }] } });
+  await t.run();
+  const [{ record }] = t.creates;
+  assert.deepEqual(t.auto.notices(), [{
+    id: `auto-breed:test:registered:${record.id}`, date: FIRST_READ,
+    title: '配合を自動登録しました', body: 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）',
+    href: '#/search?p1=SheepBall&p2=SwordCutlassfish',
+    kind: 'auto-registered', worldId: WORLD, batchId: FIRST_READ,
+  }]);
+  // 配合表だけで決まる言い回しは出さない（INV-2）
+  assert.doesNotMatch(t.auto.notices()[0].body, /表は|予想は/);
+  assert.equal(t.noticed, 1);
+  // ページを見ているときの即時の知らせ（トースト）は今までどおり
+  assert.deepEqual(t.toasts, ['配合を自動登録しました（1件）']);
+  // 読み直しても同じ通知を重ねない
+  await t.run();
+  assert.equal(t.auto.notices().length, 1);
+  assert.equal(t.noticed, 1);
+});
+
+test('自動登録（成功の通知）: 拠点が分からないとき（別のワールドの所持パルを表示中・拠点がない）は「配合牧場」と出す', async () => {
+  for (const state of [
+    {},
+    { meta: { worldId: 'OTHER' }, owned: { bases: [{ id: 'b', label: '拠点 1' }] } },
+    { meta: { worldId: 'W1' }, owned: { bases: [{ id: 'c', label: '拠点 2' }] } },
+    { meta: { worldId: 'W1' }, owned: null },
+  ]) {
+    const t = await setup();
+    Object.assign(t.owned.state, state);
+    await t.run();
+    assert.deepEqual(t.auto.notices().map((n) => n.body), ['モコロン♀＋オオタチウオ♂ → ヤクモマル（配合牧場）'], JSON.stringify(state));
+  }
+});
+
+test('自動登録（成功の通知）: 同じ読み込みで 2 件登録すると、レコードごとに同じ batchId の通知を 2 件残し、通知欄では 1 行にまとまる', async () => {
+  const t = await setup({ farms: [sheepFarm(), dogFarm()], worldId: WORLD });
+  await t.run();
+  assert.equal(t.creates.length, 2);
+  const notices = t.auto.notices();
+  assert.deepEqual(notices.map((n) => n.id).sort(), t.creates.map((c) => `auto-breed:test:registered:${c.record.id}`).sort());
+  assert.deepEqual(notices.map((n) => [n.kind, n.worldId, n.batchId]), [['auto-registered', WORLD, FIRST_READ], ['auto-registered', WORLD, FIRST_READ]]);
+  assert.ok(notices.some((n) => /^ヤクモマル(♂＋ヤクモマル♀|♀＋ヤクモマル♂) → ヤクモマル（配合牧場）$/.test(n.body)), JSON.stringify(notices));
+  // 登録が確定するごとに保存する
+  assert.equal(t.noticed, 2);
+  assert.deepEqual(t.toasts, ['配合を自動登録しました（2件）']);
+  const rows = groupNotifications(notices.map(cleanNotification));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].body, `${notices[0].body} ほか 1 件`);
+});
+
+test('自動登録（成功の通知）: 1 件目の登録の後で止まっても（送信中に別のセーブを読んだ・設定をオフにした）、確定した 1 件目の通知は残す', async () => {
+  for (const change of [
+    (t) => { t.owned.state.local = { ...t.owned.state.local, importedAt: '2026-10-06T09:00:00.000Z', snapshot: { players: [], breedFarms: [] } }; },
+    (t) => t.auto.setEnabled(false),
+  ]) {
+    const t = await setup({ farms: [sheepFarm(), dogFarm()] });
+    const release = t.hold();
+    t.auto.evaluate();
+    await new Promise((resolve) => setImmediate(resolve));
+    change(t);
+    release();
+    await t.auto.idle();
+    assert.equal(t.creates.length, 1);
+    assert.deepEqual(t.auto.notices().map((n) => [n.id, n.batchId]), [[`auto-breed:test:registered:${t.creates[0].record.id}`, FIRST_READ]]);
+  }
+});
+
+test('自動登録（成功の通知）: 成功は新しい 20 件まで残し、成功がいくら増えても「プレイヤーの対応が未設定です」や見送りの通知は追い出さない', async () => {
+  const t = await setup({ worldId: WORLD });
+  const key = 't.autoBreeding.notices.test.自分';
+  const unmapped = { id: `auto-breed:test:unmapped:${WORLD}:p-2`, date: '2026-10-01T00:00:00.000Z', title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。', href: `#/settings?world=${WORLD}&open=auto` };
+  const anomaly = { id: 'auto-breed:test:anomaly:f1:e1', date: '2026-10-01T00:00:00.000Z', title: '自動登録しなかったタマゴ', body: '' };
+  // 前の成功 30 件（新しい順）。旧コードのタブが書き直して kind のないものも、id で成功と分かる
+  const old = Array.from({ length: 30 }, (_, i) => {
+    const date = `2026-10-05T00:00:${String(29 - i).padStart(2, '0')}.000Z`;
+    const notice = { id: `auto-breed:test:registered:old-${29 - i}`, date, title: '配合を自動登録しました', body: `前の登録 ${29 - i}` };
+    return i % 2 ? notice : { ...notice, kind: 'auto-registered', worldId: WORLD, batchId: date };
+  });
+  t.storage.set(key, JSON.stringify([...old, unmapped, anomaly]));
+  // 読み出しも成功は 20 件まで
+  assert.deepEqual(t.auto.notices().map((n) => n.id), [...old.slice(0, 20).map((n) => n.id), unmapped.id, anomaly.id]);
+  await t.run();
+  const saved = JSON.parse(t.storage.get(key));
+  assert.deepEqual(saved.map((n) => n.id), [`auto-breed:test:registered:${t.creates[0].record.id}`, ...old.slice(0, 19).map((n) => n.id), unmapped.id, anomaly.id]);
+  assert.deepEqual(t.auto.notices().map((n) => n.id), saved.map((n) => n.id));
+  // 保存し直しても、旧コードのタブが書いた kind のない成功に kind は足さない（読み出したままの形）
+  assert.equal(saved[2].kind, undefined);
+  assert.equal(saved[1].kind, 'auto-registered');
 });
