@@ -549,6 +549,8 @@ img, svg { max-width: 100%; }
 }
 .notification-title { font-size: 14px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 .notification-body { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+/* まとめた行の「ほか N 件」（ui/notifications.js）。折り返しで分けない */
+.notification-more { white-space: nowrap; }
 .notification-link { display: flex; flex-direction: column; gap: 2px; min-width: 0; color: inherit; }
 .notification-link:hover { text-decoration: none; }
 .notification-link:hover .notification-title { color: var(--md-sys-color-primary); }

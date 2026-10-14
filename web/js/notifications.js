@@ -1,11 +1,17 @@
 import releaseNotes from './release-notes.js';
 import { userIdKey } from './core/user.js';
 import { sanitizeText } from './core/validate.js';
-import { screenHref } from './core/boundary.js';
+import { screenHref, worldId as cleanWorldId } from './core/boundary.js';
 
 // 通知欄に収まる長さ。更新内容のお知らせはテストでこの長さを守り、ほかの通知は超えた分を省いて表示する。
 export const TITLE_MAX = 20;
 export const BODY_MAX = 60;
+// 通知の種類（通知欄のまとめ表示に使う）。更新内容のお知らせなど、種類のない通知には付けない。フェーズ 2 の bell で種類を足す
+export const NOTIFICATION_KINDS = Object.freeze(['auto-registered']);
+// 同じワールド・同じまとめの単位（batchId）の通知を通知欄で 1 行にまとめる種類
+const GROUPED_KINDS = new Set(['auto-registered']);
+// まとめの単位（自動登録はセーブを読み込んだ日時）。英数字と : . _ + - の 1〜64 字
+const BATCH = /^[0-9A-Za-z:._+-]{1,64}$/;
 // 通知の id の長さと、この端末に残す既読の数の上限（極端に長い・多い保存データで描画が詰まらないように）
 const ID_MAX = 200;
 const READ_MAX = 2000;
@@ -22,9 +28,24 @@ export function notificationTime(date) {
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime() : Date.parse(date);
 }
 
+/**
+ * 通知の種類・ワールド・まとめの単位のうち、正しい値だけを写す（不正な値・ない値は付けない）。
+ * 自動登録の保存した通知の読み戻し（auto-register.js）も同じ確かめ方を使う
+ * @returns {{ kind?: string, worldId?: string, batchId?: string }} worldId は 32 桁の 16 進の大文字
+ */
+export function notificationTags(value) {
+  const tags = {};
+  if (NOTIFICATION_KINDS.includes(value?.kind)) tags.kind = value.kind;
+  const world = cleanWorldId(value?.worldId);
+  if (world) tags.worldId = world;
+  if (typeof value?.batchId === 'string' && BATCH.test(value.batchId)) tags.batchId = value.batchId;
+  return tags;
+}
+
 // どの種類の通知も、この形にそろえて通知欄に出す。
 // id: 既読の判定に使う変わらない文字列 / date: 'YYYY-MM-DD' か ISO 日時 / title・body: 表示する文
 // href: 押したときに開く画面（任意）。外部の URL や script を開かないよう、画面内のハッシュ（#/…）だけを受け付ける。
+// kind・worldId・batchId: 通知の種類・ワールド・まとめの単位（任意。notificationTags）
 // id が 200 字を超える通知は出さない。href は 300 字まで（超えたら外す）。
 export function cleanNotification(value) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id || value.id.length > ID_MAX) return null;
@@ -34,7 +55,40 @@ export function cleanNotification(value) {
   const notification = { id: value.id, date: value.date, time, title, body: clip(value.body, BODY_MAX) };
   const href = screenHref(value.href);
   if (href) notification.href = href;
-  return notification;
+  return Object.assign(notification, notificationTags(value));
+}
+
+/**
+ * 通知欄に出す行にまとめる。自動登録の成功（kind: 'auto-registered'）は、同じワールド・同じ読み込み（batchId）の分を 1 行にする。
+ * 行の本文は最初の通知の本文に「 ほか N 件」を足したもの（「ほか N 件」が切れないよう、本文の方を縮めて BODY_MAX に収める）。
+ * 足した「ほか N 件」は more にも入れる（通知欄が折り返しで分けずに出すため）。
+ * id・日時・題名・行き先も最初の通知のもの。既読はまとめた通知の id ごと（ids）。kind のない通知・batchId のない通知は 1 件 1 行
+ * @param {object[]} list cleanNotification を通した通知（新しい順）
+ * @returns {{ ids: string[], count: number, items: object[], more?: string, id: string, date: string, time: number, title: string, body: string, href?: string, kind?: string, worldId?: string, batchId?: string }[]}
+ *   並びは list の順（まとめた行は、まとめた中でいちばん上の通知の位置に置く）。items はまとめた元の通知
+ */
+export function groupNotifications(list) {
+  const rows = [];
+  const groups = new Map();
+  for (const notification of list) {
+    const key = GROUPED_KINDS.has(notification.kind) && notification.batchId
+      ? `${notification.kind}\n${notification.worldId ?? ''}\n${notification.batchId}` : '';
+    const group = key ? groups.get(key) : null;
+    if (group) {
+      group.items.push(notification);
+      continue;
+    }
+    const row = { ...notification, items: [notification] };
+    if (key) groups.set(key, row);
+    rows.push(row);
+  }
+  return rows.map((row) => {
+    const { items } = row;
+    if (items.length === 1) return { ...row, ids: [row.id], count: 1 };
+    const more = `ほか ${items.length - 1} 件`;
+    const lead = clip(row.body, BODY_MAX - more.length - 1);
+    return { ...row, ids: items.map((item) => item.id), count: items.length, body: lead ? `${lead} ${more}` : more, more };
+  });
 }
 
 export const releaseNoteSource = () => releaseNotes.map((note) => ({ ...note, id: `release:${note.id}` }));
