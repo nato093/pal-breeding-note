@@ -1414,8 +1414,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .passive-more:hover { background: var(--state-hover); }
 /* キーワードに一致したスキル・説明（一覧に出していない項目）を、行の下の段の印の後ろに 1 行で（入り切らない分は省略。全文は title） */
 .owned-hits { flex: 1 1 0; display: flex; align-items: center; gap: 0 4px; min-width: 8em; margin: 0; height: 15px; font-size: 12px; line-height: 15px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; }
-/* 一致した理由は項目ごとに 1 つ（D29）。長い項目（説明つきなど）ほど縮めて省略し、どの項目も見出しが見えるようにする */
-.owned-hit { flex: 0 1 auto; min-width: 4.5em; overflow: hidden; text-overflow: ellipsis; }
+/* 一致した理由は項目ごとに 1 つ（D29）。短い項目（is-short）は縮めず、長い項目（説明つきなど）を長いものほど縮めて省略し、どの項目も見出しが
+   見えるようにする */
+.owned-hit { flex: 0 1 auto; min-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+.owned-hit.is-short { flex-shrink: 0; min-width: 0; }
 .owned-hit + .owned-hit::before { content: '· '; }
 .owned-hit-more { flex: none; color: var(--muted); }
 /* 個体値の 4 セル（HP・攻・防・計）。数字は右寄せ、下にミニバー（--v）。目標があれば縦の目印（--t） */

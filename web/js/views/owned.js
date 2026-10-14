@@ -387,6 +387,8 @@ function fillPassiveList(list, ids, wanted, hints) {
 // キーワードに一致した理由の、行に並べる項目（見出し）の数。残りは「ほか N 件」（全文は title）。理由の段落の要素は 2＋この数まで
 //（2,000 行の全部の行に理由が出ても要素を増やしすぎない）
 const HIT_GROUPS = 4;
+// 縮めない短い項目の文字数（「パートナースキル：猫の手も借りたい」の 17 字より短いもの）
+const HIT_SHORT = 16;
 const noteText = (note) => `${note.name}${note.desc ? `（${note.desc}）` : ''}`;
 // キーワードに一致した理由（core/owned.js の keywordNotes。D29 で一致したすべての項目にした）。行の下の段の印の後ろに 1 行で、項目（見出し）ごとに
 // 1 つの要素「パッシブ：職人気質（作業速度 +50%）・希少」にまとめて横に並べる（それぞれ入り切らない分は省略）。title に 1 件ずつの全文
@@ -398,8 +400,11 @@ function fillHits(line, notes) {
   }
   const shown = [...groups].slice(0, HIT_GROUPS);
   line.replaceChildren(...shown.map(([label, texts]) => {
-    const hit = el('span', 'owned-hit', `${label}：${texts.join('・')}`);
-    hit.title = `${label}：${texts.join('・')}`;
+    const text = `${label}：${texts.join('・')}`;
+    // 短い項目（「パル名：アヌビス」「属性：闇」など）は縮めない。長い項目（説明つきなど）だけを縮めて省略する（前は説明の長い項目と一緒に
+    // 短い項目まで縮み、「パル名：ア…」になった）
+    const hit = el('span', text.length <= HIT_SHORT ? 'owned-hit is-short' : 'owned-hit', text);
+    hit.title = text;
     return hit;
   }));
   if (groups.size > shown.length) line.append(el('span', 'owned-hit-more', `ほか ${groups.size - shown.length} 件`));

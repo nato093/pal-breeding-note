@@ -249,8 +249,12 @@ test('所持パル画面: キーワードに一致した理由は、項目（見
   assert.deepEqual(line.querySelectorAll('.owned-hit').map((node) => node.textContent), ['パル名：パル名の値', 'ニックネーム：ニックネームの値', '属性：属性の値', 'パッシブ：パッシブの値']);
   assert.match(line.textContent, /ほか 2 件$/);
   assert.equal(line.title.split('\n').length, 6);
+  // 短い項目は縮めない印（is-short）。長い項目（説明つきなど）だけが縮んで省略される
+  assert.ok(line.querySelectorAll('.owned-hit').every((node) => node.className.split(' ').includes('is-short')));
   // 要素は段落と 4 つと「ほか」まで（2,000 行で要素の数を増やさない）
   assert.equal(descendants(line).length, 6);
+  row.update(pal, { notes: [{ label: 'パル名', name: 'パル名の値', desc: '' }, { label: 'パートナースキル', name: '名前', desc: 'とても長い説明の文がここに入ります' }] });
+  assert.deepEqual(line.querySelectorAll('.owned-hit').map((node) => node.className), ['owned-hit is-short', 'owned-hit']);
   row.destroy();
 });
 
