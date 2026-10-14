@@ -8,7 +8,7 @@ import { talentInput } from '../ui/talent-input.js';
 import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
-import { ownedNotices, noticeList, ownedSourceLine } from '../ui/owned-status.js';
+import { ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
 import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, fieldHead, panelItem, panelLine } from './shared.js';
@@ -657,19 +657,19 @@ export function ownedView(context, route) {
   }
   readRoute(route);
 
-  // データ元の 1 行（どのワールドの・どこから・いつのデータか。右端に読み込みの状態のスロット）と、対応が要るときだけの案内。
-  // 設定の操作（ワールドの切り替え・今すぐ読み込む）は設定タブで行う。データがないときだけ、案内に設定へ行くボタンを出す
+  // 対応が要るときだけの案内の帯（案内がなければ入れ物ごと隠す）。どのワールドの・いつのデータか・読み込み中かはヘッダーのセーブ連携の
+  // 状態に任せる（D29 で、上に出していたデータ元の 1 行をなくした）。設定の操作（ワールドの切り替え・今すぐ読み込む）は設定タブで行う。
+  // データがないときだけ、案内に設定へ行くボタンを出す
   const summary = el('section', 'owned-summary');
   const notices = noticeList([]);
+  summary.hidden = true;
   // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）
   const noticeActions = {
     grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) },
     settings: { label: 'セーブ連携を開く', run: () => context.navigate('#/settings') },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
   };
-  // 所持パルの画面では、許可のボタンは案内の帯だけに出す（1 行のボタンは見せず、場所だけ残して 1 行を動かさない。D27）
-  const sourceLine = ownedSourceLine({ actions: { grant: noticeActions.grant }, showGrant: false });
-  summary.append(sourceLine.element, notices);
+  summary.append(notices);
 
   // ---- 絞り込みの部品（作るのは 1 回だけ。条件・データが変わったら update・値の書き換えで合わせる） ----
   // 利用者が条件を変えた: 一覧・件数・効いている条件を描き直し、一覧の先頭がパネルの下に隠れていれば先頭を見せる（O-05）
@@ -1094,7 +1094,6 @@ export function ownedView(context, route) {
   // 許可・エラーの帯が消えてまた出ないように）。終わったら結果で描き直し、同じ案内なら要素も作り直さない
   let noticesKey = null;
   function renderSummary(state) {
-    sourceLine.update(state);
     if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
     const list = ownedNotices(state);
     const key = JSON.stringify(list);
@@ -1105,6 +1104,7 @@ export function ownedView(context, route) {
     const before = noticesKey !== null ? scrolledTop() : null;
     noticesKey = key;
     noticeList(list, notices, noticeActions);
+    summary.hidden = notices.hidden;
     if (before === null) return;
     const moved = results.getBoundingClientRect().top - before;
     if (moved) globalThis.window?.scrollBy?.(0, moved);
@@ -1764,7 +1764,6 @@ export function ownedView(context, route) {
       stopGoals();
       stopTracking();
       chipObserver?.disconnect();
-      sourceLine.destroy();
       inputs.abort();
       for (const input of pendingInputs) input.cancel();
       talents.destroy();

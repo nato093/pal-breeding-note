@@ -12,7 +12,6 @@ import { cleanSaved } from '../../web/js/core/boundary.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
 import { inheritanceView } from '../../web/js/views/route.js';
-import { dateTime } from '../../web/js/ui/owned-status.js';
 import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
@@ -103,10 +102,9 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   assert.deepEqual(first.querySelectorAll('.talent-cell').map((cell) => [cell.getAttribute('data-key'), cell.textContent, cell.style.getPropertyValue('--v')]),
     [['hp', '10', '10'], ['shot', '20', '20'], ['defense', '30', '30'], ['total', '60', '20']]);
   assert.equal(first.querySelector('.owned-talent').getAttribute('aria-label'), '個体値 HP 10・攻撃 20・防御 30・合計 60');
-  // どのワールドの・どこから・いつのデータかは 1 行に（共有した人・この PC で読み込んだ時刻は title に）
-  const source = view.element.querySelector('.owned-source-text');
-  assert.equal(source.textContent, `「テスト」（ホスト Alice） · この PC · 4 体 · セーブ ${dateTime('2026-10-05T00:00:00.000Z')}`);
-  assert.match(source.title, /\nセーブの更新: .*\n共有: .*（ホスト）\nこの PC で読み込み: /);
+  // どのワールドの・いつのデータかは上のバーのセーブ連携の表示に任せ、画面にはデータ元の 1 行を出さない（D29。前は「「テスト」（ホスト Alice） ·
+  // この PC · 4 体 · セーブ …」と最終確認の時刻・「設定 →」の 1 行）
+  assert.equal(view.element.querySelector('.owned-source'), null);
   assert.equal(view.element.querySelector('.owned-world'), null);
   // 件数の行は「絞り込んだ数 / 全体の数」と ♂♀・タマゴの内訳（グローバルパルボックスは既定で出さない）
   assert.equal(view.element.querySelector('.result-note').textContent, '3 / 4 体 · ♂1 ♀1 タマゴ 1');
@@ -368,14 +366,16 @@ test('所持パル画面: 自動の読み込みがオフでも、共有された
   const notices = view.element.querySelector('.owned-notices');
   assert.equal(notices.hidden, true);
   assert.equal(notices.children.length, 0);
-  assert.match(view.element.querySelector('.owned-source-text').textContent, / · 共有 · 4 体 · /);
+  assert.equal(view.element.querySelector('.owned-source'), null);
+  // 案内がないときは案内の入れ物ごと隠す（パネルが見出しのすぐ下に来る）
+  assert.equal(view.element.querySelector('.owned-summary').hidden, true);
   view.destroy();
 });
 
-test('所持パル画面: 確認・読み込みの間（busy）も案内の帯は出入りせず（許可の案内も残す）、状態は 1 行の右端のスロットだけに出す', (t) => {
+test('所持パル画面: 確認・読み込みの間（busy）も案内の帯は出入りしない（許可の案内も残す。読み込みの状態は上のバーのセーブ連携の表示に任せる）', (t) => {
   installDom(t);
   const permission = { enabled: true, status: 'permission', worlds: [{ id: 'W', status: 'permission' }], worldId: '', error: 'セーブを読むには許可が必要です' };
-  const owned = fakeOwned(undefined, { auto: permission, activity: '', checkedAt: '' });
+  const owned = fakeOwned(undefined, { auto: permission });
   owned.state.data.snapshot = { ...owned.state.data.snapshot, files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] } };
   const view = ownedView(context(owned), parseHash('#/owned'));
   const notices = view.element.querySelector('.owned-notices');
@@ -385,23 +385,20 @@ test('所持パル画面: 確認・読み込みの間（busy）も案内の帯�
   const parts = view.element.children;
   const filters = view.element.querySelector('.owned-filters');
   const rows = view.element.querySelectorAll('.owned-row');
-  const label = view.element.querySelector('.owned-activity-text');
   // 1 分ごとの確認（busy → checking）
-  Object.assign(owned.state, { busy: true, activity: 'checking', auto: { ...permission, status: 'checking' } });
+  Object.assign(owned.state, { busy: true, auto: { ...permission, status: 'checking' } });
   owned.emit();
   assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
   assert.equal(notices.children[0], item);
-  assert.equal(label.textContent, '確認中…');
-  // 読み込みの途中（progress は帯ではなくスロットに）
-  Object.assign(owned.state, { activity: 'reading', progress: 'Level.sav を読み込み中…' });
+  // 読み込みの途中（progress は帯に出さない）
+  Object.assign(owned.state, { progress: 'Level.sav を読み込み中…' });
   owned.emit();
   assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
-  assert.equal(label.textContent, 'Level.sav を読み込み中…');
   // 終わったら結果で描き直す（同じ結果なら帯は同じ）
-  Object.assign(owned.state, { busy: false, activity: '', progress: '', checkedAt: new Date().toISOString(), auto: permission });
+  Object.assign(owned.state, { busy: false, progress: '', auto: permission });
   owned.emit();
   assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
-  assert.match(label.textContent, /^最終確認 \d\d:\d\d$/);
+  assert.equal(view.element.querySelector('.owned-activity'), null);
   assert.deepEqual(view.element.children, parts);
   assert.equal(view.element.querySelector('.owned-filters'), filters);
   assert.deepEqual(view.element.querySelectorAll('.owned-row'), rows);
@@ -450,30 +447,21 @@ test('所持パル画面: 開いている間は 10 秒ごとに読み直し（�
   assert.equal(refreshes, 4);
 });
 
-test('継承ルート: 所持パルのデータがあるときは、所持パルの欄の先頭にデータ元の 1 行を出し、読み込みの状態が変わってもその行だけを書き換える', (t) => {
+test('継承ルート: 所持パルの欄にデータ元の 1 行は出さず（上のバーのセーブ連携の表示と重なるため。D29）、読み込みの状態が変わっても欄を描き直さない', (t) => {
   installDom(t);
   const records = [
     { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
   ];
-  const owned = fakeOwned(undefined, { activity: '', checkedAt: '' });
+  const owned = fakeOwned();
   const view = inheritanceView(context(owned, records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
   const section = view.element.querySelector('.route-owned');
-  const line = section.children[0];
-  assert.equal(line.className, 'owned-source');
-  assert.equal(line.querySelector('.owned-source-text').textContent, `「テスト」（ホスト Alice） · この PC · 4 体 · セーブ ${dateTime('2026-10-05T00:00:00.000Z')}`);
+  assert.equal(section.querySelector('.owned-source'), null);
+  assert.equal(section.children[0].className, 'route-owned-box');
   const box = section.querySelector('.route-owned-box');
-  const label = line.querySelector('.owned-activity-text');
-  assert.equal(label.textContent, '最終確認 —');
-  Object.assign(owned.state, { busy: true, activity: 'checking' });
+  Object.assign(owned.state, { busy: true, auto: { ...owned.state.auto, status: 'checking' } });
   owned.emit();
-  assert.equal(label.textContent, '確認中…');
-  assert.equal(section.children[0], line);
   assert.equal(section.querySelector('.route-owned-box'), box);
   view.destroy();
-  // 所持パルのデータがないときは出さない
-  const none = inheritanceView(context(fakeOwned(null), records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
-  assert.equal(none.element.querySelector('.owned-source'), null);
-  none.destroy();
 });
 
 test('設定画面: セーブ連携の状態・登録したワールド・使うワールドを出す', async (t) => {
@@ -735,9 +723,8 @@ test('所持パル画面: 許可が必要なときは案内の中に「読み込
   assert.ok(grant);
   await grant.dispatch('click');
   assert.equal(asked, 1);
-  // データ元の 1 行には出さない（案内の帯と 2 つ並べない。D27）。場所は残して 1 行が動かないようにする
-  const inLine = view.element.querySelector('.owned-source-grant');
-  assert.deepEqual([inLine.hidden, inLine.disabled, inLine.className.split(' ').includes('is-placeholder')], [false, true, true]);
+  // 許可のボタンは案内の帯だけ（データ元の 1 行はなくした。D29）
+  assert.equal(view.element.querySelector('.owned-source-grant'), null);
   view.destroy();
 });
 
@@ -1383,7 +1370,7 @@ test('所持パル画面: 絞り込みは sticky のパネル（2 段＋状態�
   assert.equal(panel.tagName, 'section');
   assert.equal(panel.getAttribute('aria-label'), '所持パルの絞り込み');
   assert.deepEqual(panel.children.map((node) => node.className), ['owned-panel-main', 'owned-panel-sub', 'owned-status-row']);
-  // 並び: 見出し → データ元の 1 行 → パネル → 一覧（件数の行はパネルの中）
+  // 並び: 見出し → 案内の帯 → パネル → 一覧（件数の行はパネルの中）
   // 列見出しは一覧の入れ物の前の別の要素（owned-rows）
   assert.deepEqual(view.element.children.map((node) => node.className), ['view-heading', 'owned-summary', 'owned-panel', 'owned-list-head', 'owned-list']);
   assert.ok(panel.querySelector('.owned-status-row').querySelector('.result-note'));

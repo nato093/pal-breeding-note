@@ -4,7 +4,6 @@ import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
 import { createPopover } from '../ui/popover.js';
 import { hint } from '../ui/hint.js';
-import { ownedSourceLine } from '../ui/owned-status.js';
 import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palsById, palTile, palIcon } from '../ui/pal-icon.js';
@@ -500,14 +499,9 @@ export function idealView(context, route) {
   panel.append(panelMain, panelSub);
   const stopTracking = trackHeight(panel, element);
 
-  // データ元の 1 行（どのワールドの・どこから・いつのデータか。右端の状態のスロットに「確認中…」「最終確認 13:42」）。
-  // 所持パルの状態が変わったら、この行の文だけを書き換える（結果は描き直さない）
-  const sourceLine = owned ? ownedSourceLine({
-    actions: { grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) } },
-  }) : null;
-  sourceLine?.update(owned.state);
   // 要約の行（1 行に固定。中は固定の 2 つの子: 件数などの文〔入り切らない分は省略して title に全文〕・除外の内訳を開くボタン）。
-  // 子は作り直さず、文字だけ書き換える（条件を変えても行の高さと位置が変わらない）。最終確認の時刻はデータ元の 1 行に出す
+  // 子は作り直さず、文字だけ書き換える（条件を変えても行の高さと位置が変わらない）。どのワールドの・いつのデータか・読み込みの状態と
+  // 許可の切れは、ヘッダーのセーブ連携の状態に出す（押すと許可を求める。D29 で、パネルの下のデータ元の 1 行をなくした）
   const summary = el('div', 'result-note ideal-summary');
   const summaryText = el('span', 'ideal-summary-text');
   // 除外がないときは見えないまま幅を残す（hidden にしない）
@@ -635,7 +629,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, ...(sourceLine ? [sourceLine.element] : []), summary, missingBox, farmStrip, farmBox, results);
+  element.append(heading, panel, summary, missingBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -1348,20 +1342,19 @@ export function idealView(context, route) {
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
-    sourceLine.update(ownedState);
     if (ownedState.owned === lastOwned && ownedState.ready === lastReady) return;
     lastOwned = ownedState.owned;
     lastReady = ownedState.ready;
     update();
   });
   // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
-  // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）。確かめ終えた時刻は、データ元の 1 行が出す
+  // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）
   owned.load().then(() => {
     if (!destroyed && globalThis.document?.visibilityState !== 'hidden') return owned.autoRefresh();
   }).catch(() => {});
   const stopRefreshing = keepRefreshing(owned);
   return {
     element, update, applyRoute, flushInputs,
-    destroy() { destroyed = true; stopRefreshing(); sourceLine.destroy(); unsubscribe(); unsubscribeGoals(); view.destroy(); },
+    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); unsubscribeGoals(); view.destroy(); },
   };
 }

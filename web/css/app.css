@@ -2206,29 +2206,10 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .passive-rank-m2 .passive-rank, .passive-rank-m3 .passive-rank { transform: scaleY(-1); }
 .passive-remove { border: 0; background: transparent; padding: 0 2px; font-size: 16px; line-height: 1; color: inherit; min-height: 0; }
 /* 所持パル */
-.owned-summary { margin-bottom: 12px; }
-/* .owned-world は設定の「使うワールド」の選択欄（所持パルの画面の見出しの行はデータ元の 1 行にした） */
+/* .owned-world は設定の「使うワールド」の選択欄 */
 .owned-world { font-weight: 700; margin: 0 0 2px; }
-/* データ元の 1 行（所持パル・理想個体・継承ルート。ui/owned-status.js の ownedSourceLine）。
-   [ワールド · この PC／共有 · N 体 · セーブ 時刻（入りきらない分は省略し、title に全文）][状態のスロット][読み込みを許可][設定 →]。
-   高さと状態のスロットの幅を固定し、1 分ごとの確認・20 秒ごとの読み直しで行も周りも動かない */
-.owned-source { display: flex; align-items: center; gap: 12px; height: 28px; margin: 0 0 6px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
-.owned-source-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* 状態のスロット。回る輪の場所はいつも残し、文は輪の右から左寄せで置く（文の長さが変わっても、輪・文の始まりも周りも動かない） */
-.owned-activity { flex: none; display: inline-flex; align-items: center; gap: 4px; width: 11em; overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; }
-.owned-activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.owned-activity-spinner { flex: none; visibility: hidden; }
-.owned-activity.is-busy { color: var(--md-sys-color-primary); }
-.owned-activity.is-busy .owned-activity-spinner { visibility: visible; }
-.owned-source .owned-source-grant { flex: none; min-height: 24px; padding: 0 10px; }
-/* 許可が要らないときも見えないまま場所を残す（許可が切れて出たときに文の幅が変わらない） */
-.owned-source-grant.is-placeholder { visibility: hidden; }
-.owned-source-settings { flex: none; }
-.route-owned > .owned-source { margin-bottom: 10px; }
-@media (prefers-reduced-motion: no-preference) {
-  .owned-activity.is-busy .owned-activity-spinner { animation: owned-spin 1s linear infinite; }
-}
-@keyframes owned-spin { to { transform: rotate(360deg); } }
+/* 案内の帯（対応が要るときだけ。案内がないときは入れ物 .owned-summary ごと隠す）。前は上にデータ元の 1 行（.owned-source。ワールド・
+   この PC／共有・体数・セーブの時刻・最終確認・設定 →）があったが、ヘッダーのセーブ連携の状態と重なるのでなくした（D29） */
 .owned-notices { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
 .owned-notice {
   padding: 8px 12px;

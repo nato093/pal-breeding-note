@@ -9,8 +9,6 @@ import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
 import { idealView, percent, eggsText } from '../../web/js/views/ideal.js';
 import { ownedRow, filterFromParams } from '../../web/js/views/owned.js';
-import { formatTime } from '../../web/js/ui/dom.js';
-import { dateTime } from '../../web/js/ui/owned-status.js';
 import { createIdealStore } from '../../web/js/ideals.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
@@ -144,8 +142,9 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
   const children = view.element.children;
-  // 並び: 見出し → パネル → データ元の 1 行 → 要約 → 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果（登録の行・登録した一覧の折りたたみはない）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'owned-source', 'result-note ideal-summary', 'ideal-missing-note', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  // 並び: 見出し → パネル → 要約 → 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果（登録の行・登録した一覧の折りたたみはない。
+  // データ元の 1 行は上のバーのセーブ連携の表示と重なるのでなくした。D29）
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'result-note ideal-summary', 'ideal-missing-note', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
   assert.equal(view.element.querySelector('.ideal-register'), null);
   const panel = view.element.querySelector('.ideal-panel');
@@ -1883,7 +1882,7 @@ test('理想個体画面: 要約は「上位 N 組（全 M 組・候補 K 体）
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
   body.append(view.element);
   const summary = view.element.querySelector('.ideal-summary');
-  // 「最終確認」は要約の行から外し、データ元の 1 行の状態のスロットに任せた（owned-status）
+  // 「最終確認」は要約の行から外した（owned-status。今は上のバーのセーブ連携の表示に任せる。D29）
   const [text, excluded] = summary.children;
   assert.deepEqual(summary.children.map((node) => node.className.split(' ')[0]), ['ideal-summary-text', 'ideal-excluded']);
   assert.equal(text.textContent, '上位 1 組（全 2 組・候補 3 体） · 同じ種族どうし');
@@ -1937,39 +1936,23 @@ test('理想個体画面: 所持者で絞っているときは要約の最後に
   view.destroy();
 });
 
-test('理想個体画面: 要約の上にデータ元の 1 行を出し、確認・読み込みの状態や最後に確かめた時刻が変わっても、その行の文だけを書き換えて結果は描き直さない', async (t) => {
+test('理想個体画面: データ元の 1 行は出さず（上のバーのセーブ連携の表示と重なるため。D29）、確認・読み込みの状態が変わっても結果は描き直さない', (t) => {
   installDom(t);
-  const start = new Date(2026, 9, 13, 12, 34, 50).getTime();
-  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: start });
   const owned = fakeOwned();
-  const saved = new Date(2026, 9, 13, 12, 30).toISOString();
-  Object.assign(owned.state, {
-    busy: false, activity: '', checkedAt: '', auto: { enabled: true, status: 'ready', worlds: [], worldId: '', error: '' },
-    meta: { worldId: 'W', worldName: 'テスト', hostName: 'Alice', source: 'local', saveUpdatedAt: saved, importedAt: saved },
-  });
+  Object.assign(owned.state, { busy: false, auto: { enabled: true, status: 'permission', worlds: [], worldId: '', error: 'セーブを読むには許可が必要です' } });
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
-  const line = view.element.querySelector('.owned-source');
-  const children = view.element.children;
-  assert.equal(children[children.indexOf(line) + 1], view.element.querySelector('.ideal-summary'));
-  assert.equal(line.querySelector('.owned-source-text').textContent, `「テスト」（ホスト Alice） · この PC · 5 体 · セーブ ${dateTime(saved)}`);
-  // 「最終確認」は要約の行ではなく、この行の状態のスロットに出す（確かめる前は「—」）
+  assert.equal(view.element.querySelector('.owned-source'), null);
+  // 許可が切れても画面に「読み込みを許可」は出さない（上のバーのセーブ連携の表示を押すと許可を求める）
+  assert.equal(view.element.querySelectorAll('button').filter((node) => node.textContent === '読み込みを許可').length, 0);
   assert.equal(view.element.querySelector('.ideal-checked'), null);
-  const label = line.querySelector('.owned-activity-text');
-  assert.equal(label.textContent, '最終確認 —');
   const [card] = cards(view);
   const text = view.element.querySelector('.ideal-summary-text');
   const before = text.textContent;
-  // 1 分ごとの確認の途中
-  Object.assign(owned.state, { busy: true, activity: 'checking', auto: { ...owned.state.auto, status: 'checking' } });
+  // 1 分ごとの確認の途中と、確かめ終えたとき
+  Object.assign(owned.state, { busy: true, auto: { ...owned.state.auto, status: 'checking' } });
   owned.emit();
-  assert.equal(label.textContent, '確認中…');
-  // 確かめ終えた（41 秒後。分が変わる）
-  t.mock.timers.tick(41 * 1000);
-  Object.assign(owned.state, { busy: false, activity: '', checkedAt: new Date(start + 41 * 1000).toISOString(), auto: { ...owned.state.auto, status: 'ready' } });
+  Object.assign(owned.state, { busy: false, auto: { ...owned.state.auto, status: 'ready', error: '' } });
   owned.emit();
-  assert.notEqual(formatTime(start + 41 * 1000), formatTime(start));
-  assert.equal(label.textContent, `最終確認 ${formatTime(start + 41 * 1000)}`);
-  assert.equal(view.element.querySelector('.owned-source'), line);
   assert.equal(cards(view)[0], card);
   assert.equal(view.element.querySelector('.ideal-summary-text'), text);
   assert.equal(text.textContent, before);
