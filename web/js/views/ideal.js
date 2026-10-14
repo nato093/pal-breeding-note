@@ -17,7 +17,10 @@ import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, 
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
-import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing, holderChoices, fieldHead, panelItem, panelLine } from './shared.js';
+import {
+  viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing,
+  holderChoices, holderValue, HOLDER_DEFAULT, fieldHead, panelItem, panelLine,
+} from './shared.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
@@ -34,8 +37,8 @@ const targetValue = (value) => intIn(value, { min: 0, max: 100, fallback: 100 })
  * 合わない項目は既定の値に戻す。登録する名前・配合牧場の基準（planBaselines）は保存しない
  */
 export const IDEAL_MEMORY = {
-  // 所持者: すべて・自分の個体（mine）・プレイヤー（player:<uid>）
-  holder: (value) => (typeof value === 'string' && value.length <= 48 && (value === '' || value === 'mine' || /^player:\S/.test(value)) ? value : ''),
+  // 所持者: すべて（''）・自分（mine。既定）・プレイヤー（player:<uid>）。無い・形の合わない値は既定の自分（D29。前は「すべて」）
+  holder: (value) => (typeof value === 'string' && value.length <= 48 && (value === '' || value === 'mine' || /^player:\S/.test(value)) ? value : HOLDER_DEFAULT),
   mode: (value) => oneOf(value, PASSIVE_MODES.map(([key]) => key), 'include'),
   targets: (value) => cleanSaved(value, Object.fromEntries(TALENT_KEYS.map((key) => [key, targetValue]))),
   cake: (value) => oneOf(value, CAKES.map(([key]) => key), 'none'),
@@ -299,8 +302,9 @@ export function idealView(context, route) {
   const element = el('section', 'view ideal-view');
   // 画面の中の条件は、タブを切り替えても残す。読み込み直しても、同じタブ（sessionStorage）の間は残る（app.js が戻す）
   const memory = context.viewState?.('ideal');
-  const conditions = memory?.conditions ?? { holder: '', mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
-  conditions.holder ??= '';
+  // 所持者の既定は自分（D29）。自分のプレイヤーが分からないときは「すべて」として計算する（holderNow）
+  const conditions = memory?.conditions ?? { holder: HOLDER_DEFAULT, mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none' };
+  conditions.holder ??= HOLDER_DEFAULT;
   if (memory) memory.conditions = conditions;
   const ideals = context.ideals;
   // 入力の間引きの待ち時間（テストの context は 0 にして同期で確かめる）
@@ -346,8 +350,12 @@ export function idealView(context, route) {
     debounce: inputDelay,
     onChange: (value) => { conditions.targets = { ...value }; renderResults(); },
   });
-  // 親にする個体の所持者（すべて／自分の個体／各プレイヤー）。プレイヤーの個体は、所持者がそのプレイヤーの個体と、
-  // そのプレイヤーが預けた拠点のパル（core/ideal-goals.js の palsOfPlayers）。自分の個体は登録者の対応か同じ名前で決める
+  // 親にする個体の所持者（すべて／自分のプレイヤー名〔既定〕／ほかのプレイヤー）。プレイヤーの個体は、所持者がそのプレイヤーの個体と、
+  // そのプレイヤーが預けた拠点のパル（core/ideal-goals.js の palsOfPlayers）。自分は登録者の対応か同じ名前で決める（分からなければ「すべて」）
+  const holderNow = () => holderValue(conditions.holder, ideals);
+  // 選択肢を作ったときの自分のプレイヤー（後から分かった・変わったら描き直す。下の store の購読）
+  const selfKey = () => [...(ideals?.selfUids?.() ?? [])].join(',');
+  let shownSelf = null;
   const holderSelect = el('select');
   holderSelect.addEventListener('change', () => {
     conditions.holder = holderSelect.value;
@@ -359,14 +367,16 @@ export function idealView(context, route) {
   let syncingHolders = false;
   function renderHolders() {
     const choices = holderChoices(owned?.state?.owned, ideals);
+    shownSelf = selfKey();
     syncingHolders = true;
     try {
       syncOptions(holderSelect, choices, () => {
-        // 選択肢にない所持者は選ばない（読み込む前は選択肢がそろっていないので、選んでいた値を消さずに残す）
-        const valid = [...holderSelect.children].some((node) => node.value === conditions.holder);
+        // 選択肢にない所持者は選ばず、既定（自分。分からなければ「すべて」）に戻す（読み込む前は選択肢がそろっていないので、選んでいた値を
+        // 消さずに残す）
+        const valid = [...holderSelect.children].some((node) => node.value === holderNow());
         const latest = owned?.state?.owned;
-        if (!valid && latest && conditions.holder) {
-          conditions.holder = '';
+        if (!valid && latest) {
+          conditions.holder = HOLDER_DEFAULT;
           // フォーカス中で待っていた作り直し（blur の後）で外したときは、パッシブの数と結果も計算し直す
           //（renderHolders の中からのときは、呼んだ側がこの後で描く）
           if (!syncingHolders) {
@@ -374,7 +384,7 @@ export function idealView(context, route) {
             renderResults();
           }
         }
-        holderSelect.value = valid ? conditions.holder : '';
+        holderSelect.value = holderNow();
       });
     } finally {
       syncingHolders = false;
@@ -383,9 +393,10 @@ export function idealView(context, route) {
   // 選んだ所持者の個体だけ（すべてのときはそのまま。自分のプレイヤーが分からないときは空）
   function ofHolder(pals) {
     const data = owned?.state?.owned;
-    if (!conditions.holder || !data) return pals;
-    const allowed = conditions.holder === 'mine' ? ideals?.mine() ?? []
-      : palsOfPlayers(data, new Set([conditions.holder.replace(/^player:/, '')]));
+    const holder = holderNow();
+    if (!holder || !data) return pals;
+    const allowed = holder === 'mine' ? ideals?.mine() ?? []
+      : palsOfPlayers(data, new Set([holder.slice('player:'.length)]));
     const ids = new Set((allowed ?? []).map((pal) => pal.id));
     return pals.filter((pal) => ids.has(pal.id));
   }
@@ -412,7 +423,7 @@ export function idealView(context, route) {
     const text = result && to ? `所持 ♂${result.sameSpecies.M} ♀${result.sameSpecies.F}${passives.length
       ? ` · 全部持つ ♂${result.complete.M} ♀${result.complete.F}` : ''}` : '—';
     if (holding.textContent !== text) holding.textContent = text;
-    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(','), holder: conditions.holder, place: HOLDING_PLACES }));
+    if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(','), holder: holderNow(), place: HOLDING_PLACES }));
     else holding.removeAttribute('href');
   }
 
@@ -656,9 +667,8 @@ export function idealView(context, route) {
 
   function noPairs(result) {
     const lines = [];
-    if (conditions.holder === 'mine' && ideals?.mine() === null) {
-      lines.push('セーブのどのプレイヤーが自分か分かりません。設定タブの「登録者の対応」で選ぶか、所持者を「すべて」にしてください。');
-    } else if (!result.candidates) lines.push(`${palName(to)}の ♂ と ♀（または登録済みの配合で${palName(to)}が産まれる親の組）を所持していません。`);
+    // 自分のプレイヤーが分からないときの自分（既定）は「すべて」で計算するので、「自分か分かりません」の文はなくした（D29）
+    if (!result.candidates) lines.push(`${palName(to)}の ♂ と ♀（または登録済みの配合で${palName(to)}が産まれる親の組）を所持していません。`);
     else if (result.blocked) {
       lines.push(conditions.cake === 'special' && conditions.mode === 'only' && passives.length < 4
         ? 'スペシャルケーキでは、欲しいパッシブが 4 個未満だと「欲しいものだけ」の子は産まれません。'
@@ -966,7 +976,10 @@ export function idealView(context, route) {
     }, FLASH_MS) };
   }
 
-  const holderName = () => (conditions.holder ? [...holderSelect.children].find((node) => node.value === conditions.holder)?.textContent ?? '' : '');
+  const holderName = () => {
+    const holder = holderNow();
+    return holder ? [...holderSelect.children].find((node) => node.value === holder)?.textContent ?? '' : '';
+  };
   // 要約の文:「上位 N 組（全 M 組・候補 K 体） · 登録済みの配合 n 件（なければ 同じ種族どうし） · Alice の個体」
   function summaryLine(result) {
     // 同じ種族どうしのレコードは規則と重なるので、異種の配合だけを数える
@@ -977,7 +990,8 @@ export function idealView(context, route) {
       // 組が 0 のときは「組なし（候補 N 体）」（D27。前は「上位 0 組（全 0 組・候補 N 体）」）
       result.total ? `上位 ${result.pairs.length} 組（全 ${result.total} 組・候補 ${result.candidates} 体）` : `組なし（候補 ${result.candidates} 体）`,
       records.size ? `登録済みの配合 ${records.size} 件` : '同じ種族どうし',
-      !holder ? '' : conditions.holder === 'mine' ? holder : `${holder} の個体`,
+      // 自分も選択肢の名前（「Alice（自分）」。D29 で前の「自分の個体」の選択肢をなくした）なので、どの所持者も「◯◯ の個体」
+      holder ? `${holder} の個体` : '',
     ].filter(Boolean).join(' · ');
   }
   // 要約の行の文と除外のボタン（結果がないときは空。子は作り直さない）
@@ -1098,17 +1112,18 @@ export function idealView(context, route) {
     const placedFarms = Array.isArray(farms) ? targetFarms(farms, candidates.filter(isParentCandidate), layouts) : [];
     const signature = farmSignature(placedFarms);
     const memoryId = JSON.stringify([state.env ?? '', owned?.state?.meta?.worldId ?? '', to, [...passives].sort(), conditions.mode,
-      TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, conditions.holder]);
+      TALENT_KEYS.map((key) => conditions.targets[key]), conditions.cake, holderNow()]);
     const baseline = Array.isArray(farms) ? planMemory.get(memoryId) : null;
     const placedKeys = new Set(placedFarms.map((farm) => planPairKey(farm.male, farm.female)));
     // 物差しが同じ組どうしでは、今の牧場の組と前の基準の上位を先にする（値の小さな差で交換推奨や「変更あり」が出ないように）
     const prefer = { placed: placedKeys, baseline: new Set(baseline?.farms === signature ? baseline.pairs.slice(0, placedFarms.length) : []) };
     // 計算の署名: 配合の index・候補の個体の計算に効く値・実効の条件・本人・牧場の署名・優先する組。
     // prefer は並びを変えるので、入れないと、別のタブが基準を書き換えたときなどに古い並びが残る
-    const self = conditions.holder === 'mine' ? (ideals?.mine()?.map((pal) => pal.id).join(',') ?? 'unknown') : '';
+    const holder = holderNow();
+    const self = holder === 'mine' ? (ideals?.mine()?.map((pal) => pal.id).join(',') ?? 'unknown') : '';
     const species = new Set(layouts.flatMap((layout) => [layout.male, layout.female]));
     const key = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
-      conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, conditions.holder, self, signature,
+      conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, holder, self, signature,
       [...prefer.placed].sort(), [...prefer.baseline].sort()])}\u0003${candidateSignature(candidates, species)}`;
     // 同じ計算をしている途中（計算に効かない値だけが変わった）。終わって描くときに、新しいデータの個体に入れ替える
     if (job?.key === key) return;
@@ -1129,7 +1144,7 @@ export function idealView(context, route) {
     const short = TALENT_KEYS.filter((name) => conditions.targets[name] > 0 && !parents.some((pal) => pal.talent[name] >= reach(name)))
       .map((name) => `${TALENT_LABELS[name]} ${reach(name)} 以上`);
     const plan = {
-      placedFarms, signature, memoryId, baseline, farms, layouts, holder: conditions.holder, cake: conditions.cake, data: owned.state.owned,
+      placedFarms, signature, memoryId, baseline, farms, layouts, holder, cake: conditions.cake, data: owned.state.owned,
       highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short,
     };
     const steps = idealPlanSteps({
@@ -1347,6 +1362,11 @@ export function idealView(context, route) {
     lastReady = ownedState.ready;
     update();
   });
+  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応で決まる）が後から分かった・変わったら、所持者の選択肢と結果を描き直す
+  //（既定の自分は、分かるまで「すべて」で計算している。記録の変更番号が変わらない更新でも気づくように、watchView とは別に見る）
+  const stopSelf = context.store.subscribe(() => {
+    if (!destroyed && selfKey() !== shownSelf) update();
+  });
   // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
   // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）
   owned.load().then(() => {
@@ -1355,6 +1375,6 @@ export function idealView(context, route) {
   const stopRefreshing = keepRefreshing(owned);
   return {
     element, update, applyRoute, flushInputs,
-    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); unsubscribeGoals(); view.destroy(); },
+    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); stopSelf(); unsubscribeGoals(); view.destroy(); },
   };
 }

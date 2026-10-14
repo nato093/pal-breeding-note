@@ -183,12 +183,12 @@ async function boot() {
     else Object.assign(state, cond);
     if (world && WORLD_VIEWS.includes(view)) conditionWorld = world;
   }
-  // 別のワールドに替わったら、所持者の条件を外す（そのワールドのプレイヤーとは限らない）
+  // 別のワールドに替わったら、プレイヤーを選んだ所持者の条件を既定（自分）に戻す（そのワールドのプレイヤーとは限らない）。
+  // 自分（mine）と「すべて」（''）はどのワールドでも同じ意味なので残す（D29 で所持者の既定を自分にした。前はどれも「すべて」に戻した）
   function forgetHolders() {
-    const ownedFilter = viewStates.get('owned')?.filter;
-    if (isObject(ownedFilter)) ownedFilter.holder = '';
-    const idealConditions = viewStates.get('ideal')?.conditions;
-    if (isObject(idealConditions)) idealConditions.holder = '';
+    for (const target of [viewStates.get('owned')?.filter, viewStates.get('ideal')?.conditions]) {
+      if (isObject(target) && typeof target.holder === 'string' && target.holder.startsWith('player:')) target.holder = 'mine';
+    }
   }
   const main = el('main', 'app-main');
   main.id = 'main';

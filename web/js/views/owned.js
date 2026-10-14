@@ -10,7 +10,10 @@ import { createPopover } from '../ui/popover.js';
 import { ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, fieldHead, panelItem, panelLine } from './shared.js';
+import {
+  viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
+  fieldHead, panelItem, panelLine,
+} from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import {
@@ -58,8 +61,9 @@ const placeList = (value) => list(value, { max: PLACE_ORDER.length, map: (group)
  * ここで受けて読み替える。今の形の保存には書かない＝無ければ undefined）
  */
 export const OWNED_MEMORY = {
-  // 所持者: すべて・自分の個体（mine）・プレイヤー（player:<uid>）。拠点（base:<id>）・グローバルパルボックス（global）は前の形
-  holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'mine' || value === 'global' || /^(player|base):\S/.test(value)) ? value : ''),
+  // 所持者: すべて（''）・自分（mine。既定）・プレイヤー（player:<uid>）。拠点（base:<id>）・グローバルパルボックス（global）は前の形。
+  // 無い・形の合わない値は既定の自分（D29。前は「すべて」）
+  holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'mine' || value === 'global' || /^(player|base):\S/.test(value)) ? value : HOLDER_DEFAULT),
   // 選んだ場所のグループ（PLACE_ORDER の値）。無い（前の形の保存）ときは undefined で、migrateFilter が place・eggs・globals から作る
   places: (value) => (Array.isArray(value) ? placeList(value) : undefined),
   // 拠点の ID（D29 より前の形。拠点ごとの絞り込みはなくした）。読み戻して migrateFilter に渡すだけ（場所を拠点とタマゴの中にする）。
@@ -134,7 +138,8 @@ const commaList = (value) => (value ?? '').split(',').filter(Boolean);
 /**
  * URL の絞り込み（holder・place〔カンマ区切り。前の 1 つの形も同じ〕・base〔前の形〕・el・pal・p・pm・q・stars・hp・at・df）を、
  * 確かめてから今の形にする（未知の場所・属性・パル、範囲の外の数、長すぎる文字は捨てる）。絞り込みの名前が 1 つも無ければ null。
- * URL に無い条件は既定（リンクが条件のすべてを決める）。前の形の所持者（base:・global）と拠点（base）は migrateFilter で読み替える
+ * URL に無い条件は既定（リンクが条件のすべてを決める）。ただし所持者が無いときは「すべて」（D29 で所持者の既定を自分にしたが、前に写した
+ * リンク・場所の分からないパルの「見る」の意味を変えない）。前の形の所持者（base:・global）と拠点（base）は migrateFilter で読み替える
  */
 export function filterFromParams(params) {
   if (!FILTER_PARAMS.some((key) => params.has(key))) return null;
@@ -714,9 +719,10 @@ export function ownedView(context, route) {
   // パッシブの条件（全部持つ／だけ／なし）
   const modeChoice = segmented({ label: 'パッシブの条件', choices: PASSIVE_MODES, value: filter.passiveMode,
     onChange: (value) => { filter.passiveMode = value; changed(); } });
-  // 所持者（すべて／自分の個体／プレイヤー）。意味は理想個体と同じ（そのプレイヤーが預けた拠点のパル・ホストならグローバルパルボックスも含む）。
-  // 選択肢が 12 件を超えたら検索つきの選択にする
-  const holderSelect = searchSelect({ label: '所持者', options: [['', 'すべて']], value: filter.holder,
+  // 所持者（すべて／自分のプレイヤー名〔既定〕／ほかのプレイヤー）。意味は理想個体と同じ（そのプレイヤーが預けた拠点のパル・ホストなら
+  // グローバルパルボックスも含む）。選択肢が 12 件を超えたら検索つきの選択にする。選択肢の値は holderNow（自分が分からなければ mine は「すべて」）
+  const holderNow = () => holderValue(filter.holder, context.ideals);
+  const holderSelect = searchSelect({ label: '所持者', options: [['', 'すべて']], value: holderNow(),
     onChange: (value) => { filter.holder = value; changed(); } });
 
   // 場所のチップ（複数選択。0 体の場所は出さない）。件数は出さない（D29「場所の選択肢にパルの数が書かれているが、これも不要」）。
@@ -950,7 +956,7 @@ export function ownedView(context, route) {
     syncPicker(picker, filter.palId);
     modeChoice.update(filter.passiveMode);
     showSort();
-    holderSelect.update({ value: filter.holder });
+    holderSelect.update({ value: holderNow() });
     renderPlaces(owned.state);
     renderElements();
   }
@@ -1012,20 +1018,17 @@ export function ownedView(context, route) {
     return stats;
   }
   // 所持者で許す個体の ID の Set（理想個体と同じ意味）。データ・所持者・自分のプレイヤーが変わったときだけ作り直す。
-  // （フェーズ 1d の participant-self は「自分」が変わったときに holderIds を null にしてから描き直す）
+  // 自分のプレイヤーが分からないときの自分（既定）は「すべて」（holderValue）なので、0 件にはしない（D29。前は「自分のプレイヤーが分かりません」で 0 件）
+  const selfKey = () => [...(context.ideals?.selfUids?.() ?? [])].join(',');
   let holderIds = null;
   function allowedIds(data) {
-    if (!filter.holder || !data) return { ids: null, unknown: false };
-    const self = filter.holder === 'mine' ? [...(context.ideals?.selfUids?.() ?? [])].join(',') : '';
-    if (holderIds?.data === data && holderIds.holder === filter.holder && holderIds.self === self) return holderIds;
-    let pals;
-    let unknown = false;
-    if (filter.holder === 'mine') {
-      pals = context.ideals?.mine?.() ?? null;
-      unknown = pals === null;
-    } else pals = palsOfPlayers(data, new Set([filter.holder.replace(/^player:/, '')]));
-    holderIds = { data, holder: filter.holder, self, ids: new Set((pals ?? []).map((pal) => pal.id)), unknown };
-    return holderIds;
+    const holder = holderNow();
+    if (!holder || !data) return null;
+    const self = holder === 'mine' ? selfKey() : '';
+    if (holderIds?.data === data && holderIds.holder === holder && holderIds.self === self) return holderIds.ids;
+    const pals = holder === 'mine' ? context.ideals?.mine?.() : palsOfPlayers(data, new Set([holder.slice('player:'.length)]));
+    holderIds = { data, holder, self, ids: new Set((pals ?? []).map((pal) => pal.id)) };
+    return holderIds.ids;
   }
 
   // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。
@@ -1033,17 +1036,20 @@ export function ownedView(context, route) {
   // 一覧とパッシブの数も数え直す（renderFilters の中からのときは、呼んだ側がこの後で描く）
   let syncingFilters = false;
   let holderOptions = [['', 'すべて']];
+  // 選択肢を作ったときの自分のプレイヤー（ログインの ID・ユーザーの一覧が後から届いて変わったら、選択肢と一覧を描き直す）
+  let shownSelf = null;
   function renderHolders(state) {
     // 所持者の選択肢（理想個体と同じ名前。views/shared.js）
     const choices = holderChoices(state.owned, context.ideals);
     holderOptions = choices;
+    shownSelf = selfKey();
     renderWhenIdle(holderSelect.element, () => {
-      const valid = choices.some(([value]) => value === filter.holder);
-      if (!valid && owned.state.owned && filter.holder) {
-        filter.holder = '';
+      // 選んでいたプレイヤーがいなくなったら既定（自分。分からなければ「すべて」）に戻す
+      if (!choices.some(([value]) => value === holderNow()) && owned.state.owned) {
+        filter.holder = HOLDER_DEFAULT;
         if (!syncingFilters) renderResults();
       }
-      holderSelect.update({ options: choices, value: valid ? filter.holder : '' });
+      holderSelect.update({ options: choices, value: holderNow() });
     });
   }
   function renderPlaces(state) {
@@ -1079,9 +1085,11 @@ export function ownedView(context, route) {
   function activeConditions(state) {
     const items = [];
     const add = (key, text, clear) => items.push({ key, text, clear });
-    if (filter.holder) {
-      const name = holderOptions.find(([value]) => value === filter.holder)?.[1] ?? filter.holder.replace(/^player:/, '');
-      add('holder', `所持者: ${name}`, () => { filter.holder = ''; });
+    // 所持者は既定（自分。分からなければ「すべて」）と違うときだけ。「すべて」も既定と違えば出す（× で既定に戻す）
+    const holder = holderNow();
+    if (holder !== holderValue(HOLDER_DEFAULT, context.ideals)) {
+      const name = holderOptions.find(([value]) => value === holder)?.[1] ?? holder.replace(/^player:/, '');
+      add('holder', `所持者: ${name}`, () => { filter.holder = HOLDER_DEFAULT; });
     }
     if (!sameList(filter.places, DEFAULT_PLACES)) add('places', `場所: ${placesText()}`, () => { filter.places = [...DEFAULT_PLACES]; });
     if (filter.elements.length) add('elements', `属性: ${filter.elements.map((key) => ELEMENTS[key]).join('・')}`, () => { filter.elements = []; });
@@ -1228,14 +1236,14 @@ export function ownedView(context, route) {
     routeLink.hidden = !carry;
     if (carry) routeLink.href = buildHash('route', { p: filter.passives.join(',') });
   }
-  // 件数の行: 「N / M 体 · ♂a ♀b タマゴ c」。グローバルパルボックスを外していて数があれば title に。自分のプレイヤーが分からなければその旨
-  function renderCount(state, shown, totals, holder) {
+  // 件数の行: 「N / M 体 · ♂a ♀b タマゴ c」。グローバルパルボックスを外していて数があれば title に
+  function renderCount(state, shown, totals) {
     if (!state.owned) {
       count.textContent = '';
       count.title = '';
       return;
     }
-    const detail = holder.unknown ? '自分のプレイヤーが分かりません' : `♂${totals.M} ♀${totals.F}${totals.eggs ? ` タマゴ ${totals.eggs}` : ''}`;
+    const detail = `♂${totals.M} ♀${totals.F}${totals.eggs ? ` タマゴ ${totals.eggs}` : ''}`;
     const text = `${shown} / ${state.owned.pals.length} 体 · ${detail}`;
     // 出ている数を太く、内訳は薄く（結果の行だと一目で分かるように。D28）。文は前と同じ
     if (count.textContent !== text) {
@@ -1289,7 +1297,8 @@ export function ownedView(context, route) {
   async function copyLink() {
     flushInputs();
     const seq = ++copySeq;
-    const url = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams(filter))}`;
+    // 所持者は画面で選んでいる値（自分が分からないときの自分は「すべて」として渡す）
+    const url = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams({ ...filter, holder: holderNow() }))}`;
     linkUrl = url;
     let copied = false;
     try {
@@ -1410,10 +1419,9 @@ export function ownedView(context, route) {
     renderResults({ keepPosition: true });
   }) ?? (() => {});
   // 0 件のとき。中の「条件をすべて解除」は今の条件を読む（syncList は同じ文の空の表示を作り直さない）
-  let emptyText = '条件に合うパルはいません。';
   const rowOptions = {
     key: (pal) => pal.id, create: listRow,
-    empty: () => empty(emptyText, button('条件をすべて解除', () => resetAll(), 'button secondary')),
+    empty: () => empty('条件に合うパルはいません。', button('条件をすべて解除', () => resetAll(), 'button secondary')),
   };
   // 描画の仕事の番号（条件の変更・データの更新・画面の破棄で古い仕事を止める）
   let jobSeq = 0;
@@ -1437,7 +1445,7 @@ export function ownedView(context, route) {
     renderLinks();
     const none = filter.passiveMode === 'none';
     if (!state.owned) {
-      renderCount(state, 0, null, { unknown: false });
+      renderCount(state, 0, null);
       shownCount = 0;
       head.hidden = true;
       results.classList.toggle('is-empty', true);
@@ -1448,13 +1456,13 @@ export function ownedView(context, route) {
       results.append(empty(state.ready ? '表示できる所持パルがありません。' : '読み込み中…'));
       return;
     }
-    const holder = allowedIds(state.owned);
+    const ids = allowedIds(state.owned);
     // 目標の印（表示がオンのときだけ。印の文字もキーワードで探す）
     const markMap = marksOf(state.owned);
     marksToggle.hidden = !marks.count;
     shownMarks = marksCheck.checked && marks.count ? markMap : null;
     marksStamp = shownMarks ? `on:${marksVersion}` : 'off';
-    const matched = filterOwned(state.owned.pals, { ...filter, ids: holder.ids, extraTexts: shownMarks });
+    const matched = filterOwned(state.owned.pals, { ...filter, ids, extraTexts: shownMarks });
     const totals = totalsOf(matched);
     passive.update({ selected: filter.passives, counts: totals.counts, disabled: none });
     const list = sortOwned(matched, filter.sort, filter.dir);
@@ -1467,10 +1475,7 @@ export function ownedView(context, route) {
     // 空の表示だけのときは帯を敷かない（CSS の .owned-list.is-empty。:has() は行の出し入れのたびに全体を計算し直させるので使わない）
     results.classList.toggle('is-empty', !list.length);
     head.hidden = !list.length;
-    renderCount(state, list.length, totals, holder);
-    emptyText = holder.unknown
-      ? '自分のプレイヤーが分からないため、自分の個体で絞れません（所持者を「すべて」にすると全員の個体が出ます）。'
-      : '条件に合うパルはいません。';
+    renderCount(state, list.length, totals);
     shownCount = list.length;
     // 見ていた行を同じ位置に戻す: データの更新のときと、行の高さが変わる（下の段の出し入れ）のに一覧の先頭が固定の部分の下に隠れているとき
     //（上の行の高さが変わって、見ていた行が動く。条件を変えたときは、この後で一覧の先頭を見せるので戻さない）。高さを変える前に覚える
@@ -1567,6 +1572,13 @@ export function ownedView(context, route) {
   }
 
   const unsubscribe = owned.subscribe(update);
+  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応で決まる）が後から分かった・変わったら、所持者の選択肢と一覧を描き直す
+  //（既定の自分は、分かるまで「すべて」として描いている）
+  const stopSelf = context.store?.subscribe?.(() => {
+    if (destroyed || selfKey() === shownSelf) return;
+    renderFilters(owned.state);
+    renderResults({ keepPosition: true });
+  }) ?? (() => {});
   renderedOwned = owned.state.owned;
   renderedReady = owned.state.ready;
   renderSummary(owned.state);
@@ -1594,6 +1606,7 @@ export function ownedView(context, route) {
     destroy() {
       destroyed = true;
       stopRefreshing();
+      stopSelf();
       stopGoals();
       stopTracking();
       chipObserver?.disconnect();

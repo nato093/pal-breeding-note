@@ -1337,6 +1337,8 @@ test('所持パル画面: URL のパッシブと保存した条件のパッシ�
   assert.match(view.element.querySelector('.picker-status').textContent, /あと 3 個まで選べます/);
   view.destroy();
   assert.deepEqual(cleanSaved({ passives: ['Rare', '知らないパッシブ', 'Rare', 'Unknown_Passive_X', 7, 'Legend'] }, OWNED_MEMORY).passives, ['Rare', 'Unknown_Passive_X', 'Legend']);
+  // 所持者: 無い・形の合わない値は既定の自分（mine）、「すべて」（''）はそのまま
+  assert.deepEqual([undefined, '', 'mine', 7, 'xxx'].map((holder) => cleanSaved({ holder }, OWNED_MEMORY).holder), ['mine', '', 'mine', 'mine', 'mine']);
 });
 
 test('継承ルート: URL のパッシブは重複と内部名の形でない値を除き、マスターにまだ無い内部名は残す', (t) => {
@@ -1434,25 +1436,78 @@ test('所持パル画面: 所持者は理想個体と同じ意味（そのプレ
   view.destroy();
 });
 
-test('所持パル画面: 「自分の個体」は理想個体と同じ自分の個体で、自分のプレイヤーは「（自分）」を付けて先頭に。分からなければ件数の行に出して 0 件', async (t) => {
+test('所持パル画面: 所持者の選択肢は「すべて・自分のプレイヤー名（自分）・ほかのプレイヤー」で、覚えている条件がなければ自分（D29。前は「自分の個体」と自分のプレイヤーが別に並び、既定は「すべて」）', async (t) => {
   installDom(t);
   const owned = fakeOwned(holderData());
+  // 自分は Bob（理想個体と同じ自分の個体: ideals.mine()）
   const ideals = { mine: () => palsOfPlayers(owned.state.owned, new Set([P2])), selfUids: () => new Set([P2]) };
-  const view = ownedView({ ...context(owned), ideals }, parseHash('#/owned'));
-  assert.deepEqual(holderSelect(view).children.map((node) => [node.value, node.textContent]), [['', 'すべて'], ['mine', '自分の個体'], [`player:${P2}`, 'Bob（自分）'], [`player:${P1}`, 'Alice']]);
-  holderSelect(view).value = 'mine';
-  await holderSelect(view).dispatch('change');
+  const states = new Map();
+  const view = ownedView({ ...memoryApp(owned, states), ideals }, parseHash('#/owned'));
+  document.body.append(view.element);
+  assert.deepEqual(holderSelect(view).children.map((node) => [node.value, node.textContent]), [['', 'すべて'], ['mine', 'Bob（自分）'], [`player:${P1}`, 'Alice']]);
+  assert.equal(holderSelect(view).value, 'mine');
   assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);
-  assert.deepEqual(filterChips(view), ['所持者: 自分の個体']);
+  assert.equal(states.get('owned').filter.holder, 'mine');
+  // 既定なので条件のチップは出さない
+  assert.deepEqual(filterChips(view), []);
+  // 「すべて」は既定と違うので条件のチップに出し、× で既定（自分）に戻す
+  holderSelect(view).value = '';
+  await holderSelect(view).dispatch('change');
+  assert.equal(rowIds(view).length, 5);
+  assert.deepEqual(filterChips(view), ['所持者: すべて']);
+  await view.element.querySelector('.filter-chips').querySelector('.filter-chip').dispatch('click');
+  assert.equal(holderSelect(view).value, 'mine');
+  assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);
+  // ほかのプレイヤーを選んで「すべて解除」しても自分に戻す
+  holderSelect(view).value = `player:${P1}`;
+  await holderSelect(view).dispatch('change');
+  assert.deepEqual(filterChips(view), ['所持者: Alice']);
+  await button(view, 'すべて解除').dispatch('click');
+  assert.equal(holderSelect(view).value, 'mine');
   view.destroy();
-  // 自分のプレイヤーが分からない（mine() が null）
-  const unknown = ownedView({ ...context(fakeOwned(holderData())), ideals: { mine: () => null, selfUids: () => new Set() } }, parseHash('#/owned'));
-  holderSelect(unknown).value = 'mine';
-  await holderSelect(unknown).dispatch('change');
-  assert.equal(rowIds(unknown).length, 0);
-  assert.match(unknown.element.querySelector('.result-note').textContent, /^0 \/ 6 体 · 自分のプレイヤーが分かりません/);
-  assert.match(unknown.element.querySelector('.owned-list').textContent, /自分のプレイヤーが分からない/);
-  unknown.destroy();
+  // 前の保存・URL の自分の player:<uid> と mine は、どちらも自分の選択肢として読む（自分の UID が複数でも、自分の選択肢は 1 つ）
+  for (const hash of [`#/owned?holder=player:${P2}`, '#/owned?holder=mine']) {
+    const opened = ownedView({ ...context(owned), ideals }, parseHash(hash));
+    assert.equal(holderSelect(opened).value, 'mine', hash);
+    assert.deepEqual(rowIds(opened), ['ペンタマ', 'キツネビ'], hash);
+    assert.deepEqual(filterChips(opened), [], hash);
+    opened.destroy();
+  }
+  // 絞り込みの名前のある URL で所持者がないときは、前と同じ「すべて」（前に写したリンク・場所の分からないパルの「見る」の意味を変えない）
+  const linked = ownedView({ ...context(owned), ideals }, parseHash('#/owned?place=palbox,base'));
+  assert.equal(holderSelect(linked).value, '');
+  assert.deepEqual(filterChips(linked), ['所持者: すべて', '場所: パルボックス・拠点']);
+  linked.destroy();
+});
+
+test('所持パル画面: 自分のプレイヤーが分からない（参加している人で「自分」が未設定など）ときは「すべて」にし、自分の選択肢は出さない（0 件にしない。D29）', async (t) => {
+  installDom(t);
+  const ideals = { mine: () => null, selfUids: () => new Set() };
+  const view = ownedView({ ...context(fakeOwned(holderData())), ideals }, parseHash('#/owned'));
+  assert.deepEqual(holderSelect(view).children.map((node) => [node.value, node.textContent]), [['', 'すべて'], [`player:${P1}`, 'Alice'], [`player:${P2}`, 'Bob']]);
+  assert.equal(holderSelect(view).value, '');
+  assert.equal(rowIds(view).length, 5);
+  assert.deepEqual(filterChips(view), []);
+  assert.doesNotMatch(view.element.querySelector('.result-note').textContent, /分かりません/);
+  view.destroy();
+});
+
+test('所持パル画面: 自分のプレイヤーが後から分かったら（ログインの ID・ユーザーの一覧が届いた）、所持者の選択肢と一覧を描き直す', async (t) => {
+  installDom(t);
+  const owned = fakeOwned(holderData());
+  let self = new Set();
+  const ideals = { mine: () => (self.size ? palsOfPlayers(owned.state.owned, self) : null), selfUids: () => self };
+  const listeners = new Set();
+  const app = context(owned);
+  app.store.subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+  const view = ownedView({ ...app, ideals }, parseHash('#/owned'));
+  assert.equal(rowIds(view).length, 5);
+  self = new Set([P2]);
+  for (const listener of listeners) listener(app.store.state);
+  assert.equal(holderSelect(view).value, 'mine');
+  assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);
+  view.destroy();
+  assert.equal(listeners.size, 0);
 });
 
 test('所持パル画面: 同じ名前のプレイヤーが 2 人以上いれば、所持者の名前に UID の頭 8 字を添える', (t) => {
@@ -1661,17 +1716,18 @@ test('所持パル画面: 古い保存の条件（タマゴ・グローバルの
   assert.deepEqual(pick(migrateFilter({ holder: `base:${B1}`, eggs: false })), { holder: '', places: ['base'], bases: false });
   assert.deepEqual(pick(migrateFilter({ holder: 'global', globals: true })), { holder: '', places: ['global'], bases: false });
   // D29 より前の保存の拠点（bases）は、場所を拠点とタマゴの中だけにする（選んでいた場所に拠点・タマゴがなければ「拠点＋タマゴ」）
-  assert.deepEqual(pick(migrateFilter({ places: DEFAULT_PLACES, bases: [B1] })), { holder: '', places: ['base', 'egg'], bases: false });
-  assert.deepEqual(pick(migrateFilter({ places: ['palbox', 'base'], bases: [B1] })), { holder: '', places: ['base'], bases: false });
-  assert.deepEqual(pick(migrateFilter({ places: ['palbox'], bases: [B1] })), { holder: '', places: ['base', 'egg'], bases: false });
-  assert.deepEqual(pick(migrateFilter({ places: ['palbox'], bases: [] })), { holder: '', places: ['palbox'], bases: false });
+  assert.deepEqual(pick(migrateFilter({ places: DEFAULT_PLACES, bases: [B1] })), { holder: 'mine', places: ['base', 'egg'], bases: false });
+  assert.deepEqual(pick(migrateFilter({ places: ['palbox', 'base'], bases: [B1] })), { holder: 'mine', places: ['base'], bases: false });
+  assert.deepEqual(pick(migrateFilter({ places: ['palbox'], bases: [B1] })), { holder: 'mine', places: ['base', 'egg'], bases: false });
+  assert.deepEqual(pick(migrateFilter({ places: ['palbox'], bases: [] })), { holder: 'mine', places: ['palbox'], bases: false });
   assert.equal(migrateFilter({ holder: `player:${P1}` }).holder, `player:${P1}`);
   // 新しい形はそのまま（古い項目は持たない。場所は決まった順に並べる。壊れた値は既定）
   assert.deepEqual(migrateFilter({ holder: 'mine', places: ['egg', 'palbox', 'xxx'], elements: ['Fire', 'Bad'], passiveMode: 'none', query: 'x', eggs: false }), {
     holder: 'mine', places: ['palbox', 'egg'], elements: ['Fire'], palId: '', passives: [], passiveMode: 'none', query: 'x', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   });
+  // 覚えている条件がないときの所持者は自分（mine。D29 で「すべて」から変えた）。自分のプレイヤーが分からなければ画面は「すべて」として扱う
   assert.deepEqual(migrateFilter(null), {
-    holder: '', places: DEFAULT_PLACES, elements: [], palId: '', passives: [], passiveMode: 'include', query: '', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
+    holder: 'mine', places: DEFAULT_PLACES, elements: [], palId: '', passives: [], passiveMode: 'include', query: '', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   });
   // 旧コードの保存（タブを切り替えて戻った viewState）から開く: 所持者「拠点 1」・タマゴを隠す・グローバルを表示 → 場所「拠点」（どの拠点も）
   const states = new Map([['owned', { filter: { holder: `base:${B1}`, place: '', palId: '', passives: [], query: '', sort: 'dex', eggs: false, globals: true, stars: 0, talent: { hp: 0, shot: 0, defense: 0 } } }]]);

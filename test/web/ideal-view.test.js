@@ -58,6 +58,8 @@ function install(t) {
 }
 
 const cards = (view) => view.element.querySelectorAll('.ideal-pair');
+// 所持者の選択（画面の中の select はこれだけ）
+const holderOf = (view) => view.element.querySelector('select');
 const pairOf = (card) => card.querySelectorAll('.owned-row').map((row) => row.getAttribute('aria-label')).join('×');
 // 同じ種族の個体は名前で区別できないので、個体値の表示で見分ける
 // 組の ♂♀ 行の個体値（4 セルの読み上げ aria-label。目標以上の注は外し、目標まで足りない差は「−N」に縮める。owned-rows で textContent から変えた）
@@ -165,7 +167,8 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   assert.equal(panel.querySelectorAll('.field-label').some((node) => node.textContent === '条件'), false);
   const holderItem = sub.children[0].children[0];
   assert.equal(holderItem.tagName, 'label');
-  assert.equal(holderItem.querySelector('select').value, '');
+  // 所持者の既定は自分（D29。前は「すべて」）
+  assert.equal(holderItem.querySelector('select').value, 'mine');
   // パッシブの条件・ケーキは押しボタン（短いラベル、長い説明は title）
   assert.deepEqual(radioGroup(view, 'パッシブの条件').children.map((node) => [node.textContent, node.title]),
     [['全部持つ', '欲しいものを全部持つ（他も可）'], ['だけ', '欲しいものだけを持つ']]);
@@ -196,7 +199,8 @@ test('理想個体画面: パネルの高さは ResizeObserver で追って --pa
 test('理想個体画面: 所持の状況は目標と同じ種族の親の候補の ♂♀（所持者で絞った後）と、欲しいパッシブを全部持つ数。押すと所持パルをその種族とパッシブで開く', async (t) => {
   install(t);
   const owned = fakeOwned();
-  const ctx = context(owned);
+  // Alice としてログインしている（所持者の既定は自分 = Alice。テストの個体はみな Alice のもの）
+  const ctx = withIdeals(context(owned), owned);
   let view;
   ctx.update = (hash) => view.applyRoute(parseHash(hash), { reason: 'update' });
   view = idealView(ctx, parseHash('#/ideal'));
@@ -210,19 +214,20 @@ test('理想個体画面: 所持の状況は目標と同じ種族の親の候補
   view.applyRoute(parseHash('#/ideal?to=SheepBall'), { reason: 'update' });
   assert.equal(view.element.querySelector('.ideal-holding'), holding);
   assert.equal(holding.textContent, '所持 ♂1 ♀2');
-  // 数と同じ集まりになるよう、タマゴとグローバルパルボックスを除いた場所も渡す（D27。前は場所を渡さず、開いた先にタマゴの e1 も出た）
-  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
+  // 数と同じ集まりになるよう、タマゴとグローバルパルボックスを除いた場所も渡す（D27。前は場所を渡さず、開いた先にタマゴの e1 も出た）。
+  // 所持者（既定の自分）も渡す
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&holder=mine&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
   assert.deepEqual(filterFromParams(parseHash(holding.getAttribute('href')).params).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
   await pickPassive(view, 'Rare');
   assert.equal(holding.textContent, '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2');
-  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
-  // 所持者で絞っているときは、所持パルにも同じ所持者を渡す（所持パルの URL の受け口の形 holder=player:<uid>。数は所持者で絞った後なので）
-  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
-  holder.value = `player:${P1}`;
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare&holder=mine&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
+  // 「すべて」のときは所持者を渡さない（所持パルの URL では、所持者がなければ「すべて」）
+  const holder = holderOf(view);
+  holder.value = '';
   holder.dispatch('change');
   const params = parseHash(holding.getAttribute('href')).params;
-  assert.deepEqual([params.get('pal'), params.get('p'), params.get('holder')], ['SheepBall', 'Rare', `player:${P1}`]);
-  assert.equal(filterFromParams(params).holder, `player:${P1}`);
+  assert.deepEqual([params.get('pal'), params.get('p'), params.get('holder')], ['SheepBall', 'Rare', null]);
+  assert.equal(filterFromParams(params).holder, '');
   view.destroy();
 });
 
@@ -502,7 +507,7 @@ test('理想個体画面: 産まれたタマゴは候補にせず、孵化を読
   assert.ok(cards(view)[0].querySelectorAll('.owned-where').some((node) => node.title === 'パルボックス 1 ページ・1 行 1 列' && /P1 · 1-1/.test(node.textContent)));
   view.destroy();
 });
-test('理想個体画面: 所持者（すべて／自分の個体／各プレイヤー）で親の候補とパッシブの所持数を絞り、選んだプレイヤーがいなくなったら「すべて」に戻す', async (t) => {
+test('理想個体画面: 所持者（すべて／自分のプレイヤー名／各プレイヤー）で親の候補とパッシブの所持数を絞り、既定は自分。選んだプレイヤーがいなくなったら既定（自分）に戻す（D29）', async (t) => {
   install(t);
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
   const BASE = 'b6800a4a-4b60-f0bb-f425-53bf17b07603';
@@ -524,11 +529,18 @@ test('理想個体画面: 所持者（すべて／自分の個体／各プレイ
   // Alice としてログインしている（自分の個体 = Alice の個体）
   const ctx = withIdeals(context(owned, [], states), owned);
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
-  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
-  // 拠点は選択肢に出さない。自分のプレイヤーは「（自分）」を付けて先頭（所持パルの所持者と同じ名前。A7）
-  assert.deepEqual([...holder.children].map((option) => option.textContent), ['すべて', '自分の個体', 'Alice（自分）', 'Bob']);
+  const holder = holderOf(view);
+  // 拠点は選択肢に出さない。自分は自分のプレイヤー名に「（自分）」を付けて先頭（所持パルの所持者と同じ名前。A7）。前は「自分の個体」と
+  // 「Alice（自分）」が別に並んでいた（D29）
+  assert.deepEqual([...holder.children].map((option) => [option.value, option.textContent]), [['', 'すべて'], ['mine', 'Alice（自分）'], [`player:${P2}`, 'Bob']]);
+  // 既定は自分
+  assert.equal(holder.value, 'mine');
+  assert.equal(cards(view).length, 1);
   // すべてなら ♂ 2 体・♀ 2 体で、別々の個体の組は 2 組
+  holder.value = '';
+  holder.dispatch('change');
   assert.equal(cards(view).length, 2);
+  // 前の保存の自分の player:<uid> も自分として扱う
   for (const value of [`player:${P1}`, 'mine']) {
     holder.value = value;
     holder.dispatch('change');
@@ -538,21 +550,52 @@ test('理想個体画面: 所持者（すべて／自分の個体／各プレイ
     assert.ok(counts.includes('希少（2）'));
     assert.ok(!counts.some((text) => /^伝説（|^脳筋（/.test(text)));
   }
-  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · 自分の個体$/);
+  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Alice（自分） の個体$/);
   // Bob の個体は、Bob のパルボックスと Bob が預けた拠点のパル
   holder.value = `player:${P2}`;
   holder.dispatch('change');
   assert.equal(cards(view).length, 1);
   assert.match(cards(view)[0].textContent, /拠点 2/);
   view.destroy();
-  // 選んだプレイヤーがデータにいなくなったら「すべて」に戻す
+  // 選んだプレイヤーがデータにいなくなったら既定（自分）に戻す
   const without = list.filter((pal) => !['b1', 'c1'].includes(pal.instanceId));
   owned.state.owned = normalizeOwned(snapshotOf(without, both.slice(0, 1)), { pals, passives });
   const again = idealView(withIdeals(context(owned, [], states), owned), parseHash('#/ideal?to=SheepBall'));
-  const select = again.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
-  assert.equal(select.value, '');
+  assert.equal(holderOf(again).value, 'mine');
+  assert.equal(states.get('ideal').conditions.holder, 'mine');
   assert.equal(cards(again).length, 1);
   again.destroy();
+});
+
+test('理想個体画面: 自分のプレイヤーが後から分かったら（ログインの ID・ユーザーの一覧が届いた）、所持者の選択肢と結果を描き直す（既定の自分は分かるまで「すべて」。D29）', (t) => {
+  install(t);
+  const P2 = 'abcd1234-0000-0000-0000-000000000000';
+  const list = [
+    palworldPal('a1', 'SheepBall', 'Male', ['Rare']),
+    palworldPal('a2', 'SheepBall', 'Female', ['Rare']),
+    palworldPal('b1', 'SheepBall', 'Female', ['Legend'], full, { kind: 'palbox', playerUid: P2 }),
+    palworldPal('b2', 'SheepBall', 'Male', ['Legend'], full, { kind: 'palbox', playerUid: P2 }),
+  ];
+  const owned = fakeOwned(list);
+  owned.state.owned = normalizeOwned({ version: 1, world: { name: 'テスト', hostName: 'Alice' }, bases: [], stats: {}, pals: list,
+    players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: P2, name: 'Bob', level: 40 }] }, { pals, passives });
+  const ctx = context(owned);
+  const listeners = new Set();
+  // ユーザーの一覧がまだ届いていない（ログインの ID と同じ名前のプレイヤーが分からない）
+  Object.assign(ctx.store.state, { userId: 'Alice', passcode: '入力', renaming: false, users: [] });
+  ctx.store.subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+  ctx.ideals = createIdealStore({ store: ctx.store, owned, storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  assert.equal(holderOf(view).value, '');
+  assert.ok(cards(view).length > 1);
+  ctx.store.state.users = ['Alice'];
+  for (const listener of [...listeners]) listener(ctx.store.state);
+  assert.equal(holderOf(view).value, 'mine');
+  assert.deepEqual([...holderOf(view).children].map((option) => option.textContent), ['すべて', 'Alice（自分）', 'Bob']);
+  assert.equal(cards(view).length, 1);
+  const before = listeners.size;
+  view.destroy();
+  assert.ok(listeners.size < before);
 });
 
 // 理想個体の登録（この端末に保存）を画面につなぐ
@@ -974,7 +1017,7 @@ test('理想個体画面: g で開いた後にパッシブを変えても、遷�
   view.destroy();
 });
 
-test('理想個体画面: パッシブの条件を満たす子が産まれないときと、自分のプレイヤーが分からないときは、理由を出す', (t) => {
+test('理想個体画面: パッシブの条件を満たす子が産まれないときは理由を出し、自分のプレイヤーが分からないときは「すべて」で計算する（D29）', (t) => {
   install(t);
   const owned = fakeOwned([
     palworldPal('m1', 'SheepBall', 'Male', ['Rare']),
@@ -991,18 +1034,18 @@ test('理想個体画面: パッシブの条件を満たす子が産まれない
   chooseRadio(none, 'パッシブの条件', 'only');
   assert.match(none.element.querySelector('.ideal-results').textContent, /パッシブを持つ親からは、パッシブのない子は産まれません/);
   none.destroy();
-  // ログイン中の ID と同じ名前のプレイヤーがセーブにいない（登録者の対応もない）と、自分の個体では絞れない
+  // ログイン中の ID と同じ名前のプレイヤーがセーブにいない（登録者の対応もない）と、自分の選択肢は出さず「すべて」で計算する
+  //（D29。前は「自分の個体」を選ぶと 0 組で「セーブのどのプレイヤーが自分か分かりません」）
   const ctx = withIdeals(context(owned), owned);
   ctx.ideals = createIdealStore({
     store: { state: { env: 'test', userId: 'Zed', passcode: '入力', renaming: false, users: ['Zed'] }, subscribe: () => () => {} },
     owned, storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
   });
   const mine = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
-  const holder = mine.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === 'mine'));
-  holder.value = 'mine';
-  holder.dispatch('change');
-  assert.equal(cards(mine).length, 0);
-  assert.match(mine.element.querySelector('.ideal-results').textContent, /セーブのどのプレイヤーが自分か分かりません/);
+  assert.deepEqual([...holderOf(mine).children].map((option) => option.value), ['', `player:${P1}`]);
+  assert.equal(holderOf(mine).value, '');
+  assert.ok(cards(mine).length > 0);
+  assert.doesNotMatch(mine.element.querySelector('.ideal-results').textContent, /分かりません/);
   mine.destroy();
 });
 
@@ -1921,18 +1964,15 @@ test('理想個体画面: 要約は「上位 N 組（全 M 組・候補 K 体）
   assert.equal(hintBoards().length, 0);
 });
 
-test('理想個体画面: 所持者で絞っているときは要約の最後に「Alice（自分） の個体」（選択肢の名前。自分の個体は「自分の個体」）', (t) => {
+test('理想個体画面: 所持者で絞っているときは要約の最後に「Alice（自分） の個体」（選択肢の名前。D29 で「自分の個体」の選択肢をなくし、自分も名前にした）', (t) => {
   install(t);
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall'));
-  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
-  holder.value = `player:${P1}`;
-  holder.dispatch('change');
   // 選択肢の名前を所持パルとそろえた（A7）ので、自分のプレイヤーは「Alice（自分）」
   assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · Alice（自分） の個体$/);
-  holder.value = 'mine';
-  holder.dispatch('change');
-  assert.match(view.element.querySelector('.ideal-summary-text').textContent, / · 自分の個体$/);
+  holderOf(view).value = '';
+  holderOf(view).dispatch('change');
+  assert.doesNotMatch(view.element.querySelector('.ideal-summary-text').textContent, /の個体/);
   view.destroy();
 });
 
@@ -2280,7 +2320,7 @@ test('理想個体画面: 牧場の帯のセルの 2 体は、絵の「♂ × �
   view.destroy();
 });
 
-test('理想個体画面: 所持者の選択肢の名前は所持パルとそろえる（自分のプレイヤーは「（自分）」を付けて先頭、同じ名前が 2 人以上なら UID の頭 8 字を添える）', (t) => {
+test('理想個体画面: 所持者の選択肢の名前は所持パルとそろえる（自分は自分のプレイヤー名に「（自分）」を付けて先頭、同じ名前が 2 人以上なら UID の頭 8 字を添える）', (t) => {
   install(t);
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
   const P3 = 'ef567890-0000-0000-0000-000000000000';
@@ -2290,9 +2330,9 @@ test('理想個体画面: 所持者の選択肢の名前は所持パルとそろ
     players: [{ uid: P2, name: 'Bob', level: 40 }, { uid: P1, name: 'Alice', level: 50 }, { uid: P3, name: 'Bob', level: 30 }],
   }, { pals, passives });
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall'));
-  const holder = view.element.querySelectorAll('select').find((node) => [...node.children].some((option) => option.value === `player:${P1}`));
+  const holder = holderOf(view);
   assert.deepEqual([...holder.children].map((option) => [option.value, option.textContent]), [
-    ['', 'すべて'], ['mine', '自分の個体'], [`player:${P1}`, 'Alice（自分）'], [`player:${P2}`, 'Bob（ABCD1234）'], [`player:${P3}`, 'Bob（EF567890）'],
+    ['', 'すべて'], ['mine', 'Alice（自分）'], [`player:${P2}`, 'Bob（ABCD1234）'], [`player:${P3}`, 'Bob（EF567890）'],
   ]);
   // 要約の所持者の名前も選択肢の名前
   holder.value = `player:${P2}`;

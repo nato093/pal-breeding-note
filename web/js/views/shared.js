@@ -58,21 +58,38 @@ export function syncPicker(picker, value) {
   if (picker && picker.getValue() !== value) picker.setValue(value);
 }
 
+/** 所持者の条件の既定（覚えている条件がないとき）。自分（D29。前は「すべて」） */
+export const HOLDER_DEFAULT = 'mine';
+
 /**
- * 所持者の選択肢 [値, 名前]（所持パル・理想個体で同じ）: すべて・自分の個体（ログイン中〔ideals がある〕だけ）・プレイヤー（player:<uid>。
- * 自分のプレイヤー〔ideals.selfUids〕は「（自分）」を付けて先頭、名前がない・同じ名前が 2 人以上なら UID の頭 8 字を添える）
+ * 所持者の選択肢 [値, 名前]（所持パル・理想個体で同じ）: すべて（''）・自分（mine。自分のプレイヤー〔ideals.selfUids〕が分かるときだけ。
+ * 名前は自分のプレイヤー名に「（自分）」。自分の UID が複数あれば名前を「・」でつなぐ）・ほかのプレイヤー（player:<uid>。名前がない・同じ名前が
+ * 2 人以上なら UID の頭 8 字を添える）。2026-10-14 のユーザーのフィードバック（D29）で、前の「自分の個体」の選択肢と自分の player:<uid> の
+ * 選択肢を、自分のプレイヤー名の 1 つにまとめた（中身は前の「自分の個体」と同じ集まり〔ideals.mine()〕）
  */
 export function holderChoices(data, ideals) {
   const players = data?.players ?? [];
   const self = ideals?.selfUids?.() ?? new Set();
   const names = new Map();
   for (const player of players) names.set(player.name, (names.get(player.name) ?? 0) + 1);
-  const label = (player) => {
-    if (self.has(player.uid)) return `${player.name || '不明なプレイヤー'}（自分）`;
-    return !player.name || names.get(player.name) > 1 ? `${player.name || '不明なプレイヤー'}（${shortUid(player.uid)}）` : player.name;
-  };
-  const ordered = [...players.filter((player) => self.has(player.uid)), ...players.filter((player) => !self.has(player.uid))];
-  return [['', 'すべて'], ...(ideals ? [['mine', '自分の個体']] : []), ...ordered.map((player) => [`player:${player.uid}`, label(player)])];
+  const label = (player) => (!player.name || names.get(player.name) > 1 ? `${player.name || '不明なプレイヤー'}（${shortUid(player.uid)}）` : player.name);
+  const mine = players.filter((player) => self.has(player.uid));
+  const selfName = [...new Set(mine.map((player) => player.name || '不明なプレイヤー'))].join('・');
+  return [
+    ['', 'すべて'], ...(mine.length ? [['mine', `${selfName}（自分）`]] : []),
+    ...players.filter((player) => !self.has(player.uid)).map((player) => [`player:${player.uid}`, label(player)]),
+  ];
+}
+
+/**
+ * 所持者の条件の値（保存・URL の値）を、選択肢の値（画面で使う値）にする: mine（既定）は、自分のプレイヤーが分からなければ ''（すべて。
+ * 参加している人で「自分」が未設定など。値は mine のまま残すので、自分が分かったら自分になる）。自分の player:<uid>（前の保存・URL）は mine
+ */
+export function holderValue(holder, ideals) {
+  const self = ideals?.selfUids?.() ?? new Set();
+  if (holder === 'mine') return self.size ? 'mine' : '';
+  if (holder.startsWith('player:') && self.has(holder.slice('player:'.length))) return 'mine';
+  return holder;
 }
 
 // ---------------------------------------------------------------------------
