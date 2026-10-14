@@ -9,10 +9,12 @@ const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.p
 // 完成の判定は、表示しているワールドの所持パル（セーブから読んだもの・共有されたもの）で、ワールドごとに行う。
 // 判定に使ったセーブの時刻（observedAt）より新しいデータを受けたときだけ判定し直す。起動時の保存済みデータや、
 // 古いデータのままの別のタブで、新しいデータでの判定を巻き戻さないため。
-// 判定するのは自分の個体だけ（identity: ログイン中の ID・ユーザー一覧・セーブのプレイヤーとの対応。core/ideal-goals.js の ownPals）。
-// 自分のプレイヤーが分からないときは判定しない。
+// 判定するのは自分の個体だけ（identity: ログイン中の ID・ユーザー一覧・セーブのプレイヤーとの対応・このワールドでの自分。
+// core/ideal-goals.js の ownPals）。自分のプレイヤーが分からないときは判定しない。
 // そのワールドで初めて判定したときは、完成していても知らせない（登録した時点で完成していたものなど）。
 // 未完成から完成に変わるのを見たときだけ completedAt を付けて知らせ、未完成に戻ったら外す（通知も消える）。
+// 本人（自分のプレイヤー）が変わったとき（設定の「このワールドでの自分」・登録者の対応）は identityChanged で、同じセーブの時刻のまま
+// 判定し直す。そのとき完成していたものは知らせない（選んだ時点で完成しているものは「完成済み」の表示だけ）。
 export function createIdealStore({
   store, owned, storage, namespace = 'pal-note', now = Date.now, uuid = () => crypto.randomUUID(),
   identity = () => ({ userId: store.state.userId, users: store.state.users ?? [], mapping: {} }),
@@ -77,13 +79,19 @@ export function createIdealStore({
 
   const stale = (goal, view) => !(Date.parse(goal.worlds[view.worldId]?.observedAt) >= Date.parse(view.at));
 
-  // 1 件の、そのワールドでの記録を新しいデータで作り直す。notify が false なら完成していても知らせない
-  function judged(goal, view, byPal, notify) {
+  // 1 件の、そのワールドでの記録を新しいデータで作り直す。mode は
+  // 'notify'（新しいセーブ。未完成から完成に変わったら知らせる）・'quiet'（登録した時点。完成していても知らせない）・
+  // 'identity'（本人が変わった。同じセーブのまま判定し直し、前から完成していたものは前の completedAt を残し、ほかは知らせない）
+  function judged(goal, view, byPal, mode) {
     const complete = goalMatches(goal, byPal.get(goal.palId) ?? []).length > 0;
     const before = goal.worlds[view.worldId];
-    const checked = notify && before?.checked === true;
+    const checked = before?.checked === true;
+    let completedAt = '';
     // 完成を見た時刻は、判定したセーブの時刻にする（別のタブがほぼ同時に判定しても同じ値になり、通知が重ならない）
-    const completedAt = !complete ? '' : checked && !before.complete ? view.at : (checked ? before.completedAt : '');
+    if (complete && mode === 'notify') completedAt = checked && !before.complete ? view.at : (checked ? before.completedAt : '');
+    // 本人を変えても完成のままなら、出ている通知を消さない。新しく完成した（前の本人では未完成）ものは知らせない。
+    // 記録は complete になるので、次に新しいセーブを読んだときの 'notify' でも知らせない
+    else if (complete && mode === 'identity') completedAt = checked && before.complete ? before.completedAt : '';
     return { ...goal, worlds: { ...goal.worlds, [view.worldId]: { checked: true, complete, completedAt, observedAt: view.at, worldName: view.worldName } } };
   }
 
@@ -105,7 +113,7 @@ export function createIdealStore({
     const goals = latest(key);
     if (!goals.some((goal) => stale(goal, view))) return;
     const byPal = bySpecies(view.pals);
-    save(key, goals.map((goal) => (stale(goal, view) ? judged(goal, view, byPal, true) : goal)));
+    save(key, goals.map((goal) => (stale(goal, view) ? judged(goal, view, byPal, 'notify') : goal)));
   }
 
   store.subscribe(observe);
@@ -118,6 +126,32 @@ export function createIdealStore({
     list(key = scope()) { return load(key); },
     mine,
     selfUids,
+    /**
+     * 本人（自分のプレイヤー）が変わったら呼ぶ（このワールドでの自分・登録者の対応を変えた、別のタブで変わった）。
+     * 同じセーブの時刻でも、表示しているワールドを判定し直す（通知はしない）。自分が分からなくなったときは、記録を消さずに
+     * 購読者だけを呼ぶ（画面の「未確認」を描き直させる）。名前の変更中は書き換えない（終わった後の store の通知で判定し直される）
+     */
+    identityChanged() {
+      const key = scope();
+      if (!key || store.state.renaming) return false;
+      const view = current();
+      if (!view) { emit(); return false; }
+      const goals = latest(key);
+      if (!goals.length) { emit(); return false; }
+      const byPal = bySpecies(view.pals);
+      save(key, goals.map((goal) => judged(goal, view, byPal, 'identity')));
+      return true;
+    },
+    /**
+     * 本人の署名（表示しているワールド ID と自分のプレイヤーの UID の並び）。所持パルがなければ ''。
+     * 理想個体の再計算の署名に入れる（本人が変わったときだけ計算し直し、読み直しで同じなら計算しない）
+     */
+    identityKey() {
+      const data = owned?.state?.owned;
+      if (!data) return '';
+      const worldId = owned.state.meta?.worldId ?? '';
+      return `${ownedWorldId(worldId)}|${[...ownPlayerUids(data.players ?? [], identity(worldId))].sort().join(',')}`;
+    },
     find(id) { return load(scope()).find((goal) => goal.id === id) ?? null; },
     has(conditions) {
       const goal = cleanGoal({ ...conditions, id: 'check' });
@@ -138,7 +172,7 @@ export function createIdealStore({
       if (goals.length >= GOAL_LIMIT) return 'full';
       goal = { ...goal, id: uuid() };
       const view = current();
-      if (view) goal = judged(goal, view, bySpecies(view.pals), false);
+      if (view) goal = judged(goal, view, bySpecies(view.pals), 'quiet');
       save(key, [goal, ...goals]);
       return 'added';
     },

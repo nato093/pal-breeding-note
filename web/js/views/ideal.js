@@ -17,7 +17,8 @@ import {
   idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
 } from '../core/ideal.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
-import { buildHash } from '../router.js';
+import { buildHash, settingsHash } from '../router.js';
+import { ownedWorldId } from '../core/owned-shared.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
 import {
   viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing,
@@ -190,11 +191,12 @@ function goalSummary(goal) {
 
 /**
  * 一覧での完成の状態（自分の個体で判定する）。所持パルのデータがない・自分のプレイヤーが分からないときは、
- * 完成していないとは言えないので「未確認」にする。
+ * 完成していないとは言えないので「未確認」にする。自分のプレイヤーが分からないときは、設定でこのワールドでの自分を選ぶ行き先
+ *（action。worldId は表示しているワールド）を添える
  */
-function goalStatus(goal, pals) {
+function goalStatus(goal, pals, worldId = '') {
   if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）' };
-  if (pals === null) return { done: false, text: '未確認（セーブのどのプレイヤーが自分か分かりません。設定タブの「登録者の対応」で選んでください）' };
+  if (pals === null) return { done: false, text: '未確認（このワールドでの自分が未設定）', action: { label: '設定で選ぶ', href: settingsHash(worldId) } };
   const found = goalMatches(goal, pals);
   if (!found.length) return { done: false, text: '未完成' };
   const [first] = found;
@@ -488,12 +490,19 @@ export function idealView(context, route) {
       action: () => { if (!ideals.restore(removed.goal, removed.index, key)) toast('元に戻せませんでした'); },
     });
   }
-  // 1 行（列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す）。保存した目標の中身は変わらないので、update は状態だけ
+  // 1 行（列: パル・名前／パッシブ／条件の要約／状態〔と「設定で選ぶ」〕／呼び出す・外す）。保存した目標の中身は変わらないので、update は状態だけ
   function goalRow({ goal, status }) {
     const row = el('li', 'ideal-goal');
     const title = el('div', 'ideal-goal-title');
     title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), el('strong', '', goal.name));
     const state = el('span', 'ideal-goal-status');
+    // 自分のプレイヤーが分からない（未確認）ときだけ、状態の下に設定への行き先（このワールドでの自分を選ぶ）を出す
+    const action = link('', '#/settings', 'button secondary small ideal-goal-action');
+    action.setAttribute('data-focus-key', `goal-action:${goal.id}`);
+    // ダイアログは画面の遷移で閉じないので、押したら閉じる（リンクの遷移はそのまま進む。ベルの通知と同じ）
+    action.addEventListener('click', () => goalsModal?.close());
+    const stateCell = el('div', 'ideal-goal-state');
+    stateCell.append(state, action);
     const recall = link('呼び出す', goalHash(goal), 'button secondary small');
     // 一覧を合わせ直しても、押した「呼び出す」にフォーカスを戻す（ui/dom.js の syncList・ui/focus.js）
     recall.setAttribute('data-focus-key', `goal:${goal.id}`);
@@ -503,11 +512,16 @@ export function idealView(context, route) {
     const remove = actionIcon(`「${goal.name}」を目標から外す`, icons.remove, () => removeGoal(goal), 'danger-text');
     remove.setAttribute('data-focus', 'remove');
     row.append(title, goal.passives.length ? passiveList(goal.passives, { compact: true }) : el('span', 'muted', '—'),
-      el('small', 'muted ideal-goal-summary', goalSummary(goal)), state, recall, remove);
+      el('small', 'muted ideal-goal-summary', goalSummary(goal)), stateCell, recall, remove);
     const update = (item) => {
       row.classList.toggle('done', item.status.done);
       state.classList.toggle('ready', item.status.done);
       if (state.textContent !== item.status.text) state.textContent = item.status.text;
+      action.hidden = !item.status.action;
+      if (item.status.action) {
+        if (action.textContent !== item.status.action.label) action.textContent = item.status.action.label;
+        action.href = item.status.action.href;
+      }
     };
     update({ status });
     return { element: row, update };
@@ -521,7 +535,8 @@ export function idealView(context, route) {
     if (!goalsModal) return;
     goalsWarning.hidden = !ideals.saveFailed;
     const pals = ideals.mine();
-    const rows = goals.map((goal) => ({ goal, status: goalStatus(goal, pals) }));
+    const worldId = ownedWorldId(owned?.state?.meta?.worldId);
+    const rows = goals.map((goal) => ({ goal, status: goalStatus(goal, pals, worldId) }));
     // 完成済みを上に（それぞれ保存の新しい順）
     const ordered = [...rows.filter((item) => item.status.done), ...rows.filter((item) => !item.status.done)];
     syncList(goalsList, ordered, {
@@ -1030,13 +1045,16 @@ export function idealView(context, route) {
     // 物差しが同じ組どうしでは、今の牧場の組と前の基準の上位を先にする（値の小さな差で交換推奨や「変更あり」が出ないように）
     const prefer = { placed: placedKeys, baseline: new Set(baseline?.farms === signature ? baseline.pairs.slice(0, placedFarms.length) : []) };
     // 計算の署名: 配合の index・候補の個体の計算に効く値・実効の条件・本人・牧場の署名・優先する組。
-    // prefer は並びを変えるので、入れないと、別のタブが基準を書き換えたときなどに古い並びが残る
+    // prefer は並びを変えるので、入れないと、別のタブが基準を書き換えたときなどに古い並びが残る。
+    // 本人は自分の個体の並びと identityKey（表示しているワールドと自分のプレイヤー。自分の個体の太字・空き牧場の案内に効く）。
+    // 本人を変えたときだけ計算し直し、10 秒ごとの読み直しで同じなら計算しない
     const holder = holderNow();
     const self = holder === 'mine' ? (ideals?.mine()?.map((pal) => pal.id).join(',') ?? 'unknown') : '';
+    const identity = ideals?.identityKey?.() ?? '';
     const species = new Set(layouts.flatMap((layout) => [layout.male, layout.female]));
     const candidateKey = candidateSignature(candidates, species);
     const key = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
-      conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, holder, self, signature,
+      conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, holder, self, identity, signature,
       [...prefer.placed].sort(), [...prefer.baseline].sort()])}\u0003${candidateKey}`;
     // ケーキの提案の鍵: 計算の署名からケーキと牧場（優先・見張り）を除いたもの（ケーキを切り替えても変わらない）
     const nextCakeKey = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
@@ -1284,11 +1302,14 @@ export function idealView(context, route) {
     lastReady = ownedState.ready;
     update();
   });
-  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応で決まる）が後から分かった・変わったら、所持者の選択肢と結果を描き直す
-  //（既定の自分は、分かるまで「すべて」で計算している。記録の変更番号が変わらない更新でも気づくように、watchView とは別に見る）
-  const stopSelf = context.store.subscribe(() => {
+  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応・このワールドでの自分で決まる）が後から分かった・変わったら、
+  // 所持者の選択肢・パッシブの所持数・結果・牧場の判定・目標の一覧を描き直す（既定の自分は、分かるまで「すべて」で計算している。
+  // 記録の変更番号が変わらない更新でも気づくように、watchView とは別に見る）。このワールドでの自分は設定や別のタブで変わる（context.self）
+  const selfChanged = () => {
     if (!destroyed && selfKey() !== shownSelf) update();
-  });
+  };
+  const stopSelf = context.store.subscribe(selfChanged);
+  const stopSelfChoice = context.self?.subscribe?.(selfChanged) ?? (() => {});
   // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
   // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）
   owned.load().then(() => {
@@ -1297,6 +1318,6 @@ export function idealView(context, route) {
   const stopRefreshing = keepRefreshing(owned);
   return {
     element, update, applyRoute, flushInputs,
-    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); stopSelf(); unsubscribeGoals(); view.destroy(); },
+    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); stopSelf(); stopSelfChoice(); unsubscribeGoals(); view.destroy(); },
   };
 }

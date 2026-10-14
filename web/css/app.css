@@ -1031,7 +1031,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .owned-import { padding: 14px 18px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin-bottom: 14px; }
 .owned-status { font-weight: 700; margin-bottom: 10px; overflow-wrap: anywhere; }
 .owned-import-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 8px 0; }
-.owned-import-row .owned-world, .owned-folder-worlds select { width: auto; max-width: 520px; min-height: 44px; }
+.owned-import-row .owned-world, .owned-import-row .owned-self, .owned-folder-worlds select { width: auto; max-width: 520px; min-height: 44px; }
 .owned-help { font-size: 12px; margin: 2px 0 10px; overflow-wrap: anywhere; }
 .owned-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; cursor: pointer; }
 .owned-toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; }
@@ -1042,7 +1042,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 /* セーブ連携: 登録したワールドの一覧と、配合牧場からの自動登録 */
 .owned-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
 .owned-section h3 { font-size: 15px; margin: 0 0 8px; }
-.owned-world-row .field-label { font-weight: 700; }
+.owned-world-row .field-label, .owned-self-row .field-label { font-weight: 700; }
+/* このワールドでの自分（使うワールドと同じ並び。何に使うかの説明は選択の下の行） */
+.owned-self-note { flex-basis: 100%; margin-top: -6px; font-size: 12px; }
 .owned-worlds-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .owned-worlds-head h3 { font-size: 15px; margin: 0; }
 .owned-registered-actions { display: inline-flex; gap: 4px; }
@@ -2033,6 +2035,8 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-goal-summary { min-width: 0; }
 .ideal-goal-status { font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
 .ideal-goal-status.ready { color: var(--md-sys-color-primary); }
+/* 状態と、未確認のときの「設定で選ぶ」（状態の下） */
+.ideal-goal-state { display: grid; justify-items: start; gap: 4px; min-width: 0; }
 .ideal-goal-empty { padding: 12px 0; }
 .owned-auto-state.state-error, .owned-auto-state.state-empty { color: var(--danger); }
 .owned-auto-error { min-height: 1lh; font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }

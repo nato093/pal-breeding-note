@@ -5,6 +5,8 @@ import { openRenameDialog, confirmLogout } from '../ui/account-actions.js';
 import { openNotificationList } from '../ui/notifications.js';
 import { toCsv } from '../core/csv.js';
 import { identityKey } from '../core/pair.js';
+import { ownedWorldId } from '../core/owned-shared.js';
+import { buildHash, parseHash } from '../router.js';
 import { viewHeading, watchView } from './shared.js';
 import { ownedSettingsCard } from './owned-settings.js';
 
@@ -29,7 +31,7 @@ function exportCsv(records) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function settingsView(context) {
+export function settingsView(context, route = parseHash('#/settings')) {
   const { store } = context;
   const element = el('section', 'view settings-view');
   element.append(viewHeading('ノートの設定'));
@@ -111,5 +113,14 @@ export function settingsView(context) {
     }
   }
   const view = watchView(store, element, renderData);
-  return { element, destroy() { view.destroy(); unsubscribeAccount(); ownedCard?.destroy(); } };
+  // 設定の行き先（`#/settings?world=<ID>&open=auto`。router.js の settingsHash）: セーブ連携のそのワールドの行を開き、設定することに
+  // フォーカスする。作るときと、同じ画面のまま URL が変わったとき（設定を開いたまま通知を押したなど）に読む。
+  // 読んだら URL から world・open を外す（戻る・進む・読み込み直しで、もう一度開いてフォーカスを動かさない）
+  function applyRoute(next) {
+    if (next?.params?.get('open') !== 'auto') return;
+    ownedCard?.reveal({ worldId: ownedWorldId(next.params.get('world')) });
+    context.replace?.(buildHash('settings'));
+  }
+  applyRoute(route);
+  return { element, applyRoute, destroy() { view.destroy(); unsubscribeAccount(); ownedCard?.destroy(); } };
 }

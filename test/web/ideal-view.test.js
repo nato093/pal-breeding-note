@@ -10,6 +10,7 @@ import { parseHash, buildHash } from '../../web/js/router.js';
 import { idealView } from '../../web/js/views/ideal.js';
 import { ownedRow, filterFromParams } from '../../web/js/views/owned.js';
 import { createIdealStore } from '../../web/js/ideals.js';
+import { createSelfStore } from '../../web/js/self-player.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const full = { hp: 100, shot: 100, defense: 100 };
@@ -2473,4 +2474,93 @@ test('理想個体画面: ケーキの提案は今の選択の計画を先に出
   view.destroy();
   while (queue.length) await step();
   assert.deepEqual(fastestOf(view), []);
+});
+
+// ---------------------------------------------------------------------------
+// participant-self: このワールドでの自分を選ぶ・変えると、同じデータのまま描き直し、目標の「未確認」から設定へ行ける
+// ---------------------------------------------------------------------------
+const SELF_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+const SELF_P2 = 'abcd1234-0000-0000-0000-000000000000';
+// Alice（P1）と Bob（SELF_P2）がモコロンを 2 体ずつ持つワールドに、名前の違う「仲間」としてログインしている（自分が分からない）。
+// app.js と同じく、理想個体の登録の本人に「このワールドでの自分」を渡し、変わったら判定し直す
+function selfIdeal() {
+  const list = [
+    palworldPal('a1', 'SheepBall', 'Male', ['Rare']),
+    palworldPal('a2', 'SheepBall', 'Female', ['Rare']),
+    palworldPal('b1', 'SheepBall', 'Female', ['Legend'], full, { kind: 'palbox', playerUid: SELF_P2 }),
+    palworldPal('b2', 'SheepBall', 'Male', ['Legend'], full, { kind: 'palbox', playerUid: SELF_P2 }),
+  ];
+  const owned = fakeOwned(list);
+  owned.state.owned = normalizeOwned({ version: 1, world: { name: 'テスト', hostName: 'Alice' }, bases: [], stats: {}, pals: list,
+    players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: SELF_P2, name: 'Bob', level: 40 }] }, { pals, passives });
+  owned.state.meta = { worldId: SELF_WORLD, worldName: 'テスト', saveUpdatedAt: '2026-10-05T00:00:00.000Z' };
+  const ctx = context(owned);
+  const listeners = new Set();
+  Object.assign(ctx.store.state, { userId: '仲間', passcode: '入力', renaming: false, users: ['仲間'] });
+  ctx.store.subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key) };
+  ctx.self = createSelfStore({ store: ctx.store, storage });
+  let ids = 0;
+  ctx.ideals = createIdealStore({
+    store: ctx.store, owned, storage, uuid: () => `goal-${++ids}`,
+    identity: (worldId) => ({ userId: ctx.store.state.userId, users: ctx.store.state.users, mapping: {}, selfUid: ctx.self.get(worldId) }),
+  });
+  ctx.self.subscribe(() => ctx.ideals.identityChanged());
+  return { ctx, owned };
+}
+
+test('理想個体画面（このワールドでの自分）: 所持パルのデータが同じまま自分を選ぶ・変えると、所持者の選択肢と結果を計算し直す（読み直しでは計算しない）', (t) => {
+  install(t);
+  const { ctx, owned } = selfIdeal();
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  // 自分が分からない間は「すべて」で計算している（D29）
+  assert.equal(holderOf(view).value, '');
+  assert.deepEqual([...holderOf(view).children].map((option) => option.textContent), ['すべて', 'Alice', 'Bob']);
+  assert.ok(cards(view).length > 1);
+  ctx.self.set(SELF_WORLD, SELF_P2);
+  assert.equal(holderOf(view).value, 'mine');
+  assert.deepEqual([...holderOf(view).children].map((option) => option.textContent), ['すべて', 'Bob（自分）', 'Alice']);
+  // Bob の 2 体（伝説）の組だけ
+  assert.equal(cards(view).length, 1);
+  assert.match(cards(view)[0].textContent, /伝説/);
+  assert.doesNotMatch(cards(view)[0].textContent, /希少/);
+  const bobCard = cards(view)[0];
+  // 自分を Alice に変えると、Alice の個体で計算し直す
+  ctx.self.set(SELF_WORLD, P1);
+  assert.deepEqual([...holderOf(view).children].map((option) => option.textContent), ['すべて', 'Alice（自分）', 'Bob']);
+  assert.equal(cards(view).length, 1);
+  assert.notEqual(cards(view)[0], bobCard);
+  assert.match(cards(view)[0].textContent, /希少/);
+  // 同じ本人のままの読み直し（10 秒ごと）では計算し直さない（カードを作り直さない）
+  const aliceCard = cards(view)[0];
+  owned.state.owned = { ...owned.state.owned };
+  owned.emit();
+  ctx.self.reload('pal-note.ideals.self.');
+  assert.equal(cards(view)[0], aliceCard);
+  view.destroy();
+});
+
+test('理想個体画面（このワールドでの自分）: 自分が分からない目標は「未確認」と「設定で選ぶ」（押すとダイアログを閉じる）。選ぶと完成済みになり、通知は出ない', async (t) => {
+  install(t);
+  const { ctx } = selfIdeal();
+  ctx.ideals.add({ name: 'Bob の伝説', palId: 'SheepBall', passives: ['Legend'], mode: 'include', targets: full, cake: 'none', order: 'next' });
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  let dialog = openGoals(view);
+  const row = dialog.querySelector('.ideal-goal');
+  assert.equal(row.querySelector('.ideal-goal-status').textContent, '未確認（このワールドでの自分が未設定）');
+  const action = row.querySelector('.ideal-goal-action');
+  assert.equal(action.hidden, false);
+  assert.equal(action.textContent, '設定で選ぶ');
+  assert.equal(action.href, `#/settings?world=${SELF_WORLD}&open=auto`);
+  await action.dispatch('click');
+  assert.equal(dialog.open, false);
+  // 設定で選んだ（同じセーブのまま）: 完成済みになるが、選んだ時点の完成は知らせない（completedAt なし）
+  ctx.self.set(SELF_WORLD, SELF_P2);
+  assert.deepEqual(ctx.ideals.list()[0].worlds[SELF_WORLD], { checked: true, complete: true, completedAt: '', observedAt: '2026-10-05T00:00:00.000Z', worldName: 'テスト' });
+  dialog = openGoals(view);
+  const done = dialog.querySelector('.ideal-goal');
+  assert.match(done.querySelector('.ideal-goal-status').textContent, /^完成済み: Bob/);
+  assert.equal(done.querySelector('.ideal-goal-action').hidden, true);
+  view.destroy();
 });

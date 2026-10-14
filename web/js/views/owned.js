@@ -1511,13 +1511,16 @@ export function ownedView(context, route) {
   }
 
   const unsubscribe = owned.subscribe(update);
-  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応で決まる）が後から分かった・変わったら、所持者の選択肢と一覧を描き直す
-  //（既定の自分は、分かるまで「すべて」として描いている）
-  const stopSelf = context.store?.subscribe?.(() => {
+  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応・このワールドでの自分で決まる）が後から分かった・変わったら、
+  // 所持者の選択肢と一覧（件数・行・パッシブの所持数）を描き直す（既定の自分は、分かるまで「すべて」として描いている）。
+  // 許す個体の Set（holderIds）は自分の UID の並びも鍵にしているので作り直される。このワールドでの自分は設定や別のタブで変わる（context.self）
+  const selfChanged = () => {
     if (destroyed || selfKey() === shownSelf) return;
     renderFilters(owned.state);
     renderResults({ keepPosition: true });
-  }) ?? (() => {});
+  };
+  const stopSelf = context.store?.subscribe?.(selfChanged) ?? (() => {});
+  const stopSelfChoice = context.self?.subscribe?.(selfChanged) ?? (() => {});
   renderedOwned = owned.state.owned;
   renderedReady = owned.state.ready;
   renderSummary(owned.state);
@@ -1546,6 +1549,7 @@ export function ownedView(context, route) {
       destroyed = true;
       stopRefreshing();
       stopSelf();
+      stopSelfChoice();
       stopGoals();
       stopTracking();
       chipObserver?.disconnect();

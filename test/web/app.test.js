@@ -938,6 +938,54 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
   }
 });
 
+test('画面: 別のタブで「このワールドでの自分」を選んだら（storage イベント）、理想個体の目標の状態を描き直し、完成済みにしても通知は出さない', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  // 共有された所持パル（アリスのモコロン）。ログインしている「架空データ」はセーブのプレイヤー名と違うので、自分が分からない
+  await shareWorld(development, WORLD_A);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', order: 'next', worlds: {} }];
+  const { values, events } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals) }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const status = () => byClass('ideal-goal-status').textContent;
+  assert.equal(status(), '未確認（このワールドでの自分が未設定）');
+  assert.equal(byClass('ideal-goal-action').href, `#/settings?world=${WORLD_A}&open=auto`);
+  const before = Number(byClass('notification-badge').textContent);
+  const key = `pal-note.ideals.self.test.架空データ.${WORLD_A}`;
+  values.set(key, PLAYER);
+  events.get('storage')({ key });
+  assert.match(status(), /^完成済み: アリス/);
+  assert.equal(byClass('ideal-goal-action').hidden, true);
+  // 選んだ時点で完成していたものは知らせない
+  assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].completedAt, '');
+  assert.equal(Number(byClass('notification-badge').textContent), before);
+  // 所持者の選択肢も、自分（アリス）の名前になる
+  assert.ok(selectHaving('mine'));
+});
+
+test('画面: 理想個体の「設定で選ぶ」で設定へ移ると、「このワールドでの自分」にフォーカスして URL から行き先を外し、選ぶとこの端末に保存する', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_A);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', order: 'next', worlds: {} }];
+  const { values, go } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals) }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const action = byClass('ideal-goal-action');
+  await action.dispatch('click');
+  assert.equal(find((node) => node.tagName === 'dialog' && node.open), undefined);
+  go(action.href);
+  assert.ok(byClass('settings-view'));
+  assert.equal(location.hash, '#/settings');
+  // 画面を付けた後に移る
+  await frame();
+  const select = document.activeElement;
+  assert.equal(select.getAttribute('aria-label'), 'このワールドでの自分');
+  assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'アリス']);
+  select.value = PLAYER;
+  await select.dispatch('change');
+  assert.equal(values.get(`pal-note.ideals.self.test.架空データ.${WORLD_A}`), PLAYER);
+  assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].complete, true);
+});
+
 test('画面: 戻る・進むのエントリは、表示中のワールドと違うワールドで書いたものを使わない', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   await shareWorld(development, WORLD_B);

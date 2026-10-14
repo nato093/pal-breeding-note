@@ -13,6 +13,8 @@ import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
 import { inheritanceView } from '../../web/js/views/route.js';
 import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
+import { createSelfStore } from '../../web/js/self-player.js';
+import { createIdealStore } from '../../web/js/ideals.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const snapshot = {
@@ -2309,5 +2311,222 @@ test('所持パル画面: 2,000 行を超えて見えている範囲だけ描く
   assert.equal(spaces(), unpainted() * 80);
   goals.set([]);
   assert.equal(spaces(), unpainted() * 64);
+  view.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// participant-self: 設定の「このワールドでの自分」・設定の行き先（settingsHash）・自分を変えたときの所持パルの描き直し
+// ---------------------------------------------------------------------------
+const SELF_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+const selfKeyOf = (userId) => `pal-note.ideals.self.test.${userId}.${SELF_WORLD}`;
+// 参加している人の画面（登録したワールドはなく、ホストが共有した所持パルを見ている）。プレイヤーは Alice・Bob・Bob（同じ名前）
+function guestOwned(players = [{ uid: P1, name: 'Alice' }, { uid: P2, name: 'Bob' }, { uid: P3, name: 'Bob' }]) {
+  const owned = fakeOwned(null);
+  const snap = { ...holderSnapshot, players: players.map((player) => ({ ...player, level: 10 })) };
+  Object.assign(owned.state, {
+    owned: normalizeOwned(snap, { pals, passives }),
+    meta: { worldId: SELF_WORLD, worldName: '仲間のワールド', hostName: 'Alice', source: 'shared', saveUpdatedAt: '2026-10-05T00:00:00.000Z', importedAt: '', sharedAt: '2026-10-05T00:01:00.000Z', uploadedBy: 'Alice', palCount: 6 },
+  });
+  return owned;
+}
+// ホストの画面（登録したワールド SELF_WORLD を読み込んでいる）。プレイヤーは Alice と Frank
+function hostOwned() {
+  const snap = { ...holderSnapshot, players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: P2, name: 'Frank', level: 10 }] };
+  const data = { ...holderData(snap), world: { id: SELF_WORLD, dir: `s/${SELF_WORLD}`, name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' } };
+  const owned = fakeOwned(data);
+  owned.state.auto.worlds[0].id = SELF_WORLD;
+  Object.assign(owned.state, { linkedWorldId: SELF_WORLD, meta: { ...owned.state.meta, worldId: SELF_WORLD } });
+  return owned;
+}
+// ログインした store（購読つき）・この端末の保存・このワールドでの自分・理想個体の登録（app.js と同じく identity に selfUid を渡す）
+function selfApp(owned, { userId = '仲間', users = ['仲間', 'Alice'], autoRegister = null } = {}) {
+  const app = context(owned);
+  const listeners = new Set();
+  Object.assign(app.store.state, { userId, users, passcode: '入力', renaming: false, records: [] });
+  app.store.subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+  app.store.emit = () => listeners.forEach((listener) => listener(app.store.state));
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key) };
+  app.self = createSelfStore({ store: app.store, storage });
+  app.autoRegister = autoRegister;
+  app.ideals = createIdealStore({
+    store: app.store, owned, storage,
+    identity: (worldId) => ({ userId: app.store.state.userId, users: app.store.state.users, mapping: autoRegister?.mapping(worldId) ?? {}, selfUid: app.self.get(worldId) }),
+  });
+  app.replacements = [];
+  app.replace = (hash) => app.replacements.push(hash);
+  return { app, values, listeners };
+}
+// 自動登録の設定（オン・登録者の対応はなし）
+function fakeAutoRegister() {
+  const mappings = [];
+  return { mappings, enabled: () => true, mapping: () => ({}), setMapping: (uid, userId, worldId) => mappings.push([uid, userId, worldId]), subscribe: () => () => {} };
+}
+const selfSelectOf = (root) => root.querySelector('.owned-self-row').querySelector('select');
+
+test('設定画面（このワールドでの自分）: 参加している人（共有のプレイヤー）にも出し、プレイヤーを選ぶとこの端末に保存し、自分の個体がその人になる', (t) => {
+  installDom(t);
+  const owned = guestOwned();
+  const { app, values } = selfApp(owned);
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const row = card.element.querySelector('.owned-self-row');
+  assert.equal(row.hidden, false);
+  assert.match(row.textContent, /このワールドでの自分/);
+  assert.match(row.textContent, /理想個体の完成の判定と、自分の個体の絞り込みに使います（この端末だけ）/);
+  const select = selfSelectOf(card.element);
+  assert.equal(select.getAttribute('aria-label'), 'このワールドでの自分');
+  // 名前の違う人（仲間）は自動では決まらない。同じ名前の 2 人には UID の頭 8 字を添える（所持者の選択肢と同じ名前）
+  assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'Alice', 'Bob（ABCD1234）', 'Bob（1A2B3C4D）']);
+  assert.equal(select.value, '');
+  assert.equal(app.ideals.mine(), null);
+  select.value = P2;
+  select.dispatch('change');
+  assert.equal(values.get(selfKeyOf('仲間')), P2);
+  assert.deepEqual([...app.ideals.selfUids()], [P2]);
+  assert.equal(select.value, P2);
+  // 「未設定」に戻すと消す
+  select.value = '';
+  select.dispatch('change');
+  assert.equal(values.has(selfKeyOf('仲間')), false);
+  card.destroy();
+});
+
+test('設定画面（このワールドでの自分）: 自動で決まる人は先頭の選択肢に名前を出し、ログアウト中・データのないとき・ワールドの分からないときは出さない', (t) => {
+  installDom(t);
+  const owned = guestOwned();
+  const { app } = selfApp(owned, { userId: 'Alice', users: ['Alice'] });
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const row = card.element.querySelector('.owned-self-row');
+  assert.equal(selfSelectOf(card.element).children[0].textContent, '自動（Alice）');
+  // ログアウトした
+  app.store.state.passcode = '';
+  app.store.emit();
+  assert.equal(row.hidden, true);
+  app.store.state.passcode = '入力';
+  app.store.emit();
+  assert.equal(row.hidden, false);
+  // 所持パルのデータがない・ワールド ID の形が違う
+  owned.state.meta = { ...owned.state.meta, worldId: 'W' };
+  owned.emit();
+  assert.equal(row.hidden, true);
+  owned.state.meta = { ...owned.state.meta, worldId: SELF_WORLD };
+  owned.state.owned = null;
+  owned.emit();
+  assert.equal(row.hidden, true);
+  card.destroy();
+});
+
+test('設定画面（このワールドでの自分）: 別のタブで変えたら選択を合わせ、同じ内容の描き直しでは選択肢を作り直さない', (t) => {
+  installDom(t);
+  const owned = guestOwned();
+  const { app, values } = selfApp(owned);
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const select = selfSelectOf(card.element);
+  const options = [...select.children];
+  owned.state.busy = true;
+  owned.emit();
+  app.store.emit();
+  assert.deepEqual([...select.children], options);
+  values.set(selfKeyOf('仲間'), P3);
+  app.self.reload(selfKeyOf('仲間'));
+  assert.equal(select.value, P3);
+  assert.deepEqual([...select.children], options);
+  card.destroy();
+});
+
+test('設定画面（行き先）: #/settings?world=<ID>&open=auto で開くと、自分が決まっていなければ「このワールドでの自分」にフォーカスし、URL から外す', async (t) => {
+  installDom(t);
+  const { settingsView } = await import('../../web/js/views/settings.js');
+  const { app } = selfApp(guestOwned());
+  const view = settingsView(app, parseHash(`#/settings?world=${SELF_WORLD.toLowerCase()}&open=auto`));
+  // 戻る・進む・読み込み直しでもう一度動かないよう、world・open を外す
+  assert.deepEqual(app.replacements, ['#/settings']);
+  // 作った直後はまだ文書に付いていないので、付いた後に移る
+  document.body.append(view.element);
+  await tick();
+  assert.equal(document.activeElement, selfSelectOf(view.element));
+  // 同じ画面のまま（通知を押したなど）来たときは、その場で移る。open のない URL では何もしない
+  document.activeElement = document.body;
+  view.applyRoute(parseHash('#/settings'));
+  assert.equal(document.activeElement, document.body);
+  view.applyRoute(parseHash('#/settings?open=auto'));
+  assert.equal(document.activeElement, selfSelectOf(view.element));
+  assert.deepEqual(app.replacements, ['#/settings', '#/settings']);
+  view.destroy();
+});
+
+test('設定画面（行き先）: 自動登録の「対応が未設定」から来たら、そのワールドの行を開いて未設定の登録者にフォーカスする（自分が決まっていれば自分の選択へは移らない）', async (t) => {
+  installDom(t);
+  const { settingsView } = await import('../../web/js/views/settings.js');
+  const autoRegister = fakeAutoRegister();
+  const { app } = selfApp(hostOwned(), { userId: 'Alice', users: ['Alice'], autoRegister });
+  const before = settingsView(app, parseHash('#/settings'));
+  // 行き先なしで開いたときは、ワールドの行は閉じたまま
+  assert.equal(before.element.querySelector('.owned-world-details').open, false);
+  before.destroy();
+  const view = settingsView(app, parseHash(`#/settings?world=${SELF_WORLD}&open=auto`));
+  document.body.append(view.element);
+  await tick();
+  assert.equal(view.element.querySelector('.owned-world-details').open, true);
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Frankの登録者');
+  // 登録者の対応を変えたら、自分の決め方も変わるので判定し直す（このワールドでの自分の自動の名前も描き直す）
+  document.activeElement.value = 'Alice';
+  await document.activeElement.dispatch('change');
+  assert.deepEqual(autoRegister.mappings, [[P2, 'Alice', SELF_WORLD]]);
+  // 未設定の登録者がなければ自動登録のチェック、行がないワールド（参加しているだけ）は自分の選択か見出しへ
+  view.destroy();
+  const mapped = fakeAutoRegister();
+  mapped.mapping = () => ({ [P2]: 'Alice' });
+  const second = selfApp(hostOwned(), { userId: 'Alice', users: ['Alice'], autoRegister: mapped });
+  const toggleView = settingsView(second.app, parseHash(`#/settings?world=${SELF_WORLD}&open=auto`));
+  document.body.append(toggleView.element);
+  await tick();
+  assert.equal(document.activeElement.type, 'checkbox');
+  toggleView.destroy();
+  const other = settingsView(second.app, parseHash('#/settings?world=FEDCBA9876543210FEDCBA9876543210&open=auto'));
+  document.body.append(other.element);
+  await tick();
+  assert.equal(document.activeElement, selfSelectOf(other.element));
+  other.destroy();
+});
+
+test('設定画面（行き先）: 所持パルの状態を読み込む前に来たら、読み込んだ後に行い、データのない画面では見出しへ移る', async (t) => {
+  installDom(t);
+  const { settingsView } = await import('../../web/js/views/settings.js');
+  const owned = fakeOwned(null, { ready: false });
+  const { app } = selfApp(owned);
+  const view = settingsView(app, parseHash(`#/settings?world=${SELF_WORLD}&open=auto`));
+  document.body.append(view.element);
+  await tick();
+  assert.equal(document.activeElement, document.body);
+  owned.state.ready = true;
+  owned.emit();
+  const heading = view.element.querySelector('.owned-settings').querySelector('h2');
+  assert.equal(document.activeElement, heading);
+  assert.equal(heading.tabIndex, -1);
+  view.destroy();
+});
+
+test('所持パル画面（このワールドでの自分）: 所持者が自分（既定）のまま自分を選ぶと、同じデータのまま選択肢・件数・行を描き直す', (t) => {
+  installDom(t);
+  const owned = guestOwned([{ uid: P1, name: 'Alice' }, { uid: P2, name: 'Bob' }]);
+  const { app } = selfApp(owned);
+  const view = ownedView(app, parseHash('#/owned'));
+  // 自分が分からない間は「すべて」として出す（D29）
+  assert.equal(holderSelect(view).value, '');
+  assert.equal(rowIds(view).length, 5);
+  app.self.set(SELF_WORLD, P2);
+  assert.equal(holderSelect(view).value, 'mine');
+  assert.deepEqual(holderSelect(view).children.map((node) => node.textContent), ['すべて', 'Bob（自分）', 'Alice']);
+  assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);
+  // 自分を変えると、その人の個体に描き直す
+  app.self.set(SELF_WORLD, P1);
+  assert.deepEqual(holderSelect(view).children.map((node) => node.textContent), ['すべて', 'Alice（自分）', 'Bob']);
+  // Alice の個体（パルボックス・拠点に預けたもの。グローバルパルボックスは既定の場所にない）
+  assert.equal(rowIds(view).length, 2);
+  // 同じ本人のままの知らせでは描き直さない
+  const rows = view.element.querySelectorAll('.owned-row');
+  app.self.reload('pal-note.ideals.self.');
+  assert.deepEqual(view.element.querySelectorAll('.owned-row'), rows);
   view.destroy();
 });

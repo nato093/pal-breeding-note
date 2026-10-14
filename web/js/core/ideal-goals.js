@@ -93,17 +93,23 @@ export function goalKey(goal) {
 }
 
 /**
- * 自分（ログイン中の ID）にあたるセーブのプレイヤー。設定の「登録者の対応」で選んだものを優先し、なければ同じ名前のプレイヤー
- * （配合牧場の自動登録の core/auto-breeding.js の mappedUser と同じ規則。そちらは自動登録の外から読まないので、ここに置く）。
+ * 自分（ログイン中の ID）にあたるセーブのプレイヤー。決め方は次の順:
+ * 1. 設定の「このワールドでの自分」（selfUid。そのワールドのプレイヤーにいるときだけ。いればその 1 人だけ）
+ * 2. 設定の「登録者の対応」（配合牧場の自動登録。プレイヤーの UID → ノートの ID）で自分の ID を選んだプレイヤー
+ * 3. 対応を選んでいないプレイヤーのうち、ノートの ID と同じ名前のプレイヤー
+ * 2・3 は配合牧場の自動登録の core/auto-breeding.js の mappedUser と同じ規則（そちらは自動登録の外から読まないので、ここに置く）。
+ * ログインしていなければ（userId が空）空。
  * @param {{ uid: string, name: string }[]} players
- * @param {{ userId: string, users?: string[], mapping?: Record<string, string> }} identity mapping はプレイヤーの UID → ID
+ * @param {{ userId: string, users?: string[], mapping?: Record<string, string>, selfUid?: string }} identity mapping はプレイヤーの UID → ID
  * @returns {Set<string>} プレイヤーの UID
  */
-export function ownPlayerUids(players, { userId, users = [], mapping = {} }) {
-  const me = userIdKey(userId);
+export function ownPlayerUids(players, { userId, users = [], mapping = {}, selfUid = '' }) {
+  const me = userId ? userIdKey(userId) : '';
   const known = new Set(users.map(userIdKey));
   const mine = new Set();
   if (!me) return mine;
+  // このワールドでの自分。別のワールドの値・プレイヤーが消えたときは、ここで決めずに 2・3 の規則に戻る
+  if (selfUid && players.some((player) => player.uid === selfUid)) return new Set([selfUid]);
   for (const player of players) {
     const chosen = mapping[player.uid];
     const user = chosen ? (known.has(userIdKey(chosen)) ? userIdKey(chosen) : '') : known.has(userIdKey(player.name)) ? userIdKey(player.name) : '';
