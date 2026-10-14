@@ -638,28 +638,70 @@ title 13 字・body 43 字。
 
 ### 完了の条件
 
-- [ ] `npm test` と `npm run test:perf` が通る。
-- [ ] `grep -rn "idealPairs\|ORDERS\|GOAL_ORDERS\|excludePartners\|filterPartners\|representative" web/js test` が 0 件（`views.test.js`・`router.test.js` の URL の `exclude` は別の文字列なので残る）。
-- [ ] 理想個体の「変更あり」のタグの文字が、ライトでは濃い赤、ダークでは淡い赤で読める（画面で確認）。
-- [ ] 空の状態とログイン画面の DOM に `empty-symbol`・`login-mark` がない。
-- [ ] 理想個体・継承ルートの画面の結果が、片付けの前と同じ（モックの同じ操作で比べる）。
-- [ ] README・OPERATIONS・SOURCES・COMPARISON の追記を読み、案 ID や古い記述がない。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — `core/ideal.js` の import が `./index.js` だけのまま（`test/import.test.js`）。互換 — 保存済みの目標の `order` を読み捨てても、旧コードのタブで同じ目標が 2 件に分かれない（goalKey に order が入っていない）。性能 — `npm run test:perf` で idealPlan が 2 秒以内のまま。セキュリティ — `test/static/security.test.js` が通る。
+- [x] `npm test` と `npm run test:perf` が通る。
+- [x] `grep -rn "idealPairs\|ORDERS\|GOAL_ORDERS\|excludePartners\|filterPartners\|representative" web/js test` が 0 件（`views.test.js`・`router.test.js` の URL の `exclude` は別の文字列なので残る）。
+- [x] 理想個体の「変更あり」のタグの文字が、ライトでは濃い赤、ダークでは淡い赤で読める（画面で確認）。
+- [x] 空の状態とログイン画面の DOM に `empty-symbol`・`login-mark` がない。
+- [x] 理想個体・継承ルートの画面の結果が、片付けの前と同じ（モックの同じ操作で比べる）。
+- [x] README・OPERATIONS・SOURCES・COMPARISON の追記を読み、案 ID や古い記述がない。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — `core/ideal.js` の import が `./index.js` だけのまま（`test/import.test.js`）。互換 — 保存済みの目標の `order` を読み捨てても、旧コードのタブで同じ目標が 2 件に分かれない（goalKey に order が入っていない）。性能 — `npm run test:perf` で idealPlan が 2 秒以内のまま。セキュリティ — `test/static/security.test.js` が通る。
 
 ### TODO
 
-- [ ] ideal.test.js の idealPairs のテストを (a)(b)(c) に分け、一時スクリプトで値を比べてから idealPlan・直接の関数へ移す
-- [ ] ideal.perf.js を idealPlan だけにする
-- [ ] `core/ideal.js` の ORDERS・compare・compareGenerations・idealPairs を消す
-- [ ] `GOAL_ORDERS` と cleanGoal の order、画面の `order: 'next'` を消し、テストを直す
-- [ ] README.md:23 の理想個体の説明を直す
-- [ ] `core/route.js` の filterPartners・excludePartners・representative を消し、route.test.js を直す（views.test.js・router.test.js は残す）
-- [ ] `--md-sys-color-on-error-container` を定義し、定義の有無を確かめる静的テストを足す
-- [ ] 未使用の CSS を grep で確かめて消し、`.tab-symbol` の上書き・▸ の transition を直す
-- [ ] `empty()` とログイン画面の「◇」を消す
-- [ ] `storageWarning(what)` を作り、3 か所を置き換える
-- [ ] OPERATIONS.md に diag の 1 項目、README に強み、SOURCES.md に「作らない機能」、COMPARISON.md を書く
-- [ ] release-notes に 1 件
+- [x] ideal.test.js の idealPairs のテストを (a)(b)(c) に分け、一時スクリプトで値を比べてから idealPlan・直接の関数へ移す
+- [x] ideal.perf.js を idealPlan だけにする
+- [x] `core/ideal.js` の ORDERS・compare・compareGenerations・idealPairs を消す
+- [x] `GOAL_ORDERS` と cleanGoal の order、画面の `order: 'next'` を消し、テストを直す
+- [x] README.md:23 の理想個体の説明を直す
+- [x] `core/route.js` の filterPartners・excludePartners・representative を消し、route.test.js を直す（views.test.js・router.test.js は残す）
+- [x] `--md-sys-color-on-error-container` を定義し、定義の有無を確かめる静的テストを足す
+- [x] 未使用の CSS を grep で確かめて消し、`.tab-symbol` の上書き・▸ の transition を直す
+- [x] `empty()` とログイン画面の「◇」を消す
+- [x] `storageWarning(what)` を作り、3 か所を置き換える
+- [x] OPERATIONS.md に diag の 1 項目、README に強み、SOURCES.md に「作らない機能」、COMPARISON.md を書く
+- [x] release-notes に 1 件
+
+### 実装の記録（2026-10-14、ブランチ `feature/cleanup-dead-code`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ copy-dead-ends・visual-parts はこちらを正とする）。
+
+1. **値の比べ方（手順 1）**: 消す前に、セッションの一時フォルダ（リポジトリの外）に HEAD の core/ideal.js・index.js・pair.js を写し、ideal.test.js の idealPairs のテストの入力（:150・:185・:198・:218・:231・:242・:270・:448・:539・:558・:572 の 11 か所。行は HEAD a141500）で、idealPairs と idealPlan を並べた。idealPlan は別々の個体の組しか一覧に出さないので、**組ごとの値は、その 2 体だけを渡した idealPlan の組**と比べた（:242 は全部の組を `watch` で見張って成功率も比べた）。
+   - 同じだった値（2,882 項目のうち組ごとの値はすべて）: 組の `passiveChance`・`talentChance`・`chance`・`expected`・`cleanPassiveChance`・`pool`・`extras`・`sources`・`ambiguous`・`unverified`・`swapped`・`generations`・`generationsUpper`、`candidates`・`unknownGender`・`missing`、`isParentCandidate`。
+   - 違った値（9 か所。どれも意味の違い）: `total`（idealPairs は欲しいパッシブが両親でそろわない組を数えない。idealPlan はパッシブ厳選組・個体値厳選組として並べるので数える）、`complete`・`tooMany`（idealPairs は並べ方が「世代」のときだけ数えた。idealPlan はいつも数える）、:448 の `candidates`・`total`（idealPairs の「世代」は同じ種族の置き方だけを使った。idealPlan は異種の登録済みの配合も、P2 を持たない m2 と両親合わせてそろう組〔ideal-calc の意図した差〕も完全体作成組にする）。
+   - (a)(b)(c) の分け方: (a) :150・:185・:198・:218・:231・:242・:270 → idealPlan（組は `find`・その 2 体だけの idealPlan・`watch` の物差しで確かめる）。(b) :448・:539・:558・:572 → idealPlan の完全体作成組の `generations`・`generationsUpper` を `generationTable`・`generationEggs` を直接引いた値と比べる（:539・:572 は同じ呼び出しで全部の組を見張り、覚え方で取り違えないことを `measures` の `eggs` で確かめる）。(c) 消したもの: 「次の 1 回」の並び（:150 の 6 組の順・:231 の順〔別々の個体の組の順に直した〕）、そろわない組で `total` が 0（:185）、0% の組を後ろへ（:198。idealPlan では xm×xf は子を入れ替えながら作れる完全体作成組）、「世代」は同じ種族だけ（:448 の total 2）、`order: 'next'` なら m2 も出る（:475）。テストの数は 51 のまま（消したのはテストの中の確かめだけ）。
+   - 前のテストの「初回 0% の m1×f1」は、実際には m1 が 100 を持つので 0% ではなかった（`talentChance` 0.0353）。その説明は外した。
+   - テストのコメントに `idealPairs` の名前を書くと、完了の条件の grep に掛かるので、「前の並べ方（「次の 1 回で産まれやすい順」「世代を重ねて最短の順」）」と書いた。
+2. **性能テスト（手順 1）**: 1 つ目のテストは idealPlan で測り、`total`（idealPlan も「並べた組の数」を返す）と `pairs.length === 20` を確かめる。2 つ目のテストは :54（世代・ケーキなし）・:59（世代・キノコケーキ）を消し、`measure` を idealPlan だけにした（`order: 'generations'` も外した）。名前は「理想個体の配合の計画は…」「配合の計画（子を入れ替えながら作る世代の計算を含む）は…」。前は idealPairs の測定が世代の表を先に作っていたので、計画の測定は表の作成を含むようになったが、1 回 2 秒の許容に収まる（`npm run test:perf` 12 件すべて通過。100 万組の計画 452〜864 ms、区切った計算の 1 回の最大 38.91 ms）。
+3. **理想個体の旧方式（手順 2）**: `ORDERS`・`compare`・`compareGenerations`・`idealPairs`（説明のコメントを含む）を消した。ファイルの冒頭の説明（「1 個のタマゴで産まれる確率を出す」）と、世代の計算の節の見出し（「世代を重ねて最短の順」）を今の形に直した。消した後に内部の名前を 1 つずつ数え、使われなくなった関数はなかった（`talentExpectation` は文書どおり残した。テストだけが使う）。`GOAL_ORDERS` と cleanGoal の `order` と views/ideal.js の `goalConditions` の `order: 'next'` を消し、cleanGoal の説明に「前に保存した order は読まない」を足した。
+   - **互換**: 新しいテスト（ideal-goals.test.js・ideals.test.js）で、前の版が保存した目標（`order: 'generations'`・`'next'`）を捨てずに読み、次に保存すると `order` がないことを確かめた。旧コードのタブは、一時フォルダに写した HEAD の ideal-goals.js で確かめた: 新しいコードの保存（order なし）を読むと `order: 'next'` を足すだけで件数も goalKey も同じ、旧タブが書き戻した形を新しいコードが読んでも同じ中身（order は落ちる）。
+   - ideal-view.test.js・app.test.js・owned.perf.js などのテストの入力に残っている `order: 'next'` は、前の形の入力として捨てずに読むことの確かめになるので、そのままにした（ideal-view.test.js の保存の確かめ 1 か所だけ「order を保存しない」に直した）。
+4. **継承ルート（手順 3）**: `filterPartners` を消し、`shortestRoute(graph, from, to)`・`findRoutes(graph, index, from, to, { k, slack })` は `graph` をそのまま使う。`addStepDetails` は `multiChild` だけを足す（代表を選ぶための `comparePal` も要らなくなった）。route.test.js: 「確認回数、相手順位、レコード ID の順で代表を選ぶ」は、相手の候補の並び（相手の順位 → レコード ID）を確かめるテストとして残した。「excludePartners: …」は消した（1,422 → 1,421）。ランダムな 200 ケースは除外なしにし、総当たりの `enumeratePaths` も除外の引数を外した。`rec` の確認回数の引数はそのまま（確認回数の列は触らない）。
+5. **CSS（手順 4）**: `--md-sys-color-on-error-container` をライト `#7a1626`（error-container `#fbe1e4` に対して 8.62:1）・ダーク `#ffd9dd`（`#5a1c26` に対して 9.96:1）で定義した。使うのは `.ideal-changed`（「変更あり」）・`.ideal-farm-to`（「→ ◯◯へ」）・配合牧場の詳細の交換推奨の札（`.ideal-farm-status.swap`・`.ideal-farm-cell.swap .ideal-farm-cell-state`）・2×2 の入れ替わるセル（`.ideal-farm-swap td.is-changed`）で、前はどれも親の文字色（ライト #172c2b・ダーク #ecf4ec）を継いでいた。
+   - 消した未使用のルール: `.load-more`、`.owned-import`、`.owned-status`、`.owned-section`（と `h3`）、`.owned-preview`（3 行）、`.owned-folder-worlds`（2 行と、`.owned-import-row` の行の `, .owned-folder-worlds select`）、`.owned-warnings`（1 行と、`.owned-notice.notice-warning` の行の `, .owned-warnings`）、`.tab-symbol { font-size: 20px; line-height: 1.1; }`、`.empty-symbol`、`.login-mark`。どれもクラス名ごとに web/ と test/ を探し（`'…'`・`` ` ``・`.` で囲まれた形と、`` `owned-${…}` `` などの組み立て）、JS で作っていないことを確かめた（test/ に残るのは「0 件」を確かめる `.load-more` だけ）。
+   - **文書にない未使用**: app.css の全クラス（472）を web/ の JS・HTML の文字列と照らし、組み立てて付けるクラス（`element-*`・`gender-*`・`group-*`・`passive-rank-*`・`state-*`・`tone-*`・`notice-*`）を除いて残ったのは上のものと **`.ideal-extras`**（D30 で `li.ideal-extras` を消した後の `.ideal-extras .passive-list.compact` のセレクタ。`.ideal-warning …` の方は残した）だけだったので、これも消した。`.owned-source` はコメントの中だけ。
+   - **▸ の回る動き**: 文書の `.owned-world-summary::before` に加え、同じ形で動きを減らす設定の外にあった `.ideal-farms-summary::before`（ideal-farms）・`.ideal-same-summary::before`（ideal-results）も、`@media (prefers-reduced-motion: no-preference)` の中の 1 行（`transition: transform .15s ease`）にまとめた。画面で、動きを減らす設定では前は 0.15s 回っていたのが 0s になった（no-preference では 0.15s のまま）。
+   - 旧名のトークン（`--bg` から `--state-primary`）の上に「新しく書く CSS では M3 のロールを使う。旧名は触るついでに置き換える（一括では置き換えない）」のコメントを書いた。
+   - 静的テスト（test/static/styles.test.js）を 2 件足した: (1) ライトの `:root` とダークの `@media (prefers-color-scheme: dark) { :root }` の両方に `--md-sys-color-on-error-container` があり、`var(--md-sys-color-*)` で参照している色はすべてライトに定義があり、ダークにしかない色もない。(2) 文書にはないが、transition・animation（`animation: none` を除く）が動きを減らす設定のブロックの外にない（▸ がまた外に置かれないように）。どちらも前の CSS で落ちることを確かめた。
+6. **「◇」（手順 4）**: `empty(text, action)` は `div.empty-state` の中に文の `p` と、あれば操作だけを入れる（API は変えていない）。ログイン画面の `.login-panel` の最初の子は `p.eyebrow`。どちらも `display: none` だったので、画面の位置は変わらない（下の 11）。ヘッダーのロゴの「◇」（`app.js` の `brand-mark`）は文書どおり visual-parts に残した。
+7. **保存失敗の警告（手順 5）**: **`storageWarning(what, className = '')`**（ui/dom.js）→ `p.form-errors.storage-warning`（className があれば足す）・`role="alert"`・文「この端末に〈what〉を保存できませんでした（ページを閉じると消えます）」。出し入れは呼ぶ側が `hidden` で行う（今までどおり）。下書きは `storageWarning('下書き', 'drafts-warning')`、ウィッシュリストは `storageWarning('ウィッシュリスト', 'wishlist-warning')`（どちらもローカル変数の名前が部品と同じ `storageWarning` だったので `saveWarning` にした）、理想個体の目標のダイアログは `storageWarning('目標')`（余白のクラスなし。前と同じ）。`.storage-warning` に CSS はない（後で見た目をそろえるときの印）。設定の「このワールドでの自分」のトースト（participant-self）はもともと同じ文の形なので変えていない。「目標（N）!」の title「この端末に保存できませんでした」もそのまま。
+8. **文書（手順 6・7）**:
+   - docs/OPERATIONS.md の「動作確認」に 3 行（親の行と 2 つの補足）。文書の文に、診断ページが実際に確かめること（数式として扱われないこと〔`FORMULA_CASES`〕を足した）と、CSP は `web/index.html` と `web/diag.html` に別々に書いてある（`connect-src` が違う）ことを足した。診断ページが見る CSP の違反は診断ページ自身の CSP なので、「GAS への接続の CSP を変えた後」と書いた。
+   - README.md の強みは、README の書き方（です・ます）に合わせ、見出し「このアプリの強み」と 4 行と、対応表へのリンクにした。カードに出るのは登録者と更新の日時なので「登録者と更新の日時」。理想個体の強みは D30 の後の画面に合わせ、数値を書かず「交換は全体の速さの目安が上がるときだけ勧める・いちばん早く作れるケーキにも印」。:23 の理想個体の説明も、組の目的ごとの並び（パッシブ厳選組は集まる数、個体値厳選組は個体値がそろうまでの平均）・ケーキの最速の印・交換推奨の条件に直した。
+   - docs/COMPARISON.md は 15 行（類似ツールにある機能 12・どのツールにもない 3）。列は文書どおり。版は PalCalc v1.21・PalworldSaveTools v2.4.5（終了）・palworld-helper と PalEdit はリポジトリの既定のブランチ（版の番号は確かめていない）・攻略サイトと Pal Box Inspector は Web サイト（版なし）。「このアプリ」の欄は 2026-10-14 の版の画面。見送った機能の理由は appendix/rejected.md の文から短くした。
+   - data/SOURCES.md は「取り込まないもの（INV-2）」の下に `### 作らない機能`（5 行）と変更記録を置き、冒頭から対応表とその節へリンクした。あわせて、理想個体の例外の節の「「世代を重ねて最短の順」」（画面からなくなった並べ方の名前）を「子を入れ替えながら作る世代の計算」に直した（変更記録に書いた）。
+9. **release-notes**: `2026-10-14-cleanup-style`。title「「変更あり」の文字色を修正」（13 字）、body「理想個体の「変更あり」と交換推奨の文字色を直し、端末に保存できなかったときの警告を短くしました。」（48 字）。同じ色が交換推奨の札にも効くので、文書の案の body に「と交換推奨」を足した。
+10. **テスト**: 1,422 → 1,428 件（`npm test` exit 0）。足したもの: styles.test.js 2 件、dom.test.js 2 件（`empty` が「◇」を作らない・`storageWarning` の形）、ideal-goals.test.js 1 件（前の版の目標の読み込み）、ideals.test.js 1 件（store で読んで保存し直すと order が消える）、wishlist.test.js 1 件（画面の警告）。消したもの: route.test.js の excludePartners の 1 件。直したもの: ideal.test.js（上の 1）・ideal.perf.js（上の 2）・route.test.js（上の 4）・ideal-goals.test.js（order を外し、`'order' in clean` が false・order を渡しても同じ goalKey）・ideals.test.js（`GOAL` から order を外す・保存に order がない）・ideal-view.test.js（保存した目標に order がない・目標のダイアログの警告の文）・drafts.test.js（警告の文と role）・app.test.js（ログイン画面に `.login-mark` がない）。web/ を前に戻す（`git stash push -- web/`）と 19 件落ちることを確かめた。views.test.js・router.test.js の exclude の回帰テストは変えていない。
+11. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/cleanup-dead-code/`）**: 片付けの前と比べるため、HEAD の web/・dev/・scripts/dev-server.mjs を一時フォルダに書き出して 5192 番で、このブランチを 5191 番で並べて動かした（書き出しには取得済みのパルの画像がないので、web/img/pals だけ写した）。モックの架空の配合は `Math.random` で作られて読み込むたびに変わるので、`page.addInitScript` で両方の `Math.random` を同じ種の乱数に置き換えた（`seed-random.js`。記録 80 件の署名が一致）。所持パルは `inject-v1.js`（owned/ideal-farms/inject-farms.js の写し）。
+    - ログイン画面: `.login-mark` 0 件（前は 1 件）、見出し・フォームの位置は前と同じ（ライトとダーク。`after-login-*.png`・`before-login-*.png`）。
+    - 理想個体: アヌビス（なし・伝説・伝説＋希少）・ジェッドラン・ホルス・モコロン・ツッパニャンを、所持者の既定（自分）と「すべて」で 14 通り。組のカード・配合牧場の帯と詳細・足りないパッシブの案内・空の表示・ケーキの「最速」・所持の状況が前とすべて同じ（`compare.js`）。継承ルート: 2 回以上の配合でたどれる 4 組と 1 回の組と、古い URL の `exclude=` つきの 6 通りが前と同じ（`compare-routes.js`）。
+    - 「変更あり」の文字色: 自分の強いアヌビス ♂♀ を足した `inject-v2.js` を入れると（牧場の中身は同じなので基準は残る）、アヌビス・所持者「すべて」で 1 番の組に「変更あり」と「→ 拠点 1 の牧場 A へ」、帯に「⇄ 1 番へ」が付く。文字色はライト rgb(122,22,38)・地 rgb(251,225,228)、ダーク rgb(255,217,221)・地 rgb(90,28,38)（前は親の色 rgb(23,44,43)・rgb(236,244,236)）。交換推奨の札も同じ（`after-changed-light.png`・`after-changed-dark.png`、前は `before-changed-*.png`）。
+    - レール: 9 本のタブのアイコン（20×20、left 37.5）と枠の位置が、ライト・ダークとも前と同じ（`.tab-symbol` の font-size は前も今も 0px）。
+    - 空の状態: ウィッシュリスト・下書きの `.empty-state` は `p` だけになり、高さ（114.14・134.28px）と文の位置は前と同じ（`after-empty-*.png`）。
+    - 保存失敗の警告: `Storage.prototype.setItem` をウィッシュリストのキーだけ失敗させてモコロンを足すと、「この端末にウィッシュリストを保存できませんでした（ページを閉じると消えます）」（`role="alert"`、ライト rgb(176,48,67)・ダーク rgb(255,146,160)、13px・余白 8px 0・高さ 20.14px。色と大きさは前と同じ。`after-storage-warning-*.png`）。
+    - 終わった後にブラウザを閉じ、5191・5192 番のサーバを止めた（待ち受け 0 件）。
+12. **後のテーマへの申し送り**:
+    - copy-dead-ends: `empty(text, action)` は `div.empty-state > p（＋操作）` だけになった。アイコンの枠（`span.empty-icon`）は文の前に足せば、隠した要素とぶつからない。保存失敗の警告は `storageWarning(what, className)` を使う（文の形は「この端末に〈what〉を保存できませんでした（ページを閉じると消えます）」にそろえた）。docs/OPERATIONS.md の理想個体の節の「一覧は「配合の計画」」の項目に、ideal-calc の前の言い方「牧場が 3 つなら上から 3 組を置く」が残っている（ideal-calc の後は「上から K 組が、いつも最終の配置とは限らない」。このテーマの範囲外なので直していない）。
+    - visual-parts: `--md-sys-color-on-error-container`（ライト `#7a1626`・ダーク `#ffd9dd`）を状態チップの is-error とエラーのトーストに使える。旧名のトークンは「触るついでに置き換える」のコメントのとおり。動き（transition・animation）は動きを減らす設定のブロックの中に置かないと styles.test.js が落ちる。ヘッダーのロゴの「◇」（`brand-mark`）は残してある。
 
 ---
 
