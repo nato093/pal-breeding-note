@@ -1,6 +1,6 @@
 // 設定の「セーブ連携」。登録したワールド（モーダルで登録・編集・削除）、使うワールドの切り替え、
 // 表示しているワールドでの自分、配合牧場からの自動登録（ワールドごと）、所持パルの CSV・共有の削除を扱う。
-import { el, button, runButton } from '../ui/dom.js';
+import { el, button, runButton, statusChip, setChipTone } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
 import { dateTime, worldName, roleLabel, timeLines } from '../ui/owned-status.js';
@@ -18,6 +18,8 @@ function option(value, label) {
 }
 
 const AUTO_STATES = { checking: '確認中…', ready: '読み込み済み', permission: '許可が必要', empty: '登録なし', error: 'エラー', off: '' };
+// 読み込みの状態の印の色（状態のチップの tone。ui/dom.js の statusChip）
+const AUTO_TONES = { ready: 'ready', permission: 'warning', empty: 'error', error: 'error' };
 const WORLD_STATES = { permission: '許可が必要', missing: 'ファイルが見つかりません', error: '読めません' };
 const SAVE_ROOT = '%LOCALAPPDATA%\\Pal\\Saved\\SaveGames';
 
@@ -209,7 +211,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   const card = el('section', 'settings-card owned-settings');
 
   // ---- 状態（読み込み・許可） ----
-  const autoState = el('span', 'owned-auto-state');
+  const autoState = statusChip('', 'neutral', 'owned-auto-state');
   const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
   // 許可はクリックの中で（await を挟まずに）求める
   const grant = button('読み込みを許可', () => runButton(grant, () => owned.grantAndRefresh(), (error) => toast(error.message, { kind: 'error' })), 'button primary');
@@ -429,9 +431,10 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         const summary = el('summary', 'owned-world-summary');
         // 閉じたままでも、開くと何があるか（配合の自動登録の設定と、いまの状態）が分かるようにする
         const parts = [el('span', 'owned-world-label', views[index].label)];
-        const stateChip = el('span');
+        // 状態の印（状態のチップ。オンは ready、オフ・対象外は neutral）
+        const stateChip = statusChip('', 'neutral', 'owned-world-state');
         const showState = (on) => {
-          stateChip.className = `owned-world-state${on ? ' on' : ''}`;
+          setChipTone(stateChip, on ? 'ready' : 'neutral');
           stateChip.textContent = world.kind === 'guest' ? '配合の自動登録: 対象外' : `配合の自動登録: ${on ? 'オン' : 'オフ'}`;
         };
         showState(world.kind !== 'guest' && views[index].enabled);
@@ -481,7 +484,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const hasWorlds = state.auto.worlds.length > 0;
     const needsPermission = state.auto.enabled && state.auto.status === 'permission';
     autoState.textContent = state.auto.enabled ? AUTO_STATES[state.auto.status] ?? '' : '';
-    autoState.className = `owned-auto-state state-${state.auto.status}`;
+    setChipTone(autoState, AUTO_TONES[state.auto.status] ?? 'neutral');
     // 確かめている途中もエラーは残り（owned.js）、エラーがないときも見えないまま 1 行分の場所を残す（点滅しない・下が上下しない）。
     // 登録したワールドがなければ、エラーがあるときだけ出す
     const errorText = state.auto.enabled ? state.auto.error : '';

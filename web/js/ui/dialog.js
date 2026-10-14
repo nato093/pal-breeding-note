@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { icon } from './icons.js';
 
 export function openDialog(title, { className = '', onClose, closeOnBackdrop = true } = {}) {
   const previousFocus = document.activeElement;
@@ -8,7 +9,9 @@ export function openDialog(title, { className = '', onClose, closeOnBackdrop = t
   dialog.setAttribute('aria-labelledby', heading.id);
   const header = el('header', 'dialog-header');
   const close = () => dialog.close();
-  const dismiss = button('×', close, 'icon-button');
+  // × は SVG のアイコン（ui/icons.js の close）。名前は aria-label
+  const dismiss = button('', close, 'icon-button dialog-close');
+  dismiss.append(icon('close', { className: 'close-icon' }));
   dismiss.setAttribute('aria-label', '閉じる');
   header.append(heading, dismiss);
   const body = el('div', 'dialog-body');

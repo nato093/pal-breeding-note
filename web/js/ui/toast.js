@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { icon } from './icons.js';
 
 /** 文言だけの知らせを出す時間 */
 export const TOAST_DURATION = 3000;
@@ -133,8 +134,9 @@ export function toast(message, { action, actionLabel = '元に戻す', duration,
     node.append(undo);
   }
   if (error) {
-    // visual-parts で SVG のアイコンに替える
-    const close = button('×', dismiss, 'toast-close');
+    // × は SVG のアイコン（ui/icons.js の close）。名前は aria-label と title
+    const close = button('', dismiss, 'toast-close');
+    close.append(icon('close', { className: 'close-icon' }));
     close.setAttribute('aria-label', '閉じる');
     close.title = '閉じる';
     node.append(close);

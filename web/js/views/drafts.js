@@ -1,6 +1,6 @@
-import { el, button, empty, storageWarning } from '../ui/dom.js';
+import { el, button, empty, storageWarning, setDisabled } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { actionIcon, icons, breedingCard, breedingEquation } from '../ui/breeding-card.js';
+import { actionIcon, breedingCard, breedingEquation } from '../ui/breeding-card.js';
 import { palsById } from '../ui/pal-icon.js';
 import { confirmDialog } from '../ui/dialog.js';
 import { toast } from '../ui/toast.js';
@@ -113,8 +113,8 @@ function draftRow(context, draft, onRemove) {
   const register = button('登録', singleClick(() => registerDrafts(context, [current.id])), 'button primary small');
   register.setAttribute('aria-label', 'この下書きを登録');
   const actions = el('div', 'card-actions draft-actions');
-  actions.append(register, actionIcon('編集', icons.edit, () => context.register(current, { draft: true })),
-    actionIcon('削除', icons.remove, singleClick(() => onRemove(current.id)), 'danger-text'));
+  actions.append(register, actionIcon('編集', 'edit', () => context.register(current, { draft: true })),
+    actionIcon('削除', 'remove', singleClick(() => onRemove(current.id)), 'danger-text'));
   const memo = el('p', 'draft-memo');
   const message = el('p', 'draft-message');
   message.setAttribute('aria-live', 'polite');
@@ -129,7 +129,7 @@ function draftRow(context, draft, onRemove) {
       meta.replaceChildren(el('span', '', next.registrant || '登録者未指定'));
       memo.textContent = next.memo;
       memo.hidden = !next.memo;
-      register.disabled = DRAFT_PALS.some((field) => !next[field]);
+      setDisabled(register, DRAFT_PALS.some((field) => !next[field]), '親1・親2・子を選ぶと登録できます');
       message.textContent = status.error;
       message.classList.toggle('draft-error', Boolean(status.error));
       message.hidden = !status.error;
@@ -207,8 +207,10 @@ export function draftsView(context) {
     addEmpty.disabled = !ready;
     saveWarning.hidden = !drafts.saveFailed;
     const items = visible();
-    bulkRegister.disabled = bulkRunning || !items.length;
-    bulkRemove.disabled = bulkRunning || !items.length;
+    // 押せない理由: 一括登録の途中は「登録しています」、下書きがなければ「下書きがありません」
+    const bulkReason = bulkRunning ? '登録しています' : '下書きがありません';
+    setDisabled(bulkRegister, bulkRunning || !items.length, bulkReason);
+    setDisabled(bulkRemove, bulkRunning || !items.length, bulkReason);
     if (dataPending(list, store.state, () => store.refresh())) {
       clearRows();
       count.textContent = '';

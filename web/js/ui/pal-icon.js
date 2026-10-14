@@ -63,6 +63,23 @@ export function elementChips(pal) {
   return wrapper;
 }
 
+const GENDER_NAMES = { M: 'オス', F: 'メス' };
+
+/**
+ * 性別の印。文字の ♂♀ を色の丸い地に置く（色は CSS のトークン --gender-male・--gender-female）。inline: true なら色だけ
+ *（文の中・牧場の行のように、丸い地を置くと行の高さが崩れる所）。読み上げは「オス」「メス」。性別が分からなければ null。
+ * 要素は 1 つ（.gender の span。所持パルの 2,000 行の DOM の予算を増やさない）
+ */
+export function genderMark(gender, { inline = false } = {}) {
+  const name = GENDER_NAMES[gender];
+  if (!name) return null;
+  const mark = el('span', `gender gender-${gender}${inline ? ' gender-inline' : ''}`, gender === 'M' ? '♂' : '♀');
+  mark.setAttribute('role', 'img');
+  mark.setAttribute('aria-label', name);
+  mark.title = name;
+  return mark;
+}
+
 /** genderFirst: 性別を名前の左に置く（所持パルの一覧） */
 export function palTile(id, { gender = '', clickable = true, large = false, genderFirst = false } = {}) {
   const pal = palsById.get(id);
@@ -70,7 +87,7 @@ export function palTile(id, { gender = '', clickable = true, large = false, gend
   const wrapper = clickable ? link('', buildHash('pal', {}, id), 'pal-tile') : el('span', 'pal-tile');
   const label = el('span', 'pal-label');
   const name = el('strong', '', pal.ja);
-  const mark = gender ? el('span', `gender gender-${gender}`, gender === 'M' ? '♂' : '♀') : null;
+  const mark = genderMark(gender);
   label.append(el('small', 'dex-label', `No.${pal.label}`));
   if (mark && genderFirst) {
     const line = el('span', 'pal-name-line');

@@ -361,6 +361,9 @@ test('所持パル画面: 人間のキャラクターはゲームの名前とア
   assert.ok(human);
   assert.doesNotMatch(human.textContent, /マスターにない|BOSS_Believer_CrossBow/);
   assert.match(human.querySelector('img').src, /img\/humans\/T_BOSS_NPC_Believer\.png$/);
+  // 性別の印はパルの行と同じ部品（genderMark。文字の ♂ と読み上げの「オス」）
+  const mark = human.querySelector('.gender');
+  assert.deepEqual([mark.className, mark.textContent, mark.getAttribute('role'), mark.getAttribute('aria-label')], ['gender gender-M', '♂', 'img', 'オス']);
   view.destroy();
 });
 
@@ -696,7 +699,9 @@ test('設定画面: 登録したワールドの「編集」は、パスを入れ
   assert.equal(dialog.querySelector('.owned-path').value, '%LOCALAPPDATA%\\Pal\\Saved\\SaveGames\\7656\\W');
   assert.match(dialog.querySelector('.owned-draft').textContent, /✓ Level\.sav/);
   // 登録・編集のモーダルには、保存とキャンセルだけを置く（削除は一覧の行から）
-  assert.deepEqual(dialog.querySelectorAll('button').map((node) => node.textContent), ['×', 'キャンセル', '保存']);
+  // 閉じる「×」は文字ではなく SVG のアイコン（名前は aria-label「閉じる」）
+  assert.deepEqual(dialog.querySelectorAll('button').map((node) => node.textContent || node.getAttribute('aria-label')), ['閉じる', 'キャンセル', '保存']);
+  assert.equal(dialog.querySelector('.icon-button').querySelector('svg').getAttribute('class'), 'close-icon');
   card.destroy();
 });
 
@@ -721,6 +726,11 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   // 閉じたままでも、開くと自動登録の設定があることと、いまの状態が分かる
   assert.match(host.querySelector('.owned-world-state').textContent, /配合の自動登録: オン/);
   assert.match(guest.querySelector('.owned-world-state').textContent, /配合の自動登録: 対象外/);
+  // 状態の印は 1 つの部品（statusChip）。オンは ready、オフ・対象外は neutral（前のクラス名 owned-world-state は残す）
+  const toneOf = (node) => node.className.split(' ').filter((name) => name.startsWith('is-'));
+  assert.ok(host.querySelector('.owned-world-state').className.split(' ').includes('status-chip'));
+  assert.deepEqual(toneOf(host.querySelector('.owned-world-state')), ['is-ready']);
+  assert.deepEqual(toneOf(guest.querySelector('.owned-world-state')), ['is-neutral']);
   host.open = true;
   await host.dispatch('toggle');
   const box = host.querySelector('.owned-breeding');
@@ -1109,11 +1119,23 @@ test('設定画面: セーブ連携の確認の途中（checking）もエラー�
   assert.equal(card.element.querySelector('.owned-auto-error'), error);
   assert.deepEqual([error.textContent, error.hidden, placeholder()], [message, false, false]);
   assert.equal(state.textContent, '確認中…');
+  // 読み込みの状態の印は 1 つの部品（statusChip）。確認中は neutral、読めないときは error、読めたら ready（同じ要素の tone だけを付け替える）
+  const toneOf = () => state.className.split(' ').filter((name) => name.startsWith('is-'));
+  assert.ok(state.className.split(' ').includes('status-chip'));
+  assert.deepEqual(toneOf(), ['is-neutral']);
   // 読めた（エラーなし）: 文は消すが、見えないまま場所は残す
   Object.assign(owned.state, { busy: false, auto: { ...ready, status: 'ready', error: '' } });
   owned.emit();
   assert.deepEqual([error.textContent, error.hidden, placeholder()], ['', false, true]);
   assert.equal(state.textContent, '読み込み済み');
+  assert.deepEqual(toneOf(), ['is-ready']);
+  assert.equal(card.element.querySelector('.owned-auto-state'), state);
+  Object.assign(owned.state, { auto: { ...ready, status: 'permission', error: '' } });
+  owned.emit();
+  assert.deepEqual([state.textContent, toneOf()], ['許可が必要', ['is-warning']]);
+  Object.assign(owned.state, { auto: { ...ready, status: 'error', error: message } });
+  owned.emit();
+  assert.deepEqual([state.textContent, toneOf()], ['エラー', ['is-error']]);
   card.destroy();
 });
 
@@ -1612,6 +1634,8 @@ test('所持パル画面: 効いている条件のチップの × は、その�
   document.body.append(view.element);
   assert.deepEqual(filterChips(view), []);
   assert.equal(button(view, 'すべて解除').disabled, true);
+  // 押せない理由（setDisabled の title）。押せるようになったら消す
+  assert.equal(button(view, 'すべて解除').title, '既定から変えた条件はありません');
   starsOf(view).value = '1';
   await starsOf(view).dispatch('change');
   inputLabeled(view, 'HPの個体値（以上）').value = '10';
@@ -1621,6 +1645,7 @@ test('所持パル画面: 効いている条件のチップの × は、その�
   await keywordOf(view).dispatch('input');
   assert.deepEqual(filterChips(view), ['パッシブ: 職人気質', '★1 以上', 'HP 10 以上', 'キーワード: もこ']);
   assert.equal(button(view, 'すべて解除').disabled, false);
+  assert.equal(button(view, 'すべて解除').title, '');
   const chip = (text) => view.element.querySelectorAll('.filter-chip').find((node) => node.querySelector('.filter-chip-text').textContent === text);
   assert.equal(chip('HP 10 以上').getAttribute('aria-label'), 'HP 10 以上 を外す');
   await chip('HP 10 以上').dispatch('click');

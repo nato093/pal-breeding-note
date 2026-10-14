@@ -1,4 +1,5 @@
-// 空の状態のアイコン（navIcon は svgElement を使うが、どちらもモジュールの読み込みの時点では呼ばないので、互いに読み込んでよい）
+// 空の状態のアイコン（navIcon → ui/icons.js の icon はこのファイルの svgElement を使うが、どれもモジュールの読み込みの時点では
+// 呼ばないので、互いに読み込んでよい）
 import { navIcon } from './nav-icons.js';
 
 export function el(tag, className = '', text = '') {
@@ -91,6 +92,45 @@ export function setupHint({ text, action, kind = 'info' }) {
   node.append(el('p', '', text));
   if (action?.href) node.append(link(action.label, action.href, 'button secondary small'));
   else if (action?.run) node.append(button(action.label, action.run, 'button secondary small'));
+  return node;
+}
+
+// 状態の印の色（tone）。CSS の .status-chip.is-<tone>
+const TONES = ['ready', 'warning', 'error', 'info', 'neutral'];
+const toneOf = (tone) => (TONES.includes(tone) ? tone : 'neutral');
+
+/**
+ * 状態の印（未読・削除済み・作成可能・完成済み・変更あり・配置中・自動登録のオン／オフ・読み込みの状態）を 1 つの形にした小さなチップ。
+ * tone: 'ready'（できた・使える）| 'warning'（気にしてほしい）| 'error'（失敗）| 'info'（知らせ）| 'neutral'（まだ・対象外）。
+ * className は前のクラス名（.unread-chip など。テストと画面の中の探し方を壊さないため残す）
+ */
+export function statusChip(text, tone = 'neutral', className = '') {
+  return el('span', `status-chip is-${toneOf(tone)}${className ? ` ${className}` : ''}`, text);
+}
+
+/** 状態の印の tone だけを付け替える（文と前のクラス名はそのまま。テストの DOM に classList.remove が無いので toggle で） */
+export function setChipTone(node, tone) {
+  const next = toneOf(tone);
+  for (const name of TONES) node.classList.toggle(`is-${name}`, name === next);
+  return node;
+}
+
+/**
+ * ボタンを押せなくする・戻す。押せないときは title に理由（マウスを乗せると出る）、押せるときは title を消す
+ *（同じ所で一緒に変えて、古い理由を残さない）。focusable なら disabled にせず aria-disabled で押せない印にする
+ *（押した後もフォーカスを残したいボタン。押したときの処理は呼び出し側が aria-disabled を見て止める）。
+ * runButton の処理中（aria-busy）は理由を出さない（ここを呼ばない）
+ */
+export function setDisabled(node, disabled, reason = '', { focusable = false } = {}) {
+  const off = Boolean(disabled);
+  if (focusable) {
+    node.disabled = false;
+    node.setAttribute('aria-disabled', String(off));
+  } else {
+    node.disabled = off;
+    node.removeAttribute('aria-disabled');
+  }
+  node.title = off ? reason : '';
   return node;
 }
 

@@ -218,7 +218,9 @@ test('画面: 一覧の削除アイコンから確認・キャンセル・削除
   assert.equal(cards().length, 2);
   assert.equal(byClass('app-footer'), undefined);
   // ロゴの副題（キャッチコピー）はなくした（copy-dead-ends）
-  assert.equal(byClass('brand').textContent.replace('◇', ''), 'パル配合ノート');
+  assert.equal(byClass('brand').textContent, 'パル配合ノート');
+  // ロゴの菱形は CSS で描く印で、中身の文字（前は隠しているだけの「◇」）を持たず、読み上げない
+  assert.deepEqual([byClass('brand-mark').textContent, byClass('brand-mark').getAttribute('aria-hidden')], ['', 'true']);
   assert.doesNotMatch(byClass('brand').textContent, /仲間と残す、冒険の発見。/);
   const canceled = remove().dispatch('click');
   assert.match(find((node) => node.tagName === 'dialog').textContent, /この配合を削除しますか/);

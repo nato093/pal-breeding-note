@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { installDom, installResizeObserver } from '../helpers/dom.js';
 import {
   el, button, syncList, listKeys, clearList, anchorOf, restoreAnchor, debounce, onTextInput, trackHeight, svgElement, empty, storageWarning,
-  loadingState, errorState, setupHint,
+  loadingState, errorState, setupHint, statusChip, setChipTone, setDisabled,
 } from '../../web/js/ui/dom.js';
 
 // 行の部品（{ element, update, destroy }）。作った数・更新・破棄を数える
@@ -381,4 +381,47 @@ test('setupHint: 設定などへ移る案内は 1 文と行き先のボタン 1 
   await buttonHint.querySelector('button').dispatch('click');
   assert.equal(ran, 1);
   assert.deepEqual(setupHint({ text: '文だけ' }).children.map((child) => child.tagName), ['p']);
+});
+
+test('statusChip: 状態の印は 1 つの部品（span.status-chip と tone のクラス）。前のクラス名は 3 つ目の引数で残し、setChipTone で tone だけを付け替える', (t) => {
+  installDom(t);
+  const chip = statusChip('未読', 'info', 'unread-chip');
+  assert.equal(chip.tagName, 'span');
+  assert.equal(chip.className, 'status-chip is-info unread-chip');
+  assert.equal(chip.textContent, '未読');
+  // 既定は neutral。知らない tone も neutral（色のない印にしない）
+  assert.equal(statusChip('未完成').className, 'status-chip is-neutral');
+  assert.equal(statusChip('?', 'unknown', 'x').className, 'status-chip is-neutral x');
+  // tone を付け替えても、残したクラス名と文はそのまま（tone のクラスは 1 つだけ）
+  const state = statusChip('確認中…', 'neutral', 'owned-auto-state');
+  setChipTone(state, 'error');
+  const classes = () => state.className.split(' ');
+  assert.ok(classes().includes('status-chip') && classes().includes('owned-auto-state'));
+  assert.deepEqual(classes().filter((name) => name.startsWith('is-')), ['is-error']);
+  setChipTone(state, 'ready');
+  assert.deepEqual(classes().filter((name) => name.startsWith('is-')), ['is-ready']);
+  setChipTone(state, 'nope');
+  assert.deepEqual(classes().filter((name) => name.startsWith('is-')), ['is-neutral']);
+  assert.equal(state.textContent, '確認中…');
+});
+
+test('setDisabled: 押せないときだけ title に理由を出し、押せるようにしたら理由を消す（古い理由を残さない）。focusable なら aria-disabled でフォーカスを残す', (t) => {
+  installDom(t);
+  const node = button('登録', null, 'button primary small');
+  assert.equal(setDisabled(node, true, '親1・親2・子を選ぶと登録できます'), node);
+  assert.deepEqual([node.disabled, node.title], [true, '親1・親2・子を選ぶと登録できます']);
+  setDisabled(node, false, '親1・親2・子を選ぶと登録できます');
+  assert.deepEqual([node.disabled, node.title], [false, '']);
+  // 理由を渡さなくても押せなくできる（title は空）
+  setDisabled(node, true);
+  assert.deepEqual([node.disabled, node.title], [true, '']);
+  // 保存済みの目標のように、押せないがフォーカスは残すボタン（disabled にすると、押した後のフォーカスが body に落ちる）
+  const save = button('★ 保存済み', null, 'button secondary');
+  setDisabled(save, true, '同じ条件の目標があります', { focusable: true });
+  assert.deepEqual([save.disabled, save.getAttribute('aria-disabled'), save.title], [false, 'true', '同じ条件の目標があります']);
+  setDisabled(save, false, '同じ条件の目標があります', { focusable: true });
+  assert.deepEqual([save.disabled, save.getAttribute('aria-disabled'), save.title], [false, 'false', '']);
+  // ふつうの押せない形に戻すと aria-disabled は外す
+  setDisabled(save, true, '目標のパルを選ぶと保存できます');
+  assert.deepEqual([save.disabled, save.getAttribute('aria-disabled'), save.title], [true, null, '目標のパルを選ぶと保存できます']);
 });

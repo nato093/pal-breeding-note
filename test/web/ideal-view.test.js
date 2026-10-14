@@ -691,6 +691,8 @@ test('理想個体画面: 「☆ 目標として保存」の板で名前を付�
   assert.equal(document.activeElement, save);
   assert.equal(save.textContent, '★ 保存済み');
   assert.equal(save.getAttribute('aria-disabled'), 'true');
+  // 押せない理由を先に、保存した条件の要約を次の行に（setDisabled の title）
+  assert.equal(save.title, '同じ条件の目標があります\nHP 100 以上・攻撃 100 以上・防御 100 以上 · 欲しいものを全部持つ（他も可） · ケーキ・野菜ケーキ');
   save.dispatch('click');
   assert.equal(nameInput(view), undefined);
   assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（1）');
@@ -737,7 +739,8 @@ test('理想個体画面: 保存の板は Esc・キャンセルで閉じてボ�
   assert.ok(hidden.className.split(' ').includes('is-placeholder'));
   assert.equal(hidden.disabled, true);
   assert.equal(hidden.hidden, false);
-  assert.equal(hidden.title, '');
+  // 見えないボタンだが、押せない理由は同じ形で持つ（setDisabled）
+  assert.equal(hidden.title, '目標のパルを選ぶと保存できます');
   none.destroy();
   // ログインしていない（目標を保存できない）ときは、保存のボタンも「目標（N）」も出さない
   const guest = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall'));
@@ -787,7 +790,9 @@ test('理想個体画面: 目標のダイアログから外す・元に戻す・
   // 完成済み（モコロンの 2 つ。所持パルの f1 が満たす）を上に、未完成のツッパニャンは下
   const again = openGoals(view);
   assert.deepEqual(again.querySelectorAll('.ideal-goal').map(goalName), ['攻撃型', '古い目標', '新しい目標']);
-  assert.deepEqual(again.querySelectorAll('.ideal-goal-status').map((node) => node.className), ['ideal-goal-status ready', 'ideal-goal-status ready', 'ideal-goal-status']);
+  // 状態は状態のチップ（完成済みは ready、未完成は neutral。前のクラス名 ideal-goal-status は残す）
+  assert.deepEqual(again.querySelectorAll('.ideal-goal-status').map((node) => node.className.split(' ').filter((name) => name.startsWith('is-'))), [['is-ready'], ['is-ready'], ['is-neutral']]);
+  assert.ok(again.querySelectorAll('.ideal-goal-status').every((node) => node.className.split(' ').includes('status-chip')));
   view.destroy();
 });
 
@@ -1138,6 +1143,9 @@ test('理想個体画面: 配合牧場の組をおすすめの上から同じ数
   ]);
   // カードの札: 牧場の組に「拠点 1 の牧場 A に配置中」、交換先の組に「→ 拠点 1 の牧場 B へ」。境目の線はない（D14）
   assert.equal(cards(view)[0].querySelector('.ideal-placed').textContent, '拠点 1 の牧場 A に配置中');
+  // 「配置中」は状態のチップ（statusChip と同じ形の info。前のクラス名 ideal-placed は残す。押すと説明が開くボタンのまま）
+  assert.equal(cards(view)[0].querySelector('.ideal-placed').tagName, 'button');
+  assert.ok(cards(view)[0].querySelector('.ideal-placed').className.startsWith('status-chip is-info ideal-placed'));
   assert.equal(cards(view)[0].querySelector('.ideal-farm-to'), null);
   assert.equal(cards(view)[1].querySelector('.ideal-farm-to').textContent, '→ 拠点 1 の牧場 B へ');
   assert.doesNotMatch(cards(view)[1].textContent, /配置中/);
@@ -1567,6 +1575,8 @@ test('理想個体画面: 判定を保留している間は「変更あり」の
   owned.emit();
   assert.equal(view.element.querySelectorAll('.ideal-changed').length, 1);
   assert.ok(view.element.querySelector('.ideal-changed-note'));
+  // 「変更あり」は状態のチップの warning（tertiary は primary と同じ色で「完成済み」などの ready と見分けられないため）
+  assert.ok(view.element.querySelector('.ideal-changed').className.startsWith('status-chip is-warning ideal-changed'));
   // ほかの牧場が読めなくなった（この目標の牧場は同じ）。保留中は「変更あり」も件数の文も出さない
   owned.state.owned = { ...owned.state.owned, farms: [...farms, { id: 'U', baseId: '', parents: [], status: 'uncertain' }] };
   owned.emit();
