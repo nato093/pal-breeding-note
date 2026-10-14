@@ -1109,8 +1109,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
    1 段目: [パル 200px][パッシブ 1fr][キーワード 200px]（見出しは入力の上。パルの見出しの行に「理想個体 →」、パッシブの見出しの行に
    パッシブの条件と「継承ルート →」）。パッシブのチップが 1 行に入りきらないときは改行してパネルが伸びる（D20）。
    2 段目: 1 行目 [所持者][個体値（以上）][★][属性 ▾]、2 行目 [場所のチップ]（見出しは入力の左、欄の間に縦の区切り線）。
-   結果の行（状態の行。30px・地の色で 2 段目と分ける）: [件数][効いている条件のチップ（1 行。入り切らない分は +n）] … [目標の印][すべて解除]
-   [リンクをコピー][並べ替え] */
+   結果の行（状態の行。30px・地の色で 2 段目と分ける）: [件数][効いている条件のチップ（1 行。入り切らない分は +n）] … [目標の印][すべて解除][並べ替え] */
 .owned-panel {
   position: sticky;
   top: var(--header-h);
@@ -1190,7 +1189,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .element-toggle { min-height: 28px; border: 1px solid var(--element, var(--Neutral)); background: transparent; color: var(--element, var(--Neutral)); }
 .element-toggle[aria-pressed="true"] { background: var(--element, var(--Neutral)); color: #fff; }
 /* 結果の行（状態の行。高さ 30px・1 行）。パネルの条件の欄と分けるため、薄い primary の地の帯にする（D28）。左から件数（出ている数を太く）、
-   効いている条件のチップ（1 行分の高さで、入り切らない分は隠して「+n」。名前は title）、右に目標の印・すべて解除・リンクをコピー・並べ替え */
+   効いている条件のチップ（1 行分の高さで、入り切らない分は隠して「+n」。名前は title）、右に目標の印・すべて解除・並べ替え */
 .owned-status-row {
   display: flex;
   align-items: center;
@@ -1248,10 +1247,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .filter-more-popover { left: auto; right: 0; width: 320px; padding: 10px; white-space: normal; }
 .filter-more-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .owned-status-row .button.small { flex: none; min-height: 24px; padding: 0 10px; }
-.owned-copy-slot { position: relative; flex: none; display: inline-flex; }
-.owned-link-field { left: auto; right: 0; width: 380px; display: grid; gap: 6px; padding: 10px; white-space: normal; }
-.owned-link-note { margin: 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
-.owned-link-field input { min-height: 32px; font-size: 12px; }
 /* 並べ替え（見出しつき。結果の行の右端） */
 .owned-sort-field { flex: none; display: inline-flex; align-items: center; gap: 6px; margin: 0; }
 .owned-sort { flex: none; width: 12.5em; min-height: 24px; height: 24px; padding: 0 8px; font-size: 12px; }

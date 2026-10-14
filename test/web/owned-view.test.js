@@ -1399,6 +1399,10 @@ test('所持パル画面: 絞り込みは sticky のパネル（2 段＋状態�
   // 列見出しは一覧の入れ物の前の別の要素（owned-rows）
   assert.deepEqual(view.element.children.map((node) => node.className), ['view-heading', 'owned-summary', 'owned-panel', 'owned-list-head', 'owned-list']);
   assert.ok(panel.querySelector('.owned-status-row').querySelector('.result-note'));
+  // 状態の行は [件数][条件のチップ][+n][目標の印][すべて解除][並べ替え]（D31 で「リンクをコピー」は機能ごとなくした）
+  assert.deepEqual(panel.querySelector('.owned-status-row').children.map((node) => node.className.split(' ').at(-1)),
+    ['owned-count', 'filter-chips', 'filter-more-slot', 'owned-marks-toggle', 'owned-reset', 'owned-sort-field']);
+  assert.doesNotMatch(view.element.textContent, /リンクをコピー/);
   observer.resize(panel, 172.5);
   // 見出しの置き方（D28。理想個体のパネルと同じ部品・同じ決まり）: 1 段目は入力の上の見出しの行（field-head）。パッシブの条件はパッシブの見出しの
   // 行に置き、2 段目に「パッシブ」の見出しを 2 回出さない。2 段目は 2 行（所持者・個体値・★・属性 ／ 場所）で、見出しは入力の左
@@ -1642,60 +1646,6 @@ test('所持パル画面: 「すべて解除」と 0 件のときの「条件を
   await button(view, 'すべて解除').dispatch('click');
   assert.deepEqual(shown(), expected);
   assert.equal(sortOf(view).value, 'level');
-  view.destroy();
-});
-
-test('所持パル画面: 「リンクをコピー」の URL を新しい画面で開くと同じ絞り込み・同じ件数になる。コピーできなければ欄に出して選ぶ（例外を出さない）', async (t) => {
-  installDom(t);
-  const before = { location: Object.getOwnPropertyDescriptor(globalThis, 'location'), navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator') };
-  t.after(() => {
-    for (const [name, descriptor] of Object.entries(before)) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
-  });
-  const written = [];
-  let fail = false;
-  Object.defineProperty(globalThis, 'location', { value: { origin: 'https://example.test', pathname: '/note/' }, configurable: true });
-  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (text) => { if (fail) throw new Error('拒否'); written.push(text); } } }, configurable: true });
-  const states = new Map();
-  const view = ownedView(memoryApp(fakeOwned(holderData()), states), parseHash('#/owned'));
-  document.body.append(view.element);
-  holderSelect(view).value = `player:${P2}`;
-  await holderSelect(view).dispatch('change');
-  await placeChip(view, 'global').dispatch('click');
-  await placeChip(view, 'egg').dispatch('click');
-  await pickPassive(view, 'Legend');
-  await radio(view, 'パッシブの条件', 'only').dispatch('click');
-  keywordOf(view).value = 'キツネ';
-  await keywordOf(view).dispatch('input');
-  sortOf(view).value = 'level';
-  await sortOf(view).dispatch('change');
-  assert.deepEqual(rowIds(view), ['キツネビ']);
-  await button(view, 'リンクをコピー').dispatch('click');
-  assert.equal(written.length, 1);
-  assert.match(written[0], /^https:\/\/example\.test\/note\/#\/owned\?/);
-  const hash = written[0].slice(written[0].indexOf('#'));
-  const params = parseHash(hash).params;
-  assert.equal(params.get('holder'), `player:${P2}`);
-  assert.equal(params.get('place'), 'party,palbox,base,dps,global,unknown');
-  assert.equal(params.get('p'), 'Legend');
-  assert.equal(params.get('pm'), 'only');
-  assert.equal(params.get('q'), 'キツネ');
-  assert.equal(params.get('sort'), 'level');
-  // 新しいタブ（覚えている条件なし）で開く
-  const fresh = new Map();
-  const opened = ownedView(memoryApp(fakeOwned(holderData()), fresh), parseHash(hash));
-  assert.deepEqual(rowIds(opened), rowIds(view));
-  assert.deepEqual(fresh.get('owned').filter, states.get('owned').filter);
-  opened.destroy();
-  // コピーに失敗したら、リンクを欄に出して選ぶ
-  fail = true;
-  await button(view, 'リンクをコピー').dispatch('click');
-  const field = view.element.querySelector('.owned-link-field');
-  assert.ok(field);
-  assert.equal(field.querySelector('input').value, written[0]);
-  assert.equal(document.activeElement, field.querySelector('input'));
   view.destroy();
 });
 
@@ -2036,53 +1986,6 @@ test('所持パル画面: 目標の印だけが変わったときは名前のリ
   assert.equal(row().querySelector('.mark-more').textContent, '+4');
   assert.equal(document.activeElement, row().querySelector('.mark-more'));
   view.destroy();
-});
-
-test('所持パル画面: クリップボードの返事を待つ間に画面を閉じたら、失敗・成功のどちらが返っても板・document のリスナー・トーストを出さない（B3）。「リンクをコピー」は板を開いている間だけ aria-expanded（B13）', async (t) => {
-  const { body, events } = installDom(t);
-  const before = { location: Object.getOwnPropertyDescriptor(globalThis, 'location'), navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator') };
-  t.after(() => {
-    for (const [name, descriptor] of Object.entries(before)) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
-  });
-  let answer = null;
-  Object.defineProperty(globalThis, 'location', { value: { origin: 'https://example.test', pathname: '/note/' }, configurable: true });
-  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: () => new Promise((resolve, reject) => { answer = { resolve, reject }; }) } }, configurable: true });
-  const listening = () => ['pointerdown', 'keydown'].reduce((sum, name) => sum + (events.listeners.get(name) ?? []).length, 0);
-  // 板を開いていないときは aria-expanded を付けない。失敗で開いたら true、閉じたら外す
-  const view = ownedView(memoryApp(fakeOwned(holderData())), parseHash('#/owned'));
-  body.append(view.element);
-  const copy = button(view, 'リンクをコピー');
-  assert.equal(copy.getAttribute('aria-expanded'), null);
-  let clicked = copy.dispatch('click');
-  answer.reject(new Error('拒否'));
-  await clicked;
-  assert.ok(view.element.querySelector('.owned-link-field'));
-  assert.equal(copy.getAttribute('aria-expanded'), 'true');
-  // Esc で閉じて「リンクをコピー」へ戻る（A13 の所持パルの分）
-  await events.dispatch('keydown', { key: 'Escape' });
-  assert.equal(view.element.querySelector('.owned-link-field'), null);
-  assert.equal(document.activeElement, copy);
-  assert.equal(copy.getAttribute('aria-expanded'), null);
-  assert.equal(listening(), 0);
-  // 返事を待つ間に閉じる → 失敗が返っても板と document のリスナーを付けない（前は付け直していた）
-  clicked = copy.dispatch('click');
-  view.destroy();
-  answer.reject(new Error('拒否'));
-  await clicked;
-  assert.equal(body.querySelector('.owned-link-field'), null);
-  assert.equal(listening(), 0);
-  // 成功が返っても、閉じた画面からトーストを出さない
-  const other = ownedView(memoryApp(fakeOwned(holderData())), parseHash('#/owned'));
-  body.append(other.element);
-  clicked = button(other, 'リンクをコピー').dispatch('click');
-  other.destroy();
-  answer.resolve();
-  await clicked;
-  assert.equal(body.querySelector('.toast'), null);
-  assert.equal(listening(), 0);
 });
 
 // ---- フェーズ 1b・1c の終わりのレビューの直し（所持パルのパネル。B6〜B10・A13 の所持パルの分） ----
