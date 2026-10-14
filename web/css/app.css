@@ -1437,36 +1437,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     linear-gradient(var(--talent-track), var(--talent-track)) left bottom / 100% 3px no-repeat;
 }
 .talent-cell[data-key="total"] { color: var(--md-sys-color-on-surface-variant); }
-/* 行の操作（親にして検索。D28 で 1 つにした）。触れた行にだけ作り、行の右端（上の段の真ん中）に重ねる（列は足さず、行の高さも変えない）。
-   操作が 1 つなので、絵だけの小さなボタンの浮き板ではなく、文字のラベルつきの 1 つのボタン（枠と影で行の上に浮かせる） */
-.owned-row-actions {
-  position: absolute;
-  top: calc(var(--owned-row-h) / 2);
-  right: 10px;
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-.owned-row:hover .owned-row-actions, .owned-row:focus-within .owned-row-actions { opacity: 1; pointer-events: auto; }
-.owned-row-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 30px;
-  padding: 0 12px 0 9px;
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: 15px;
-  background: var(--md-sys-color-surface-container-low);
-  color: var(--md-sys-color-primary);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  box-shadow: var(--elevation-2);
-}
-.owned-row-action:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-low)); border-color: var(--md-sys-color-primary); text-decoration: none; }
-.owned-row-action .tab-icon { flex: none; width: 16px; height: 16px; }
 /* 幅が狭いとき（窓 1000px 以下。幅 920px で本文 約 760px）は、Lv・個体値の列と間を詰めてパッシブの列を広げる（X-02 の直しの一部。
    右のドロワー〔D3〕は本文に重ねるので本文の幅は窓で決まる。container query は先祖の固定配置の基準を変えるので使わない） */
 @media (max-width: 1000px) {

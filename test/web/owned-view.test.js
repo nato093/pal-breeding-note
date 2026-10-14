@@ -1831,38 +1831,22 @@ test('所持パル画面: 行は固定の枠。パッシブ 5 個以上は 3 個
   assert.equal(body.querySelector('.hint-popover'), null);
 });
 
-test('所持パル画面: 行にポインターかフォーカスが入ると、その行にだけ操作「親にして検索」（配合検索の親1）を 1 つ作る（D28。「目標に」「ここから継承ルート」はなくした）。タマゴ・人間の行には出ない', async (t) => {
+test('所持パル画面: 行に操作のボタンは出さない（D29。前は触れた行に「親にして検索」。パル名のリンクからパル詳細へ進め、親・逆引き・継承ルートの検索はフェーズ 3 の個体の詳細にまとめる）', async (t) => {
   installDom(t);
-  const snap = { ...holderSnapshot, pals: [
-    ...holderSnapshot.pals,
-    { instanceId: 'neg', characterId: 'Kitsunebi', gender: 'Male', passives: ['Deffence_down1', 'Rare'], talent: {}, location: { kind: 'party', playerUid: P1 } },
-    { instanceId: 'human', characterId: 'BOSS_Believer_CrossBow', gender: 'Male', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } },
-  ] };
-  const view = ownedView(context(fakeOwned(holderData(snap))), parseHash('#/owned'));
+  const owned = await import('../../web/js/views/owned.js');
+  assert.equal('ownedRowLinks' in owned, false);
+  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned'));
+  document.body.append(view.element);
   const list = view.element.querySelector('.owned-list');
-  // 最初はどの行にも操作を作らない（2,000 行でも要素を増やさない）
-  assert.equal(list.querySelectorAll('.owned-row-actions').length, 0);
-  const target = list.querySelectorAll('.owned-row').find((node) => /キツネビ/.test(node.getAttribute('aria-label')) && node.querySelectorAll('.passive-chip').length === 2);
-  await list.dispatch('focusin', { target: target.querySelector('.pal-tile') });
-  const actions = target.querySelector('.owned-row-actions');
-  // 文字のラベルつきの 1 つのボタン（読み上げの名前は見えている文字を含み、パルの名前を添える）
-  assert.deepEqual(actions.querySelectorAll('a').map((node) => [node.textContent, node.getAttribute('aria-label'), node.title, node.href, node.getAttribute('data-focus')]), [
-    ['親にして検索', 'キツネビを親にして検索', 'キツネビを親1 にして配合検索を開く', '#/search?p1=Kitsunebi', 'action-search'],
-  ]);
-  assert.equal(actions.querySelectorAll('svg').length, 1);
-  assert.equal(target.querySelector('[data-focus="action-ideal"]'), null);
-  assert.equal(target.querySelector('[data-focus="action-route"]'), null);
-  assert.equal(list.querySelectorAll('.owned-row-actions').length, 1);
-  // 同じ行に何度入っても 1 つだけ
+  const target = list.querySelectorAll('.owned-row').find((node) => /キツネビ/.test(node.getAttribute('aria-label')));
+  const link = target.querySelector('[data-focus="pal"]');
+  link.focus();
+  await list.dispatch('focusin', { target: link });
   await list.dispatch('pointerover', { target: target.querySelector('.owned-talent') });
-  assert.equal(target.querySelectorAll('.owned-row-actions').length, 1);
-  // タマゴ・人間（パルのマスターにない）の行には出さない
-  const egg = list.querySelectorAll('.owned-row').find((node) => node.querySelector('.badge-egg'));
-  await list.dispatch('pointerover', { target: egg.querySelector('.owned-pal') });
-  assert.equal(egg.querySelector('.owned-row-actions'), null);
-  const human = list.querySelectorAll('.owned-row').find((node) => /賞金首/.test(node.getAttribute('aria-label')));
-  await list.dispatch('pointerover', { target: human.querySelector('.owned-pal') });
-  assert.equal(human.querySelector('.owned-row-actions'), null);
+  assert.equal(list.querySelectorAll('.owned-row-actions').length, 0);
+  assert.equal(list.querySelectorAll('.owned-row-action').length, 0);
+  // パル名はパル詳細（配合の親・子の一覧がある）へのリンク
+  assert.equal(link.href, '#/pal/Kitsunebi');
   view.destroy();
 });
 
@@ -1973,40 +1957,6 @@ test('所持パル画面: 目標の印だけが変わったときは名前のリ
   goals.set(rareGoals(8));
   assert.equal(row().querySelector('.mark-more').textContent, '+4');
   assert.equal(document.activeElement, row().querySelector('.mark-more'));
-  view.destroy();
-});
-
-test('所持パル画面: 行の操作はポインターの行とフォーカスの行の 2 つまでにだけ付け、離れた行からは外す（フォーカスが操作の中なら外さない。B12）', async (t) => {
-  installDom(t);
-  const view = ownedView(context(fakeOwned(holderData())), parseHash('#/owned'));
-  const list = view.element.querySelector('.owned-list');
-  const rows = list.querySelectorAll('.owned-row').filter((node) => !node.querySelector('.badge-egg'));
-  assert.ok(rows.length >= 4);
-  const withActions = () => list.querySelectorAll('.owned-row').filter((node) => node.querySelector('.owned-row-actions')).map((node) => rows.indexOf(node));
-  await list.dispatch('pointerover', { target: rows[0].querySelector('.owned-talent') });
-  assert.deepEqual(withActions(), [0]);
-  // 次の行に移ると、前の行の操作は外す（前は触れた行に付いたまま増え続けた）
-  await list.dispatch('pointerover', { target: rows[1].querySelector('.owned-talent') });
-  assert.deepEqual(withActions(), [1]);
-  // フォーカスの行（Tab で行の操作へ）とポインターの行は別々に持つ
-  const action = (index) => {
-    rows[index].querySelector('[data-focus="pal"]').focus();
-    return list.dispatch('focusin', { target: rows[index].querySelector('[data-focus="pal"]') });
-  };
-  await action(2);
-  assert.deepEqual(withActions(), [1, 2]);
-  const inner = rows[2].querySelector('[data-focus="action-search"]');
-  inner.focus();
-  await list.dispatch('focusin', { target: inner });
-  await list.dispatch('pointerover', { target: rows[3].querySelector('.owned-talent') });
-  assert.deepEqual(withActions(), [2, 3]);
-  // ポインターが一覧を出ると、ポインターの行の操作を外す（フォーカスのある行は残す）
-  await list.dispatch('pointerleave', {});
-  assert.deepEqual(withActions(), [2]);
-  // フォーカスが一覧の外（キーワード）へ出たら外す
-  keywordOf(view).focus();
-  await list.dispatch('focusout', { target: inner, relatedTarget: keywordOf(view) });
-  assert.deepEqual(withActions(), []);
   view.destroy();
 });
 

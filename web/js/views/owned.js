@@ -3,7 +3,6 @@ import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { hint } from '../ui/hint.js';
-import { navIcon } from '../ui/nav-icons.js';
 import { talentInput } from '../ui/talent-input.js';
 import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
@@ -234,21 +233,9 @@ const TALENT_CELLS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御'], [
 // 1 つの行に出すパッシブの数。5 個以上なら 3 個と「+N」（残りは押すと板に出す。行の中には広げない）
 const PASSIVE_SLOTS = 4;
 
-// 行の操作（所持パルの画面だけ）の行き先。配合検索（search）はフェーズ 2 の find-merge で行き先が変わるので、ここ 1 か所で作る
-/**
- * 行の操作のリンク [{ key, icon, text, label, title, href }]。text は見えている文字、label は読み上げの名前（text を含む）。
- * 2026-10-13 のユーザーのフィードバック（D28）で「親にして検索」（配合検索の親1）の 1 つだけにした（所持しているパルを理想個体の目標に
- * することはなく、継承ルートは目標とパッシブから探すので、「目標に」「ここから継承ルート」はなくした）
- */
-export function ownedRowLinks(pal) {
-  const name = palsById.get(pal.palId)?.ja ?? pal.name;
-  return [
-    { key: 'search', icon: 'search', text: '親にして検索', label: `${name}を親にして検索`, title: `${name}を親1 にして配合検索を開く`,
-      href: buildHash('search', { p1: pal.palId }) },
-  ];
-}
-// 行の操作を出せる個体（パルのマスターにある・タマゴでない）
-const canAct = (pal) => pal.known && !pal.egg && Boolean(pal.palId);
+// 行に操作のボタンは置かない（2026-10-14 のユーザーのフィードバック〔D29〕。前は触れた行の右端に「親にして検索」のボタンを浮かせていたが、
+// 所持者・場所の列に重なった）。パル名のリンクからパル詳細（配合の親・子の一覧）へ進める。親にして配合を探す・逆引き・継承ルートの検索は、
+// フェーズ 3 の個体の詳細（owned-detail のドロワー）にまとめて置く
 
 // パル（絵と名前・性別）。名前のリンクは data-focus="pal"（行の中を書き換えても、同じ部品へフォーカスを戻す目印）
 function palCellTile(pal) {
@@ -459,16 +446,15 @@ function fillWhereCell(cell, pal) {
 }
 
 /**
- * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, actions, hints }。
+ * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, hints }。
  * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値の目標との差を見せる
  * （{ wanted, targets }）、marks は目標の印（行の下の段 div.owned-band に MARK_SLOTS 個までと「+N」。D25）、badges は名前の下のバッジの
- * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、actions は行の操作を出せる行か（所持パルの画面だけ。操作の要素は showActions で、
- * 触れた行にだけ作る）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。省くと行が持つ）。
+ * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。
+ * 省くと行が持つ）。行の操作のボタンはない（D29）。
  * 下の段は印か一致の理由があるときだけ作る（行の高さは一覧の has-band が決める。全部の行が同じ高さ）。
  * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）。書き換えたセルにフォーカスがあったら、同じ役目の部品
- * （data-focus。名前のリンク pal・「+N」passive-more／marks-more・行の操作 action-<key>）へ戻す
- * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, showActions(): boolean,
- *   hideActions(next?: Element): boolean, destroy(): void }}
+ * （data-focus。名前のリンク pal・「+N」passive-more／marks-more）へ戻す
+ * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, destroy(): void }}
  */
 export function ownedRowItem(pal, options) {
   const element = el('article', 'owned-row');
@@ -484,7 +470,6 @@ export function ownedRowItem(pal, options) {
   // パルのセルの中: 名前のリンク（絵と名前）とバッジの 1 行。バッジだけが変わったときに名前のリンクを作り直さない（フォーカスが落ちる）
   let tileNode = null;
   let badgeLine = null;
-  let actions = null;
   // 行の下の段（D25）: 目標の印（と「+N」）と、キーワードに一致した理由の 1 行。どちらもなければ段ごと外す
   let band = null;
   let marked = [];
@@ -492,8 +477,7 @@ export function ownedRowItem(pal, options) {
   const ensureBand = () => {
     if (!band) {
       band = el('div', 'owned-band');
-      // 行の操作（触れた行の右端に重ねる）より前に置く（Tab の順を、名前・パッシブ・下の段・操作にする）
-      element.insertBefore(band, actions);
+      element.append(band);
     }
     return band;
   };
@@ -502,7 +486,6 @@ export function ownedRowItem(pal, options) {
     band.remove();
     band = null;
   };
-  let eligible = false;
   let current = pal;
   // セルごとの値の署名。変わったセルだけを作り直す
   const write = (name, key, fill) => {
@@ -511,23 +494,10 @@ export function ownedRowItem(pal, options) {
     fill();
     return true;
   };
-  // 行の操作の中身は種族だけで決まる
-  const actionsKey = (target) => target.palId;
-  // 文字のラベルつきのボタン（絵は飾り）。操作が 1 つでも何をするボタンか分かるように、絵だけにしない（D28）
-  function fillActions() {
-    actions.replaceChildren(...ownedRowLinks(current).map((item) => {
-      const node = link('', item.href, `owned-row-action action-${item.key}`);
-      node.setAttribute('aria-label', item.label);
-      node.setAttribute('data-focus', `action-${item.key}`);
-      node.title = item.title;
-      node.append(navIcon(item.icon), el('span', 'owned-row-action-text', item.text));
-      return node;
-    }));
-  }
   const item = {
     element,
     get pal() { return current; },
-    update(next, { notes = [], highlight, marks = [], badges = [], actions: withActions = false, hints } = {}) {
+    update(next, { notes = [], highlight, marks = [], badges = [], hints } = {}) {
       current = next;
       // 書き換えるセルにフォーカスがあったら、書き換えた後に同じ役目の部品（data-focus）へ戻す
       const focused = focusMark(element);
@@ -582,36 +552,8 @@ export function ownedRowItem(pal, options) {
       changed = write('talent', `${next.talent.hp}:${next.talent.shot}:${next.talent.defense}:${targets ? TALENT_CELLS.map(([key]) => targets[key] ?? 0).join(',') : ''}`,
         () => fillTalentCell(cells.talent, next.talent, targets)) || changed;
       changed = write('where', [next.place, next.holder, next.placeLabel, boxText(next.box), next.lastOwner].join('\u0002'), () => fillWhereCell(cells.where, next)) || changed;
-      eligible = withActions && canAct(next);
-      if (actions && !eligible) {
-        actions.remove();
-        actions = null;
-        shown.actions = '';
-      } else if (actions) write('actions', actionsKey(next), fillActions);
       if (focused && changed && focusLost()) element.querySelector(`[data-focus="${focused}"]`)?.focus({ preventScroll: true });
       return changed;
-    },
-    /** 行の操作（親にして検索）を出す。出せない行（タマゴ・人間・理想個体のカード）は false */
-    showActions() {
-      if (!eligible) return false;
-      if (actions) return true;
-      actions = el('div', 'owned-row-actions');
-      element.append(actions);
-      shown.actions = actionsKey(current);
-      fillActions();
-      return true;
-    },
-    /**
-     * 行の操作を外す（ポインターもフォーカスも離れた行。触れた行に付けたままにすると、DOM が増え続けるため）。
-     * next（これからフォーカスが入る要素。既定は今のフォーカス）が操作の中なら外さずに false
-     */
-    hideActions(next = globalThis.document?.activeElement) {
-      if (!actions) return true;
-      if (next && actions.contains(next)) return false;
-      actions.remove();
-      actions = null;
-      shown.actions = '';
-      return true;
     },
     destroy() {
       for (const old of [...ownHints, ...markHints]) old.destroy();
@@ -1387,10 +1329,8 @@ export function ownedView(context, route) {
     };
     nextFrame(tick);
   }
-  // 行に渡すもの（キーワードに一致した理由・目標の印・行の操作）
-  const rowOptionsOf = (pal) => ({ notes: terms.length ? keywordNotes(pal, terms) : [], marks: shownMarks?.get(pal.id) ?? [], actions: true });
-  // 行の要素 → 行の部品（行の操作を、触れた行にだけ作るとき）
-  const rowParts = new WeakMap();
+  // 行に渡すもの（キーワードに一致した理由・目標の印）
+  const rowOptionsOf = (pal) => ({ notes: terms.length ? keywordNotes(pal, terms) : [], marks: shownMarks?.get(pal.id) ?? [] });
   // 一覧の 1 行（ownedRowItem を、区切った書き換えに乗せる）。作ったばかりの行と、先頭から決まった数（FILL_NOW）の行はすぐ書き換え、
   // 残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。中身は変わったセルだけを書き換える
   //（一致の理由だけが変わったら理由の行だけ）
@@ -1401,7 +1341,6 @@ export function ownedView(context, route) {
     const first = rowOptionsOf(pal);
     const row = ownedRowItem(pal, first);
     let signature = rowSignature(pal, first.notes, first.marks);
-    rowParts.set(row.element, row);
     const item = {
       element: row.element,
       // 今のキーワード・印で next の中身にする（同じなら何もしない）
@@ -1430,32 +1369,6 @@ export function ownedView(context, route) {
     };
     return item;
   }
-  // 行の操作（F063・O-38）は、初めて触れた行（ポインターが乗った・フォーカスが入った行）にだけ作る（2,000 行ぶんを最初から作らない）
-  const rowOf = (target) => {
-    for (let node = target; node && node !== results; node = node.parentElement) {
-      const row = rowParts.get(node);
-      if (row) return row;
-    }
-    return null;
-  };
-  // 操作を出しておく行は、ポインターが乗っている行とフォーカスのある行の 2 つまで（離れた行の操作は外す。触れた行に付けたままにすると、
-  // 1,500 行ほど触れたところで DOM の予算を超えるため）。フォーカスが操作の中にある行は外さない
-  const actionRows = { pointer: null, focus: null };
-  function touchRow(kind, row, next) {
-    const previous = actionRows[kind];
-    if (previous === row) return;
-    actionRows[kind] = row;
-    row?.showActions();
-    if (previous && previous !== actionRows.pointer && previous !== actionRows.focus) previous.hideActions(next);
-  }
-  results.addEventListener('pointerover', (event) => touchRow('pointer', rowOf(event.target)), { signal: inputs.signal });
-  results.addEventListener('pointerleave', () => touchRow('pointer', null), { signal: inputs.signal });
-  results.addEventListener('focusin', (event) => touchRow('focus', rowOf(event.target), event.target), { signal: inputs.signal });
-  // 一覧の外へフォーカスが出たとき（一覧の中の移動は、続く focusin で付け替える）
-  results.addEventListener('focusout', (event) => {
-    if (!event.relatedTarget || !results.contains(event.relatedTarget)) touchRow('focus', null, event.relatedTarget ?? null);
-  }, { signal: inputs.signal });
-
   // ---- 目標の印（O-52）。登録した目標とデータから、どちらかが変わったときに 1 回だけ作る（core/ideal-goals.js の goalMarks） ----
   const ideals = context.ideals;
   let marks = { data: undefined, key: null, map: new Map(), count: 0 };

@@ -240,14 +240,14 @@ test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るの�
   const owned = await biasedOwned(2000, 0x524f5753);
   // パッシブ 4 個・バッジなしの行（ふだんのいちばん要素の多い行）
   const four = owned.pals.find((pal) => pal.passives.length === 4 && !pal.nickname && !pal.egg && !pal.lucky && !pal.alpha && pal.known);
-  const elements = descendants(ownedRowItem(four, { actions: true }).element).length;
+  const elements = descendants(ownedRowItem(four, {}).element).length;
   console.log(`1 行の要素（パッシブ 4 個・バッジなし）: ${elements} 個`);
   assert.ok(elements <= 35, `1 行の要素が 35 個を超えました: ${elements}`);
   let start = performance.now();
-  const first = owned.pals.slice(0, 200).map((pal) => ownedRowItem(pal, { actions: true }));
+  const first = owned.pals.slice(0, 200).map((pal) => ownedRowItem(pal, {}));
   const firstMs = performance.now() - start;
   start = performance.now();
-  const rest = owned.pals.slice(200).map((pal) => ownedRowItem(pal, { actions: true }));
+  const rest = owned.pals.slice(200).map((pal) => ownedRowItem(pal, {}));
   const allMs = firstMs + performance.now() - start;
   const total = [...first, ...rest].reduce((sum, row) => sum + descendants(row.element).length, 0);
   console.log(`行の部品の生成（テスト用の DOM）: 先頭 200 行 ${firstMs.toFixed(2)} ms・2,000 行 ${allMs.toFixed(2)} ms・要素 ${total} 個`);
@@ -259,10 +259,10 @@ test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るの�
   // 行だけで 78,000 以下を確かめる（この分布ではパッシブの数がばらけるので、実際は 41 × 2,000 より少ない）
   const marks = Array.from({ length: 6 }, (_, i) => `完成品: 目標${i + 1}`);
   const boxed = owned.pals.find((pal) => pal.passives.length === 4 && !pal.nickname && !pal.egg && !pal.lucky && !pal.alpha && pal.known && pal.box);
-  const heaviest = descendants(ownedRowItem(boxed, { actions: true, marks }).element).length;
+  const heaviest = descendants(ownedRowItem(boxed, { marks }).element).length;
   console.log(`1 行の要素（パッシブ 4 個・パルボックスの位置・印 6 個〔4 個と「+N」〕）: ${heaviest} 個`);
   assert.ok(heaviest <= 41, `印のある行の要素が 41 個を超えました: ${heaviest}`);
-  const marked = owned.pals.map((pal) => ownedRowItem(pal, { actions: true, marks }));
+  const marked = owned.pals.map((pal) => ownedRowItem(pal, { marks }));
   const markedTotal = marked.reduce((sum, row) => sum + descendants(row.element).length, 0);
   console.log(`全部の行に印 6 個（2,000 行）の要素: ${markedTotal} 個`);
   assert.ok(markedTotal <= 78000, `印のある 2,000 行の要素が 78,000 を超えました: ${markedTotal}`);
