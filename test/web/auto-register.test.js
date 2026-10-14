@@ -128,8 +128,8 @@ test('自動登録: 同じ組み合わせで別の子が登録済みなら、登
   assert.equal(t.creates.length, 0);
   const [notice] = t.auto.notices();
   assert.equal(notice.title, '自動登録を保留した配合');
-  // 親と、登録済みの子だけを出す。配合表の子（ヤクモマル）は出さない（INV-2）
-  assert.match(notice.body, /^(モコロン×オオタチウオ|オオタチウオ×モコロン)：登録済みの配合（子 ツッパニャン）と食い違うため、保留しました$/);
+  // 親と、登録済みの子だけを出す。配合表の子（ヤクモマル）は出さない（INV-2）。親の組の記号は用語表の「＋」（前は「×」）
+  assert.match(notice.body, /^(モコロン＋オオタチウオ|オオタチウオ＋モコロン)：登録済みの配合（子 ツッパニャン）と食い違うため、保留しました$/);
   assert.doesNotMatch(`${notice.title}${notice.body}`, /ヤクモマル|表は/);
   assert.match(notice.id, /^auto-breed:test:conflict:f1:/);
   assert.ok(Number.isFinite(Date.parse(notice.date)));
@@ -154,7 +154,7 @@ test('自動登録: 新しいふつうのタマゴが配合表と合わないと
   assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録しなかったタマゴ']);
   // 親と、観測したタマゴの中身（ヤクモマル）だけを出す。配合表の子（テラナイト）は出さない（INV-2）
   const [notice] = t.auto.notices();
-  assert.match(notice.body, /^(ヘルバーン×モモエール|モモエール×ヘルバーン) のタマゴ（ヤクモマル）は照合が合わず、自動登録しませんでした$/);
+  assert.match(notice.body, /^(ヘルバーン＋モモエール|モモエール＋ヘルバーン) のタマゴ（ヤクモマル）は照合が合わず、自動登録しませんでした$/);
   assert.doesNotMatch(`${notice.title}${notice.body}`, /テラナイト|表は/);
   assert.equal(t.noticed, 1);
   // 同じ通知は重ねない
@@ -476,6 +476,11 @@ test('自動登録: safeAutoNotice は自動登録の保留・見送りの通知
   const fresh = { id: 'auto-breed:test:conflict:f:e', date: 'd', title: '自動登録を保留した配合', body: 'A×B：登録済みの配合（子 C）と食い違うため、保留しました', href: '#/list' };
   assert.deepEqual(safeAutoNotice(fresh), fresh);
   assert.deepEqual(safeAutoNotice(safeAutoNotice({ ...fresh, title: '登録済みの配合と違います', body: 'A×B：表はX、登録はC' })), fresh);
+  // 今の版の本文（親の組の記号は「＋」。copy-dead-ends）もそのまま。前の版の本文（「×」）は、読み替えても「×」のまま
+  const plus = { ...fresh, body: 'A＋B：登録済みの配合（子 C）と食い違うため、保留しました' };
+  assert.deepEqual(safeAutoNotice(plus), plus);
+  assert.equal(safeAutoNotice({ id: 'auto-breed:test:anomaly:f:e', title: '配合の結果が表と違います', body: 'A×B：表はX、新しいタマゴはY' }).body,
+    'A×B のタマゴ（Y）は照合が合わず、自動登録しませんでした');
   // 本文がない・文字列でない古い通知でも落ちない
   assert.deepEqual(safeAutoNotice({ id: 'auto-breed:test:anomaly:f:e', title: '配合の結果が表と違います' }), { id: 'auto-breed:test:anomaly:f:e', title: '自動登録しなかったタマゴ', body: '' });
   assert.deepEqual(safeAutoNotice({ id: 'auto-breed:test:anomaly:f:e', body: 3 }).body, '3');

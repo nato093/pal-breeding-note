@@ -267,7 +267,7 @@ test('所持パル: 旧版でセーブ連携ツールを使っていた人には
   const { store } = setup({ storage });
   assert.equal(store.state.auto.worldId, WORLD_A);
   assert.equal(await store.autoRefresh(), 'empty');
-  assert.match(store.state.auto.error, /設定でワールドを登録してください/);
+  assert.equal(store.state.auto.error, 'セーブのファイルが登録されていません');
 });
 
 test('所持パル: 読み込みの途中でワールドを選び直しても、後の選択の結果が残る', async () => {
@@ -636,10 +636,10 @@ test('所持パル（owned-status）: 確認の始めには auto.error を消さ
   assert.deepEqual([store.state.auto.status, store.state.auto.error], ['ready', '']);
 });
 
-test('所持パル（owned-status）: 登録がない（empty）ときの文は短くし、設定でワールドを登録するよう案内する', async () => {
+test('所持パル（owned-status）: 登録がない（empty）ときの文は短くする（設定の欄・ヘッダーにも出るので「設定で」と書かない。copy-dead-ends）', async () => {
   const storage = memoryStorage();
   storage.map.set('pal-note.test.owned.bridge', JSON.stringify({ enabled: true, worldId: '', viewWorldId: '' }));
   const { store } = setup({ storage });
   assert.equal(await store.autoRefresh(), 'empty');
-  assert.equal(store.state.auto.error, '自分のセーブを読むには、設定でワールドを登録してください');
+  assert.equal(store.state.auto.error, 'セーブのファイルが登録されていません');
 });

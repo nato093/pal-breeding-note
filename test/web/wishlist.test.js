@@ -132,7 +132,7 @@ test('ウィッシュリスト: 追加後に作れるようになったら通知
   assert.equal(wish.readyAt, new Date(2000).toISOString());
   assert.deepEqual(app.notifications.list(), [{
     id: `wishlist:test:${TARGET}:${wish.readyAt}`, date: wish.readyAt, time: 2000,
-    title: 'セレムーンが作成可能になりました', body: 'ウィッシュリストのパルです。押すと逆引きで、生まれる配合を確認できます。',
+    title: 'セレムーンが作成可能になりました', body: 'ウィッシュリストのパルです。押すと逆引きで、産まれる配合を確認できます。',
     href: '#/reverse?c=MoonQueen',
   }]);
   assert.equal(app.storage.writes, writes + 1);

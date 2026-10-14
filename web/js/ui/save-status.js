@@ -4,6 +4,7 @@ import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 import { dateTime, worldName, roleLabel, timeLines } from './owned-status.js';
 import { createPopover } from './popover.js';
+import { settingsHash } from '../router.js';
 
 // 古いデータの目安。この PC で読むデータは 1 分ごとに読み直すので 5 分、共有のデータは 60 分（実機で直してよい）
 export const STALE_LOCAL_MS = 5 * 60 * 1000;
@@ -43,7 +44,7 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   if (!meta?.source) {
     return state.role === 'guest'
       ? result('none', { time: '共有待ち' }, 'ホストがまだこのワールドの所持パルを共有していません')
-      : result('none', { time: 'セーブ未連携' }, 'セーブのファイルが登録されていません。設定タブの「セーブ連携」で登録できます');
+      : result('none', { time: 'セーブ未連携' }, 'セーブのファイルが登録されていません');
   }
   const world = meta.worldName ? `「${meta.worldName}」` : `ワールド ${String(meta.worldId ?? '').slice(0, 8)}`;
   const lines = [worldName(meta), ...timeLines(state)];
@@ -111,7 +112,8 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     // 許可はクリックの中で（await を挟まずに）求める
     const grant = button('読み込みを許可', () => grantPermission(), 'button primary');
     const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message)), 'button secondary');
-    const settings = link('設定を開く', '#/settings', 'save-status-settings');
+    // 設定のセーブ連携のカード（読んでいる・表示しているワールドの行を開いてフォーカス。router.js の settingsHash）
+    const settings = link('設定を開く', settingsHash(), 'save-status-settings');
     settings.addEventListener('click', () => popup.close({ focus: false }));
     const actions = el('div', 'header-panel-actions');
     actions.append(grant, reload, settings);
@@ -131,6 +133,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       grant.hidden = !(state.auto.enabled && state.auto.status === 'permission');
       reload.hidden = !state.auto.worlds?.length;
       reload.disabled = state.busy;
+      settings.href = settingsHash(state.linkedWorldId || state.meta?.worldId || '');
     };
     render();
     return render;

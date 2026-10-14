@@ -364,19 +364,24 @@ test('所持パル画面: 人間のキャラクターはゲームの名前とア
   view.destroy();
 });
 
-test('所持パル画面: 所持パルのデータがなく自動の読み込みもオフなら、設定でワールドを登録する案内と「セーブ連携を開く」を出す（前は所持パルの画面から設定へ行くボタンを出さなかった）', async (t) => {
-  installDom(t);
+test('所持パル画面: 所持パルのデータがなく自動の読み込みもオフなら、1 文と「ワールドを登録」を出し、押すとこの画面のまま登録のモーダルを開く（copy-dead-ends。前は「設定でワールドを登録してください」と設定へ移るボタン）', async (t) => {
+  const { body } = installDom(t);
   const app = context(fakeOwned(null));
   const view = ownedView(app, parseHash('#/owned'));
   const notices = view.element.querySelector('.owned-notices');
-  assert.equal(notices.textContent, '自分のセーブを読むには、設定でワールドを登録してください。セーブ連携を開く');
+  assert.equal(notices.textContent, 'セーブのファイルが登録されていません。ワールドを登録');
   const open = notices.querySelectorAll('button');
-  assert.deepEqual(open.map((node) => node.textContent), ['セーブ連携を開く']);
+  assert.deepEqual(open.map((node) => node.textContent), ['ワールドを登録']);
   await open[0].dispatch('click');
-  assert.deepEqual(app.navigations, ['#/settings']);
+  assert.deepEqual(app.navigations, []);
+  assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを登録');
   assert.equal(view.element.querySelectorAll('.owned-row').length, 0);
-  // 設定の操作（読み込み・登録）はこの画面に出さない
-  assert.equal(view.element.querySelectorAll('button').filter((node) => /今すぐ読み込む|ワールドを登録/.test(node.textContent)).length, 0);
+  // 空の表示にもアイコン（所持パルのタブのアイコン。読み上げない）
+  const icon = view.element.querySelector('.owned-list').querySelector('.empty-icon');
+  assert.equal(icon.getAttribute('aria-hidden'), 'true');
+  assert.equal(icon.querySelector('svg').getAttribute('class'), 'tab-icon');
+  // 今すぐ読み込むは設定（とヘッダー）の操作のまま、この画面に出さない
+  assert.equal(view.element.querySelectorAll('button').filter((node) => /今すぐ読み込む/.test(node.textContent)).length, 0);
   view.destroy();
   const guest = ownedView(context(fakeOwned(null, { role: 'guest', folder: { id: 'W', role: 'guest' }, linkedWorldId: 'W' })), parseHash('#/owned'));
   assert.match(guest.element.querySelector('.owned-notices').textContent, /ホストがまだこのワールドの所持パルを共有していません/);
@@ -612,7 +617,12 @@ test('継承ルート: 所持パルのデータがないときは、開始と目
   assert.ok(view.element.querySelector('.pair-selection'));
   assert.ok(view.element.querySelector('.swap-button'));
   assert.equal(view.element.querySelector('.start-filter'), null);
-  assert.match(view.element.querySelector('.route-owned').textContent, /設定タブの「セーブ連携」でワールドを登録/);
+  // 「設定タブの〜」とだけ書かず、1 文と行き先のボタン（設定のセーブ連携。copy-dead-ends）
+  const hint = view.element.querySelector('.route-owned').querySelector('.setup-hint');
+  assert.equal(hint.querySelector('p').textContent, '所持パルのデータがありません。');
+  assert.equal(hint.querySelector('a').textContent, 'セーブ連携を開く');
+  assert.equal(hint.querySelector('a').getAttribute('href') ?? hint.querySelector('a').href, '#/settings?open=auto');
+  assert.doesNotMatch(view.element.textContent, /設定タブ/);
   view.destroy();
 });
 
@@ -753,8 +763,8 @@ test('所持パル画面: 許可が必要なときは案内の中に「読み込
   view.destroy();
 });
 
-test('所持パル画面: 登録した後に増えたプレイヤーの Players のファイルを、追加するよう案内する', (t) => {
-  installDom(t);
+test('所持パル画面: 登録した後に増えたプレイヤーの Players のファイルを、追加するよう案内し、「ワールドを編集」でそのワールドの編集のモーダルを開く（copy-dead-ends。前は「設定タブの「セーブ連携」で…」の文だけ）', async (t) => {
+  const { body } = installDom(t);
   const P2 = '0000000a-0000-0000-0000-00000000000b';
   const data = {
     version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 'W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' },
@@ -763,8 +773,10 @@ test('所持パル画面: 登録した後に増えたプレイヤーの Players 
   };
   const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
   const text = view.element.querySelector('.owned-notices').textContent;
-  assert.match(text, /登録されていないプレイヤーのファイルがあります: Bob（Players\\0000000A00000000000000000000000B\.sav）。/);
-  assert.doesNotMatch(text, /0000000C/);
+  assert.match(text, /^登録されていないプレイヤーのファイルがあります: Bob（Players\\0000000A00000000000000000000000B\.sav）。ワールドを編集$/);
+  assert.doesNotMatch(text, /0000000C|設定タブ/);
+  await view.element.querySelector('.owned-notices').querySelector('button').dispatch('click');
+  assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを編集');
   view.destroy();
 });
 
@@ -1328,7 +1340,11 @@ test('所持パル画面: 所持パルのデータが無いまま開いて読み
   installDom(t);
   const owned = fakeOwned(null, { ready: false });
   const view = ownedView(context(owned), parseHash('#/owned'));
-  assert.match(view.element.querySelector('.owned-list').textContent, /読み込み中…/);
+  // 読み込み中は「〜を読み込み中…」にそろえ、role=status（loadingState。アイコンは付けない）
+  const loading = view.element.querySelector('.owned-list').children[0];
+  assert.equal(loading.textContent, '所持パルを読み込み中…');
+  assert.equal(loading.getAttribute('role'), 'status');
+  assert.equal(loading.querySelector('.empty-icon'), null);
   owned.state.ready = true;
   owned.emit();
   assert.match(view.element.querySelector('.owned-list').textContent, /表示できる所持パルがありません/);

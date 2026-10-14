@@ -35,7 +35,7 @@ export function updateBanner({ current, busy, served, reload, delay = setTimeout
         return;
       }
     } catch {
-      hint.textContent = '新しい版を確認できませんでした。もう一度押してください。';
+      hint.textContent = '新しいバージョンを確認できませんでした。もう一度押してください。';
     }
     restore();
   }, 'button primary');

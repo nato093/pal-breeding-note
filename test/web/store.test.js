@@ -210,7 +210,7 @@ for (const action of ['snapshot', 'delete']) {
     const store = createStore({ storage, api: { request: async () => ({ ...response([], 'test', []), record, snapshot: snapshot([], []) }) } });
     await assert.rejects(action === 'snapshot' ? store.refresh() : store.mutate(action, inputs[action]), { code: 'USER_NOT_FOUND' });
     assert.equal(store.state.passcode, '');
-    assert.match(store.state.error, /ID が見つかりません/);
+    assert.match(store.state.error, /^この ID は見つかりません。/);
     assert.equal(storage.get('pal-note.userId'), '登録者');
     assert.equal(storage.get(cacheKey('test')), null);
   });
@@ -222,7 +222,7 @@ test('認証: キャッシュから消えた ID は起動時にログアウト�
   storage.set(cacheKey('test'), JSON.stringify(snapshot([record], [])));
   const removed = createStore({ storage, api: {} });
   assert.equal(removed.state.passcode, '');
-  assert.match(removed.state.error, /ID が見つかりません/);
+  assert.match(removed.state.error, /^この ID は見つかりません。/);
   storage.set('pal-note.passcode', '入力');
   storage.set('pal-note.userId', 'ＡｂＣ');
   const retained = createStore({ storage, api: { request: async () => response([], 'test', ['abc']) } });

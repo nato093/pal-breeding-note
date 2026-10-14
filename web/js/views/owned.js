@@ -1,4 +1,4 @@
-import { el, field, empty, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight } from '../ui/dom.js';
+import { el, field, empty, loadingState, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight } from '../ui/dom.js';
 import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
@@ -14,8 +14,10 @@ import {
   viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
   fieldHead, panelItem, panelLine,
 } from './shared.js';
+import { tabLabel } from './tabs.js';
+import { openWorldDialog } from './owned-settings.js';
 import { toast } from '../ui/toast.js';
-import { buildHash } from '../router.js';
+import { buildHash, settingsHash } from '../router.js';
 import {
   filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel,
 } from '../core/owned.js';
@@ -580,7 +582,7 @@ export function ownedView(context, route) {
   const inputs = new AbortController();
   const pendingInputs = [];
   const element = el('section', 'view owned-view');
-  element.append(viewHeading('所持パル'));
+  element.append(viewHeading(tabLabel('owned')));
   // タブを切り替えて戻ってきても、前の絞り込みのまま出す。読み込み直しても、同じタブ（sessionStorage）の間は残る（app.js が戻す）。
   // 入れ物は viewState と共有し、前の形（古い保存・旧コードの viewState）は migrateFilter で今の形に読み替える
   const memory = context.viewState?.('owned');
@@ -608,10 +610,22 @@ export function ownedView(context, route) {
   const summary = el('section', 'owned-summary');
   const notices = noticeList([]);
   summary.hidden = true;
-  // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）
+  // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）。
+  // 案内は 1 文と行き先のボタン（「設定タブの〜」とだけ書かない。copy-dead-ends）: ワールドの登録・編集はこの画面からモーダルを開き、
+  // 読めないエラーは設定のセーブ連携（読んでいるワールドの行を開く）へ
+  const linkedWorld = () => owned.state.auto?.worlds?.find((world) => world.id === owned.state.linkedWorldId) ?? null;
   const noticeActions = {
     grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) },
-    settings: { label: 'セーブ連携を開く', run: () => context.navigate('#/settings') },
+    register: { label: 'ワールドを登録', run: () => openWorldDialog(context) },
+    settings: { label: 'セーブ連携を開く', run: () => context.navigate(settingsHash(owned.state.linkedWorldId ?? '')) },
+    editWorld: {
+      label: 'ワールドを編集',
+      run: () => {
+        const world = linkedWorld();
+        if (world) openWorldDialog(context, { world });
+        else context.navigate(settingsHash(owned.state.linkedWorldId ?? ''));
+      },
+    },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
   };
   summary.append(notices);
@@ -1360,7 +1374,7 @@ export function ownedView(context, route) {
   // 0 件のとき。中の「条件をすべて解除」は今の条件を読む（syncList は同じ文の空の表示を作り直さない）
   const rowOptions = {
     key: (pal) => pal.id, create: listRow,
-    empty: () => empty('条件に合うパルはいません。', button('条件をすべて解除', () => resetAll(), 'button secondary')),
+    empty: () => empty('条件に合うパルはいません。', button('条件をすべて解除', () => resetAll(), 'button secondary'), { icon: 'owned' }),
   };
   // 描画の仕事の番号（条件の変更・データの更新・画面の破棄で古い仕事を止める）
   let jobSeq = 0;
@@ -1392,7 +1406,7 @@ export function ownedView(context, route) {
       passive.update({ selected: filter.passives, counts: new Map(), disabled: none });
       leaveVirtual();
       clearList(results);
-      results.append(empty(state.ready ? '表示できる所持パルがありません。' : '読み込み中…'));
+      results.append(state.ready ? empty('表示できる所持パルがありません。', null, { icon: 'owned' }) : loadingState('所持パルを読み込み中…'));
       return;
     }
     const ids = allowedIds(state.owned);

@@ -3,6 +3,7 @@ import { palsById } from '../ui/pal-icon.js';
 import { withTransition } from '../ui/motion.js';
 import { parentRows, recordComparator } from '../core/record-sort.js';
 import { viewHeading, renderCards, watchView, dataPending } from './shared.js';
+import { tabLabel } from './tabs.js';
 import { text, oneOf } from '../core/boundary.js';
 
 // 並べ替えの動き（View Transition）を使う行の数の上限（多いとスナップショットが重い）
@@ -18,7 +19,7 @@ export const LIST_MEMORY = {
 
 export function listView(context) {
   const element = el('section', 'view');
-  element.append(viewHeading('みんなの配合ノート'));
+  element.append(viewHeading(tabLabel('list')));
   const registrant = el('input');
   registrant.type = 'search';
   registrant.placeholder = '登録者名で絞り込む';
@@ -66,17 +67,29 @@ export function listView(context) {
   function update(state) {
     // 閉じた後に遅れて呼ばれたとき（並べ替えの動きの後など）は描かない
     if (destroyed) return;
-    if (dataPending(results, state)) { shownRows = 0; return; }
-    const query = registrant.value.trim().toLocaleLowerCase('ja');
+    if (dataPending(results, state, () => context.store.refresh())) { shownRows = 0; return; }
+    const entered = registrant.value.trim();
+    const query = entered.toLocaleLowerCase('ja');
     const records = state.records.filter((record) => record.registrant.toLocaleLowerCase('ja').includes(query));
     const byParent = sort.value.startsWith('parent');
     const rows = (byParent ? parentRows(records) : records).sort(recordComparator(sort.value, state.index.palOrder, palsById));
     count.textContent = `${records.length} 件の配合 · ${rows.length} 件を表示`;
     shownRows = rows.length;
     // 親の順は 1 件 2 行（左に出す親が違う）。行の key に表示の向きを入れて、同じ配合の 2 行を別の行にする
+    // 0 件: 登録が 1 件もなければ登録へ、登録者名で絞って 0 件なら絞り込みを解除へ（押したときは今の入力を読む）
     renderCards(results, rows.map((row) => (byParent ? { record: row.record, leftParent: row.parent1Id } : { record: row })), context, {
-      empty: () => empty('条件に合う登録はありません。見つけた配合を登録しましょう。', button('配合を登録', () => context.register(), 'button primary')),
+      empty: () => (state.records.length
+        ? empty(`「${entered}」に合う登録はありません。`, button('絞り込みを解除', clearFilter, 'button secondary'), { icon: 'list' })
+        : empty('登録された配合はまだありません。見つけた配合を登録しましょう。', button('配合を登録', () => context.register(), 'button primary'), { icon: 'list' })),
     });
+  }
+  // 登録者名の絞り込みを空にして描き直す。押したボタンは消えるので、フォーカスは登録者名の欄へ
+  function clearFilter() {
+    typed.cancel();
+    registrant.value = '';
+    remember();
+    update(context.store.state);
+    registrant.focus();
   }
   const view = watchView(context.store, element, update);
   return {

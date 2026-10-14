@@ -1,4 +1,4 @@
-import { el, empty, link, button, syncList, clearList, trackHeight, svgElement, storageWarning } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, svgElement, storageWarning, loadingState } from '../ui/dom.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
 import { segmented } from '../ui/segmented.js';
@@ -24,6 +24,7 @@ import {
   viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing,
   holderChoices, holderValue, HOLDER_DEFAULT, fieldHead, panelItem, panelLine,
 } from './shared.js';
+import { tabLabel } from './tabs.js';
 import { cleanSaved, oneOf, intIn, internalName } from '../core/boundary.js';
 
 // 一度に出す組の数（条件に合う組がもっと多いときは、件数だけを出す）
@@ -191,11 +192,11 @@ function goalSummary(goal) {
 
 /**
  * 一覧での完成の状態（自分の個体で判定する）。所持パルのデータがない・自分のプレイヤーが分からないときは、
- * 完成していないとは言えないので「未確認」にする。自分のプレイヤーが分からないときは、設定でこのワールドでの自分を選ぶ行き先
- *（action。worldId は表示しているワールド）を添える
+ * 完成していないとは言えないので「未確認」にする。自分のプレイヤーが分からないときは設定でこのワールドでの自分を選ぶ行き先、
+ * データがないときはセーブ連携を開く行き先（action。worldId は表示しているワールド）を添える
  */
 function goalStatus(goal, pals, worldId = '') {
-  if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）' };
+  if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）', action: { label: 'セーブ連携を開く', href: settingsHash(worldId) } };
   if (pals === null) return { done: false, text: '未確認（このワールドでの自分が未設定）', action: { label: '設定で選ぶ', href: settingsHash(worldId) } };
   const found = goalMatches(goal, pals);
   if (!found.length) return { done: false, text: '未完成' };
@@ -394,7 +395,7 @@ export function idealView(context, route) {
     if (result === 'added') toast(`「${name}」を保存しました（${goalSummary(goal)}）。完成したら右上のベルで知らせます`);
     else if (result === 'duplicate') toast('この条件はすでに保存しています');
     else if (result === 'full') toast(`保存できる目標は ${GOAL_LIMIT} 件までです`);
-    else if (context.store.state.renaming) toast('名前の変更が終わってから保存してください');
+    else if (context.store.state.renaming) toast('ID の変更が終わってから保存してください');
     else toast('ログインしてから保存してください');
   }
 
@@ -438,7 +439,8 @@ export function idealView(context, route) {
   farmFold.addEventListener('toggle', () => { if (memory) memory.farmsOpen = farmFold.open; });
   const farmHead = el('summary', 'ideal-farms-summary');
   farmHead.setAttribute('data-focus-key', 'farm-fold');
-  const farmTitle = el('h3');
+  // 画面の h1 の次の見出し（h2。大きさは CSS の .ideal-farms-summary h2 で前の h3 と同じ 14px）
+  const farmTitle = el('h2');
   farmHead.append(farmTitle);
   const farmBody = el('div', 'ideal-farms-body');
   farmFold.append(farmHead, farmBody);
@@ -460,7 +462,7 @@ export function idealView(context, route) {
   const goalsButton = button('', () => openGoals(), 'button secondary small ideal-goals-button');
   goalsButton.setAttribute('aria-haspopup', 'dialog');
   goalsButton.hidden = !ideals;
-  const heading = viewHeading('理想個体');
+  const heading = viewHeading(tabLabel('ideal'));
   const headingActions = el('div', 'view-heading-actions');
   headingActions.append(goalsButton);
   heading.append(headingActions);
@@ -482,7 +484,7 @@ export function idealView(context, route) {
     const key = ideals.scope();
     const removed = ideals.remove(goal.id, key);
     if (!removed) {
-      if (context.store.state.renaming) toast('名前の変更が終わってから外してください');
+      if (context.store.state.renaming) toast('ID の変更が終わってから外してください');
       return;
     }
     toast(`「${goal.name}」を目標から外しました`, {
@@ -579,7 +581,32 @@ export function idealView(context, route) {
         : 'パッシブを持つ親からは、パッシブのない子は産まれません。パッシブを持たない ♂ と ♀ の組がありません。');
     } else lines.push('♂ と ♀ の組を作れる個体がいません。');
     if (holderName()) lines.push(`（所持者を「${holderName()}」に絞っています）`);
-    return empty(lines.join(''));
+    return empty(lines.join(''), result.candidates ? null : missingActions(to), { icon: 'ideal' });
+  }
+  // 目標のパルを ♂ と ♀ で持っていないときの次の一手: 逆引きで親を探す・ウィッシュリストに追加（ログインしていなければ出さない。
+  // すでにあれば押せない「ウィッシュリストにあります」）。フェーズ 2 の goals-merge で「目標に登録」に替わる
+  function missingActions(target) {
+    const actions = el('div', 'empty-actions');
+    const reverse = link('逆引きで親を探す', buildHash('reverse', { c: target }), 'button secondary');
+    actions.append(reverse);
+    const wishlist = context.wishlist;
+    if (!wishlist?.scope?.()) return actions;
+    const add = button('', () => {
+      const added = wishlist.add(target);
+      if (added === null) { toast('配合を読み込んでから追加してください'); return; }
+      if (added) toast(`${palName(target)}をウィッシュリストに追加しました`);
+      // 押せなくするとフォーカスが外れるので、先に隣の「逆引きで親を探す」へ移す
+      if (globalThis.document?.activeElement === add) reverse.focus();
+      mark();
+    }, 'button secondary');
+    const mark = () => {
+      const listed = wishlist.list().some((wish) => wish.palId === target);
+      add.textContent = listed ? 'ウィッシュリストにあります' : 'ウィッシュリストに追加';
+      add.disabled = listed;
+    };
+    mark();
+    actions.append(add);
+    return actions;
   }
 
   // 欲しいパッシブを候補のだれも持たないときは、個体値厳選組だけを並べていることを知らせる。
@@ -667,24 +694,25 @@ export function idealView(context, route) {
     return picks;
   }
 
-  // 帯の 1 か所: [牧場の名前][♂の絵]×[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）。
-  // 絵の「♂ × ♀」は読ませず、見た目は隠した文で「（名前♂ × 名前♀）」と読ませる（押せないセルは aria-label がないので、どの組か分かるように）
+  // 帯の 1 か所: [牧場の名前][♂の絵]＋[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）。
+  // 絵の「♂＋♀」は読ませず、見た目は隠した文で「（名前♂＋名前♀）」と読ませる（押せないセルは aria-label がないので、どの組か分かるように）。
+  // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」）
   function stripCell({ item, name, state, key }) {
     const cell = key ? button('', () => jumpTo(key), `ideal-farm-cell ${item.status}`) : el('div', `ideal-farm-cell ${item.status} is-static`);
     if (key) cell.setAttribute('data-focus-key', `farm-cell:${item.farm.id}`);
     const pals = el('span', 'ideal-farm-cell-pals');
     pals.setAttribute('aria-hidden', 'true');
     [item.farm.male, item.farm.female].forEach((pal, index) => {
-      if (index) pals.append(el('span', 'ideal-farm-cell-x', '×'));
+      if (index) pals.append(el('span', 'ideal-farm-cell-x', '＋'));
       const icon = el('span', 'ideal-farm-cell-pal');
       icon.append(palIcon(palsById.get(pal.palId)), genderMark(pal));
       pals.append(icon);
     });
     const arrow = el('span', 'ideal-farm-cell-arrow', '→');
     arrow.setAttribute('aria-hidden', 'true');
-    cell.append(el('span', 'ideal-farm-cell-name', name), pals, el('span', 'visually-hidden', `（${item.farm.male.name}♂ × ${item.farm.female.name}♀）`),
+    cell.append(el('span', 'ideal-farm-cell-name', name), pals, el('span', 'visually-hidden', `（${item.farm.male.name}♂＋${item.farm.female.name}♀）`),
       arrow, el('span', 'ideal-farm-cell-state', state.short));
-    const label = `${name}（${item.farm.male.name}♂ × ${item.farm.female.name}♀）: ${state.chip}`;
+    const label = `${name}（${item.farm.male.name}♂＋${item.farm.female.name}♀）: ${state.chip}`;
     cell.title = label;
     if (key) cell.setAttribute('aria-label', `${label}。押すとその組へ移ります`);
     return cell;
@@ -760,7 +788,7 @@ export function idealView(context, route) {
     const main = key && !pending ? button('', () => jumpTo(key), 'ideal-farm-main') : el('div', 'ideal-farm-main');
     if (key && !pending) main.setAttribute('data-focus-key', `farm-row:${item.farm.id}`);
     const pair = el('span', 'ideal-farm-pair');
-    pair.append(farmPal(item.farm.male, { passives: true }), el('span', 'ideal-farm-x', '×'), farmPal(item.farm.female, { passives: true }));
+    pair.append(farmPal(item.farm.male, { passives: true }), el('span', 'ideal-farm-x', '＋'), farmPal(item.farm.female, { passives: true }));
     main.append(el('strong', 'ideal-farm-name', name), pair, el('span', `ideal-farm-status ${status}`, pending ? '判定を保留' : state.chip));
     // 交換を見送った「そのまま」（D15）は、チップの横に理由
     if (!pending && state.skipped) main.append(el('span', 'ideal-farm-reason', '入れ替えても全体の速さの目安が上がりません'));
@@ -871,6 +899,12 @@ export function idealView(context, route) {
     for (const item of cardHints) item.destroy();
     cardHints = hints;
     results.replaceChildren(...nodes);
+  }
+  // 登録済みの配合をまだ読み込めていない（読み込み中・失敗して「もう一度読み込む」）。同じ表示なら作り直さない（dataPending）
+  function showPending(state) {
+    for (const item of cardHints) item.destroy();
+    cardHints = [];
+    dataPending(results, state, () => context.store.refresh());
   }
 
   // 同じ見込みの組を畳んだまとまり（開閉は viewState に残す。タブを切り替えても残り、読み込み直すと閉じる）
@@ -1024,12 +1058,13 @@ export function idealView(context, route) {
     const pals = owned?.state?.owned?.pals ?? null;
     if (!pals) {
       clearPlan();
-      showResults([empty(owned && !owned.state.ready ? '読み込み中…'
-        : '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、理想個体の親を探せます。')]);
+      // データがなければ 1 文と行き先（セーブ連携。登録したワールドがあれば、その行を開く）
+      showResults([owned && !owned.state.ready ? loadingState('所持パルを読み込み中…')
+        : empty('所持パルのデータがありません。', link('セーブ連携を開く', settingsHash(owned?.state?.linkedWorldId ?? ''), 'button secondary'), { icon: 'ideal' })]);
       return;
     }
     if (!to) { clearPlan(); showResults([empty('目標のパルを選んでください。')]); return; }
-    if (!state.env) { clearPlan(); showResults([]); dataPending(results, state); return; }
+    if (!state.env) { clearPlan(); showPending(state); return; }
     const candidates = ofHolder(pals);
     // 配合牧場の中身（ホストのセーブ、または共有されたもの。牧場を共有する前のデータにはない）。
     // 今の牧場の組を計画で優先・見張るので、計画より先に求める
@@ -1105,7 +1140,7 @@ export function idealView(context, route) {
     if (!shownKey) {
       renderHolding(null);
       clearFarms();
-      showResults([empty('計算中…')]);
+      showResults([loadingState('計算中…')]);
     }
     setComputing(true);
     finishPlan(current, run.promise, plan);

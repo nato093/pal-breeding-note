@@ -2,10 +2,11 @@ import { el, button, empty } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { findByPair, findByParent } from '../core/index.js';
 import { viewHeading, validId, navigateSelection, renderCards, watchView, dataPending, syncPicker, recordCountNotes } from './shared.js';
+import { tabLabel } from './tabs.js';
 
 export function searchView(context, route) {
   const element = el('section', 'view');
-  element.append(viewHeading('配合を見つけよう'));
+  element.append(viewHeading(tabLabel('search')));
   let current = route;
   let p1 = '';
   let p2 = '';
@@ -31,12 +32,13 @@ export function searchView(context, route) {
     for (const picker of pickers) picker.update();
     note.textContent = '';
     if (!p1 && !p2) { renderCards(results, [], context, { empty: () => empty('親を選んで、仲間と記録した配合を探しましょう。親1だけでも探せます。') }); return; }
-    if (dataPending(results, state)) return;
+    if (dataPending(results, state, () => context.store.refresh())) return;
     const records = p1 && p2 ? findByPair(state.index, p1, p2) : findByParent(state.index, p1 || p2);
     if (!records.length) {
-      renderCards(results, [], context, { empty: () => empty(p1 && p2 ? 'この組み合わせはまだ登録されていません' : 'この親を使う配合はまだ登録されていません', button('この組み合わせを登録', () => {
-        context.register({ parent1Id: p1, parent2Id: p2 });
-      }, 'button primary')) });
+      // 親を 1 体だけ選んでいれば、その親を親 1 に入れて登録を開く（両方なら今の組み合わせ）。押したときの親は今の値を読む（syncList は同じ文の空の表示を作り直さない）
+      renderCards(results, [], context, { empty: () => (p1 && p2
+        ? empty('この組み合わせはまだ登録されていません。', button('この組み合わせを登録', () => context.register({ parent1Id: p1, parent2Id: p2 }), 'button primary'))
+        : empty('この親を使う配合はまだ登録されていません。', button('この親の配合を登録', () => context.register({ parent1Id: p1 || p2 }), 'button primary'))) });
       return;
     }
     note.textContent = p1 && p2 && records.length > 1 ? '同じ組み合わせで結果が複数登録されています' : `${records.length} 件の登録済み配合`;

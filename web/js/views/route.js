@@ -1,12 +1,13 @@
-import { el, button, empty, link } from '../ui/dom.js';
+import { el, button, empty, link, setupHint } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palTile, palsById } from '../ui/pal-icon.js';
 import { routeView } from '../ui/route-view.js';
 import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
-import { buildHash } from '../router.js';
+import { buildHash, settingsHash } from '../router.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, ownedSpeciesNotes, routeDistanceNotes, passivePresets } from './shared.js';
+import { tabLabel } from './tabs.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { internalName } from '../core/boundary.js';
 
@@ -43,7 +44,7 @@ function startChip(content, pressed, onClick, key) {
 
 export function inheritanceView(context, route) {
   const element = el('section', 'view');
-  const heading = viewHeading('スキルをつなぐ');
+  const heading = viewHeading(tabLabel('route'));
   let current = route;
   let from = '';
   let to = '';
@@ -70,7 +71,7 @@ export function inheritanceView(context, route) {
   startChips.setAttribute('aria-label', '開始');
   const startFilter = el('div', 'start-filter');
   startFilter.append(el('span', 'field-label', '開始'), startChips);
-  const explanation = el('p', 'route-explanation', 'この経路はスキルを運ぶ個体の流れです。相手親は別途用意します');
+  const explanation = el('p', 'route-explanation', 'この経路はパッシブを運ぶ個体の流れです。相手親は別途用意します');
   const ownedSection = el('section', 'route-owned');
   const results = el('div');
 
@@ -82,7 +83,7 @@ export function inheritanceView(context, route) {
   };
   // パッシブの選択欄は 1 回だけ作り、条件・データが変わったら update で合わせる（開いた候補を閉じない）
   const passive = passiveSelector({
-    label: '運びたいパッシブ（所持パルから探す）', selected: passives, countLabel: '所持パルが持っているもの（タマゴを含む）',
+    label: '運びたいパッシブ', selected: passives, countLabel: '所持パルが持っているもの（タマゴを含む）',
     negatives: 'last', presets: passivePresets(context.ideals), onChange: setPassives,
   });
   passiveSlot.append(passive.element);
@@ -153,14 +154,17 @@ export function inheritanceView(context, route) {
     renderPassives(pals);
     ownedSection.replaceChildren();
     if (!pals) {
-      if (passives.length) ownedSection.append(el('p', 'muted', '所持パルのデータがありません。設定タブの「セーブ連携」でワールドを登録するか、ホストが所持パルを共有すると、パッシブを持つ個体から経路を探せます。'));
+      // 行き先はセーブ連携（登録したワールドがあれば、その行を開く）
+      if (passives.length) {
+        ownedSection.append(setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: settingsHash(owned.state?.linkedWorldId ?? '') } }));
+      }
       return;
     }
     const bySpecies = ownedBySpecies(pals);
     if (from && passives.length) {
       const carriers = (bySpecies.get(from) ?? []).filter((pal) => hasPassives(pal, passives));
       const box = el('div', 'route-owned-box');
-      box.append(el('h3', '', `開始の${palsById.get(from)?.ja ?? from}でパッシブを持つ所持個体`),
+      box.append(el('h2', '', `開始の${palsById.get(from)?.ja ?? from}でパッシブを持つ所持個体`),
         carriers.length ? carrierList(carriers) : el('p', 'muted', '該当する個体を所持していません。'));
       ownedSection.append(box);
     }
@@ -171,7 +175,7 @@ export function inheritanceView(context, route) {
     }
     if (from) return;
     const box = el('div', 'route-owned-box');
-    box.append(el('h3', '', 'パッシブを持つ所持パルから始める'));
+    box.append(el('h2', '', 'パッシブを持つ所持パルから始める'));
     if (!starts.length) {
       const total = pals.filter((pal) => pal.palId && hasPassives(pal, passives)).length;
       box.append(el('p', 'muted', total
@@ -227,11 +231,11 @@ export function inheritanceView(context, route) {
       return;
     }
     if (!from) { results.replaceChildren(); return; }
-    if (from === to) { results.replaceChildren(empty('配合は不要です')); return; }
-    if (dataPending(results, state)) return;
+    if (from === to) { results.replaceChildren(empty('配合は不要です。')); return; }
+    if (dataPending(results, state, () => context.store.refresh())) return;
     const { routes } = findRoutes(state.graph, state.index, from, to, { k: 5, slack: 3 });
     if (!routes.length) {
-      results.replaceChildren(empty('登録済みの配合ではたどり着けません', link('目標の逆引きを見る', buildHash('reverse', { c: to }), 'button secondary')));
+      results.replaceChildren(empty('登録済みの配合ではたどり着けません。', link('目標の逆引きを見る', buildHash('reverse', { c: to }), 'button secondary')));
       return;
     }
     results.replaceChildren(routeView(routes, { annotate: annotateFor(pals) }));

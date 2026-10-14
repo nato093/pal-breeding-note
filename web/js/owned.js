@@ -461,7 +461,7 @@ export function createOwnedStore({
       return stop('error', error.message, auto);
     }
     state.auto.worlds = worlds;
-    if (!worlds.length) return stop('empty', '自分のセーブを読むには、設定でワールドを登録してください', auto);
+    if (!worlds.length) return stop('empty', 'セーブのファイルが登録されていません', auto);
     // 許可のないワールドがあると、どれを最後に遊んだか分からないので、黙って別のワールドを選ばない
     if (worlds.some((world) => world.status === 'permission')) {
       return stop('permission', 'セーブを読むには許可が必要です。「読み込みを許可」を押してください（拒否した場合は、Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください）', auto);

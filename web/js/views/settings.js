@@ -8,6 +8,7 @@ import { identityKey } from '../core/pair.js';
 import { ownedWorldId } from '../core/owned-shared.js';
 import { buildHash, parseHash } from '../router.js';
 import { viewHeading, watchView } from './shared.js';
+import { tabLabel } from './tabs.js';
 import { ownedSettingsCard } from './owned-settings.js';
 
 const warningMessages = {
@@ -34,7 +35,7 @@ function exportCsv(records) {
 export function settingsView(context, route = parseHash('#/settings')) {
   const { store } = context;
   const element = el('section', 'view settings-view');
-  element.append(viewHeading('ノートの設定'));
+  element.append(viewHeading(tabLabel('settings')));
   const connection = el('section', 'settings-card');
   const env = el('p', 'environment-label');
   const time = el('p', 'muted');
@@ -45,12 +46,12 @@ export function settingsView(context, route = parseHash('#/settings')) {
   const access = el('section', 'settings-card');
   const accountId = el('p');
   const renameNote = el('p', 'muted');
-  const rename = button('名前を変更', () => openRenameDialog(context), 'button secondary');
-  // 途中で止まった名前の変更は、同じ内容でやり直す（別の名前への変更と混ざらないように）
-  const retry = button('名前の変更を再試行', async () => {
+  const rename = button('ID を変更', () => openRenameDialog(context), 'button secondary');
+  // 途中で止まった ID の変更は、同じ内容でやり直す（別の ID への変更と混ざらないように）
+  const retry = button('ID の変更を再試行', async () => {
     await runButton(retry, async () => {
       const userId = await context.renamer.retry();
-      toast(`名前を「${userId}」に変更しました`);
+      toast(`ID を「${userId}」に変更しました`);
     }, (error) => toast(error.message));
   }, 'button primary');
   const logout = button('ログアウト', () => confirmLogout(store), 'button quiet danger-text');
@@ -74,8 +75,8 @@ export function settingsView(context, route = parseHash('#/settings')) {
   function renderAccount(state) {
     accountId.textContent = `ログイン中の ID: ${state.userId}`;
     const pending = context.renamer?.pending();
-    renameNote.textContent = pending ? `「${pending.oldId}」から「${pending.newId}」への名前の変更が終わっていません。再試行してください。`
-      : '名前を変えると、これまでの配合の登録者名もすべて新しい名前になります。';
+    renameNote.textContent = pending ? `「${pending.oldId}」から「${pending.newId}」への ID の変更が終わっていません。再試行してください。`
+      : 'ID を変えると、これまでの配合の登録者名もすべて新しい ID になります。';
     rename.hidden = Boolean(pending);
     retry.hidden = !pending;
     // 名前の変更中は、ログアウトや別の変更をさせない
@@ -95,7 +96,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
     env.textContent = `環境: ${state.env === 'test' ? 'テスト' : state.env === 'prod' ? '本番' : '確認中'}`;
     time.textContent = `前回取得: ${formatTime(state.serverTime, true)}${state.cached ? '（キャッシュ）' : ''}`;
     warningList.replaceChildren();
-    if (!state.warnings.length) warningList.append(el('p', 'muted', state.env ? '警告はありません。' : '取得後に表示します。'));
+    if (!state.warnings.length) warningList.append(el('p', 'muted', state.env ? '警告はありません。' : '読み込み中…'));
     for (const warning of state.warnings) {
       const row = el('div', 'integrity-warning');
       row.append(el('p', '', `${warning.rowNumber ? `${warning.rowNumber} 行目: ` : ''}${warningMessages[warning.code] ?? '保存先の内容を管理者に確認してください。'}`));

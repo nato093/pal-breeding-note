@@ -1,4 +1,4 @@
-import { el, empty, syncList, clearList } from '../ui/dom.js';
+import { el, syncList, clearList, listKeys, loadingState, errorState } from '../ui/dom.js';
 import { breedingCard } from '../ui/breeding-card.js';
 import { buildHash } from '../router.js';
 import { palsById } from '../ui/pal-icon.js';
@@ -218,11 +218,19 @@ export function renderCards(target, items, context, { empty: emptyNode } = {}) {
   });
 }
 
-export function dataPending(target, state) {
+/**
+ * 登録済みの配合をまだ読み込めていない（state.env がない）ときの表示。読み込みに失敗していれば errorState（「もう一度読み込む」で
+ * retry を呼ぶ。画面は () => context.store.refresh() を渡す）、ほかは loadingState。出したら true。
+ * 同じ表示（文とクラス）が出ていれば作り直さない（押した「もう一度読み込む」のフォーカスを保ち、エラーを読み上げ直さない）
+ */
+export function dataPending(target, state, retry) {
   if (state.env) return false;
+  const node = state.error ? errorState(state.error, retry) : loadingState('登録済みの配合を読み込み中…');
+  const shown = target.children.length === 1 && !listKeys(target).size ? target.children[0] : null;
+  if (shown && shown.className === node.className && shown.textContent === node.textContent) return true;
   // 使い回している行を捨ててから出す（syncList の入れ物に replaceChildren を直接使わない決まり）
   clearList(target);
-  target.append(empty(state.error || '登録済みの配合を読み込んでいます…'));
+  target.append(node);
   return true;
 }
 

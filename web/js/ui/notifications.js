@@ -62,7 +62,7 @@ export function openNotificationList(notifications) {
   return modal;
 }
 
-// 右上のベル。未読の数を出し、開くと未読の通知を並べて既読にする（既読の通知は設定タブの通知一覧で見る）。
+// 右上のベル。未読の数を出し、開くと未読の通知を並べて既読にする（既読の通知は、未読がないときのボタン「これまでの通知」と設定の通知一覧で見る）。
 // 数とパネルは通知一覧と同じまとめ表示の行で数える（同じ読み込みの自動登録 3 件は 1）。既読にするのは元の通知の id 全部。
 // onOpen は開いたときに呼ぶ（app.js がヘッダーのほかのパネルを閉じる）
 export function notificationMenu(notifications, { onOpen } = {}) {
@@ -98,8 +98,17 @@ export function notificationMenu(notifications, { onOpen } = {}) {
       const rows = groupNotifications(notifications.list().filter((item) => opened.has(item.id)));
       if (listKey(rows) === shown) return;
       shown = listKey(rows);
-      panel.replaceChildren(el('h2', '', '通知'), rows.length ? notificationList(rows, new Set(), () => closePanel?.())
-        : el('p', 'muted notification-empty', '新しい通知はありません。これまでの通知は設定タブの「通知一覧」で見られます。'));
+      panel.replaceChildren(el('h2', '', '通知'), rows.length ? notificationList(rows, new Set(), () => closePanel?.()) : emptyPanel());
+    };
+    // 未読がないとき: 1 文と、既読も含めた通知一覧を開くボタン（パネルを閉じ、一覧を閉じたらベルへフォーカスを戻す）
+    const emptyPanel = () => {
+      const node = el('div', 'notification-empty');
+      node.append(el('p', 'muted', '新しい通知はありません。'), button('これまでの通知', () => {
+        closePanel?.();
+        trigger.focus();
+        openNotificationList(notifications);
+      }, 'button secondary small'));
+      return node;
     };
     renderPanel();
     const controller = new AbortController();

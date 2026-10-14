@@ -24,7 +24,8 @@ export function buildHash(view, params = {}, id = '') {
 /**
  * 設定のセーブ連携を開いて、そのワールドで設定することにフォーカスする URL（`#/settings?world=<ID>&open=auto`）。
  * このワールドでの自分が決まっていなければその選択、登録者の対応が未設定ならその選択、などへ移る（views/owned-settings.js の reveal）。
- * 理想個体の「未確認」・自動登録の「プレイヤーの対応が未設定です」・「設定タブの〜」の案内が使う
+ * 理想個体の「未確認」・自動登録の「プレイヤーの対応が未設定です」・設定へ移る案内（「セーブ連携を開く」。継承ルート・理想個体・
+ * 所持パルの案内の帯）・ヘッダーのセーブ連携の「設定を開く」が使う
  */
 export function settingsHash(worldId = '') {
   return buildHash('settings', { world: worldId, open: 'auto' });

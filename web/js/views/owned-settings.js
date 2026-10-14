@@ -1,4 +1,4 @@
-// 設定タブの「セーブ連携」。登録したワールド（モーダルで登録・編集・削除）、使うワールドの切り替え、
+// 設定の「セーブ連携」。登録したワールド（モーダルで登録・編集・削除）、使うワールドの切り替え、
 // 表示しているワールドでの自分、配合牧場からの自動登録（ワールドごと）、所持パルの CSV・共有の削除を扱う。
 import { el, button, runButton } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
@@ -42,7 +42,7 @@ function afterAttach(fn) {
 }
 
 function registeredLabel(world) {
-  const parts = [shortName(world), world.kind === 'guest' ? '参加だけ' : 'ホスト', `${world.files?.length ?? 0} ファイル`];
+  const parts = [shortName(world), world.kind === 'guest' ? '参加者' : 'ホスト', `${world.files?.length ?? 0} ファイル`];
   if (world.playedAt) parts.push(`${dateTime(world.playedAt)} に遊んだ${world.role === 'guest' ? '（参加）' : ''}`);
   if (WORLD_STATES[world.status]) parts.push(WORLD_STATES[world.status]);
   return parts.join(' · ');
@@ -77,7 +77,7 @@ function dropZone(text, onDrop) {
 function previewText(previewed) {
   if (previewed.kind !== 'host') return `参加しているワールドとして登録します（ホストの PC なら ${REQUIRED_FILES.host.filter((p) => p !== 'LocalData.sav').join('・')} もドロップしてください）`;
   const name = `${worldName({ worldName: previewed.name, hostName: previewed.hostName, worldId: previewed.worldId })} · ${previewed.palCount} 体`;
-  return previewed.role === 'guest' ? `${name}（LocalData.sav の方が新しいため、いまは参加している側と判定します）` : name;
+  return previewed.role === 'guest' ? `${name}（LocalData.sav の方が新しいため、いまは参加者と判定します）` : name;
 }
 
 /**

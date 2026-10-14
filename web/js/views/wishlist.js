@@ -6,6 +6,7 @@ import { toast } from '../ui/toast.js';
 import { findByChild } from '../core/index.js';
 import { buildHash } from '../router.js';
 import { viewHeading, watchView, dataPending } from './shared.js';
+import { tabLabel } from './tabs.js';
 
 // 一覧の「作成可能」は、逆引きと同じく画面に出ているデータ（送信待ちを含む）で判定する。通知の判定は wishlist.js が確定データで行う。
 export function wishlistView(context) {
@@ -15,7 +16,7 @@ export function wishlistView(context) {
   const saveWarning = storageWarning('ウィッシュリスト', 'wishlist-warning');
   const note = el('p', 'result-note');
   const results = el('div');
-  element.append(viewHeading('ウィッシュリスト'),
+  element.append(viewHeading(tabLabel('wishlist')),
     el('p', 'wishlist-explanation', '作りたいパルを追加しておくと、配合が登録されて作れるようになったときに右上のベルで知らせます。'),
     panel, saveWarning, note, results);
   let picker;
@@ -57,7 +58,7 @@ export function wishlistView(context) {
   function update() {
     if (destroyed) return;
     saveWarning.hidden = !wishlist.saveFailed;
-    if (dataPending(results, store.state)) {
+    if (dataPending(results, store.state, () => store.refresh())) {
       note.textContent = '';
       shown = null;
       return;
@@ -72,7 +73,7 @@ export function wishlistView(context) {
     shown = key;
     note.textContent = wishes.length ? `${wishes.length} 件のパル` : '';
     if (!wishes.length) {
-      results.replaceChildren(empty('作りたいパルはまだありません。上の選択欄から追加できます。'));
+      results.replaceChildren(empty('作りたいパルはまだありません。上の選択欄から追加できます。', null, { icon: 'wishlist' }));
       return;
     }
     const list = el('ul', 'wishlist');
