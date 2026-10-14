@@ -904,9 +904,10 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
     await input.dispatch('input');
     await input.dispatch('change');
   };
-  // 条件 X（所持者「自分の個体」・HP 50）で 300px まで読んでから、配合検索へ
-  const holder = selectHaving('mine');
-  holder.value = 'mine';
+  // 条件 X（所持者「すべて」・HP 50）で 300px まで読んでから、配合検索へ（所持パルのデータがないので、所持者の選択肢は「すべて」だけ。
+  // 自分の選択肢は自分のプレイヤーが分かるときだけ出す。D29）
+  const holder = selectHaving('');
+  holder.value = '';
   await holder.dispatch('change');
   await setTarget('HPの目標（以上）', '50');
   window.scrollY = 300;
@@ -914,7 +915,7 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
   go(navTab('配合検索').href);
   const second = history.state.palEntry;
   assert.notEqual(second, first);
-  assert.deepEqual(entriesOf(sessionValues).find((entry) => entry.id === first).cond, { holder: 'mine', mode: 'include', targets: { hp: 50, shot: 100, defense: 100 }, cake: 'none' });
+  assert.deepEqual(entriesOf(sessionValues).find((entry) => entry.id === first).cond, { holder: '', mode: 'include', targets: { hp: 50, shot: 100, defense: 100 }, cake: 'none' });
   // 理想個体のタブで戻って条件 Y（HP 70）にする（新しいエントリ）
   await clickLink(navTab('理想個体'));
   go(navTab('理想個体').href);
@@ -925,7 +926,6 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
   back('#/ideal?to=SheepBall', { palEntry: first });
   await frame();
   assert.equal(inputLabeled('HPの目標（以上）').value, '50');
-  assert.equal(selectHaving('mine').value, 'mine');
   assert.equal(scrolls.at(-1), 300);
   // 別の利用者・別の環境・保存の形の版が違うエントリは使わない（画面には今の条件が残る。ワールドは次のテスト）
   await setTarget('HPの目標（以上）', '80');
@@ -985,7 +985,8 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   assert.deepEqual(['HPの目標（以上）', '攻撃の目標（以上）', '防御の目標（以上）'].map((label) => inputLabeled(label).value), ['90', '100', '80']);
   assert.equal(radioChecked('パッシブの条件'), 'only');
   assert.equal(radioChecked('ケーキ'), 'talent');
-  assert.equal(selectHaving('mine').value, 'mine');
+  // 所持者（保存は自分）は、所持パルのデータがなく自分のプレイヤーが分からないので「すべて」として出す（D29）
+  assert.equal(selectHaving('').value, '');
   go('#/list');
   assert.equal(find((node) => node.placeholder === '登録者名で絞り込む').value, 'ボブ');
   assert.equal(selectHaving('updated').value, 'updated');

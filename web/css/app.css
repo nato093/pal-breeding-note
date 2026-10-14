@@ -1133,10 +1133,10 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 @media (max-width: 1080px) {
   .owned-panel .panel-line > .owned-talent-item.panel-item { order: 1; margin-left: 0; padding-left: 0; background: none; }
 }
-/* 場所のチップ（aria-pressed で複数選択。件数は絞り込む前の数）。押して切り替えるチップなので、オンは secondary-container の地と ✓、
+/* 場所のチップ（aria-pressed で複数選択。件数は出さない〔D29〕）。押して切り替えるチップなので、オンは secondary-container の地と ✓、
    オフは枠だけ（D28。結果の行の条件のチップ〔× で外すタグ〕と見分けられるように） */
 .place-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.place-chip, .place-chip-more {
+.place-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1150,19 +1150,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   font-weight: 700;
   white-space: nowrap;
 }
-.place-chip:hover:not([aria-pressed="true"]), .place-chip-more:hover { background: var(--state-hover); }
+.place-chip:hover:not([aria-pressed="true"]) { background: var(--state-hover); }
 .place-chip[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: var(--md-sys-color-secondary-container); }
 .place-chip[aria-pressed="true"]::before { content: '✓'; margin-right: -1px; font-size: 12px; line-height: 1; }
-.place-chip-count { font-weight: 400; font-variant-numeric: tabular-nums; }
-.place-bases-slot { position: relative; display: inline-flex; margin-left: -2px; }
-.place-chip-more { padding: 3px 7px; }
-.place-chip-more.is-active { border-color: var(--md-sys-color-primary); color: var(--md-sys-color-primary); }
-.place-bases { width: 280px; display: grid; gap: 8px; padding: 10px; }
-.place-base-list { display: grid; gap: 2px; max-height: min(50vh, 360px); overflow-y: auto; }
-.place-base { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
-.place-base:hover { background: var(--state-hover); }
-.place-base-count { margin-left: auto; font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
-.place-bases > .button { justify-self: end; }
 /* 属性 ▾（選んだ属性はボタンの中に小さなチップで出す）。開くと 9 個のトグル（選んでいないものは枠だけ） */
 .owned-element-slot { position: relative; display: inline-flex; }
 .owned-element-button {
@@ -1423,9 +1413,13 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 }
 .passive-more:hover { background: var(--state-hover); }
 /* キーワードに一致したスキル・説明（一覧に出していない項目）を、行の下の段の印の後ろに 1 行で（入り切らない分は省略。全文は title） */
-.owned-hits { flex: 1 1 0; min-width: 8em; margin: 0; height: 15px; font-size: 12px; line-height: 15px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.owned-hit + .owned-hit::before { content: ' · '; }
-.owned-hit-desc { margin-left: 4px; font-size: 11px; color: var(--muted); }
+.owned-hits { flex: 1 1 0; display: flex; align-items: center; gap: 0 4px; min-width: 8em; margin: 0; height: 15px; font-size: 12px; line-height: 15px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; }
+/* 一致した理由は項目ごとに 1 つ（D29）。短い項目（is-short）は縮めず、長い項目（説明つきなど）を長いものほど縮めて省略し、どの項目も見出しが
+   見えるようにする */
+.owned-hit { flex: 0 1 auto; min-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+.owned-hit.is-short { flex-shrink: 0; min-width: 0; }
+.owned-hit + .owned-hit::before { content: '· '; }
+.owned-hit-more { flex: none; color: var(--muted); }
 /* 個体値の 4 セル（HP・攻・防・計）。数字は右寄せ、下にミニバー（--v）。目標があれば縦の目印（--t） */
 .owned-talent { display: grid; grid-template-columns: repeat(4, minmax(3ch, 1fr)); column-gap: 6px; font-size: 13px; font-weight: 700; color: var(--ink); }
 .talent-cell {
@@ -1447,36 +1441,6 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     linear-gradient(var(--talent-track), var(--talent-track)) left bottom / 100% 3px no-repeat;
 }
 .talent-cell[data-key="total"] { color: var(--md-sys-color-on-surface-variant); }
-/* 行の操作（親にして検索。D28 で 1 つにした）。触れた行にだけ作り、行の右端（上の段の真ん中）に重ねる（列は足さず、行の高さも変えない）。
-   操作が 1 つなので、絵だけの小さなボタンの浮き板ではなく、文字のラベルつきの 1 つのボタン（枠と影で行の上に浮かせる） */
-.owned-row-actions {
-  position: absolute;
-  top: calc(var(--owned-row-h) / 2);
-  right: 10px;
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-.owned-row:hover .owned-row-actions, .owned-row:focus-within .owned-row-actions { opacity: 1; pointer-events: auto; }
-.owned-row-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 30px;
-  padding: 0 12px 0 9px;
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: 15px;
-  background: var(--md-sys-color-surface-container-low);
-  color: var(--md-sys-color-primary);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  box-shadow: var(--elevation-2);
-}
-.owned-row-action:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-low)); border-color: var(--md-sys-color-primary); text-decoration: none; }
-.owned-row-action .tab-icon { flex: none; width: 16px; height: 16px; }
 /* 幅が狭いとき（窓 1000px 以下。幅 920px で本文 約 760px）は、Lv・個体値の列と間を詰めてパッシブの列を広げる（X-02 の直しの一部。
    右のドロワー〔D3〕は本文に重ねるので本文の幅は窓で決まる。container query は先祖の固定配置の基準を変えるので使わない） */
 @media (max-width: 1000px) {
@@ -1726,7 +1690,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
    パネルが伸びないように） */
 @media (max-width: 1080px) {
   .owned-panel .place-chips { gap: 3px; }
-  .owned-panel :is(.place-chip, .place-chip-more) { padding-left: 7px; padding-right: 7px; font-size: 11px; gap: 4px; }
+  .owned-panel .place-chip { padding-left: 7px; padding-right: 7px; font-size: 11px; gap: 4px; }
 }
 /* 個体値の部品を詰める（理想個体・所持パルの固定パネルで共通）: 各欄の「以上」は見出しに 1 回だけ、増減のボタンを隠して数値欄を狭める
    （↑↓ キーでは増減できる）。プリセットのボタンも高さ 32px */
@@ -2206,29 +2170,10 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .passive-rank-m2 .passive-rank, .passive-rank-m3 .passive-rank { transform: scaleY(-1); }
 .passive-remove { border: 0; background: transparent; padding: 0 2px; font-size: 16px; line-height: 1; color: inherit; min-height: 0; }
 /* 所持パル */
-.owned-summary { margin-bottom: 12px; }
-/* .owned-world は設定の「使うワールド」の選択欄（所持パルの画面の見出しの行はデータ元の 1 行にした） */
+/* .owned-world は設定の「使うワールド」の選択欄 */
 .owned-world { font-weight: 700; margin: 0 0 2px; }
-/* データ元の 1 行（所持パル・理想個体・継承ルート。ui/owned-status.js の ownedSourceLine）。
-   [ワールド · この PC／共有 · N 体 · セーブ 時刻（入りきらない分は省略し、title に全文）][状態のスロット][読み込みを許可][設定 →]。
-   高さと状態のスロットの幅を固定し、1 分ごとの確認・20 秒ごとの読み直しで行も周りも動かない */
-.owned-source { display: flex; align-items: center; gap: 12px; height: 28px; margin: 0 0 6px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
-.owned-source-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* 状態のスロット。回る輪の場所はいつも残し、文は輪の右から左寄せで置く（文の長さが変わっても、輪・文の始まりも周りも動かない） */
-.owned-activity { flex: none; display: inline-flex; align-items: center; gap: 4px; width: 11em; overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; }
-.owned-activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.owned-activity-spinner { flex: none; visibility: hidden; }
-.owned-activity.is-busy { color: var(--md-sys-color-primary); }
-.owned-activity.is-busy .owned-activity-spinner { visibility: visible; }
-.owned-source .owned-source-grant { flex: none; min-height: 24px; padding: 0 10px; }
-/* 許可が要らないときも見えないまま場所を残す（許可が切れて出たときに文の幅が変わらない） */
-.owned-source-grant.is-placeholder { visibility: hidden; }
-.owned-source-settings { flex: none; }
-.route-owned > .owned-source { margin-bottom: 10px; }
-@media (prefers-reduced-motion: no-preference) {
-  .owned-activity.is-busy .owned-activity-spinner { animation: owned-spin 1s linear infinite; }
-}
-@keyframes owned-spin { to { transform: rotate(360deg); } }
+/* 案内の帯（対応が要るときだけ。案内がないときは入れ物 .owned-summary ごと隠す）。前は上にデータ元の 1 行（.owned-source。ワールド・
+   この PC／共有・体数・セーブの時刻・最終確認・設定 →）があったが、ヘッダーのセーブ連携の状態と重なるのでなくした（D29） */
 .owned-notices { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
 .owned-notice {
   padding: 8px 12px;

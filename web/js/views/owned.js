@@ -3,22 +3,23 @@ import { palTile, humanIcon, palsById } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { hint } from '../ui/hint.js';
-import { navIcon } from '../ui/nav-icons.js';
 import { talentInput } from '../ui/talent-input.js';
 import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
-import { ownedNotices, noticeList, ownedSourceLine } from '../ui/owned-status.js';
+import { ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
-import { viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, fieldHead, panelItem, panelLine } from './shared.js';
+import {
+  viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
+  fieldHead, panelItem, panelLine,
+} from './shared.js';
 import { toast } from '../ui/toast.js';
 import { buildHash } from '../router.js';
 import {
   filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel,
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
-import { normalizeQuery, queryTerms } from '../core/kana.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
 import { ELEMENTS } from '../../data/pals.js';
 
@@ -60,12 +61,14 @@ const placeList = (value) => list(value, { max: PLACE_ORDER.length, map: (group)
  * ここで受けて読み替える。今の形の保存には書かない＝無ければ undefined）
  */
 export const OWNED_MEMORY = {
-  // 所持者: すべて・自分の個体（mine）・プレイヤー（player:<uid>）。拠点（base:<id>）・グローバルパルボックス（global）は前の形
-  holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'mine' || value === 'global' || /^(player|base):\S/.test(value)) ? value : ''),
+  // 所持者: すべて（''）・自分（mine。既定）・プレイヤー（player:<uid>）。拠点（base:<id>）・グローバルパルボックス（global）は前の形。
+  // 無い・形の合わない値は既定の自分（D29。前は「すべて」）
+  holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'mine' || value === 'global' || /^(player|base):\S/.test(value)) ? value : HOLDER_DEFAULT),
   // 選んだ場所のグループ（PLACE_ORDER の値）。無い（前の形の保存）ときは undefined で、migrateFilter が place・eggs・globals から作る
   places: (value) => (Array.isArray(value) ? placeList(value) : undefined),
-  // 拠点の ID（空ならすべての拠点）
-  bases: (value) => list(value, { max: BASES_MAX, map: (id) => idText(id, 40) || null, key: (id) => id }),
+  // 拠点の ID（D29 より前の形。拠点ごとの絞り込みはなくした）。読み戻して migrateFilter に渡すだけ（場所を拠点とタマゴの中にする）。
+  // 無ければ undefined（今の形の保存には書かない）
+  bases: (value) => (Array.isArray(value) ? list(value, { max: BASES_MAX, map: (id) => idText(id, 40) || null, key: (id) => id }) : undefined),
   // 属性（マスターの ID〔Fire など〕。どれかを持つ個体）
   elements: (value) => list(value, { max: ELEMENT_KEYS.length, map: (key) => oneOf(key, ELEMENT_KEYS, null), key: (key) => key }),
   palId: (value) => (typeof value === 'string' && palsById.has(value) ? value : ''),
@@ -87,10 +90,11 @@ export const OWNED_MEMORY = {
 /**
  * 絞り込みの値を今の形にする（古い viewState・保存・URL も同じ口で読み替える。どの値も OWNED_MEMORY で確かめる）。
  * 前の形: place（1 つ）→ places: [place]、place '' → 既定、eggs: false → places から 'egg' を外す、globals: true → 'global' を足す、
- * 所持者 base:<id> → 所持者なし・bases: [id]・places: ['base', 'egg']（拠点のタマゴも拠点の持ち物。eggs: false なら 'base' だけ）、
- * 所持者 global → 所持者なし・places: ['global']。places は PLACE_ORDER の順に並べる。
+ * 所持者 base:<id> → 所持者なし・places: ['base', 'egg']（拠点のタマゴも拠点の持ち物。eggs: false なら 'base' だけ）、
+ * 所持者 global → 所持者なし・places: ['global']、拠点の ID（bases・URL の base。D29 で拠点ごとの絞り込みをなくした）→ places を拠点と
+ * タマゴの中だけにする（どちらもなければ ['base', 'egg']。どの拠点かは見ない）。places は PLACE_ORDER の順に並べる。
  * place と eggs・globals の組み合わせで places が空になる古い保存（{ place: 'egg', eggs: false } など）は、place を選んでいない既定に戻す
- * @returns {{ holder: string, places: string[], bases: string[], elements: string[], palId: string, passives: string[],
+ * @returns {{ holder: string, places: string[], elements: string[], palId: string, passives: string[],
  *   passiveMode: string, query: string, sort: string, dir: 'asc' | 'desc', stars: number, talent: { hp: number, shot: number, defense: number } }}
  */
 export function migrateFilter(old) {
@@ -103,18 +107,19 @@ export function migrateFilter(old) {
     // そのときは場所を選んでいない既定（タマゴ・グローバルの表示はそのまま）に戻す
     if (!places.length) places = shown([...PLACE_ORDER]);
   }
-  let { holder, bases } = saved;
+  let { holder } = saved;
   if (holder.startsWith('base:')) {
-    const id = idText(holder.slice(5), 40);
-    bases = id ? [id] : [];
     places = saved.eggs === false ? ['base'] : ['base', 'egg'];
     holder = '';
   } else if (holder === 'global') {
     places = ['global'];
     holder = '';
+  } else if (saved.bases?.length) {
+    const atBase = places.filter((group) => group === 'base' || group === 'egg');
+    places = atBase.length ? atBase : ['base', 'egg'];
   }
   return {
-    holder, places: PLACE_ORDER.filter((group) => places.includes(group)), bases, elements: saved.elements, palId: saved.palId,
+    holder, places: PLACE_ORDER.filter((group) => places.includes(group)), elements: saved.elements, palId: saved.palId,
     passives: saved.passives, passiveMode: saved.passiveMode, query: saved.query, ...sortOf(saved.sort, saved.dir), stars: saved.stars, talent: saved.talent,
   };
 }
@@ -125,14 +130,16 @@ function sortOf(value, dir) {
   return { sort: key, dir: resolved };
 }
 
-// URL の絞り込みの名前（どれかがあれば、URL がすべての条件を決める。sort・dir は並べ替えだけで、あれば入れる）
+// URL の絞り込みの名前（どれかがあれば、URL がすべての条件を決める。sort・dir は並べ替えだけで、あれば入れる）。
+// base は D29 より前のリンクの拠点（場所を拠点とタマゴにする読み替えにだけ使う）
 const FILTER_PARAMS = ['holder', 'place', 'base', 'el', 'pal', 'p', 'pm', 'q', 'stars', 'hp', 'at', 'df'];
 const commaList = (value) => (value ?? '').split(',').filter(Boolean);
 
 /**
- * URL の絞り込み（holder・place〔カンマ区切り。前の 1 つの形も同じ〕・base・el・pal・p・pm・q・stars・hp・at・df）を、
+ * URL の絞り込み（holder・place〔カンマ区切り。前の 1 つの形も同じ〕・base〔前の形〕・el・pal・p・pm・q・stars・hp・at・df）を、
  * 確かめてから今の形にする（未知の場所・属性・パル、範囲の外の数、長すぎる文字は捨てる）。絞り込みの名前が 1 つも無ければ null。
- * URL に無い条件は既定（リンクが条件のすべてを決める）。前の形の所持者（base:・global）は migrateFilter で読み替える
+ * URL に無い条件は既定（リンクが条件のすべてを決める）。ただし所持者が無いときは「すべて」（D29 で所持者の既定を自分にしたが、前に写した
+ * リンク・場所の分からないパルの「見る」の意味を変えない）。前の形の所持者（base:・global）と拠点（base）は migrateFilter で読み替える
  */
 export function filterFromParams(params) {
   if (!FILTER_PARAMS.some((key) => params.has(key))) return null;
@@ -154,7 +161,6 @@ export function filterParams(filter) {
   const params = new URLSearchParams();
   if (filter.holder) params.set('holder', filter.holder);
   params.set('place', filter.places.join(','));
-  if (filter.bases.length) params.set('base', filter.bases.join(','));
   if (filter.elements.length) params.set('el', filter.elements.join(','));
   if (filter.palId) params.set('pal', filter.palId);
   if (filter.passives.length) params.set('p', filter.passives.join(','));
@@ -208,9 +214,6 @@ const HEAD_WORDS = {
   dex: { asc: '小さい順', desc: '大きい順' }, passives: HIGH_LOW, level: HIGH_LOW, stars: { desc: '多い順', asc: '少ない順' },
   talent: HIGH_LOW, hp: HIGH_LOW, shot: HIGH_LOW, defense: HIGH_LOW, place: { asc: 'ボックス順', desc: 'ボックスの逆順' },
 };
-// 場所の検索欄を出す拠点の数
-const BASE_SEARCH_OVER = 12;
-
 // 行に出す値の署名（一致の理由・印を除く）と、一致の理由の署名。理由を入れ忘れると、キーワードを変えても古い理由が残る
 const boxText = (box) => (box ? `${box.page}.${box.row}.${box.column}` : '');
 // 個体のデータ（読み込みごとに作り直され、中は変えない）ごとに 1 回だけ作る（キーワードを打つたびに 2,000 行ぶん作らない）
@@ -235,21 +238,9 @@ const TALENT_CELLS = [['hp', 'HP'], ['shot', '攻撃'], ['defense', '防御'], [
 // 1 つの行に出すパッシブの数。5 個以上なら 3 個と「+N」（残りは押すと板に出す。行の中には広げない）
 const PASSIVE_SLOTS = 4;
 
-// 行の操作（所持パルの画面だけ）の行き先。配合検索（search）はフェーズ 2 の find-merge で行き先が変わるので、ここ 1 か所で作る
-/**
- * 行の操作のリンク [{ key, icon, text, label, title, href }]。text は見えている文字、label は読み上げの名前（text を含む）。
- * 2026-10-13 のユーザーのフィードバック（D28）で「親にして検索」（配合検索の親1）の 1 つだけにした（所持しているパルを理想個体の目標に
- * することはなく、継承ルートは目標とパッシブから探すので、「目標に」「ここから継承ルート」はなくした）
- */
-export function ownedRowLinks(pal) {
-  const name = palsById.get(pal.palId)?.ja ?? pal.name;
-  return [
-    { key: 'search', icon: 'search', text: '親にして検索', label: `${name}を親にして検索`, title: `${name}を親1 にして配合検索を開く`,
-      href: buildHash('search', { p1: pal.palId }) },
-  ];
-}
-// 行の操作を出せる個体（パルのマスターにある・タマゴでない）
-const canAct = (pal) => pal.known && !pal.egg && Boolean(pal.palId);
+// 行に操作のボタンは置かない（2026-10-14 のユーザーのフィードバック〔D29〕。前は触れた行の右端に「親にして検索」のボタンを浮かせていたが、
+// 所持者・場所の列に重なった）。パル名のリンクからパル詳細（配合の親・子の一覧）へ進める。親にして配合を探す・逆引き・継承ルートの検索は、
+// フェーズ 3 の個体の詳細（owned-detail のドロワー）にまとめて置く
 
 // パル（絵と名前・性別）。名前のリンクは data-focus="pal"（行の中を書き換えても、同じ部品へフォーカスを戻す目印）
 function palCellTile(pal) {
@@ -393,15 +384,31 @@ function fillPassiveList(list, ids, wanted, hints) {
   laterHint(more, 'ほかのパッシブ', () => [passiveList(rest)], hints);
 }
 
-// キーワードに一致した、一覧に出していない項目（スキル・説明）。行の下の段の印の後ろに 1 行で横に並べ（入り切らない分は省略）、title に全文
+// キーワードに一致した理由の、行に並べる項目（見出し）の数。残りは「ほか N 件」（全文は title）。理由の段落の要素は 2＋この数まで
+//（2,000 行の全部の行に理由が出ても要素を増やしすぎない）
+const HIT_GROUPS = 4;
+// 縮めない短い項目の文字数（「パートナースキル：猫の手も借りたい」の 17 字より短いもの）
+const HIT_SHORT = 16;
+const noteText = (note) => `${note.name}${note.desc ? `（${note.desc}）` : ''}`;
+// キーワードに一致した理由（core/owned.js の keywordNotes。D29 で一致したすべての項目にした）。行の下の段の印の後ろに 1 行で、項目（見出し）ごとに
+// 1 つの要素「パッシブ：職人気質（作業速度 +50%）・希少」にまとめて横に並べる（それぞれ入り切らない分は省略）。title に 1 件ずつの全文
 function fillHits(line, notes) {
-  line.replaceChildren(...notes.map((note) => {
-    const hit = el('span', 'owned-hit');
-    hit.append(el('span', 'owned-hit-name', `${note.label}：${note.name}`));
-    if (note.desc) hit.append(el('span', 'owned-hit-desc', note.desc));
+  const groups = new Map();
+  for (const note of notes) {
+    if (!groups.has(note.label)) groups.set(note.label, []);
+    groups.get(note.label).push(noteText(note));
+  }
+  const shown = [...groups].slice(0, HIT_GROUPS);
+  line.replaceChildren(...shown.map(([label, texts]) => {
+    const text = `${label}：${texts.join('・')}`;
+    // 短い項目（「パル名：アヌビス」「属性：闇」など）は縮めない。長い項目（説明つきなど）だけを縮めて省略する（前は説明の長い項目と一緒に
+    // 短い項目まで縮み、「パル名：ア…」になった）
+    const hit = el('span', text.length <= HIT_SHORT ? 'owned-hit is-short' : 'owned-hit', text);
+    hit.title = text;
     return hit;
   }));
-  line.title = notes.map((note) => `${note.label}：${note.name}${note.desc ? `（${note.desc}）` : ''}`).join('\n');
+  if (groups.size > shown.length) line.append(el('span', 'owned-hit-more', `ほか ${groups.size - shown.length} 件`));
+  line.title = notes.map((note) => `${note.label}：${noteText(note)}`).join('\n');
 }
 
 // 個体値の 4 セル（HP・攻・防・計）。数字と、下のミニバー（--v。計は合計の 1/3）。目標（targets）があれば、目標の縦線（--t）と
@@ -460,16 +467,15 @@ function fillWhereCell(cell, pal) {
 }
 
 /**
- * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, actions, hints }。
+ * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, hints }。
  * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値の目標との差を見せる
  * （{ wanted, targets }）、marks は目標の印（行の下の段 div.owned-band に MARK_SLOTS 個までと「+N」。D25）、badges は名前の下のバッジの
- * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、actions は行の操作を出せる行か（所持パルの画面だけ。操作の要素は showActions で、
- * 触れた行にだけ作る）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。省くと行が持つ）。
+ * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。
+ * 省くと行が持つ）。行の操作のボタンはない（D29）。
  * 下の段は印か一致の理由があるときだけ作る（行の高さは一覧の has-band が決める。全部の行が同じ高さ）。
  * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）。書き換えたセルにフォーカスがあったら、同じ役目の部品
- * （data-focus。名前のリンク pal・「+N」passive-more／marks-more・行の操作 action-<key>）へ戻す
- * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, showActions(): boolean,
- *   hideActions(next?: Element): boolean, destroy(): void }}
+ * （data-focus。名前のリンク pal・「+N」passive-more／marks-more）へ戻す
+ * @returns {{ element: HTMLElement, pal: object, update(pal: object, options?: object): boolean, destroy(): void }}
  */
 export function ownedRowItem(pal, options) {
   const element = el('article', 'owned-row');
@@ -485,7 +491,6 @@ export function ownedRowItem(pal, options) {
   // パルのセルの中: 名前のリンク（絵と名前）とバッジの 1 行。バッジだけが変わったときに名前のリンクを作り直さない（フォーカスが落ちる）
   let tileNode = null;
   let badgeLine = null;
-  let actions = null;
   // 行の下の段（D25）: 目標の印（と「+N」）と、キーワードに一致した理由の 1 行。どちらもなければ段ごと外す
   let band = null;
   let marked = [];
@@ -493,8 +498,7 @@ export function ownedRowItem(pal, options) {
   const ensureBand = () => {
     if (!band) {
       band = el('div', 'owned-band');
-      // 行の操作（触れた行の右端に重ねる）より前に置く（Tab の順を、名前・パッシブ・下の段・操作にする）
-      element.insertBefore(band, actions);
+      element.append(band);
     }
     return band;
   };
@@ -503,7 +507,6 @@ export function ownedRowItem(pal, options) {
     band.remove();
     band = null;
   };
-  let eligible = false;
   let current = pal;
   // セルごとの値の署名。変わったセルだけを作り直す
   const write = (name, key, fill) => {
@@ -512,23 +515,10 @@ export function ownedRowItem(pal, options) {
     fill();
     return true;
   };
-  // 行の操作の中身は種族だけで決まる
-  const actionsKey = (target) => target.palId;
-  // 文字のラベルつきのボタン（絵は飾り）。操作が 1 つでも何をするボタンか分かるように、絵だけにしない（D28）
-  function fillActions() {
-    actions.replaceChildren(...ownedRowLinks(current).map((item) => {
-      const node = link('', item.href, `owned-row-action action-${item.key}`);
-      node.setAttribute('aria-label', item.label);
-      node.setAttribute('data-focus', `action-${item.key}`);
-      node.title = item.title;
-      node.append(navIcon(item.icon), el('span', 'owned-row-action-text', item.text));
-      return node;
-    }));
-  }
   const item = {
     element,
     get pal() { return current; },
-    update(next, { notes = [], highlight, marks = [], badges = [], actions: withActions = false, hints } = {}) {
+    update(next, { notes = [], highlight, marks = [], badges = [], hints } = {}) {
       current = next;
       // 書き換えるセルにフォーカスがあったら、書き換えた後に同じ役目の部品（data-focus）へ戻す
       const focused = focusMark(element);
@@ -583,36 +573,8 @@ export function ownedRowItem(pal, options) {
       changed = write('talent', `${next.talent.hp}:${next.talent.shot}:${next.talent.defense}:${targets ? TALENT_CELLS.map(([key]) => targets[key] ?? 0).join(',') : ''}`,
         () => fillTalentCell(cells.talent, next.talent, targets)) || changed;
       changed = write('where', [next.place, next.holder, next.placeLabel, boxText(next.box), next.lastOwner].join('\u0002'), () => fillWhereCell(cells.where, next)) || changed;
-      eligible = withActions && canAct(next);
-      if (actions && !eligible) {
-        actions.remove();
-        actions = null;
-        shown.actions = '';
-      } else if (actions) write('actions', actionsKey(next), fillActions);
       if (focused && changed && focusLost()) element.querySelector(`[data-focus="${focused}"]`)?.focus({ preventScroll: true });
       return changed;
-    },
-    /** 行の操作（親にして検索）を出す。出せない行（タマゴ・人間・理想個体のカード）は false */
-    showActions() {
-      if (!eligible) return false;
-      if (actions) return true;
-      actions = el('div', 'owned-row-actions');
-      element.append(actions);
-      shown.actions = actionsKey(current);
-      fillActions();
-      return true;
-    },
-    /**
-     * 行の操作を外す（ポインターもフォーカスも離れた行。触れた行に付けたままにすると、DOM が増え続けるため）。
-     * next（これからフォーカスが入る要素。既定は今のフォーカス）が操作の中なら外さずに false
-     */
-    hideActions(next = globalThis.document?.activeElement) {
-      if (!actions) return true;
-      if (next && actions.contains(next)) return false;
-      actions.remove();
-      actions = null;
-      shown.actions = '';
-      return true;
     },
     destroy() {
       for (const old of [...ownHints, ...markHints]) old.destroy();
@@ -657,19 +619,19 @@ export function ownedView(context, route) {
   }
   readRoute(route);
 
-  // データ元の 1 行（どのワールドの・どこから・いつのデータか。右端に読み込みの状態のスロット）と、対応が要るときだけの案内。
-  // 設定の操作（ワールドの切り替え・今すぐ読み込む）は設定タブで行う。データがないときだけ、案内に設定へ行くボタンを出す
+  // 対応が要るときだけの案内の帯（案内がなければ入れ物ごと隠す）。どのワールドの・いつのデータか・読み込み中かはヘッダーのセーブ連携の
+  // 状態に任せる（D29 で、上に出していたデータ元の 1 行をなくした）。設定の操作（ワールドの切り替え・今すぐ読み込む）は設定タブで行う。
+  // データがないときだけ、案内に設定へ行くボタンを出す
   const summary = el('section', 'owned-summary');
   const notices = noticeList([]);
+  summary.hidden = true;
   // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）
   const noticeActions = {
     grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message)) },
     settings: { label: 'セーブ連携を開く', run: () => context.navigate('#/settings') },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
   };
-  // 所持パルの画面では、許可のボタンは案内の帯だけに出す（1 行のボタンは見せず、場所だけ残して 1 行を動かさない。D27）
-  const sourceLine = ownedSourceLine({ actions: { grant: noticeActions.grant }, showGrant: false });
-  summary.append(sourceLine.element, notices);
+  summary.append(notices);
 
   // ---- 絞り込みの部品（作るのは 1 回だけ。条件・データが変わったら update・値の書き換えで合わせる） ----
   // 利用者が条件を変えた: 一覧・件数・効いている条件を描き直し、一覧の先頭がパネルの下に隠れていれば先頭を見せる（O-05）
@@ -762,46 +724,22 @@ export function ownedView(context, route) {
   // パッシブの条件（全部持つ／だけ／なし）
   const modeChoice = segmented({ label: 'パッシブの条件', choices: PASSIVE_MODES, value: filter.passiveMode,
     onChange: (value) => { filter.passiveMode = value; changed(); } });
-  // 所持者（すべて／自分の個体／プレイヤー）。意味は理想個体と同じ（そのプレイヤーが預けた拠点のパル・ホストならグローバルパルボックスも含む）。
-  // 選択肢が 12 件を超えたら検索つきの選択にする
-  const holderSelect = searchSelect({ label: '所持者', options: [['', 'すべて']], value: filter.holder,
+  // 所持者（すべて／自分のプレイヤー名〔既定〕／ほかのプレイヤー）。意味は理想個体と同じ（そのプレイヤーが預けた拠点のパル・ホストなら
+  // グローバルパルボックスも含む）。選択肢が 12 件を超えたら検索つきの選択にする。選択肢の値は holderNow（自分が分からなければ mine は「すべて」）
+  const holderNow = () => holderValue(filter.holder, context.ideals);
+  const holderSelect = searchSelect({ label: '所持者', options: [['', 'すべて']], value: holderNow(),
     onChange: (value) => { filter.holder = value; changed(); } });
 
-  // 場所のチップ（件数つき・複数選択。件数は絞り込む前の数で、0 の場所は出さない）。拠点が 2 つ以上なら、拠点のチップの右の ▾ で拠点を選ぶ
+  // 場所のチップ（複数選択。0 体の場所は出さない）。件数は出さない（D29「場所の選択肢にパルの数が書かれているが、これも不要」）。
+  // 前は拠点のチップの右に ▾（拠点ごとのチェックの板）があったが、拠点のチップとの違いが分からないのでなくした（D29）
   const placeBox = el('div', 'place-chips');
   placeBox.setAttribute('role', 'group');
   placeBox.setAttribute('aria-label', '場所');
   const placeChips = new Map();
-  const baseSlot = el('span', 'place-bases-slot');
-  const baseMore = button('▾', () => (basePopover.isOpen() ? basePopover.close() : basePopover.open()), 'place-chip-more');
-  baseMore.setAttribute('aria-haspopup', 'dialog');
-  baseSlot.append(baseMore);
-  const basePopover = createPopover({ anchor: baseMore, wrapper: baseSlot, className: 'picker-popover place-bases', focusOut: true,
-    onOpen: () => renderBases({ focus: true }) });
-  basePopover.element.setAttribute('role', 'dialog');
-  // 中の余白を押してもフォーカスが中に残る（focusOut で閉じない）ように、板そのものもフォーカスを受けられるようにする（下の 3 つも同じ）
-  basePopover.element.tabIndex = -1;
-  basePopover.element.setAttribute('aria-label', '拠点を選ぶ');
-  const baseSearch = el('input', 'picker-search');
-  baseSearch.type = 'search';
-  baseSearch.placeholder = '拠点の名前で探す';
-  baseSearch.setAttribute('aria-label', '拠点を検索');
-  baseSearch.addEventListener('input', () => renderBases());
-  const baseList = el('div', 'place-base-list');
-  const baseClear = button('すべての拠点', () => {
-    filter.bases = [];
-    // 押すとこのボタンは押せなくなり（disabled）、フォーカスが body に落ちて板が閉じるので、先に板の先頭（検索欄か最初の拠点）へ移す
-    if (globalThis.document?.activeElement === baseClear) (baseSearch.parentElement ? baseSearch : baseList.querySelector('input'))?.focus();
-    renderPlaces(owned.state);
-    changed();
-  }, 'button secondary small');
-  basePopover.element.append(baseList, baseClear);
   for (const group of PLACE_ORDER) {
-    const chip = button('', () => togglePlace(group), 'place-chip');
+    const chip = button(placeGroupLabel(group), () => togglePlace(group), 'place-chip');
     chip.setAttribute('data-value', group);
-    chip.append(el('span', 'place-chip-label', placeGroupLabel(group)), el('span', 'place-chip-count', ''));
     placeBox.append(chip);
-    if (group === 'base') placeBox.append(baseSlot);
     placeChips.set(group, chip);
   }
   function togglePlace(group) {
@@ -809,46 +747,6 @@ export function ownedView(context, route) {
     filter.places = PLACE_ORDER.filter((item) => (item === group ? on : filter.places.includes(item)));
     renderPlaces(owned.state);
     changed();
-  }
-  // 拠点ごとのチェック（拠点が 12 を超えたら検索欄つき）。チェックは使い回し、変わった値だけを書き換える
-  function baseRow(base) {
-    const row = el('label', 'place-base');
-    const check = el('input');
-    check.type = 'checkbox';
-    const name = el('span', 'place-base-name');
-    const count = el('span', 'place-base-count');
-    row.append(check, name, count);
-    let id = base.id;
-    check.addEventListener('change', () => {
-      filter.bases = check.checked ? [...new Set([...filter.bases, id])] : filter.bases.filter((item) => item !== id);
-      renderPlaces(owned.state);
-      changed();
-    });
-    const item = {
-      element: row,
-      update(next) {
-        id = next.id;
-        const n = statsOf(owned.state.owned).baseCounts.get(next.id) ?? 0;
-        if (name.textContent !== next.label) name.textContent = next.label;
-        if (count.textContent !== `${n} 体`) count.textContent = `${n} 体`;
-        check.checked = filter.bases.includes(next.id);
-        check.setAttribute('aria-label', `${next.label}（${n} 体）`);
-      },
-    };
-    item.update(base);
-    return item;
-  }
-  function renderBases({ focus = false } = {}) {
-    if (!basePopover.isOpen()) return;
-    const all = owned.state.owned?.bases ?? [];
-    const searching = all.length > BASE_SEARCH_OVER;
-    if (searching && baseSearch.parentElement !== basePopover.element) basePopover.element.insertBefore(baseSearch, baseList);
-    if (!searching && baseSearch.parentElement) baseSearch.remove();
-    const terms = searching ? queryTerms(baseSearch.value) : [];
-    const shown = all.filter((base) => terms.every((term) => normalizeQuery(base.label).includes(term)));
-    syncList(baseList, shown, { key: (base) => base.id, create: baseRow, empty: () => el('p', 'muted', '当てはまる拠点がありません。') });
-    baseClear.disabled = !filter.bases.length;
-    if (focus) (searching ? baseSearch : baseList.querySelector('input'))?.focus();
   }
 
   // 属性（9 個のトグルを ▾ で開く。複数は OR）。ボタンには選んだ数だけを出し（幅を変えずパネルの段が増えない）、名前は aria-label・
@@ -1063,7 +961,7 @@ export function ownedView(context, route) {
     syncPicker(picker, filter.palId);
     modeChoice.update(filter.passiveMode);
     showSort();
-    holderSelect.update({ value: filter.holder });
+    holderSelect.update({ value: holderNow() });
     renderPlaces(owned.state);
     renderElements();
   }
@@ -1094,7 +992,6 @@ export function ownedView(context, route) {
   // 許可・エラーの帯が消えてまた出ないように）。終わったら結果で描き直し、同じ案内なら要素も作り直さない
   let noticesKey = null;
   function renderSummary(state) {
-    sourceLine.update(state);
     if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
     const list = ownedNotices(state);
     const key = JSON.stringify(list);
@@ -1105,6 +1002,7 @@ export function ownedView(context, route) {
     const before = noticesKey !== null ? scrolledTop() : null;
     noticesKey = key;
     noticeList(list, notices, noticeActions);
+    summary.hidden = notices.hidden;
     if (before === null) return;
     const moved = results.getBoundingClientRect().top - before;
     if (moved) globalThis.window?.scrollBy?.(0, moved);
@@ -1115,34 +1013,27 @@ export function ownedView(context, route) {
     return Number.isFinite(top) && top < fixedBottom() - 1 ? top : null;
   }
 
-  // ---- データごとに 1 回だけ作るもの（場所の件数・拠点の件数・所持者の許す個体） ----
+  // ---- データごとに 1 回だけ作るもの（場所ごとの数〔0 体の場所のチップを隠す・グローバルの数〕・所持者の許す個体） ----
   let stats = null;
   function statsOf(data) {
     if (stats?.data === data) return stats;
     const counts = new Map();
-    const baseCounts = new Map();
-    for (const pal of data?.pals ?? []) {
-      counts.set(pal.placeGroup, (counts.get(pal.placeGroup) ?? 0) + 1);
-      if (pal.baseId) baseCounts.set(pal.baseId, (baseCounts.get(pal.baseId) ?? 0) + 1);
-    }
-    stats = { data, counts, baseCounts, baseIds: new Set([...(data?.bases ?? []).map((base) => base.id), ...baseCounts.keys()]) };
+    for (const pal of data?.pals ?? []) counts.set(pal.placeGroup, (counts.get(pal.placeGroup) ?? 0) + 1);
+    stats = { data, counts };
     return stats;
   }
   // 所持者で許す個体の ID の Set（理想個体と同じ意味）。データ・所持者・自分のプレイヤーが変わったときだけ作り直す。
-  // （フェーズ 1d の participant-self は「自分」が変わったときに holderIds を null にしてから描き直す）
+  // 自分のプレイヤーが分からないときの自分（既定）は「すべて」（holderValue）なので、0 件にはしない（D29。前は「自分のプレイヤーが分かりません」で 0 件）
+  const selfKey = () => [...(context.ideals?.selfUids?.() ?? [])].join(',');
   let holderIds = null;
   function allowedIds(data) {
-    if (!filter.holder || !data) return { ids: null, unknown: false };
-    const self = filter.holder === 'mine' ? [...(context.ideals?.selfUids?.() ?? [])].join(',') : '';
-    if (holderIds?.data === data && holderIds.holder === filter.holder && holderIds.self === self) return holderIds;
-    let pals;
-    let unknown = false;
-    if (filter.holder === 'mine') {
-      pals = context.ideals?.mine?.() ?? null;
-      unknown = pals === null;
-    } else pals = palsOfPlayers(data, new Set([filter.holder.replace(/^player:/, '')]));
-    holderIds = { data, holder: filter.holder, self, ids: new Set((pals ?? []).map((pal) => pal.id)), unknown };
-    return holderIds;
+    const holder = holderNow();
+    if (!holder || !data) return null;
+    const self = holder === 'mine' ? selfKey() : '';
+    if (holderIds?.data === data && holderIds.holder === holder && holderIds.self === self) return holderIds.ids;
+    const pals = holder === 'mine' ? context.ideals?.mine?.() : palsOfPlayers(data, new Set([holder.slice('player:'.length)]));
+    holderIds = { data, holder, self, ids: new Set((pals ?? []).map((pal) => pal.id)) };
+    return holderIds.ids;
   }
 
   // 選択肢にない値は選ばない。読み込み前は選択肢がそろっていないため、選んでいた値は消さずに残す。
@@ -1150,51 +1041,33 @@ export function ownedView(context, route) {
   // 一覧とパッシブの数も数え直す（renderFilters の中からのときは、呼んだ側がこの後で描く）
   let syncingFilters = false;
   let holderOptions = [['', 'すべて']];
+  // 選択肢を作ったときの自分のプレイヤー（ログインの ID・ユーザーの一覧が後から届いて変わったら、選択肢と一覧を描き直す）
+  let shownSelf = null;
   function renderHolders(state) {
     // 所持者の選択肢（理想個体と同じ名前。views/shared.js）
     const choices = holderChoices(state.owned, context.ideals);
     holderOptions = choices;
+    shownSelf = selfKey();
     renderWhenIdle(holderSelect.element, () => {
-      const valid = choices.some(([value]) => value === filter.holder);
-      if (!valid && owned.state.owned && filter.holder) {
-        filter.holder = '';
+      // 選んでいたプレイヤーがいなくなったら既定（自分。分からなければ「すべて」）に戻す
+      if (!choices.some(([value]) => value === holderNow()) && owned.state.owned) {
+        filter.holder = HOLDER_DEFAULT;
         if (!syncingFilters) renderResults();
       }
-      holderSelect.update({ options: choices, value: valid ? filter.holder : '' });
+      holderSelect.update({ options: choices, value: holderNow() });
     });
-  }
-  // データにない拠点（別のワールド・なくなった拠点）は外す（読み込み前は残す）
-  function pruneBases(state) {
-    if (!state.owned || !filter.bases.length) return;
-    const known = statsOf(state.owned).baseIds;
-    const kept = filter.bases.filter((id) => known.has(id));
-    if (kept.length === filter.bases.length) return;
-    filter.bases = kept;
-    if (!syncingFilters) renderResults();
   }
   function renderPlaces(state) {
     const { counts } = statsOf(state.owned);
     for (const [group, chip] of placeChips) {
-      const n = counts.get(group) ?? 0;
-      chip.hidden = n === 0;
+      chip.hidden = !counts.get(group);
       chip.setAttribute('aria-pressed', String(filter.places.includes(group)));
-      chip.setAttribute('aria-label', `${placeGroupLabel(group)}（${n} 体）`);
-      const countNode = chip.children[1];
-      if (countNode.textContent !== String(n)) countNode.textContent = String(n);
     }
-    const hideMore = (state.owned?.bases?.length ?? 0) < 2 || placeChips.get('base').hidden;
-    baseSlot.hidden = hideMore;
-    baseMore.hidden = hideMore;
-    baseMore.classList.toggle('is-active', filter.bases.length > 0);
-    baseMore.setAttribute('aria-label', filter.bases.length ? `拠点を選ぶ（${filter.bases.length} か所を選択中）` : '拠点を選ぶ');
-    if (hideMore && basePopover.isOpen()) basePopover.close({ focus: false });
-    renderBases();
   }
   function renderFilters(state) {
     syncingFilters = true;
     try {
       renderHolders(state);
-      pruneBases(state);
       renderPlaces(state);
       renderElements();
       showSort();
@@ -1217,15 +1090,13 @@ export function ownedView(context, route) {
   function activeConditions(state) {
     const items = [];
     const add = (key, text, clear) => items.push({ key, text, clear });
-    if (filter.holder) {
-      const name = holderOptions.find(([value]) => value === filter.holder)?.[1] ?? filter.holder.replace(/^player:/, '');
-      add('holder', `所持者: ${name}`, () => { filter.holder = ''; });
+    // 所持者は既定（自分。分からなければ「すべて」）と違うときだけ。「すべて」も既定と違えば出す（× で既定に戻す）
+    const holder = holderNow();
+    if (holder !== holderValue(HOLDER_DEFAULT, context.ideals)) {
+      const name = holderOptions.find(([value]) => value === holder)?.[1] ?? holder.replace(/^player:/, '');
+      add('holder', `所持者: ${name}`, () => { filter.holder = HOLDER_DEFAULT; });
     }
     if (!sameList(filter.places, DEFAULT_PLACES)) add('places', `場所: ${placesText()}`, () => { filter.places = [...DEFAULT_PLACES]; });
-    if (filter.bases.length) {
-      const baseName = (id) => state.owned?.bases?.find((base) => base.id === id)?.label ?? '拠点';
-      add('bases', `拠点: ${filter.bases.map(baseName).join('・')}`, () => { filter.bases = []; });
-    }
     if (filter.elements.length) add('elements', `属性: ${filter.elements.map((key) => ELEMENTS[key]).join('・')}`, () => { filter.elements = []; });
     if (filter.palId) add('pal', `パル: ${palsById.get(filter.palId)?.ja ?? filter.palId}`, () => { filter.palId = ''; });
     if (filter.passiveMode === 'none') add('passiveMode', 'パッシブなし', () => { filter.passiveMode = 'include'; });
@@ -1370,14 +1241,14 @@ export function ownedView(context, route) {
     routeLink.hidden = !carry;
     if (carry) routeLink.href = buildHash('route', { p: filter.passives.join(',') });
   }
-  // 件数の行: 「N / M 体 · ♂a ♀b タマゴ c」。グローバルパルボックスを外していて数があれば title に。自分のプレイヤーが分からなければその旨
-  function renderCount(state, shown, totals, holder) {
+  // 件数の行: 「N / M 体 · ♂a ♀b タマゴ c」。グローバルパルボックスを外していて数があれば title に
+  function renderCount(state, shown, totals) {
     if (!state.owned) {
       count.textContent = '';
       count.title = '';
       return;
     }
-    const detail = holder.unknown ? '自分のプレイヤーが分かりません' : `♂${totals.M} ♀${totals.F}${totals.eggs ? ` タマゴ ${totals.eggs}` : ''}`;
+    const detail = `♂${totals.M} ♀${totals.F}${totals.eggs ? ` タマゴ ${totals.eggs}` : ''}`;
     const text = `${shown} / ${state.owned.pals.length} 体 · ${detail}`;
     // 出ている数を太く、内訳は薄く（結果の行だと一目で分かるように。D28）。文は前と同じ
     if (count.textContent !== text) {
@@ -1431,7 +1302,8 @@ export function ownedView(context, route) {
   async function copyLink() {
     flushInputs();
     const seq = ++copySeq;
-    const url = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams(filter))}`;
+    // 所持者は画面で選んでいる値（自分が分からないときの自分は「すべて」として渡す）
+    const url = `${globalThis.location?.origin ?? ''}${globalThis.location?.pathname ?? ''}${buildHash('owned', filterParams({ ...filter, holder: holderNow() }))}`;
     linkUrl = url;
     let copied = false;
     try {
@@ -1482,10 +1354,12 @@ export function ownedView(context, route) {
     };
     nextFrame(tick);
   }
-  // 行に渡すもの（キーワードに一致した理由・目標の印・行の操作）
-  const rowOptionsOf = (pal) => ({ notes: terms.length ? keywordNotes(pal, terms) : [], marks: shownMarks?.get(pal.id) ?? [], actions: true });
-  // 行の要素 → 行の部品（行の操作を、触れた行にだけ作るとき）
-  const rowParts = new WeakMap();
+  // 行に渡すもの（キーワードに一致した理由・目標の印）
+  const rowOptionsOf = (pal) => {
+    const marks = shownMarks?.get(pal.id) ?? [];
+    // 一致した理由には、キーワードで一緒に探している目標の印も入れる（filterOwned の extraTexts と同じ文字）
+    return { notes: terms.length ? keywordNotes(pal, terms, marks) : [], marks };
+  };
   // 一覧の 1 行（ownedRowItem を、区切った書き換えに乗せる）。作ったばかりの行と、先頭から決まった数（FILL_NOW）の行はすぐ書き換え、
   // 残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。中身は変わったセルだけを書き換える
   //（一致の理由だけが変わったら理由の行だけ）
@@ -1496,7 +1370,6 @@ export function ownedView(context, route) {
     const first = rowOptionsOf(pal);
     const row = ownedRowItem(pal, first);
     let signature = rowSignature(pal, first.notes, first.marks);
-    rowParts.set(row.element, row);
     const item = {
       element: row.element,
       // 今のキーワード・印で next の中身にする（同じなら何もしない）
@@ -1525,32 +1398,6 @@ export function ownedView(context, route) {
     };
     return item;
   }
-  // 行の操作（F063・O-38）は、初めて触れた行（ポインターが乗った・フォーカスが入った行）にだけ作る（2,000 行ぶんを最初から作らない）
-  const rowOf = (target) => {
-    for (let node = target; node && node !== results; node = node.parentElement) {
-      const row = rowParts.get(node);
-      if (row) return row;
-    }
-    return null;
-  };
-  // 操作を出しておく行は、ポインターが乗っている行とフォーカスのある行の 2 つまで（離れた行の操作は外す。触れた行に付けたままにすると、
-  // 1,500 行ほど触れたところで DOM の予算を超えるため）。フォーカスが操作の中にある行は外さない
-  const actionRows = { pointer: null, focus: null };
-  function touchRow(kind, row, next) {
-    const previous = actionRows[kind];
-    if (previous === row) return;
-    actionRows[kind] = row;
-    row?.showActions();
-    if (previous && previous !== actionRows.pointer && previous !== actionRows.focus) previous.hideActions(next);
-  }
-  results.addEventListener('pointerover', (event) => touchRow('pointer', rowOf(event.target)), { signal: inputs.signal });
-  results.addEventListener('pointerleave', () => touchRow('pointer', null), { signal: inputs.signal });
-  results.addEventListener('focusin', (event) => touchRow('focus', rowOf(event.target), event.target), { signal: inputs.signal });
-  // 一覧の外へフォーカスが出たとき（一覧の中の移動は、続く focusin で付け替える）
-  results.addEventListener('focusout', (event) => {
-    if (!event.relatedTarget || !results.contains(event.relatedTarget)) touchRow('focus', null, event.relatedTarget ?? null);
-  }, { signal: inputs.signal });
-
   // ---- 目標の印（O-52）。登録した目標とデータから、どちらかが変わったときに 1 回だけ作る（core/ideal-goals.js の goalMarks） ----
   const ideals = context.ideals;
   let marks = { data: undefined, key: null, map: new Map(), count: 0 };
@@ -1577,10 +1424,9 @@ export function ownedView(context, route) {
     renderResults({ keepPosition: true });
   }) ?? (() => {});
   // 0 件のとき。中の「条件をすべて解除」は今の条件を読む（syncList は同じ文の空の表示を作り直さない）
-  let emptyText = '条件に合うパルはいません。';
   const rowOptions = {
     key: (pal) => pal.id, create: listRow,
-    empty: () => empty(emptyText, button('条件をすべて解除', () => resetAll(), 'button secondary')),
+    empty: () => empty('条件に合うパルはいません。', button('条件をすべて解除', () => resetAll(), 'button secondary')),
   };
   // 描画の仕事の番号（条件の変更・データの更新・画面の破棄で古い仕事を止める）
   let jobSeq = 0;
@@ -1604,7 +1450,7 @@ export function ownedView(context, route) {
     renderLinks();
     const none = filter.passiveMode === 'none';
     if (!state.owned) {
-      renderCount(state, 0, null, { unknown: false });
+      renderCount(state, 0, null);
       shownCount = 0;
       head.hidden = true;
       results.classList.toggle('is-empty', true);
@@ -1615,13 +1461,13 @@ export function ownedView(context, route) {
       results.append(empty(state.ready ? '表示できる所持パルがありません。' : '読み込み中…'));
       return;
     }
-    const holder = allowedIds(state.owned);
+    const ids = allowedIds(state.owned);
     // 目標の印（表示がオンのときだけ。印の文字もキーワードで探す）
     const markMap = marksOf(state.owned);
     marksToggle.hidden = !marks.count;
     shownMarks = marksCheck.checked && marks.count ? markMap : null;
     marksStamp = shownMarks ? `on:${marksVersion}` : 'off';
-    const matched = filterOwned(state.owned.pals, { ...filter, ids: holder.ids, extraTexts: shownMarks });
+    const matched = filterOwned(state.owned.pals, { ...filter, ids, extraTexts: shownMarks });
     const totals = totalsOf(matched);
     passive.update({ selected: filter.passives, counts: totals.counts, disabled: none });
     const list = sortOwned(matched, filter.sort, filter.dir);
@@ -1634,10 +1480,7 @@ export function ownedView(context, route) {
     // 空の表示だけのときは帯を敷かない（CSS の .owned-list.is-empty。:has() は行の出し入れのたびに全体を計算し直させるので使わない）
     results.classList.toggle('is-empty', !list.length);
     head.hidden = !list.length;
-    renderCount(state, list.length, totals, holder);
-    emptyText = holder.unknown
-      ? '自分のプレイヤーが分からないため、自分の個体で絞れません（所持者を「すべて」にすると全員の個体が出ます）。'
-      : '条件に合うパルはいません。';
+    renderCount(state, list.length, totals);
     shownCount = list.length;
     // 見ていた行を同じ位置に戻す: データの更新のときと、行の高さが変わる（下の段の出し入れ）のに一覧の先頭が固定の部分の下に隠れているとき
     //（上の行の高さが変わって、見ていた行が動く。条件を変えたときは、この後で一覧の先頭を見せるので戻さない）。高さを変える前に覚える
@@ -1734,6 +1577,13 @@ export function ownedView(context, route) {
   }
 
   const unsubscribe = owned.subscribe(update);
+  // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応で決まる）が後から分かった・変わったら、所持者の選択肢と一覧を描き直す
+  //（既定の自分は、分かるまで「すべて」として描いている）
+  const stopSelf = context.store?.subscribe?.(() => {
+    if (destroyed || selfKey() === shownSelf) return;
+    renderFilters(owned.state);
+    renderResults({ keepPosition: true });
+  }) ?? (() => {});
   renderedOwned = owned.state.owned;
   renderedReady = owned.state.ready;
   renderSummary(owned.state);
@@ -1761,16 +1611,15 @@ export function ownedView(context, route) {
     destroy() {
       destroyed = true;
       stopRefreshing();
+      stopSelf();
       stopGoals();
       stopTracking();
       chipObserver?.disconnect();
-      sourceLine.destroy();
       inputs.abort();
       for (const input of pendingInputs) input.cancel();
       talents.destroy();
       modeChoice.destroy();
       holderSelect.destroy();
-      basePopover.destroy();
       presetMenu.destroy();
       elementPopover.destroy();
       linkPopover.destroy();

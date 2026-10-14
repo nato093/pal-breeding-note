@@ -280,7 +280,7 @@ export function hasPassives(pal, passiveIds) {
 const GENDER_WORDS = { M: ['オス', '♂'], F: ['メス', '♀'] };
 
 // キーワードで探す項目。数値（レベル・★・個体値）は専用の絞り込みがあるので含めない。
-// スキルとパッシブは、名前と説明を同じ順番で並べる（一致した理由を出すときに、説明から名前を引く）
+// スキルとパッシブは、名前と説明を同じ順番で並べる（一致した理由を出すときに、説明から名前を引く。NOTE_SPECS）
 function keywordFields(pal) {
   return {
     name: [pal.name, pal.en, pal.characterId],
@@ -318,27 +318,23 @@ function normalizedText(value) {
   return text;
 }
 
-// 個体の探す文字列（all）と、そのうち一致した理由に使う項目（notes。keywordNotes が見る）
+// 個体の探す文字列（そろえた文字と、どの項目の何番目か。keywordNotes が一致した理由を引く）
 function keywordEntries(pal) {
   let entries = keywordCache.get(pal);
   if (entries) return entries;
-  entries = { all: [], notes: [] };
+  entries = [];
   const fields = keywordFields(pal);
   for (const field of Object.keys(fields)) {
     const values = fields[field];
-    const note = NOTE_KEYS.has(field);
     for (let index = 0; index < values.length; index++) {
       const text = values[index] ? normalizedText(values[index]) : '';
-      if (!text) continue;
-      const entry = { field, index, text };
-      entries.all.push(entry);
-      if (note) entries.notes.push(entry);
+      if (text) entries.push({ field, index, text });
     }
   }
   keywordCache.set(pal, entries);
   return entries;
 }
-const keywordTexts = (pal) => keywordEntries(pal).all;
+const keywordTexts = keywordEntries;
 
 /** キーワードで探すための文字列を先に作っておく（データを読み込んだ後、入力の前に区切って呼ぶ） */
 export function prepareKeywords(pal) {
@@ -362,33 +358,70 @@ export function matchesKeywords(pal, terms, extra) {
   return terms.every((term) => texts.some((entry) => entry.text.includes(term)) || (extra?.length > 0 && extra.some((text) => normalizedText(text).includes(term))));
 }
 
-// 一覧に出していない項目のうち、一致したら行に出すもの（見出し・名前の項目・説明の項目）
-const NOTE_FIELDS = [
-  { label: 'アクティブスキル', names: (pal) => pal.skillNames ?? [], descs: (pal) => pal.skillDescs ?? [], field: 'skills', descField: 'skillDescs' },
-  { label: 'パートナースキル', names: (pal) => [pal.partnerSkill], descs: (pal) => [pal.partnerSkillDesc], field: 'partnerSkill', descField: 'partnerSkillDesc' },
-  // パッシブの名前は一覧に出ているので、説明で一致したときだけ出す
-  { label: 'パッシブ', names: (pal) => pal.passiveNames, descs: (pal) => pal.passiveDescs ?? [], field: '', descField: 'passiveDescs' },
+// 一致した理由の項目（行に出す見出し・名前の項目・説明の項目）。1 つの語の中ではこの順に並べる（行の左から右の順に近い並び）。
+// keywordFields のすべての項目を持つ（どの語にも、何に一致したかを必ず出すため。D29）
+const NOTE_SPECS = [
+  { label: 'パル名', field: 'name' },
+  { label: 'ニックネーム', field: 'nickname' },
+  { label: '属性', field: 'elements' },
+  { label: '性別', field: 'gender' },
+  { label: '特徴', field: 'status' },
+  { label: 'パッシブ', field: 'passives', descField: 'passiveDescs' },
+  { label: 'パートナースキル', field: 'partnerSkill', descField: 'partnerSkillDesc' },
+  { label: 'アクティブスキル', field: 'skills', descField: 'skillDescs' },
+  { label: '所持者', field: 'holder' },
+  { label: '場所', field: 'place' },
+  { label: '預けた人', field: 'lastOwner' },
 ];
-// 一致した理由に使う項目（NOTE_FIELDS の field と descField。keywordNotes はこの項目の文字列だけを見る）
-const NOTE_KEYS = new Set(NOTE_FIELDS.flatMap(({ field, descField }) => [field, descField]).filter(Boolean));
+/** 画面が足す文字（目標の印など。keywordNotes の extra）の見出し */
+const EXTRA_LABEL = '目標の印';
 
 /**
- * 一致した理由として行に出すもの。スキルは名前か説明で、パッシブは説明で語を含むもの。説明は、説明で一致したときだけ付ける。
+ * 一致した理由として行に出すもの（2026-10-14 のユーザーのフィードバック〔D29〕「必ず何に一致したから表示したのか分かるように」。前は一覧に
+ * 出していないスキルと説明だけで、パル名・属性などで一致したときは何も出さなかった）。語の順に、その語が当たった項目の値をすべて
+ * （1 つの語の中は NOTE_SPECS の順）。スキル・パッシブは説明で一致したときだけ説明を付ける。同じ項目の同じ値は 1 回だけ（別の語が説明に当たったら
+ * 説明を足す）。拠点の個体の所持者（拠点の名前）は、場所と同じ値なら場所として出す。extra は画面が足す文字（目標の印。見出し「目標の印」）。
+ * 絞り込み（matchesKeywords）で残った個体なら、どの語にも 1 つ以上の理由がある
  * @returns {{ label: string, name: string, desc: string }[]}
  */
-export function keywordNotes(pal, terms) {
-  const hit = new Set();
-  for (const entry of keywordEntries(pal).notes) {
-    if (terms.some((term) => entry.text.includes(term))) hit.add(`${entry.field}:${entry.index}`);
-  }
-  if (!hit.size) return [];
+export function keywordNotes(pal, terms, extra) {
+  if (!terms.length) return [];
+  const entries = keywordEntries(pal);
   const notes = [];
-  for (const { label, names, descs, field, descField } of NOTE_FIELDS) {
-    const descList = descs(pal);
-    names(pal).forEach((name, index) => {
-      const byDesc = hit.has(`${descField}:${index}`);
-      if (name && (byDesc || hit.has(`${field}:${index}`))) notes.push({ label, name, desc: byDesc ? descList[index] : '' });
-    });
+  const seen = new Map();
+  const add = (label, name, desc) => {
+    const key = `${label}\u0001${name}`;
+    const found = seen.get(key);
+    if (!found) {
+      const note = { label, name, desc };
+      seen.set(key, note);
+      notes.push(note);
+    } else if (desc && !found.desc) found.desc = desc;
+  };
+  let fields = null;
+  for (const term of terms) {
+    let hit = null;
+    for (const entry of entries) {
+      if (!entry.text.includes(term)) continue;
+      hit ??= new Set();
+      hit.add(`${entry.field}:${entry.index}`);
+    }
+    if (hit) {
+      fields ??= keywordFields(pal);
+      for (const { label, field, descField } of NOTE_SPECS) {
+        const names = fields[field];
+        const descs = descField ? fields[descField] : null;
+        for (let index = 0; index < names.length; index++) {
+          const name = names[index];
+          const byDesc = Boolean(descs) && hit.has(`${descField}:${index}`);
+          if (!name || !(byDesc || hit.has(`${field}:${index}`))) continue;
+          // 拠点の個体は所持者の欄にも拠点の名前が入る（場所と同じ値）。場所として 1 回だけ出す
+          if (field === 'holder' && name === fields.place[0]) continue;
+          add(label, String(name), byDesc ? descs[index] : '');
+        }
+      }
+    }
+    for (const text of extra ?? []) if (normalizedText(text).includes(term)) add(EXTRA_LABEL, text, '');
   }
   return notes;
 }
@@ -396,23 +429,22 @@ export function keywordNotes(pal, terms) {
 /**
  * 一覧の絞り込み（全員を 1 回だけ走査する）。
  * @param {object[]} pals normalizeOwned の pals
- * @param {{ ids?: Set<string> | null, places?: string[] | null, bases?: string[], elements?: string[], palId?: string, passives?: string[],
+ * @param {{ ids?: Set<string> | null, places?: string[] | null, elements?: string[], palId?: string, passives?: string[],
  *   passiveMode?: 'include' | 'only' | 'none', query?: string, stars?: number, talent?: { hp?: number, shot?: number, defense?: number } }} filter
  *   ids は所持者で許す個体の ID（null は絞らない。理想個体と同じ意味の集合〔ideal-goals.js の palsOfPlayers など〕を呼び出し側が作る）。
- *   places は場所のグループ（placeGroup の値。null は絞らない、[] は何も出さない）。bases は拠点の ID（空でなければ、その拠点の個体と
- *   その拠点に置いたタマゴ〔baseId が入っている個体〕だけ）。elements は属性（マスターの ID〔Fire など〕。どれかを持つ個体）。
+ *   places は場所のグループ（placeGroup の値。null は絞らない、[] は何も出さない。拠点ごとの絞り込み〔bases〕は D29 でなくした）。
+ *   elements は属性（マスターの ID〔Fire など〕。どれかを持つ個体）。
  *   passiveMode は include＝選んだパッシブを全部持つ、only＝全部持ち、ほかを持たない、none＝パッシブが 0 個（選んだパッシブは見ない）。
  *   stars はパル濃縮（★の数）の下限、talent は個体値の下限。extraTexts は個体 ID ごとに、キーワードで一緒に探す文字（目標の印など）
  */
 export function filterOwned(pals, {
-  ids = null, places = null, bases = [], elements = [], palId = '', passives = [], passiveMode = 'include', query = '', stars = 0, talent = {},
+  ids = null, places = null, elements = [], palId = '', passives = [], passiveMode = 'include', query = '', stars = 0, talent = {},
   extraTexts = null,
 } = {}) {
   const terms = keywordTerms(query);
   const minStars = Number(stars) || 0;
   const min = { hp: Number(talent.hp) || 0, shot: Number(talent.shot) || 0, defense: Number(talent.defense) || 0 };
   const placeSet = Array.isArray(places) ? new Set(places) : null;
-  const baseSet = bases?.length ? new Set(bases) : null;
   // 個体の elements は日本語の名前（speciesInfo）なので、マスターの ID を名前にしてから比べる
   const elementNames = elements?.length ? new Set(elements.map((key) => ELEMENTS[key] ?? key)) : null;
   const none = passiveMode === 'none';
@@ -421,7 +453,6 @@ export function filterOwned(pals, {
   return pals.filter((pal) => {
     if (ids && !ids.has(pal.id)) return false;
     if (placeSet && !placeSet.has(pal.placeGroup)) return false;
-    if (baseSet && !baseSet.has(pal.baseId)) return false;
     if (pal.stars < minStars) return false;
     if (pal.talent.hp < min.hp || pal.talent.shot < min.shot || pal.talent.defense < min.defense) return false;
     if (elementNames && !(pal.elements ?? []).some((name) => elementNames.has(name))) return false;

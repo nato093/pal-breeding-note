@@ -103,7 +103,7 @@ test('所持パル: 所持者と場所は入れ物で決め、拠点のタマゴ
   assert.deepEqual(byId.a.passiveNames, ['職人気質', '希少']);
 });
 
-test('所持パル: 許す個体（所持者）・場所のグループ・拠点・パル・パッシブ・キーワードで絞り込む', () => {
+test('所持パル: 許す個体（所持者）・場所のグループ・パル・パッシブ・キーワードで絞り込む（拠点ごとの絞り込み〔bases〕は D29 でなくした）', () => {
   const ids = (filter) => filterOwned(owned.pals, filter).map((p) => p.id).sort();
   const all = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
   assert.deepEqual(ids({}), all);
@@ -116,10 +116,8 @@ test('所持パル: 許す個体（所持者）・場所のグループ・拠点
   assert.deepEqual(ids({ places: ['party', 'global'] }), ['a', 'f']);
   assert.deepEqual(ids({ places: null }), all);
   assert.deepEqual(ids({ places: [] }), []);
-  // 拠点を選ぶと、その拠点の個体と、その拠点に置いたタマゴだけ（場所のグループとも重ねる）
-  assert.deepEqual(ids({ bases: [BASE] }), ['c', 'd']);
-  assert.deepEqual(ids({ bases: [BASE], places: ['base'] }), ['c']);
-  assert.deepEqual(ids({ bases: ['ほかの拠点'] }), []);
+  // 拠点の ID を渡しても絞らない（D29 でなくした）
+  assert.deepEqual(ids({ bases: ['ほかの拠点'] }), all);
   assert.deepEqual(ids({ palId: 'SheepBall' }), ['a', 'b', 'c']);
   assert.deepEqual(ids({ passives: ['CraftSpeed_up2', 'Rare'] }), ['a']);
   assert.deepEqual(ids({ query: '職人' }), ['a', 'b', 'd']);
@@ -292,14 +290,34 @@ test('所持パル: キーワードはすべての項目から探し、空白で
   // レベル・★・個体値は専用の絞り込みがあるので、キーワードでは探さない（a はレベル 30。パッシブの説明の「+15%」などの数値は探す）
   assert.deepEqual(ids('30'), []);
   assert.deepEqual(ids('+15%'), ['a']);
-  // 一致した理由: 一覧に出していないスキルは名前で一致したら出す（説明は付けない）。名前や属性など一覧に出ている項目は出さない
-  const notes = (item, query) => keywordNotes(item, keywordTerms(query));
+  // 一致した理由: 語ごとに、どの項目のどの値に一致したかを必ず出す（D29。前は一覧に出していないスキル・説明だけで、名前・属性など一覧に出ている
+  // 項目で一致したときは何も出さなかった）。名前で一致したら説明は付けない
+  const notes = (item, query, extra) => keywordNotes(item, keywordTerms(query), extra);
+  const short = (list) => list.map((note) => `${note.label}：${note.name}${note.desc ? `（${note.desc}）` : ''}`);
   assert.deepEqual(notes(a, 'きゃのん'), [{ label: 'アクティブスキル', name: 'エアーキャノン', desc: '' }]);
-  assert.deepEqual(notes(b, 'ファイ').map((note) => [note.label, note.name]), [['アクティブスキル', 'ファイアーボール'], ['パートナースキル', 'だっこファイヤー']]);
-  assert.deepEqual(notes(a, '無 ラッキー 希少'), []);
+  // 1 つの語の中の並びは パル名・ニックネーム・属性・性別・特徴・パッシブ・パートナースキル・アクティブスキル・所持者・場所・預けた人・目標の印
+  assert.deepEqual(short(notes(b, 'ファイ')), ['パートナースキル：だっこファイヤー', 'アクティブスキル：ファイアーボール']);
+  // 空白で区切った語は、語の順に（見えている所に出ている項目でも出す）
+  assert.deepEqual(short(notes(a, '無 ラッキー 希少')), ['属性：無', '特徴：ラッキー', 'パッシブ：希少']);
+  // スキルの名前と説明の両方に当たったときは説明も添える
+  const roll = `アクティブスキル：コロコロモコロン（モコロンの専用スキル。コロコロと転がりながら、敵を追いかける。攻撃後は目が回って動けなくなってしまう。）`;
+  assert.deepEqual(short(notes(a, 'モコロン')), ['パル名：モコロン', roll]);
+  assert.deepEqual(short(notes(b, 'foxparks')), ['パル名：Foxparks']);
+  assert.deepEqual(short(notes(b, 'オス bob アルファ')), ['性別：オス', '所持者：Bob', '特徴：アルファ']);
+  assert.deepEqual(short(notes(b, 'パルボックス')), ['場所：パルボックス 2 ページ・1 行 2 列']);
+  assert.deepEqual(short(notes(c, 'tama')), ['ニックネーム：Tama']);
+  // 拠点の個体は所持者の欄にも拠点の名前が入る。場所と同じ値なら場所として 1 回だけ出す。預けた人も出す
+  assert.deepEqual(short(notes(c, '拠点 bob')), ['場所：拠点 2', '預けた人：Bob']);
+  // 画面が足す文字（目標の印）も、一致したものだけ
+  assert.deepEqual(short(notes(a, '完成品', ['完成品: モコロンの目標', 'ほかの目標の欲しいパッシブ'])), ['目標の印：完成品: モコロンの目標']);
+  // 同じ項目に 2 つの語が当たっても 1 回だけ（「モコ」はパートナースキルにも当たる）
+  assert.deepEqual(short(notes(a, 'モコ ロン')), ['パル名：モコロン', 'パートナースキル：モコモコの盾', roll]);
+  // どこにも当たらない語は理由なし（絞り込みで外れる）
+  assert.deepEqual(notes(a, 'ぬぬぬ'), []);
+  assert.deepEqual(notes(a, ''), []);
 });
 
-test('所持パル: パートナースキル・アクティブスキル・パッシブの説明文でも探し、説明で一致したときは説明を添えて理由に出す', () => {
+test('所持パル: パートナースキル・アクティブスキル・パッシブの説明文でも探し、説明で一致したときは説明を添えて理由に出す（パッシブの名前で一致したときも出す。D29）', () => {
   const list = normalizeOwned({ ...snapshot, pals: [
     pal('a', 'SheepBall', { kind: 'party' }, { passives: ['Rare', 'CraftSpeed_up2'], skills: ['AirCanon'] }),
     pal('g', 'GhostDragon', { kind: 'party' }, { skills: ['PowerShot'] }),
@@ -317,15 +335,16 @@ test('所持パル: パートナースキル・アクティブスキル・パッ
   assert.deepEqual(ids('空気の塊'), ['a']);
   assert.deepEqual(ids('作業速度'), ['a']);
   assert.deepEqual(ids('盾 作業速度'), ['a']);
-  // 説明で一致したときは、名前と説明を出す。パッシブは名前が一覧に出ているので、説明で一致したときだけ出す
+  // 説明で一致したときは、名前と説明を出す（語の順に。1 つの語の中はパッシブ・パートナースキル・アクティブスキルの順）
   const notes = (item, query) => keywordNotes(item, keywordTerms(query));
   assert.deepEqual(notes(g, '闇属性'), [{ label: 'パートナースキル', name: '自由な翼竜', desc: g.partnerSkillDesc }]);
   assert.deepEqual(notes(a, '作業速度 空気'), [
-    { label: 'アクティブスキル', name: 'エアーキャノン', desc: '高速で飛ぶ空気の塊を発射する。' },
     { label: 'パッシブ', name: '希少', desc: '攻撃 +15% 防御 +15% 作業速度 +20%' },
     { label: 'パッシブ', name: '職人気質', desc: '作業速度 +50%' },
+    { label: 'アクティブスキル', name: 'エアーキャノン', desc: '高速で飛ぶ空気の塊を発射する。' },
   ]);
-  assert.deepEqual(notes(a, '職人気質'), []);
+  // パッシブの名前で一致したときも出す（前は一覧に出ているので出さなかった）
+  assert.deepEqual(notes(a, '職人気質'), [{ label: 'パッシブ', name: '職人気質', desc: '' }]);
   // 名前と説明の両方で一致したときは、説明も添える
   assert.deepEqual(notes(a, 'エアー 空気'), [{ label: 'アクティブスキル', name: 'エアーキャノン', desc: '高速で飛ぶ空気の塊を発射する。' }]);
 });
