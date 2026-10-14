@@ -412,7 +412,8 @@ function fillHits(line, notes) {
 }
 
 // 個体値の 4 セル（HP・攻・防・計）。数字と、下のミニバー（--v。計は合計の 1/3）。目標（targets）があれば、目標の縦線（--t）と
-// 目標以上は .met、目標未満は .short と差（−N。値の下に小さく〔D23〕）。読み上げは欄の aria-label にまとめる
+// 目標以上は .met、目標未満は .short。目標までの差（−N。D23）は、2026-10-14 のユーザーのフィードバック（D30）で出さなくした。
+// 読み上げは欄の aria-label にまとめる
 function fillTalentCell(cell, talent, targets) {
   const total = talent.hp + talent.shot + talent.defense;
   const spoken = [];
@@ -433,8 +434,7 @@ function fillTalentCell(cell, talent, targets) {
       spoken.push(`${name} ${value}（目標 ${target} 以上）`);
     } else {
       item.classList.add('short');
-      item.append(el('span', 'talent-diff', `−${target - value}`));
-      spoken.push(`${name} ${value}（目標 ${target} まで あと ${target - value}）`);
+      spoken.push(`${name} ${value}（目標 ${target} 未満）`);
     }
     return item;
   }));
@@ -468,7 +468,7 @@ function fillWhereCell(cell, pal) {
 
 /**
  * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, hints }。
- * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値の目標との差を見せる
+ * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値が目標に届いているかを見せる
  * （{ wanted, targets }）、marks は目標の印（行の下の段 div.owned-band に MARK_SLOTS 個までと「+N」。D25）、badges は名前の下のバッジの
  * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。
  * 省くと行が持つ）。行の操作のボタンはない（D29）。

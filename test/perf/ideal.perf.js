@@ -158,3 +158,49 @@ test('性能: 区切った計算は、同じ種族の ♂2000 × ♀2000 と、�
   await run('欲しい 1 つ・ケーキなし ♂1000×♀1000（表 1 つを新しく作る）',
     { pals: make(['P0'], 1000, 0), passives: ['P0'], targets: { hp: 99, shot: 98, defense: 97 } }, [tableOf(1, 'include', 'none', { hp: 99, shot: 98, defense: 97 }, 'upper')]);
 });
+
+// ケーキの提案（D30）: 画面は今の選択のケーキの計画（limit 20）を区切って先に出し、残りの 2 通りを cakeSpeedSteps で区切って求める。
+// 3 通りとも新しい世代の表を作る条件（キノコケーキは目安と上限の 2 つ）でも、1 回の区切りは 50ms 以内（D18）。合計は記録だけ
+test('性能: ケーキの提案（3 通りのケーキの計画を続けて区切って求める）は、♂1000 × ♀1000 で新しい世代の表を作っても 1 回の区切りが 50ms 以内', async () => {
+  const { idealPlanSteps, cakeSpeedSteps, fastestCake, planSpeed } = await import('../../web/js/core/ideal.js');
+  const { startSliced } = await import('../../web/js/ui/slice.js');
+  let state = 0x43414b45;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const junk = ['J0', 'J1', 'J2', 'J3', 'J4', 'J5'];
+  const make = (wanted, count, low) => Array.from({ length: count * 2 }, (_, i) => {
+    const own = i === 0 ? [] : i === 1 ? [...wanted] : wanted.filter(() => random() < 0.5);
+    const extras = i === 0 ? junk.slice(0, 4) : junk.filter(() => random() < 0.4).slice(0, 4 - own.length);
+    const value = () => low + Math.floor(random() * (101 - low));
+    return { id: `K${i}`, palId: 'X', gender: i % 2 ? 'F' : 'M', egg: false, place: 'palbox', passives: [...own, ...extras], talent: { hp: value(), shot: value(), defense: value() } };
+  });
+  const index = buildIndex([], [{ id: 'X', no: 1, variant: false }]);
+  const sliced = async (steps) => {
+    const slices = [];
+    const job = startSliced(steps, { budget: 30, onSlice: (ms) => slices.push(ms), schedule: (fn) => setImmediate(fn) });
+    const value = job.done ? job.value : await job.promise;
+    return { value, slices };
+  };
+  for (const [label, wanted, mode, targets, low] of [
+    ['欲しい 2 つ・全部持つ ♂1000×♀1000（0〜100）', ['P0', 'P1'], 'include', { hp: 95, shot: 94, defense: 93 }, 0],
+    ['欲しい 1 つ・欲しいものだけ ♂1000×♀1000（0〜100。表がいちばん重い条件）', ['P0'], 'only', { hp: 92, shot: 91, defense: 89 }, 0],
+  ]) {
+    const input = { pals: make(wanted, 1000, low), index, target: 'X', passives: wanted, mode, targets };
+    const started = performance.now();
+    // 今の選択（ケーキなし）の計画を先に
+    const main = await sliced(idealPlanSteps({ ...input, cake: 'none', limit: 20 }));
+    const shown = performance.now() - started;
+    // 残りの 2 通り
+    const speeds = new Map([['none', planSpeed(main.value)]]);
+    const rest = await sliced(cakeSpeedSteps(input, ['talent', 'special'], (cake, speed) => speeds.set(cake, speed)));
+    const total = performance.now() - started;
+    const slices = [...main.slices, ...rest.slices];
+    const max = Math.max(...slices);
+    console.log(`ケーキの提案・${label}: 今の計画 ${main.slices.length} 回・${shown.toFixed(0)} ms、残り 2 通り ${rest.slices.length} 回、`
+      + `提案まで ${total.toFixed(0)} ms・1 回の区切りの最大 ${max.toFixed(2)} ms・最速 ${fastestCake(speeds)}（${[...speeds].map(([cake, speed]) => `${cake} ${speed === null ? '作れない' : speed.toFixed(1)}`).join(' / ')}）`);
+    assert.ok(max <= 50, `${label}の 1 回の区切りが 50ms を超えました: ${max.toFixed(2)} ms`);
+    assert.equal(speeds.size, 3);
+  }
+});

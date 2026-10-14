@@ -85,3 +85,37 @@ test('押しボタンの選択: destroy の後は押しても onChange を呼ば
   await radio('none').dispatch('keydown', { key: 'ArrowRight' });
   assert.deepEqual(changes, []);
 });
+
+test('押しボタンの選択: badge で 1 つの押しボタンに小さな印（見た目は隠して読み上げは「（最速）」）と title の補足を付け、別の値・null で付け替え・外す', async (t) => {
+  const { part, changes, radio } = mount(t);
+  const badges = () => part.element.querySelectorAll('.segmented-badge');
+  part.badge('talent', { text: '最速', note: 'この条件でいちばん早く完成できるケーキ' });
+  assert.equal(badges().length, 1);
+  const [mark] = badges();
+  assert.equal(mark.parentElement, radio('talent'));
+  assert.equal(mark.textContent, '最速');
+  assert.equal(mark.getAttribute('aria-hidden'), 'true');
+  // 読み上げの名前は「キノコ等（最速）」。押しボタンの文字は残す
+  assert.equal(radio('talent').textContent, 'キノコ等最速（最速）');
+  assert.equal(radio('talent').querySelector('.visually-hidden').textContent, '（最速）');
+  assert.equal(radio('talent').title, 'キノコケーキ・豪華野菜ケーキ（個体値 +1〜5）\nこの条件でいちばん早く完成できるケーキ');
+  // 同じ指定では作り直さない
+  part.badge('talent', { text: '最速', note: 'この条件でいちばん早く完成できるケーキ' });
+  assert.equal(badges()[0], mark);
+  // 付け替えると前の印と title の補足を外す。title の無い押しボタンは補足だけ
+  part.badge('special', { text: '最速', note: '補足' });
+  assert.deepEqual(badges().map((node) => node.parentElement), [radio('special')]);
+  assert.equal(radio('talent').textContent, 'キノコ等');
+  assert.equal(radio('talent').title, 'キノコケーキ・豪華野菜ケーキ（個体値 +1〜5）');
+  assert.equal(radio('special').title, '補足');
+  // 印の付いた押しボタンを押すと、ふつうに選ぶ（印は選択と関係しない）
+  await radio('special').dispatch('click');
+  assert.deepEqual(changes, ['special']);
+  part.badge(null);
+  assert.equal(badges().length, 0);
+  assert.equal(radio('special').textContent, 'スペシャル');
+  assert.equal(radio('special').title, '');
+  // 知らない値は印を付けない
+  part.badge('知らない値', { text: '最速' });
+  assert.equal(badges().length, 0);
+});

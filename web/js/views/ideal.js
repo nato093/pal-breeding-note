@@ -13,7 +13,9 @@ import { actionIcon, icons } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts } from '../core/owned.js';
-import { idealPlanSteps, breedingLayouts, isParentCandidate, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS } from '../core/ideal.js';
+import {
+  idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
+} from '../core/ideal.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash } from '../router.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
@@ -49,6 +51,9 @@ const SLICE_BUDGET = 30;
 const STRIP_FARMS = 3;
 // 牧場の判定から組へ移ったとき、カードを光らせる時間（ms）
 const FLASH_MS = 1000;
+// ケーキの提案で覚える条件の数（新しく使った条件から。D30）と、「最速」の印を付けた押しボタンの title に足す文
+const CAKE_MEMORY = 8;
+const CAKE_NOTE = 'この条件でいちばん早く完成できるケーキ（押すと切り替えます）';
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
 
 // 中身が変わったときだけ作り直されるもの（配合の index）を、計算の署名に入れる番号にする
@@ -70,48 +75,12 @@ function candidateSignature(pals, species) {
   return signature;
 }
 
-/** 確率の表示。1% 未満は有効数字 2 桁にする。 */
-export function percent(rate) {
-  if (rate <= 0) return '0%';
-  if (rate >= 1 - 1e-9) return '100%';
-  const value = rate * 100;
-  if (value < 0.0001) return '0.0001% 未満';
-  // 1 未満を丸めて 100% と出さない
-  if (value >= 99.9) return '99.9%';
-  if (value >= 10) return `${Number(value.toFixed(1))}%`;
-  if (value >= 1) return `${Number(value.toFixed(2))}%`;
-  return `${Number(value.toPrecision(2))}%`;
-}
-
-// タマゴの数（10 個未満は丸めると差が消えるので、小数 1 桁まで出す）
-const countText = (eggs) => (eggs >= 1e6 ? '100 万個以上'
-  : `約 ${eggs < 10 ? Number(eggs.toFixed(1)) : Math.round(eggs).toLocaleString('ja-JP')} 個`);
-
-/** 1 個のタマゴの成功率から、成功するまでに産ませるタマゴの平均の目安（「平均 約 N 個」）。 */
-export function eggsText(rate) {
-  if (rate <= 0) return 'この組では届きません';
-  const eggs = 1 / rate;
-  if (eggs < 1.05) return 'ほぼ毎回';
-  return `平均 ${countText(eggs)}`;
-}
-
-/**
- * 子と入れ替えながら続けたときの、完成品が産まれるまでのタマゴの平均（「完成まで 平均 約 N 個」）。
- * upper は平均の上限（キノコケーキで目安と離れるときだけ添える）。lead は何がそろうまでか（個体値厳選組は「個体値がそろうまで」）
- */
-export function generationsText(eggs, upper = eggs, lead = '完成まで') {
-  if (!Number.isFinite(eggs)) return 'この条件では届きません';
-  const text = `${lead} 平均 ${countText(eggs)}`;
-  return Number.isFinite(upper) && upper > eggs * 1.05 ? `${text}（平均の上限 ${countText(upper)}）` : text;
-}
+// 組のカードの数値（「完成まで 平均 約 N 個」・内訳の「1 個のタマゴで N%」など）・確率の注記・「同じ種族どうし」・登録済みの配合の文は、
+// 2026-10-14 のユーザーのフィードバック（D30）でなくした（percent・eggsText・generationsText・pairMeasure・sourceText を消した）。
+// 並び（core/ideal.js の comparePlan）は変えていない
 
 const palName = (id) => palsById.get(id)?.ja ?? id;
 const passiveNames = (ids) => ids.map((id) => passivesById.get(id)?.ja ?? id).join('、');
-
-function sourceText(pair) {
-  if (pair.sources.some((source) => source.kind === 'same')) return '同じ種族どうし';
-  return `登録済みの配合 ${palName(pair.male.palId)}♂ × ${palName(pair.female.palId)}♀`;
-}
 
 // 配合の計画の組の目的（core/ideal.js の PLAN_GROUPS）
 const GROUP_LABELS = { complete: '完全体作成組', passive: 'パッシブ厳選組', talent: '個体値厳選組' };
@@ -142,45 +111,23 @@ function groupIcon(group) {
   return icon;
 }
 
-// 組の目的ごとの見出し（太字）と内訳（小さい字）。量はどれも「…まで 平均 約 N 個」の形にそろえる
-function pairMeasure(pair, cake) {
-  const estimate = cake === 'talent' ? 'キノコケーキは目安' : '';
-  const join = (parts) => parts.filter(Boolean).join(' · ');
-  if (pair.group === 'passive') {
-    const what = pair.gathered === pair.gatherTotal ? '欲しいパッシブが全部そろう' : `欲しいパッシブ ${pair.gatherTotal} 個のうち ${pair.gathered} 個がそろう`;
-    return [`${what}まで ${eggsText(pair.gatherChance)}`, join([`1 個のタマゴで ${percent(pair.gatherChance)}`, '個体値は見ていません'])];
-  }
-  if (pair.group === 'talent') {
-    const generations = Number.isFinite(pair.talentGenerations);
-    const head = generations ? generationsText(pair.talentGenerations, pair.talentGenerationsUpper, '個体値がそろうまで')
-      : `個体値がそろうまで ${eggsText(pair.talentChance)}`;
-    return [head, join([`1 個のタマゴで ${percent(pair.talentChance)}`, 'パッシブは見ていません', generations ? estimate : ''])];
-  }
-  if (Number.isFinite(pair.generations)) {
-    // 子を同じ性別の親と入れ替えながら続けたときの平均と、この 2 体のまま続けたときの平均を並べる
-    const same = pair.chance > 0 ? `この 2 体のままなら ${eggsText(pair.chance).replace(/^平均 /, '')}` : 'この 2 体のままでは届きません';
-    return [generationsText(pair.generations, pair.generationsUpper), join(['子と入れ替えながら', same, `1 個のタマゴで ${percent(pair.chance)}`, estimate])];
-  }
-  return [`完成まで ${eggsText(pair.chance)}`, join([`1 個のタマゴで ${percent(pair.chance)}`, `パッシブ ${percent(pair.passiveChance)} × 個体値 ${percent(pair.talentChance)}`])];
-}
-
 /**
- * 組のカード。札（組の目的・変更あり・配置中・交換先の牧場・持ち主）は押すと説明が開くボタンで、作った説明の部品は hints に入れる
+ * 組のカード: 番号と札の 1 行、♂♀ の行、（あれば）登録の注意。数値の行・内訳の文・「同じ種族どうし」は出さない（D30）。
+ * 札（組の目的・変更あり・配置中・交換先の牧場・持ち主）は押すと説明が開くボタンで、作った説明の部品は hints に入れる
  *（カードを作り直すときに、呼んだ側が destroy して開いている板を閉じる）。
- * highlight（{ wanted, targets }）は ♂♀ の行で欲しいパッシブと個体値の目標との差を見せる（views/owned.js の ownedRow）。
+ * highlight（{ wanted, targets }）は ♂♀ の行で欲しいパッシブと、個体値が目標に届いているかを見せる（views/owned.js の ownedRow）。
  * placed はこの組が入っている牧場の名前、farmTo は交換推奨でこの組を置く牧場の名前、marks(pal) は親の行の印（別の配合牧場で使用中）。
  * data-key（♂と♀の個体 ID）で、牧場の判定から押したときにこのカードを探す。
  * 押せる部品には data-focus-key（カード card:<key>・札 tag:<key>:<種類>・♂♀ の行の部品 pair:<key>:<M|F>:<data-focus>）を付け、
  * 描き直しでカードを作り直しても、フォーカスを同じ役目の部品へ戻す（drawPlan の captureFocus・restoreFocus）
  */
-function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, farmTo = '', highlight, hints = [], marks = () => [] } = {}) {
+function pairCard(pair, rank, { placed = '', changed = false, farmTo = '', highlight, hints = [], marks = () => [] } = {}) {
   const key = planPairKey(pair.male, pair.female);
   const card = el('article', `ideal-pair group-${pair.group}`);
   card.setAttribute('aria-label', `${rank + 1} 番目の組`);
   card.setAttribute('data-key', key);
   card.setAttribute('data-focus-key', `card:${key}`);
   const head = el('div', 'ideal-pair-head');
-  const chance = el('div', 'ideal-chance');
   const tags = el('div', 'ideal-tags');
   const tag = (kind, className, text, help, icon) => {
     const node = button('', null, className);
@@ -201,19 +148,11 @@ function pairCard(pair, rank, { cake = 'none', placed = '', changed = false, far
   if (owners.every(Boolean) && owners[0] !== owners[1]) {
     tags.append(tag('owners', 'ideal-owners', `${owners.join('・')} の個体`, `♂ は ${owners[0]}、♀ は ${owners[1]} の個体です（拠点のパルは預けた人）。`));
   }
-  const [strong, small] = pairMeasure(pair, cake);
-  chance.append(tags, el('strong', '', strong), el('small', 'muted', small));
-  head.append(el('span', 'step-number', String(rank + 1)), chance, el('span', 'ideal-source', sourceText(pair)));
+  head.append(el('span', 'step-number', String(rank + 1)), tags);
+  // 登録の注意だけを下に出す（余計なパッシブの確率の注記は D30 でなくした。余計なパッシブは ♂♀ の行で薄く見せる）
   const notes = el('ul', 'ideal-notes');
   const note = (text, className = '') => notes.append(el('li', className, text));
-  // 余計なパッシブは、完全体作成組で確率を下げているときだけ出す（欲しいパッシブを選ばない「全部持つ」などでは関係しない）
-  if (pair.group === 'complete' && pair.extras.length && pair.cleanPassiveChance > pair.passiveChance) {
-    const item = el('li', 'ideal-extras');
-    item.append(el('span', '', '余計なパッシブ: '), passiveList(pair.extras, { compact: true }),
-      el('span', '', `（これがなければ、パッシブの確率は ${percent(pair.passiveChance)} → ${percent(pair.cleanPassiveChance)}）`));
-    notes.append(item);
-  }
-  if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。確率は目標のパルが産まれた場合のものです。', 'ideal-warning');
+  if (pair.ambiguous) note('同じ組み合わせで別の子も登録されています。どちらかの登録が間違っている可能性があります。', 'ideal-warning');
   else if (pair.swapped) note('登録済みの配合の性別を入れ替えた向きです（同じ子が産まれるとみなしています。未検証）', 'ideal-warning');
   else if (pair.unverified) note('性別条件は未検証', 'ideal-warning');
   // ♂♀ の行（列見出しはないので、個体値の 4 セルは CSS で小さな見出しを付ける）。「+N」の説明の部品も hints に入れる。
@@ -261,40 +200,6 @@ function goalStatus(goal, pals) {
   const [first] = found;
   const where = `${first.holder} · ${first.placeLabel}`;
   return { done: true, text: `完成済み: ${where}${found.length > 1 ? ` ほか ${found.length - 1} 体` : ''}` };
-}
-
-// 計算のしくみ（見出しの「?」のダイアログ）。4 つの見出しに、各 1〜3 文。
-// 「異種の親は登録済みの配合だけを使います」は INV-2 の例外 (b)（理想個体の確率計算だけ遺伝の仕組みを使う）の説明なので必ず残す
-const HELP_SECTIONS = [
-  ['並び方と組の種類', [
-    '配合牧場に上から置く順に、別々の個体で最大 20 組を並べます。同じ個体は 2 回使いません。牧場には、配合牧場の判定で交換を勧めた組を置いてください（上から K 組が、いつも最終の配置とは限りません）。',
-    '「完全体作成組」は欲しいパッシブと個体値の目標を全部満たす子を作れる組です。2 体で欲しいパッシブがそろい、条件のある各ステータスに目標以上の親がいて 1 回で作れる組（種族は問わない）と、同じ種族で両親合わせて欲しいパッシブがそろい、産まれた子と入れ替えながら作る組（どちらの親が持っていても同じ。欲しい以外のパッシブが少ないほど早い）です。「パッシブ厳選組」は完全体作成組に当たらず、両親を合わせると片親だけより多く欲しいパッシブが集まる組（途中まで集める組や、異なる種族の組も含む）、「個体値厳選組」はパッシブを見ずに個体値をそろえる組です。',
-    '異種の親は登録済みの配合だけを使います。タマゴとグローバルパルボックスの個体は親にしません。',
-  ]],
-  ['数字の意味', [
-    '「完成まで 平均 約 N 個」は、完成品が産まれるまでに産ませるタマゴの平均です。同じ種族の組は、産まれた子を親と入れ替えながら続けた場合の平均です。',
-    'ランダムに付くパッシブで偶然そろう分は数えないので、実際より少し多めに出ます。突然変異とアルファの子は数えません。',
-    'Palworld v1.0.5 のゲームの仕組み（パッシブは両親の分から 1〜4 個、個体値は親から写るか 0〜100 の乱数）で計算しています。',
-  ]],
-  ['ケーキ', [
-    'キノコケーキ・豪華野菜ケーキは個体値に +1〜5 するため目安で並べ、目安と離れるときは「平均の上限」を添えます。',
-    'スペシャルケーキは両親のパッシブから 4 個まで継ぎ、足りない枠はランダムで埋まります。そのため欲しいパッシブが 4 個未満の「欲しいものだけ」は作れません。',
-  ]],
-  ['配合牧場と「変更あり」', [
-    // 交換の決め方は ideal-calc で直した文（入れ替えに関わる牧場・D19 の一文）のまま
-    '入れ替えると、牧場全体の完成の速さの目安（各牧場の 1÷完成までの平均 の合計。完全体作成組以外は 1 個のタマゴで完成する確率）が上がるときだけ交換を勧めます。上がらなければ「そのまま」です。入れ替えに関わる牧場がどれもまだ完成できない（準備の組だけの）ときは、それらの牧場がどれも悪くならず、1 か所以上が良くなるときだけ勧めます。親の片方が同じ組を優先し、1 体の入れ替えで済むようにします。同じ組み合わせで別の子も登録されている組が関わる牧場は、どちらかの登録が間違っている可能性があるので、速さでは比べず、おすすめの順のとおりにします。',
-    '「変更あり」は、交換推奨の行き先の組のうち、牧場の中身が最後に変わったときにはなかった組に付き、牧場の親を入れ替えたとセーブから分かると消えます。牧場の判定を保留している間は「変更あり」は付きません。',
-    '開いている間はセーブ（参加している人はホストの共有）を確かめ直し、受け取ったパルも入れて並べ直します。',
-  ]],
-];
-function helpSections() {
-  const help = el('div', 'ideal-help');
-  for (const [title, texts] of HELP_SECTIONS) {
-    const section = el('section', 'ideal-help-section');
-    section.append(el('h3', '', title), ...texts.map((text) => el('p', '', text)));
-    help.append(section);
-  }
-  return help;
 }
 
 export function idealView(context, route) {
@@ -510,19 +415,12 @@ export function idealView(context, route) {
   panel.append(panelMain, panelSub);
   const stopTracking = trackHeight(panel, element);
 
-  // 要約の行（1 行に固定。中は固定の 2 つの子: 件数などの文〔入り切らない分は省略して title に全文〕・除外の内訳を開くボタン）。
-  // 子は作り直さず、文字だけ書き換える（条件を変えても行の高さと位置が変わらない）。どのワールドの・いつのデータか・読み込みの状態と
-  // 許可の切れは、ヘッダーのセーブ連携の状態に出す（押すと許可を求める。D29 で、パネルの下のデータ元の 1 行をなくした）
-  const summary = el('div', 'result-note ideal-summary');
-  const summaryText = el('span', 'ideal-summary-text');
-  // 除外がないときは見えないまま幅を残す（hidden にしない）
-  const excludedButton = button('除外 0', null, 'ideal-excluded is-placeholder');
-  excludedButton.disabled = true;
-  let excludedLines = [];
-  const excludedHint = hint({ label: '除外', trigger: excludedButton, content: () => excludedLines });
-  summary.append(summaryText, excludedButton);
+  // 結果の上の要約の行（「上位 N 組（全 M 組・候補 K 体） · 登録済みの配合 n 件 · ◯◯ の個体」と「除外 N」）は、2026-10-14 のユーザーの
+  // フィードバック（D30）でなくした。組がないときの理由は結果の欄の案内（noPairs）に出す。どのワールドの・いつのデータかは、ヘッダーの
+  // セーブ連携の状態に出す（D29）
   // 欲しいパッシブが配合では作れないときの案内と、配合牧場の判定（sticky の帯と、その下の詳細）。
-  // 帯は高さが固定で、目標を選んでいて牧場の情報があるときは、中身がなくても場所を残す（判定が変わっても帯の高さは変わらない）
+  // 帯の高さは固定（判定が変わっても変わらない）。この目標の組を置いた牧場がない（保留でもない）ときは帯を出さず、場所も取らない（D30。
+  // 前は「この目標の組を置いた牧場はありません」と出して場所を残していた。目標を変えたときに下が動くのは利用者の操作なのでよい）
   const missingBox = el('div', 'ideal-missing-note');
   const farmStrip = el('div', 'ideal-farm-strip');
   farmStrip.setAttribute('role', 'group');
@@ -530,7 +428,7 @@ export function idealView(context, route) {
   farmStrip.hidden = true;
   // 詳細は既定で閉じた 1 行（見出しだけ。D22）で、押すと開く。開閉は viewState に残す（同じ見込みの組の畳みと同じ。タブを切り替えても残り、
   // 読み込み直すと閉じる）。details は作り直さず見出しの文と中身だけを書き換えるので、再計算や判定が変わっても開閉は変わらない。
-  // 出すものがないときは details を外し、帯が出ている間は 1 行の場所を残す（結果の位置を動かさない）
+  // 出すものがないときは details を外して section を隠す（D30。前は帯が出ている間は 1 行の場所を残していた）
   const farmBox = el('section', 'ideal-farms');
   farmBox.hidden = true;
   const farmFold = el('details', 'ideal-farms-fold');
@@ -554,24 +452,16 @@ export function idealView(context, route) {
     return { get: (id) => kept.get(id) ?? null, set: (id, value) => kept.set(id, value) };
   })();
 
-  // 見出しの右端: 保存した目標のダイアログを開く「目標（N）」と、計算のしくみの「?」
+  // 見出しの右端: 保存した目標のダイアログを開く「目標（N）」。計算のしくみの「?」とダイアログは、2026-10-14 のユーザーのフィードバック
+  //（D30「計算の仕組みの説明は不要」）でなくした（INV-2 の例外 b の一文「異種の親は登録済みの配合だけを使います」もいっしょに。
+  // INV-2 そのもの〔配合表を読まない・core/ideal.js の import の制限〕はコードとテストで守る）
   const goalsButton = button('', () => openGoals(), 'button secondary small ideal-goals-button');
   goalsButton.setAttribute('aria-haspopup', 'dialog');
   goalsButton.hidden = !ideals;
-  const helpButton = button('?', () => openHelp(), 'icon-button view-help-button');
-  helpButton.setAttribute('aria-label', '計算のしくみの説明');
-  helpButton.setAttribute('aria-haspopup', 'dialog');
   const heading = viewHeading('理想個体');
   const headingActions = el('div', 'view-heading-actions');
-  headingActions.append(goalsButton, helpButton);
+  headingActions.append(goalsButton);
   heading.append(headingActions);
-  let helpModal = null;
-  function openHelp() {
-    if (helpModal) return;
-    helpModal = openDialog('計算のしくみ', { className: 'ideal-help-dialog', onClose: () => { helpModal = null; } });
-    helpModal.body.append(helpSections());
-    helpModal.footer.append(button('閉じる', helpModal.close, 'button secondary'));
-  }
 
   // 保存した目標のダイアログ（表。完成済みを上に）。開いている間は、登録・所持パルが変わるたびに行を合わせる（同じ行は作り直さない）
   let goalsModal = null;
@@ -640,7 +530,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, summary, missingBox, farmStrip, farmBox, results);
+  element.append(heading, panel, missingBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -730,30 +620,17 @@ export function idealView(context, route) {
   }
 
   // 牧場の判定の文（詳細の行のチップ・帯の短い文）と、押したときに移る組の順位（移る組がなければ -1）。
-  // 「そのまま」で上から K 組（size）より下か一覧にない組は、交換を見送った牧場（skipped。ideal-calc）
+  // 「そのまま」で上から K 組（size）より下か一覧にない組は、交換を見送った牧場（skipped。ideal-calc）。
+  // 一覧にない「そのまま」はチップに「（おすすめにない組）」（D30。前はチップの下の行に「おすすめの一覧にない組 · 完成まで 平均 約 N 個」〔D15〕）
   function farmState(item, size) {
     const listed = item.rank >= 0;
     if (item.status === 'swap') return { chip: `交換推奨 → おすすめ ${item.to + 1} 番`, short: `⇄ ${item.to + 1} 番へ`, target: item.to, skipped: false };
     if (item.status === 'keep') {
-      return { chip: listed ? `そのまま（おすすめ ${item.rank + 1} 番）` : 'そのまま', short: listed ? `✓ ${item.rank + 1} 番` : '✓ そのまま',
+      return { chip: listed ? `そのまま（おすすめ ${item.rank + 1} 番）` : 'そのまま（おすすめにない組）', short: listed ? `✓ ${item.rank + 1} 番` : '✓ そのまま',
         target: item.rank, skipped: !listed || item.rank >= size };
     }
     return { chip: listed ? `おすすめ ${item.rank + 1} 番（ほかに置く組がありません）` : 'おすすめにない組（ほかに置く組がありません）',
       short: listed ? `— ${item.rank + 1} 番` : '—', target: item.rank, skipped: false };
-  }
-
-  // 1 個のタマゴあたりの平均から「平均 約 N 個」（届かなければ「この組では届きません」）
-  const perEggs = (eggs) => (Number.isFinite(eggs) && eggs > 0 ? eggsText(1 / eggs) : 'この組では届きません');
-  // おすすめの一覧にない牧場の組の数字（D15。idealPlan の measures の物差しを、組のカードと同じ言い方で）。物差しがなければ空
-  function measureText(measure, wanted) {
-    if (!measure) return '';
-    if (measure.status !== 'ok') return 'パッシブの条件を満たせない組';
-    if (measure.rank === 0) return `完成まで ${perEggs(measure.eggs)}`;
-    if (measure.rank === 1) {
-      const what = measure.gathered === wanted ? '欲しいパッシブが全部そろう' : `欲しいパッシブ ${wanted} 個のうち ${measure.gathered} 個がそろう`;
-      return `${what}まで ${eggsText(measure.gatherChance)}`;
-    }
-    return `個体値がそろうまで ${perEggs(measure.talentEggs)}`;
   }
 
   // 空き牧場に案内する組（D16）: 判定のあとの置き場（そのままの牧場の今の組・交換先の組・置く組のない牧場に残る個体）に使う個体を除き、
@@ -798,16 +675,13 @@ export function idealView(context, route) {
     if (key) cell.setAttribute('aria-label', `${label}。押すとその組へ移ります`);
     return cell;
   }
-  // 帯の中身（高さは固定）。保留中は理由の 1 行、この目標の組を置いた牧場がなければその旨（空きの数）
-  function renderStrip({ farm, rows, pending, empties }) {
+  // 帯の中身（高さは固定）。保留中は理由の 1 行。この目標の組を置いた牧場がなければ帯を出さない（D30。空き牧場の数は詳細の 1 行に出る）
+  function renderStrip({ farm, rows, pending }) {
     farmStrip.replaceChildren();
-    if (!farm) return;
+    farmStrip.hidden = !farm || (!pending && !rows.length);
+    if (farmStrip.hidden) return;
     if (pending) {
       farmStrip.append(el('span', 'ideal-farm-strip-note is-pending', `牧場の判定を保留（読めない牧場が ${farm.uncertain} か所あります）`));
-      return;
-    }
-    if (!rows.length) {
-      farmStrip.append(el('span', 'ideal-farm-strip-note', `この目標の組を置いた牧場はありません${empties.length ? `（空き ${empties.length} か所）` : ''}`));
       return;
     }
     farmStrip.append(...rows.slice(0, STRIP_FARMS).map(stripCell));
@@ -878,10 +752,6 @@ export function idealView(context, route) {
     if (!pending && state.skipped) main.append(el('span', 'ideal-farm-reason', '入れ替えても全体の速さの目安が上がりません'));
     row.append(main);
     if (pending) return row;
-    if (state.skipped && item.rank < 0) {
-      row.append(el('small', 'ideal-farm-measure', ['おすすめの一覧にない組', measureText(view.measureOf(planPairKey(item.farm.male, item.farm.female)), view.wanted)]
-        .filter(Boolean).join(' · ')));
-    }
     if (item.status === 'swap') row.append(swapTable(item, view.pairs[item.to]), moveList(item.out, item.in, view));
     else if (item.status === 'none' && item.out.length) {
       row.append(el('small', 'ideal-farm-reason', '外す個体は、ほかの牧場の交換推奨に使います'), moveList(item.out, [], view));
@@ -915,11 +785,12 @@ export function idealView(context, route) {
     return note;
   }
   // 牧場の詳細（帯の下の通常の流れ。閉じた 1 行の summary が見出し）。中身は「変更あり」の件数・保留の理由・牧場の行・空き牧場の案内。
-  // 出すものがなければ details を外す（開閉はそのまま覚えておく）
+  // 出すものがなければ details を外して隠す（開閉はそのまま覚えておく。D30 で、閉じた 1 行の場所を残すのをやめた）
   function renderFarmBox(view) {
     const { farm, rows, pending, empties, changed } = view;
     farmBody.replaceChildren();
-    if (!farm || (!rows.length && !empties.length)) {
+    farmBox.hidden = !farm || (!rows.length && !empties.length);
+    if (farmBox.hidden) {
       farmBox.replaceChildren();
       return;
     }
@@ -980,37 +851,6 @@ export function idealView(context, route) {
     const holder = holderNow();
     return holder ? [...holderSelect.children].find((node) => node.value === holder)?.textContent ?? '' : '';
   };
-  // 要約の文:「上位 N 組（全 M 組・候補 K 体） · 登録済みの配合 n 件（なければ 同じ種族どうし） · Alice の個体」
-  function summaryLine(result) {
-    // 同じ種族どうしのレコードは規則と重なるので、異種の配合だけを数える
-    const records = new Set(result.layouts.filter((layout) => layout.male !== to || layout.female !== to)
-      .flatMap((layout) => layout.sources.map((source) => source.record.id)));
-    const holder = holderName();
-    return [
-      // 組が 0 のときは「組なし（候補 N 体）」（D27。前は「上位 0 組（全 0 組・候補 N 体）」）
-      result.total ? `上位 ${result.pairs.length} 組（全 ${result.total} 組・候補 ${result.candidates} 体）` : `組なし（候補 ${result.candidates} 体）`,
-      records.size ? `登録済みの配合 ${records.size} 件` : '同じ種族どうし',
-      // 自分も選択肢の名前（「Alice（自分）」。D29 で前の「自分の個体」の選択肢をなくした）なので、どの所持者も「◯◯ の個体」
-      holder ? `${holder} の個体` : '',
-    ].filter(Boolean).join(' · ');
-  }
-  // 要約の行の文と除外のボタン（結果がないときは空。子は作り直さない）
-  function renderSummary(result) {
-    const text = result ? summaryLine(result) : '';
-    if (summaryText.textContent !== text) summaryText.textContent = text;
-    summaryText.title = text;
-    excludedLines = result ? [
-      result.unknownGender ? `性別不明の ${result.unknownGender} 体` : '',
-      result.tooMany ? `パッシブが 5 個以上の ${result.tooMany} 体（入れ替えの計算から除外）` : '',
-      result.blocked ? `パッシブの条件を満たせない ${result.blocked} 組` : '',
-    ].filter(Boolean) : [];
-    const count = result ? result.unknownGender + result.tooMany + result.blocked : 0;
-    const label = `除外 ${count}`;
-    if (excludedButton.textContent !== label) excludedButton.textContent = label;
-    excludedButton.classList.toggle('is-placeholder', !count);
-    excludedButton.disabled = !count;
-    if (!count) excludedHint.close();
-  }
   // 結果の欄を入れ替える。前のカードの札の説明（開いている板）は閉じて片づける
   let cardHints = [];
   function showResults(nodes, hints = []) {
@@ -1067,6 +907,75 @@ export function idealView(context, route) {
   // 描いている結果（計算に効かない値だけが変わったデータでは、計算し直さずに個体を入れ替えて描き直す）
   let shown = null;
   let destroyed = false;
+
+  // ケーキの提案（D30「ケーキ以外の条件を入れたら、どのケーキだと最速で作成できるかも提案してほしい」）: 目標とケーキ以外の条件
+  //（パッシブ・条件・個体値の目標・所持者と候補の個体）が同じ計算ごとに、3 通りのケーキの速さ（core/ideal.js の planSpeed。1 番の
+  // 完全体作成組の完成までの平均で、並びと同じ物差し。作れなければ null）を覚え、いちばん早いケーキ（fastestCake。差が 1 割未満なら
+  // 手間の少ない方）のケーキの押しボタンに「最速」の印を付ける。押せばそのケーキに切り替わる（押しボタンのまま）。
+  // 今の選択の計画を先に出し、ほかのケーキは描いた後に区切って求める（今の計画を計算している間は止め、描いた後に残りから続ける）。
+  // 条件が変わったら古い計算を捨てる。覚えるのは新しく使った条件から CAKE_MEMORY 件まで（10 秒ごとの読み直しで、計算に効く値が同じなら計算し直さない）
+  const cakeSpeeds = new Map();
+  let cakeKey = '';
+  let cakeJob = null;
+  function speedsOf(key) {
+    let speeds = cakeSpeeds.get(key);
+    if (speeds) cakeSpeeds.delete(key);
+    else speeds = new Map();
+    cakeSpeeds.set(key, speeds);
+    if (cakeSpeeds.size > CAKE_MEMORY) cakeSpeeds.delete(cakeSpeeds.keys().next().value);
+    return speeds;
+  }
+  function stopCakes() {
+    cakeJob?.cancel();
+    cakeJob = null;
+  }
+  // 今の条件の速さが 3 通りそろっていれば印を付ける（そろっていない・作れないときは外す）
+  function showFastest() {
+    const speeds = cakeKey ? cakeSpeeds.get(cakeKey) : null;
+    cakeChoice.badge(speeds ? fastestCake(speeds) : null, { text: '最速', note: CAKE_NOTE });
+  }
+  // ケーキ以外の条件が変わったら、古い計算を捨てて印を外す（覚えている条件なら、すぐ印を出す）
+  function setCakeKey(key) {
+    if (key === cakeKey) return;
+    cakeKey = key;
+    if (cakeJob && cakeJob.key !== key) stopCakes();
+    showFastest();
+  }
+  // 描いた計画の速さを覚え、まだ分からないケーキを区切って求める（今の計画を計算している間は始めない）。
+  // spent は同じ処理の中で先に使った時間（最初の区切りと合わせて 1 区切りに収める。分からなければ最初の区切りはすぐ返す）
+  function compareCakes(plan, result, spent = Infinity) {
+    if (destroyed || !plan.cakeKey || plan.cakeKey !== cakeKey || job) return;
+    const speeds = speedsOf(plan.cakeKey);
+    speeds.set(plan.cake, planSpeed(result));
+    // 欲しいパッシブを候補のだれも持たなければ、どのケーキでも完全体作成組はできない（計算しない）
+    if (result.missing.length) for (const [cake] of CAKES) speeds.set(cake, null);
+    const rest = CAKES.map(([cake]) => cake).filter((cake) => !speeds.has(cake));
+    if (!rest.length || cakeJob?.key === plan.cakeKey) {
+      showFastest();
+      return;
+    }
+    stopCakes();
+    const steps = cakeSpeedSteps(plan.cakeInput, rest, (cake, speed) => speeds.set(cake, speed));
+    const run = startSliced(steps, { budget: sliceBudget, firstBudget: Number.isFinite(sliceBudget) ? Math.max(0, sliceBudget - spent) : sliceBudget });
+    if (run.done) {
+      showFastest();
+      return;
+    }
+    const current = { key: plan.cakeKey, cancel: run.cancel };
+    cakeJob = current;
+    finishCakes(current, run.promise);
+  }
+  async function finishCakes(current, promise) {
+    try {
+      await promise;
+    } catch (error) {
+      if (cakeJob === current) cakeJob = null;
+      throw error;
+    }
+    if (destroyed || cakeJob !== current) return;
+    cakeJob = null;
+    showFastest();
+  }
   function setComputing(on) {
     results.classList.toggle('is-computing', on);
     if (on) results.setAttribute('aria-busy', 'true');
@@ -1079,11 +988,17 @@ export function idealView(context, route) {
     shownKey = '';
     shown = null;
     setComputing(false);
-    renderSummary(null);
+    setCakeKey('');
     renderHolding(null);
+    clearFarms();
+  }
+  // 足りないパッシブの案内・牧場の帯と詳細を出さない（帯と詳細は場所も取らない）
+  function clearFarms() {
     missingBox.replaceChildren();
     farmStrip.replaceChildren();
+    farmStrip.hidden = true;
     farmBox.replaceChildren();
+    farmBox.hidden = true;
   }
 
   function renderResults() {
@@ -1093,9 +1008,6 @@ export function idealView(context, route) {
     renderSave();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
-    // 牧場の帯と詳細の 1 行の場所（目標を選んでいて、牧場の情報があるとき。計算の前から場所を取る）
-    farmStrip.hidden = !(to && Array.isArray(owned?.state?.owned?.farms));
-    farmBox.hidden = farmStrip.hidden;
     if (!pals) {
       clearPlan();
       showResults([empty(owned && !owned.state.ready ? '読み込み中…'
@@ -1122,9 +1034,14 @@ export function idealView(context, route) {
     const holder = holderNow();
     const self = holder === 'mine' ? (ideals?.mine()?.map((pal) => pal.id).join(',') ?? 'unknown') : '';
     const species = new Set(layouts.flatMap((layout) => [layout.male, layout.female]));
+    const candidateKey = candidateSignature(candidates, species);
     const key = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
       conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), conditions.cake, holder, self, signature,
-      [...prefer.placed].sort(), [...prefer.baseline].sort()])}\u0003${candidateSignature(candidates, species)}`;
+      [...prefer.placed].sort(), [...prefer.baseline].sort()])}\u0003${candidateKey}`;
+    // ケーキの提案の鍵: 計算の署名からケーキと牧場（優先・見張り）を除いたもの（ケーキを切り替えても変わらない）
+    const nextCakeKey = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
+      conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), holder, self])}\u0003${candidateKey}`;
+    setCakeKey(nextCakeKey);
     // 同じ計算をしている途中（計算に効かない値だけが変わった）。終わって描くときに、新しいデータの個体に入れ替える
     if (job?.key === key) return;
     // 出している結果と同じ条件に戻った（計算している途中なら、その計算は捨てる）。データだけが変わっていれば個体を入れ替えて描き直す
@@ -1132,7 +1049,11 @@ export function idealView(context, route) {
       job?.cancel();
       job = null;
       setComputing(false);
-      if (shown) drawLatest(shown);
+      if (shown) {
+        drawLatest(shown);
+        // 今の計画の計算で止めていたケーキの比べ方を、残りから続ける
+        compareCakes(shown.plan, shown.result, clock() - started);
+      }
       return;
     }
     job?.cancel();
@@ -1143,31 +1064,30 @@ export function idealView(context, route) {
     const parents = candidates.filter((pal) => species.has(pal.palId) && isParentCandidate(pal) && (pal.gender === 'M' || pal.gender === 'F'));
     const short = TALENT_KEYS.filter((name) => conditions.targets[name] > 0 && !parents.some((pal) => pal.talent[name] >= reach(name)))
       .map((name) => `${TALENT_LABELS[name]} ${reach(name)} 以上`);
+    // ケーキの比べ方に渡す入力（ケーキ以外は今の計画と同じ）
+    const cakeInput = { pals: candidates, index: state.index, target: to, passives: [...passives], mode: conditions.mode, targets: { ...conditions.targets } };
     const plan = {
       placedFarms, signature, memoryId, baseline, farms, layouts, holder, cake: conditions.cake, data: owned.state.owned,
-      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short,
+      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short, cakeKey: nextCakeKey, cakeInput,
     };
-    const steps = idealPlanSteps({
-      pals: candidates, index: state.index, target: to, passives: [...passives],
-      mode: conditions.mode, targets: { ...conditions.targets }, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys,
-    });
+    const steps = idealPlanSteps({ ...cakeInput, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys });
     // 最初の区切りは、ここまでの下ごしらえ（所持パルが多いと数十 ms）と合わせて 1 区切りに収める
     const run = startSliced(steps, { budget: sliceBudget, firstBudget: Math.max(0, sliceBudget - (clock() - started)) });
     if (run.done) {
       setComputing(false);
       showPlan(run.value, plan);
       shownKey = key;
+      compareCakes(plan, run.value, clock() - started);
       return;
     }
-    // 終わらなければ、前の結果を残したまま「計算中」にする（高さは変えない）。何も出していなければ「計算中…」を出す
+    // 終わらなければ、前の結果を残したまま「計算中」にする（高さは変えない）。何も出していなければ「計算中…」を出す。
+    // ケーキの比べ方は、今の計画を先に出すために止める（描いた後に残りから続ける）
+    stopCakes();
     const current = { key, cancel: run.cancel };
     job = current;
     if (!shownKey) {
-      renderSummary(null);
       renderHolding(null);
-      missingBox.replaceChildren();
-      farmStrip.replaceChildren();
-      farmBox.replaceChildren();
+      clearFarms();
       showResults([empty('計算中…')]);
     }
     setComputing(true);
@@ -1190,6 +1110,7 @@ export function idealView(context, route) {
     const latest = owned.state.owned !== plan.data ? withLatestPals({ result, plan }) : { result, plan };
     showPlan(latest.result, latest.plan);
     shownKey = current.key;
+    compareCakes(latest.plan, latest.result);
   }
 
   // 結果の組・牧場の個体を、今のデータの同じ ID の個体に入れ替える（計算に効く値は同じなので、組と順位はそのまま）
@@ -1250,8 +1171,7 @@ export function idealView(context, route) {
     restoreFocus(element, focus);
   }
   function paintPlan(result, plan, changed, focus) {
-    const { placedFarms, cake, highlight, short = [] } = plan;
-    renderSummary(result);
+    const { placedFarms, highlight, short = [] } = plan;
     renderHolding(result);
     renderMissing(result);
     const farm = farmContext(plan.data, plan.layouts ?? []);
@@ -1267,16 +1187,19 @@ export function idealView(context, route) {
       const state = farmState(item, placedFarms.length);
       return { item, name: nameOf(item.farm.id), state, key: state.target >= 0 ? keyOf(result.pairs[state.target]) : '' };
     });
-    // 空き牧場は、判定がそろっていて、所持者が「すべて」のときだけ（仲間の拠点の牧場も含む）
-    const empties = judged && !plan.holder ? farm.empties : [];
+    // 空き牧場は、判定がそろっていて、所持者が「すべて」か自分のときだけ（仲間の拠点の牧場も含む）。D30 で既定の自分でも出すようにした
+    //（D29 で既定が自分になり、「すべて」を選ばないと出なくなっていた）。ほかのプレイヤーを選んでいるときは、その人の個体の組を
+    // 空き牧場に案内することになるので出さない。組が 1 つもないときも、案内する組がないので出さない（D30。既定の自分で出すようになり、
+    // 組のない目標でも詳細の 1 行が出ていた）
+    const empties = judged && result.total && (!plan.holder || plan.holder === 'mine') ? farm.empties : [];
     const marks = (pal) => (farm?.inUse.has(pal.id) ? [`別の配合牧場で使用中（${nameOf(farm.inUse.get(pal.id))}）`] : []);
     // 交換推奨の行き先の組に「→ ◯◯へ」の札（D14。境目の線の代わりに、置く組を札で示す）
     const farmTo = new Map(advice.filter((item) => item.status === 'swap').map((item) => [keyOf(result.pairs[item.to]), nameOf(item.farm.id)]));
     // 「変更あり」は、採った交換推奨の行き先の組だけ（D10）。判定を保留している間は交換推奨がないので付けない（D13）
     const shownChanged = judged ? new Set([...changed].filter((key) => farmTo.has(key))) : new Set();
     const view = {
-      farm, rows, pending, empties, changed: shownChanged.size, pairs: result.pairs, wanted: highlight.wanted.length, marks,
-      measureOf: judged?.measureOf ?? (() => undefined), picks: judged ? emptyPicks(judged.advice, result.pairs, empties.length) : [],
+      farm, rows, pending, empties, changed: shownChanged.size, pairs: result.pairs, marks,
+      picks: judged ? emptyPicks(judged.advice, result.pairs, empties.length) : [],
       mine: new Set((ideals?.mine() ?? []).map((pal) => pal.id)),
       doubtful: (item) => (judged ? [
         judged.measureOf(keyOf(item.farm))?.ambiguous ? '牧場の組' : '',
@@ -1293,7 +1216,7 @@ export function idealView(context, route) {
     const nodes = result.pairs.map((pair, rank) => {
       const key = keyOf(pair);
       const card = pairCard(pair, rank, {
-        cake, placed: placed.get(key) ?? '', changed: shownChanged.has(key), farmTo: farmTo.get(key) ?? '', highlight, hints, marks,
+        placed: placed.get(key) ?? '', changed: shownChanged.has(key), farmTo: farmTo.get(key) ?? '', highlight, hints, marks,
       });
       // 光らせている途中に作り直したら、新しいカードにも付け直す
       if (flash?.key === key) card.classList.add('is-flash');
@@ -1337,17 +1260,16 @@ export function idealView(context, route) {
       talent.destroy();
       job?.cancel();
       job = null;
+      stopCakes();
       toPicker.destroy();
       passive.destroy();
       modeChoice.destroy();
       cakeChoice.destroy();
       saveBoard.destroy();
-      excludedHint.destroy();
       for (const item of cardHints) item.destroy();
       stopTracking();
       // ダイアログは画面の遷移で閉じないので、画面を閉じるときに閉じる
       goalsModal?.close();
-      helpModal?.close();
     },
   };
   const view = watchView(context.store, element, update, [pickers]);

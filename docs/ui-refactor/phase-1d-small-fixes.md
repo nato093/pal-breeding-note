@@ -470,6 +470,7 @@ title 11 字・body 43 字。
 - **stable-render**（1a）: idealPlan を区切って計算する形（generator）にしているはずなので、テストの移し先はその同期の入口（今の `idealPlan(...)` と同じ戻り値を返す関数）にする。名前が変わっていれば読み替える。
 - **ideal-calc**（テーマ 0。2026-10-12 追記）: `idealPlan` は、同じ種族で両親合わせて欲しいパッシブがそろう組も完全体作成組にする（idealPairs の `order: 'generations'` は今までどおり「両親それぞれが全部持つ」個体だけ）。`generationTable` には `parentExtras` が増え、`value()` は範囲外で `Infinity` を返す。下の手順 1 の値の比べ方はこの形を前提にする。
 - **ideal-panel**（1b）: 目標を保存する所（今の `views/ideal.js:275` の `goalConditions`）が動いている場合は、そちらの `order: 'next'` を消す。
+- 2026-10-14 のユーザーのフィードバック（D30）で、`views/ideal.js` の数値の言い方（`percent`・`eggsText`・`generationsText`・`pairMeasure`）・組の出どころ（`sourceText`）・計算のしくみ（`HELP_SECTIONS`）と、CSS の `.ideal-summary`・`.ideal-excluded`・`.ideal-chance`・`.ideal-source`・`.talent-diff`・`.ideal-help`・`.view-help-button`・`.ideal-farm-measure` は消してある。ケーキの提案で足した `core/ideal.js` の `planSpeed`・`cakeSpeedSteps`・`fastestCake` は `idealPlanSteps` を使う（idealPairs は使わない）ので、I-62 の片付けの対象ではない。
 
 ### このテーマでやらないこと
 
@@ -646,7 +647,7 @@ title 13 字・body 43 字。
 - **cleanup-dead-code**: `empty()` から「◇」を消してあること（ここでアイコンの枠を足す）。
 - **owned-status**（1c）: 所持パルの読み込み状態の表示と「ファイル未登録はデータがないときだけボタンつきで」が入っていること（`ui/owned-status.js` の案内は、1c で変わった形の上で直す）。
 - **owned-toolbar**（1c）: 所持パルの「すべて解除」（条件を既定に戻す関数）。空の状態のボタンはそれを呼ぶ。
-- **ideal-results**（1b）: 理想個体の「計算のしくみ」がダイアログに移っていること（中の「参加している人」もそこで直す）。
+- **ideal-results**（1b）: 理想個体の「計算のしくみ」がダイアログに移っていること（中の「参加している人」もそこで直す）。→ 2026-10-14 のユーザーのフィードバック（D30）で、計算のしくみの「?」とダイアログはなくした（この依存と「参加している人」の直しは要らない）。
 - **header-frame**（1a）: ヘッダーのロゴの副題（キャッチコピー）が残っているかどうか（残っていればここで消す）。
 
 ### このテーマでやらないこと
@@ -702,7 +703,7 @@ title 13 字・body 43 字。
 3. **画面の文言を直す**（CSV と GAS の列名は変えない）
    - 産まれる: `views/pal.js:24`、`views/reverse.js:10`（「産まれる子」）、`wishlist.js:190`。
    - ♂・♀: `views/ideal.js:375・380`（「♂ と ♀ で所持していません」「♂ と ♀ の組を作れる個体がいません」）。
-   - 親の組の「＋」: `auto-register.js:210` の `pairText`（inv2-notice で文が変わっていれば、その中の記号）、`views/ideal.js:75` の組の出どころ（ideal-results の後の形）、`:415` の牧場の判定（ideal-farms の後の形）。
+   - 親の組の「＋」: `auto-register.js:210` の `pairText`（inv2-notice で文が変わっていれば、その中の記号）、`views/ideal.js:75` の組の出どころ（2026-10-14 のユーザーのフィードバック〔D30〕で組の出どころの文〔「同じ種族どうし」「登録済みの配合 A♂ × B♀」〕はなくした。ideal-results の後の形）、`:415` の牧場の判定（ideal-farms の後の形）。
    - グローバルパルボックス: `views/owned.js:120`（owned-toolbar で 2 つのチェックが場所のチップに変わっていれば不要）。
    - 新しいバージョン: `ui/update-banner.js:38`。
    - 参加者: `views/owned-settings.js:24`（「参加者」）・`:59`（「…いまは参加者と判定します」）、`ui/owned-status.js:24`（「参加者（ホストが共有した所持パルを表示します）」）、`views/ideal.js:168`（計算の説明。ideal-results でダイアログに移った後の文）。
@@ -996,7 +997,7 @@ title 8 字・body 46 字。
 - **cleanup-dead-code**: `--md-sys-color-on-error-container` の定義（状態チップの is-error とエラーのトーストで使う）、`empty()` とログイン画面の「◇」の削除。
 - **delete-undo**: エラーのトーストの閉じるボタン（ここで SVG のアイコンに替える）。
 - **header-frame**（1a）: ヘッダーのロゴ（brand）の作り。ロゴの span の位置が変わっていれば合わせる。
-- **popovers**（1a）・**ideal-results**・**ideal-farms**（1b）・**owned-rows**（1c）: パッシブ選択・組のタグ・牧場の行・所持パルの行の作りが変わっている。性別マーク・状態チップ・× の置き換えは、その後の形に対して行う。
+- **popovers**（1a）・**ideal-results**・**ideal-farms**（1b）・**owned-rows**（1c）: パッシブ選択・組のタグ・牧場の行・所持パルの行の作りが変わっている。性別マーク・状態チップ・× の置き換えは、その後の形に対して行う。2026-10-14 のユーザーのフィードバック（D30）で、理想個体の組のカードは [番号][札] と ♂♀ の行だけになり（数値の行・内訳・出どころ・個体値の差〔−N〕・結果の上の要約の行・計算のしくみの「?」をなくした）、ケーキの押しボタンに「最速」の印（`ui/segmented.js` の `badge`・CSS の `.segmented-badge`）を足した。
 
 ### このテーマでやらないこと
 
