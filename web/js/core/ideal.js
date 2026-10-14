@@ -1073,3 +1073,56 @@ export function* idealPlanSteps({
   });
   return { pairs, total, layouts, candidates, unknownGender, missing, complete, sameSpecies, tooMany, blocked, measures };
 }
+
+// ---------------------------------------------------------------------------
+// ケーキの提案（目標とケーキ以外の条件で、いちばん早く完成できるケーキ。2026-10-14 のユーザーのフィードバック〔D30〕）
+// ---------------------------------------------------------------------------
+
+/**
+ * 手間の多いケーキを速いとみなす割合。手間の少ないケーキより完成までの平均がこの割合以下（1 割以上少ない）のときだけ、
+ * 手間の多い方を最速とする（差が小さければ手間の少ない方。パルリバーサーの案内〔D17〕の「1 割以上少ない」と同じ物差し）
+ */
+export const CAKE_FASTER = 0.9;
+
+/**
+ * 配合の計画の速さ（ケーキを比べる物差し）: 1 番の組が完全体作成組なら、その完成までのタマゴの平均（eggs。並びと同じ物差しで、
+ * キノコケーキ・豪華野菜ケーキは目安）。完全体作成組がなければ null（そのケーキでは作れない）
+ */
+export function planSpeed(result) {
+  const [first] = result?.pairs ?? [];
+  return first?.group === 'complete' && Number.isFinite(first.eggs) ? first.eggs : null;
+}
+
+/**
+ * ケーキごとの計画の速さを、1 つずつ区切って求める（中身は idealPlanSteps。要るのは 1 番の組の物差しだけなので limit は 1。
+ * 牧場の優先と見張りは渡さない。どちらも物差しが同じ組の並びと、見張る組の物差しにしか効かないので、1 番の物差しは変わらない）。
+ * 求め終えたケーキから onSpeed(cake, speed) で知らせる（途中で止めても、求め終えた分は使える）。戻り値は Map<ケーキ, 速さ | null>
+ * @param {object} input idealPlanSteps の入力（cake・limit・prefer・watch は使わない）
+ * @param {string[]} cakes 求めるケーキ（CAKES の値）
+ * @param {(cake: string, speed: number | null) => void} [onSpeed]
+ */
+export function* cakeSpeedSteps(input, cakes, onSpeed) {
+  const speeds = new Map();
+  for (const cake of cakes) {
+    const result = yield* idealPlanSteps({ ...input, cake, limit: 1, prefer: undefined, watch: undefined });
+    const speed = planSpeed(result);
+    speeds.set(cake, speed);
+    onSpeed?.(cake, speed);
+  }
+  return speeds;
+}
+
+/**
+ * いちばん早く完成できるケーキ。手間の少ない順（CAKES の順: なし → キノコケーキ等 → スペシャルケーキ）に見て、
+ * ほかのケーキの完成までの平均がそれより 1 割以上少なくはならない、最初のケーキ。
+ * 速さの分からないケーキが残っている（Map にない）・どのケーキでも作れない（どれも null）ときは null
+ * @param {Map<string, number | null>} speeds
+ */
+export function fastestCake(speeds) {
+  const known = CAKES.map(([cake]) => [cake, speeds.get(cake)]);
+  if (known.some(([, speed]) => speed === undefined)) return null;
+  const makeable = known.filter(([, speed]) => speed !== null);
+  if (!makeable.length) return null;
+  const best = Math.min(...makeable.map(([, speed]) => speed));
+  return makeable.find(([, speed]) => best > speed * CAKE_FASTER)[0];
+}

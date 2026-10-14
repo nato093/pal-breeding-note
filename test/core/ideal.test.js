@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { buildIndex } from '../../web/js/core/index.js';
 import {
   passiveChance, talentChance, talentExpectation, talentTargets, breedingLayouts, idealPairs, idealPlan, PLAN_GROUPS, isParentCandidate, TALENT_PATTERNS,
-  generationTable, generationEggs, idealPlanSteps, hasGenerationTable,
+  generationTable, generationEggs, idealPlanSteps, hasGenerationTable, planSpeed, fastestCake, cakeSpeedSteps, CAKE_FASTER,
 } from '../../web/js/core/ideal.js';
 
 const master = ['A', 'B', 'X', 'Y'].map((id, no) => ({ id, no, variant: false }));
@@ -1013,4 +1013,63 @@ test('理想個体（区切った計算）: 新しい世代の表は作る途中
   const memo = generationTable(table('upper'));
   assert.equal(memo.limit, 4);
   near(generationEggs(memo, pals[0].talent, pals[1].talent, { maleExtras: 4, femaleExtras: 0, shared: 0 }), 919.5830623697547);
+});
+
+// ---------------------------------------------------------------------------
+// ケーキの提案（D30）
+// ---------------------------------------------------------------------------
+test('理想個体（ケーキの提案）: 計画の速さは 1 番の完全体作成組の完成までの平均（並びと同じ eggs）。完全体作成組がなければ null', () => {
+  const pals = [pal('m1', 'X', 'M', [], talent(96, 96, 96)), pal('f1', 'X', 'F', [], talent(96, 96, 96))];
+  const plan = idealPlan({ pals, index: index(), target: 'X' });
+  assert.equal(plan.pairs[0].group, 'complete');
+  assert.equal(planSpeed(plan), plan.pairs[0].eggs);
+  // 欲しいパッシブを候補のだれも持たない（個体値厳選組だけ）・組がない
+  assert.equal(planSpeed(idealPlan({ pals, index: index(), target: 'X', passives: ['P9'] })), null);
+  assert.equal(planSpeed(idealPlan({ pals: [], index: index(), target: 'X' })), null);
+  assert.equal(planSpeed(null), null);
+});
+
+test('理想個体（ケーキの提案）: いちばん早いケーキは、手間の少ない順に見て、ほかのケーキが 1 割以上少なくはならない最初のケーキ', () => {
+  const speeds = (none, talentCake, special) => new Map([['none', none], ['talent', talentCake], ['special', special]]);
+  assert.equal(CAKE_FASTER, 0.9);
+  // 1 割以上少なければ手間の多い方
+  assert.equal(fastestCake(speeds(100, 90, 100)), 'talent');
+  assert.equal(fastestCake(speeds(100, 100, 50)), 'special');
+  // 1 割未満の差なら手間の少ない方（同点も）
+  assert.equal(fastestCake(speeds(100, 91, 100)), 'none');
+  assert.equal(fastestCake(speeds(100, 100, 100)), 'none');
+  // いちばん速いスペシャルとの差が 1 割未満のキノコ等を選ぶ（なしはスペシャルより 1 割以上遅い）
+  assert.equal(fastestCake(speeds(100, 91, 85)), 'talent');
+  // 作れないケーキは比べない
+  assert.equal(fastestCake(speeds(null, null, 15)), 'special');
+  assert.equal(fastestCake(speeds(8.9, 8.7, null)), 'none');
+  // どのケーキでも作れない・まだ分からないケーキがある
+  assert.equal(fastestCake(speeds(null, null, null)), null);
+  assert.equal(fastestCake(new Map([['none', 10], ['talent', 5]])), null);
+});
+
+test('理想個体（ケーキの提案）: cakeSpeedSteps はケーキごとに区切って計画を求め、各ケーキの idealPlan の速さと同じ値を、求めた順に知らせる', () => {
+  // 個体値 96 の 2 体（目標 100）: キノコケーキなら +1〜5 で届くので、ケーキなし・スペシャルよりずっと早い
+  const pals = [pal('m1', 'X', 'M', [], talent(96, 96, 96)), pal('f1', 'X', 'F', [], talent(96, 96, 96))];
+  const input = { pals, index: index(), target: 'X', targets: talent(100, 100, 100) };
+  const told = [];
+  const steps = cakeSpeedSteps(input, ['none', 'talent', 'special'], (cake, speed) => told.push([cake, speed]));
+  let yields = 0;
+  let step;
+  while (!(step = steps.next()).done) yields++;
+  assert.ok(yields > 0, '区切らなかった');
+  const expected = ['none', 'talent', 'special'].map((cake) => [cake, planSpeed(idealPlan({ ...input, cake }))]);
+  assert.deepEqual(told, expected);
+  assert.deepEqual([...step.value], expected);
+  assert.equal(fastestCake(step.value), 'talent');
+  // 欲しいパッシブを片親ずつ持つ（4 つ）なら、和集合から 4 個まで継ぐスペシャルケーキがいちばん早い
+  const split = [pal('m2', 'X', 'M', ['P1', 'P2'], talent(100, 100, 100)), pal('f2', 'X', 'F', ['P3', 'P4'], talent(100, 100, 100))];
+  const speeds = new Map();
+  for (const _ of cakeSpeedSteps({ pals: split, index: index(), target: 'X', passives: ['P1', 'P2', 'P3', 'P4'] }, ['none', 'talent', 'special'], (cake, speed) => speeds.set(cake, speed))) { /* 最後まで回す */ }
+  assert.equal(fastestCake(speeds), 'special');
+  // 欲しいものだけ・1 つでは、スペシャルケーキは作れない
+  const only = new Map();
+  const onlyPals = [pal('m3', 'X', 'M', ['P1'], talent(100, 100, 100)), pal('f3', 'X', 'F', ['P1'], talent(100, 100, 100))];
+  for (const _ of cakeSpeedSteps({ pals: onlyPals, index: index(), target: 'X', passives: ['P1'], mode: 'only' }, ['special'], (cake, speed) => only.set(cake, speed))) { /* 最後まで回す */ }
+  assert.deepEqual([...only], [['special', null]]);
 });
