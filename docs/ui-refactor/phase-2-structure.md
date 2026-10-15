@@ -921,24 +921,49 @@
 - id: `<実装日>-bell`／title: 「通知を種類で絞れます」（10 字）／body: 「ベルで種類と未読で絞り、1 件ずつ既読にできます。これまでの通知は「すべての通知を見る」から。」（47 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る（お知らせの title・body の長さを含む）。
-- [ ] モックで: 新しい ID でログインしても数字が 37 にならない。種類のチップと「未読だけ」で絞れる。開いても既読にならず、行を押すとその 1 件だけ既読。「すべての通知を見る →」で履歴が開く。
-- [ ] 設定に「通知」カードがない。プロジェクトの CLAUDE.md:16 が直っていて変更記録がある（または、ユーザーに文案を渡した）。
-- [ ] 取り消した機能のお知らせ（アルファの条件）が出ない。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 通知の画像と文に、自動登録の候補の子（配合表の答え）を出さない。互換 — 既読の保存の形（id の配列）を変えていない。kind・palId のない古い通知も id の頭で種類が決まる。セキュリティ — href は `#/` で始まるものだけ、本文は textContent（`test/static/security.test.js`）。性能 — 対象外。
+- [x] `npm test` が通る（お知らせの title・body の長さを含む）。
+- [x] モックで: 新しい ID でログインしても数字が 37 にならない。種類のチップと「未読だけ」で絞れる。開いても既読にならず、行を押すとその 1 件だけ既読。「すべての通知を見る →」で履歴が開く。
+- [ ] 設定に「通知」カードがない（済）。プロジェクトの CLAUDE.md:16 が直っていて変更記録がある（または、ユーザーに文案を渡した）（**未。フェーズ 2 の報告で文案を示して確認を取る**）。
+- [x] 取り消した機能のお知らせ（アルファの条件）が出ない。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 通知の画像と文に、自動登録の候補の子（配合表の答え）を出さない。互換 — 既読の保存の形（id の配列）を変えていない。kind・palId のない古い通知も id の頭で種類が決まる。セキュリティ — href は `#/` で始まるものだけ、本文は textContent（`test/static/security.test.js`）。性能 — 対象外。
 
 ### TODO
-- [ ] `cleanNotification` に palId、`notificationCategory`（kind・worldId・batchId は autoreg-success のまま。テストを先に）
-- [ ] 各通知の元で palId を入れる（食い違いは親1）
-- [ ] 既読の保存先がない端末はお知らせを既読から始める
-- [ ] パネルの頭・チップ・「未読だけ」・行の部品・個別の既読・すべて既読
-- [ ] 「開いたら全部既読」をやめ、「すべての通知を見る →」と一覧のダイアログを同じ部品に
-- [ ] 赤い数字と点・aria-label・揺れ・`unreadCounts`
-- [ ] 設定の「通知」カードを消す
-- [ ] release-notes の本文の直し・ideal-alpha の削除・先頭のコメント・href
-- [ ] プロジェクトの CLAUDE.md:16 と変更記録（拒否されたらユーザーへ）
-- [ ] 未設定の通知の行き先
-- [ ] テストの書き換え（notifications・app・views・auto-register）と release-notes
+- [x] `cleanNotification` に palId、`notificationCategory`（kind・worldId・batchId は autoreg-success のまま。テストを先に）
+- [x] 各通知の元で palId を入れる（食い違いは親1）
+- [x] 既読の保存先がない端末はお知らせを既読から始める
+- [x] パネルの頭・チップ・「未読だけ」・行の部品・個別の既読・すべて既読
+- [x] 「開いたら全部既読」をやめ、「すべての通知を見る →」と一覧のダイアログを同じ部品に
+- [x] 赤い数字と点・aria-label・揺れ・`unreadCounts`
+- [x] 設定の「通知」カードを消す
+- [x] release-notes の本文の直し・ideal-alpha の削除・先頭のコメント・href
+- [ ] プロジェクトの CLAUDE.md:16 と変更記録（拒否されたらユーザーへ）（**未。フェーズ 2 の報告で確認を取る**）
+- [x] 未設定の通知の行き先
+- [x] テストの書き換え（notifications・app・views・auto-register）と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/bell`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の autoreg-visibility・settings はこちらを正とする）。
+
+1. **正規化（手順 1）**: `notificationTags` に **`palId`**（web/data/pals.js にあるパル ID だけ）を足した（`cleanNotification` と自動登録の保存した通知の読み戻し `cleanSavedNotice` の両方に効く）。`kind`・`worldId`・`batchId` は 1d のまま。**`notificationCategory(item)`**（`'auto'`〔kind `auto-registered` か id の頭 `auto-breed:`〕・`'release'`・`'goal'`〔`wishlist:`・`ideal:`〕・`'other'`）は保存せず表示のときに決める。
+2. **通知の元の palId**: 目標の観測（`goalObservationSource`）＝その種族、理想個体の完成（`idealNotificationSource`）＝目標の種族、自動登録の成功（`registeredNotice`）＝登録した記録の子、見送り（`anomalyNotice`）＝セーブで見たタマゴの中身（`m.actual`）、保留（`conflictNotice`）＝親1、未設定のプレイヤー＝なし。
+3. **既読の始め方（手順 2。G-22）**: `createNotificationStore` の `readIds` が、保存先の `getItem(key) === null` のときだけ、その時点の `release:` の通知を全部既読として保存してから始める（`initialIds`）。`getItem` が例外の端末・storage のない端末は今までどおり空から。保存に失敗しても、開いている間は既読として扱う。
+4. **ベルのパネル（手順 3）**: ui/notifications.js を作り直した。共通の中身 `notificationBrowser(notifications, filter, { heading, limit, onNavigate })`（頭・チップ・行。ベルのパネルと通知一覧で同じ）と行の部品 `notificationRow`。絞り込みの状態は **`notificationFilter()`**（`{ category, unreadOnly }`）をベルの中に 1 つ持ち、パネルを開き直しても残り、「すべての通知を見る →」で開く通知一覧にも同じものを渡す（一覧で変えた種類もベルに残る）。
+   - **パネルは既読も含めて新しい順に 30 行まで**（`PANEL_ROWS`。文書は行数を決めていなかった。お知らせだけで 40 件を超え、自動登録は 200 件まで残るため）。それより前は通知一覧で。
+   - 「すべて既読」は**いま絞っている通知の全部**（パネルに出ていない 31 行目以降も含む）を既読に。未読がなければ押せない。パネルでは見出し「通知」の行の右、通知一覧ではチップの行の右端（ダイアログに題名があるため）。
+   - 行: 左に 32px の絵（palId があれば `palIcon`、なければ種類の記号。更新内容＝新しく足したアイコン **`info`**、目標＝`star`、自動登録＝`owned`、その他＝`bell`）、題名と日付（右）の 1 行、本文 1 行（省略。全文は行の title。まとめた行の「ほか N 件」は省略しても残る塊）。右の列（64px。既読の行も幅を取って日付をそろえる）に、未読なら「未読」のチップと「既読にする」（✓ のアイコン、aria-label「「〈題名〉」を既読にする」）。未読の行は地の色を薄く付けた。行き先のある行を押すとその行の id（まとめた行は全部）を既読にして閉じる。
+   - 「既読にする」を押した後のフォーカスは、同じ行の本体（開く先のない行も tabindex=-1 で受ける）→「未読だけ」で行ごと消えたら同じ位置の次の行 →「すべて既読」の順。
+   - 空の文は「新しい通知はありません。」（「未読だけ」なら「未読の通知はありません。」）。前の「これまでの通知」のボタンは「すべての通知を見る →」に替えた。
+   - 開いただけでは既読にしない（パネル・通知一覧とも）。
+5. **数字（手順 4）**: **`unreadCounts(notifications)` → `{ actionable, release }`**（notifications.js。`groupNotifications(unread())` の行で数える）。赤い数字は actionable、release だけなら `.notification-badge.is-dot`（数字のない点）。aria-label「通知（要確認 2 件・お知らせ 3 件）」（0 の方は省く）。要確認の未読が増えたときにボタンへ `is-ringing` を付けて 1 回揺らす（`animationend` で外す。CSS は最初の `prefers-reduced-motion: no-preference` の中）。
+6. **設定の「通知」カード（手順 5）**: 消した（views/settings.js。カードは「データの状態・記録を書き出す・整合性の警告・アカウント」）。
+7. **文言（手順 6）**: release-notes.js の先頭のコメントに「機能をなくしたら元の告知を消すか書き直す（id は再利用しない）。開く先があれば href（#/… だけ）を書く」。`2026-10-08-ideal-alpha` を消し、`2026-10-08-ideal-generations`・`2026-10-04-notifications` の本文を文書のとおりに直した。href を足したもの: このフェーズの 6 件（find-merge・owned-overlay・register-entry・register-dialog → `#/search`、goals-merge → `#/ideal?goals=1`、route-cleanup → `#/route`）と `2026-10-10-owned-keyword`（`#/owned`）・`2026-10-08-ideal-groups`（`#/ideal`）。
+   - **プロジェクトの CLAUDE.md:16 は、まだ直していない**。ユーザーの指示（変える前に理由と影響を示して確認を取る）に従い、フェーズ 2 の報告で文案と理由・影響を示して確認を取る（文案は手順 6 のとおり。「（右上のベルの通知欄と、設定タブの「通知一覧」に出る）」→「（右上のベルの通知欄と、ベルの「すべての通知を見る」に出る）」と変更記録 1 行）。
+8. **行き先（手順 7）**: 未設定の通知の行き先は 1d で `settingsHash(worldId, 'registrant')` に済んでいた（変更なし）。
+9. **テスト**: 1,539 → 1,545 件（`npm test` exit 0）。notifications.test.js（既読の始め方〔記録のない ID・記録のある ID・読み出しが例外の端末・保存の失敗〕、`notificationCategory`・`unreadCounts`、palId の確かめ、ベルの 30 行・開いても既読にしない・揺れ、点と aria-label、チップと「未読だけ」・開き直しても残る・行の「既読にする」とフォーカス・「すべて既読」・行を押すとその 1 件、「すべての通知を見る →」でチップを引き継ぐ、通知一覧の「すべて既読」。既読から始まる端末にしないテストは `setup({ read: [] })`）、app.test.js（初めての端末で数字なし・別のタブの既読で点・開いても既読にしない・設定の「通知一覧」がない／「すべての通知を見る →」と閉じたらベルへ）、views.test.js（設定のカード）、auto-register.test.js（成功・保留・見送りの palId）。
+10. **画面（モック・1100×900）**: 未読のお知らせ 2 件と自動登録の通知（成功 3 件・未設定 1 件）と目標の通知で、数字「3」・パネル（30 行・チップ・絵・未読の右の列・下端）・「自動登録」＋「未読だけ」で 2 行・「既読にする」で数字が減ってフォーカスが次の行の ✓ へ・通知一覧（チップの行の右端に「すべて既読」）を確かめた（`51`〜`56`。ダークも）。
+11. **後のテーマへの申し送り**:
+    - autoreg-visibility: 裏のタブの題名は `unreadCounts(notifications).actionable` を使う。
+    - settings: 「通知」カードはもうない（カードの並びの整理はここから）。
 
 ---
 
