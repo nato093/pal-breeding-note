@@ -614,18 +614,18 @@ export function ownedView(context, route) {
   summary.hidden = true;
   // 許可はクリックの中で求める必要があるため、案内の中にボタンを出す（許可の後にそのまま読み込む）。
   // 案内は 1 文と行き先のボタン（「設定タブの〜」とだけ書かない。copy-dead-ends）: ワールドの登録・編集はこの画面からモーダルを開き、
-  // 読めないエラーは設定のセーブ連携（読んでいるワールドの行を開く）へ
+  // 読めないエラーは設定のセーブ連携の状態の欄（今すぐ読み込む・許可。router.js の settingsHash の 'status'）へ
   const linkedWorld = () => owned.state.auto?.worlds?.find((world) => world.id === owned.state.linkedWorldId) ?? null;
   const noticeActions = {
     grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message, { kind: 'error' })) },
     register: { label: 'ワールドを登録', run: () => openWorldDialog(context) },
-    settings: { label: 'セーブ連携を開く', run: () => context.navigate(settingsHash(owned.state.linkedWorldId ?? '')) },
+    settings: { label: 'セーブ連携を開く', run: () => context.navigate(settingsHash(owned.state.linkedWorldId ?? '', 'status')) },
     editWorld: {
       label: 'ワールドを編集',
       run: () => {
         const world = linkedWorld();
         if (world) openWorldDialog(context, { world });
-        else context.navigate(settingsHash(owned.state.linkedWorldId ?? ''));
+        else context.navigate(settingsHash(owned.state.linkedWorldId ?? '', 'status'));
       },
     },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },

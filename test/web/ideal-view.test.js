@@ -362,7 +362,7 @@ test('理想個体画面: 所持パルのデータがないときは 1 文と「
   assert.equal(emptyState.querySelector('.empty-icon').getAttribute('aria-hidden'), 'true');
   const open = emptyState.querySelector('a');
   assert.equal(open.textContent, 'セーブ連携を開く');
-  assert.equal(open.href, '#/settings?open=auto');
+  assert.equal(open.href, '#/settings?open=status');
   assert.doesNotMatch(none.element.textContent, /設定タブ/);
   none.destroy();
   const owned = fakeOwned(null);
@@ -1061,7 +1061,7 @@ test('理想個体画面: 目標を外すとダイアログの行が消えて空
   const action = dialog.querySelector('.ideal-goal-action');
   assert.equal(action.hidden, false);
   assert.equal(action.textContent, 'セーブ連携を開く');
-  assert.equal(action.href, '#/settings?open=auto');
+  assert.equal(action.href, '#/settings?open=status');
   // 目標のパルを選ぶまでは保存できない
   assert.equal(saveButton(view).disabled, true);
   const remove = dialog.querySelector('.ideal-goal').querySelectorAll('button').find((node) => node.getAttribute('aria-label') === '「目標」を目標から外す');
@@ -2642,7 +2642,7 @@ test('理想個体画面（このワールドでの自分）: 自分が分から
   const action = row.querySelector('.ideal-goal-action');
   assert.equal(action.hidden, false);
   assert.equal(action.textContent, '設定で選ぶ');
-  assert.equal(action.href, `#/settings?world=${SELF_WORLD}&open=auto`);
+  assert.equal(action.href, `#/settings?world=${SELF_WORLD}&open=self`);
   await action.dispatch('click');
   assert.equal(dialog.open, false);
   // 設定で選んだ（同じセーブのまま）: 完成済みになるが、選んだ時点の完成は知らせない（completedAt なし）

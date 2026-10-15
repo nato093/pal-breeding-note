@@ -114,12 +114,14 @@ function registeredNotice(ctx, record, farmLabel) {
 }
 
 /**
- * 前の版が保存した「プレイヤーの対応が未設定です」の行き先（設定タブの先頭 '#/settings'）を、そのワールドの行を開いて未設定の登録者に
- * フォーカスする URL（router.js の settingsHash）にする。id は変えない（既読の記録が効く）。保存し直さず、読み出すたびに直す
+ * 前の版が保存した「プレイヤーの対応が未設定です」の行き先（設定タブの先頭 '#/settings'。未配信の版の `open=auto` も）を、そのワールドの行を
+ * 開いて未設定の登録者にフォーカスする URL（router.js の settingsHash の 'registrant'）にする。id は変えない（既読の記録が効く）。
+ * 保存し直さず、読み出すたびに直す
  */
 export function unmappedHref(notice) {
   const worldId = UNMAPPED_NOTICE.exec(notice.id)?.[1];
-  return worldId && notice.href === '#/settings' ? { ...notice, href: settingsHash(worldId) } : notice;
+  const old = worldId && (notice.href === '#/settings' || notice.href === settingsHash(worldId, 'auto'));
+  return old ? { ...notice, href: settingsHash(worldId, 'registrant') } : notice;
 }
 
 /**
@@ -367,7 +369,7 @@ export function createAutoRegister({
     title: 'プレイヤーの対応が未設定です',
     body: `${players.find((p) => p.uid === uid)?.name || 'セーブのプレイヤー'}の配合を登録できません。設定で登録者を選んでください。`,
     // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする
-    href: settingsHash(ctx.worldId),
+    href: settingsHash(ctx.worldId, 'registrant'),
   });
   // 登録した配合の牧場がある拠点の名前（例「拠点 1」）。表示中の所持パルが同じワールドのときだけ引き、分からなければ「配合牧場」
   const farmLabel = (ctx, candidate) => {
@@ -502,6 +504,17 @@ export function createAutoRegister({
     mapping(worldId = owned.state.local?.world.id ?? '') {
       const env = store.state.env;
       return env && worldId ? mappingOf(env, worldId) : {};
+    },
+    /**
+     * 別のタブの storage イベント。今の環境の登録者の対応表のキーなら、設定の変化として知らせて true を返す（対応表はキャッシュせず
+     * 読むたびに保存先から読むので、捨てるものはない）。対応表は自分のプレイヤーの決め方にも使うので、app.js は true のとき
+     * 本人の変化として知らせる（self-player.js の changed）。登録し直し（evaluate）は、変えたタブが行う
+     */
+    reload(key) {
+      const env = store.state.env;
+      if (!env || typeof key !== 'string' || !key.startsWith(`${namespace}.autoBreeding.players.${env}.`)) return false;
+      changed();
+      return true;
     },
     // セーブのプレイヤーを、登録者にするアプリのユーザーに対応づける（空にすると同じ名前のユーザーに戻す）
     setMapping(playerUid, userId, worldId = owned.state.local?.world.id ?? '') {

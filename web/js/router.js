@@ -22,13 +22,22 @@ export function buildHash(view, params = {}, id = '') {
 }
 
 /**
- * 設定のセーブ連携を開いて、そのワールドで設定することにフォーカスする URL（`#/settings?world=<ID>&open=auto`）。
- * このワールドでの自分が決まっていなければその選択、登録者の対応が未設定ならその選択、などへ移る（views/owned-settings.js の reveal）。
- * 理想個体の「未確認」・自動登録の「プレイヤーの対応が未設定です」・設定へ移る案内（「セーブ連携を開く」。継承ルート・理想個体・
- * 所持パルの案内の帯）・ヘッダーのセーブ連携の「設定を開く」が使う
+ * 設定の行き先の意図（URL の open の値）。設定のセーブ連携を開いて、意図ごとの所へフォーカスする（views/owned-settings.js の reveal）。
+ * - self: このワールドでの自分の選択（理想個体の「未確認（このワールドでの自分が未設定）」の「設定で選ぶ」）
+ * - registrant: そのワールドの行を開いて、未設定の登録者の選択（自動登録の「プレイヤーの対応が未設定です」）
+ * - status: カードの状態の欄の操作（読み込みの許可・今すぐ読み込む）かカードの見出し（データがない・読めないときの「セーブ連携を開く」、
+ *   ヘッダーのセーブ連携の「設定を開く」）
+ * - auto: 前の版の決め方（自分が決まっていなければ自分 → 未設定の登録者 → 自動登録のチェック → 自分 → 見出し）。前に保存した通知・
+ *   ブックマークの `open=auto` のため受け付け続ける
  */
-export function settingsHash(worldId = '') {
-  return buildHash('settings', { world: worldId, open: 'auto' });
+export const SETTINGS_OPEN = Object.freeze(['self', 'registrant', 'status', 'auto']);
+
+/**
+ * 設定のセーブ連携を開いて、そのワールドで open の意図の所へフォーカスする URL（`#/settings?world=<ID>&open=<意図>`。SETTINGS_OPEN）。
+ * ワールド ID はそのまま入れる（設定の画面が大文字にそろえて比べる）。'' なら `#/settings?open=<意図>`
+ */
+export function settingsHash(worldId = '', open = 'auto') {
+  return buildHash('settings', { world: worldId, open: SETTINGS_OPEN.includes(open) ? open : 'auto' });
 }
 
 /** route を表すハッシュ（履歴のエントリに残した条件と位置が、同じ URL のものかを確かめる）。 */

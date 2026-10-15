@@ -181,17 +181,17 @@ test('ヘッダーのセーブ連携: 押すとポップオーバーを開き、
   assert.match(panel.textContent, /表示中「もふもふ」（ホスト 自分） · 3 体/);
   const buttons = () => panel.querySelectorAll('button').filter((node) => !node.hidden).map((node) => node.textContent);
   assert.deepEqual(buttons(), ['今すぐ読み込む']);
-  // 「設定を開く」は設定のセーブ連携（表示しているワールドの行を開いてフォーカス。router.js の settingsHash。前は設定の先頭 '#/settings'）
-  assert.equal(panel.querySelector('a').href, `#/settings?world=${'A'.repeat(32)}&open=auto`);
+  // 「設定を開く」は設定のセーブ連携の状態の欄（許可・今すぐ読み込む。router.js の settingsHash の 'status'。前は設定の先頭 '#/settings'）
+  assert.equal(panel.querySelector('a').href, `#/settings?world=${'A'.repeat(32)}&open=status`);
   const reload = panel.querySelectorAll('button').find((node) => node.textContent === '今すぐ読み込む');
   await reload.dispatch('click');
   assert.deepEqual(log, [['refreshAuto', { enable: true }]]);
   // 開いている間に状態が変わっても閉じない（同じパネル・同じボタン）
   emit({ auto: { enabled: true, status: 'permission', worlds: [{ id: 'W1' }], error: '許可が必要です' } });
   assert.equal(part.element.querySelector('.save-status-panel'), panel);
-  // 読んでいる登録のワールドが分かれば、その行へ（開いている間も書き換える）
+  // 読んでいる登録のワールドが分かれば、そのワールドを渡す（開いている間も書き換える）
   emit({ linkedWorldId: 'C'.repeat(32) });
-  assert.equal(panel.querySelector('a').href, `#/settings?world=${'C'.repeat(32)}&open=auto`);
+  assert.equal(panel.querySelector('a').href, `#/settings?world=${'C'.repeat(32)}&open=status`);
   assert.equal(panel.querySelectorAll('button').find((node) => node.textContent === '今すぐ読み込む'), reload);
   assert.deepEqual(buttons(), ['読み込みを許可', '今すぐ読み込む']);
   assert.match(panel.textContent, /許可が必要です/);

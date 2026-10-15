@@ -1,6 +1,6 @@
 // 設定の「セーブ連携」。登録したワールド（モーダルで登録・編集・削除）、使うワールドの切り替え、
 // 表示しているワールドでの自分、配合牧場からの自動登録（ワールドごと）、所持パルの CSV・共有の削除を扱う。
-import { el, button, runButton, statusChip, setChipTone } from '../ui/dom.js';
+import { el, button, runButton, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
 import { dateTime, worldName, roleLabel, timeLines } from '../ui/owned-status.js';
@@ -266,23 +266,28 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     }
     const players = el('div', 'owned-breeding-players');
     players.append(el('p', 'owned-step-title', '登録者（親を拠点に預けた人 → このノートの ID）'));
+    // プレイヤーの名前は「このワールドでの自分」・所持者の選択肢と同じ（名前がない・同じ名前が 2 人以上なら UID の頭 8 字を添える）
+    const nameOf = playerLabels(view.players);
     for (const player of view.players) {
       const select = el('select');
-      select.setAttribute('aria-label', `${player.name || 'プレイヤー'}の登録者`);
+      select.setAttribute('aria-label', `${nameOf(player)}の登録者`);
       const sameName = mappedUser(player, { users });
       select.append(option('', sameName ? `${sameName}（同じ名前）` : '未設定（登録しない）'));
       for (const user of users) select.append(option(user, user));
       select.value = users.includes(view.mapping[player.uid]) ? view.mapping[player.uid] : '';
       select.addEventListener('change', () => {
         autoRegister.setMapping(player.uid, select.value, world.id);
-        // 対応表は自分のプレイヤーの決め方にも使う（このワールドでの自分を選んでいないとき）。同じセーブのまま判定し直し、自動の名前も描き直す
-        context.ideals?.identityChanged?.();
-        renderSelf();
+        // 行の選択はもう新しい対応になっているので、この変更では行を作り直さない（作り直すと、選んだ select からフォーカスが外れる）
+        renderedWorlds = registeredViews(owned.state).signature;
+        // 対応表は自分のプレイヤーの決め方にも使う（このワールドでの自分を選んでいないとき）。本人の変化として知らせる（app.js が同じセーブの
+        // まま判定し直し、理想個体・所持パル・この画面の自分の自動の名前が描き直る。別のタブで変えたときも同じ経路。app.js の storage イベント）
+        if (context.self?.changed) context.self.changed();
+        else context.ideals?.identityChanged?.();
       });
       // 未設定（対応も同じ名前のユーザーもない）＝自動登録で「プレイヤーの対応が未設定です」になる
       parts.registrants.push({ select, unmapped: () => select.value === '' && !sameName });
       const row = el('label', 'owned-breeding-player');
-      row.append(el('span', '', player.name || `プレイヤー ${player.uid.slice(0, 8)}`), select);
+      row.append(el('span', '', nameOf(player)), select);
       players.append(row);
     }
     panel.append(players);
@@ -326,23 +331,35 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // 状態の欄（status）は描くたびに作り直すので、その外に作り直さない行として置く。選択肢は表示する内容が変わったときだけ作り直す
   const selfSelect = el('select', 'owned-self');
   selfSelect.setAttribute('aria-label', 'このワールドでの自分');
+  // 説明は選択の説明として読み上げる（設定の画面は 1 つだけなので、ID は固定でよい）
+  const selfNote = el('small', 'muted owned-self-note', '理想個体の完成の判定と、自分の個体の絞り込みに使います（この端末だけ）');
+  selfNote.id = 'owned-self-note';
+  selfSelect.setAttribute('aria-describedby', selfNote.id);
   const selfRow = el('label', 'owned-import-row owned-self-row');
-  selfRow.append(el('span', 'field-label', 'このワールドでの自分'), selfSelect,
-    el('small', 'muted owned-self-note', '理想個体の完成の判定と、自分の個体の絞り込みに使います（この端末だけ）'));
+  selfRow.append(el('span', 'field-label', 'このワールドでの自分'), selfSelect, selfNote);
   selfRow.hidden = true;
-  // 選択肢を作ったときのワールド（選んだらこのワールドに保存する）と、描いた内容の署名
+  // 表示しているワールド（選んだらこのワールドに保存する）・選択肢を作ったときのワールド（選んでいる途中は作り直さないので、表示する
+  // ワールドが替わった直後は前のワールドの選択肢のことがある）と、描いた内容の署名
   let selfWorld = '';
+  let optionsWorld = '';
   let renderedSelf = '';
   // 選ばないときに自分になるプレイヤーがいるか（登録者の対応か同じ名前）
   let selfAuto = false;
   selfSelect.addEventListener('change', () => {
-    if (!selfWorld || !context.self) return;
+    if (!context.self) return;
+    // ID の変更中（押せなくしてある）・選択肢がまだ前のワールドのものなら、保存せずに今のワールドの選択肢に作り直す
+    //（前のワールドのプレイヤーを、今のワールドのキーに保存しない）
+    if (context.store.state.renaming || !selfWorld || optionsWorld !== selfWorld) {
+      renderedSelf = '';
+      renderSelf();
+      return;
+    }
     if (!context.self.set(selfWorld, selfSelect.value) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）', { kind: 'error' });
   });
   // 出すのは、ログイン中で、表示しているワールド（ホストでも参加者でも。参加者は共有から来たプレイヤー）にプレイヤーがいるときだけ
   function renderSelf() {
     const state = owned.state;
-    const { env, userId, passcode } = context.store.state;
+    const { env, userId, passcode, renaming } = context.store.state;
     const worldId = ownedWorldId(state.meta?.worldId);
     const players = state.owned?.players ?? [];
     const shown = Boolean(context.self && env && userId && passcode && worldId && players.length);
@@ -353,6 +370,9 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       selfAuto = false;
       return;
     }
+    // ID の変更中は選べない（途中で選ぶと、移し終えた前の ID のキーに書いて失われることがあり、完成の判定もし直せない。
+    // 変更中に別のタブで変わった分は、変更が終わってから判定し直す。app.js）
+    setDisabled(selfSelect, renaming, 'ID の変更が終わってから選んでください');
     selfWorld = worldId;
     const users = context.store.state.users ?? [];
     // 選ばないときに自分になるプレイヤー（登録者の対応か同じ名前。理想個体・所持パルと同じ決め方）
@@ -369,6 +389,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       ...players.map((player) => [player.uid, label(player)])];
     // 選んでいる途中（フォーカス中）は作り直さず、離れてから作り直す（views/shared.js の syncOptions）
     syncOptions(selfSelect, choices, () => {
+      optionsWorld = worldId;
       if (selfSelect.value !== value) selfSelect.value = value;
     });
   }
@@ -394,7 +415,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     // 押して処理している途中のボタン（runButton が aria-busy を付ける）は、押せないままにする
     for (const [node, extra] of busyButtons) node.disabled = busy || extra() || node.getAttribute('aria-busy') === 'true';
   };
-  function renderRegistered(state) {
+  // 行に描く内容と、その署名（署名に busy は入れない。読み込みのたびに一覧を 2 回作り直していた。busy はボタンの disabled だけで表す）
+  function registeredViews(state) {
     const env = context.store.state.env;
     const users = env ? context.store.state.users ?? [] : [];
     const players = state.role === 'host' ? state.local?.snapshot?.players ?? [] : [];
@@ -409,8 +431,10 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       hasOwned: state.local?.world.id === world.id || sharedAt.has(world.id),
       sharedAt: sharedAt.get(world.id) ?? '',
     }));
-    // 署名に busy は入れない（読み込みのたびに一覧を 2 回作り直していた）。busy はボタンの disabled だけで表す
-    const signature = JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind]), views, users, Boolean(autoRegister)]);
+    return { users, views, signature: JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind]), views, users, Boolean(autoRegister)]) };
+  }
+  function renderRegistered(state) {
+    const { users, views, signature } = registeredViews(state);
     if (signature !== renderedWorlds) {
       renderedWorlds = signature;
       busyButtons = [];
@@ -518,53 +542,74 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     }
   }
 
-  // ---- 設定の行き先（`#/settings?world=<ID>&open=auto`。router.js の settingsHash） ----
-  // そのワールドの行を開き、設定することにフォーカスする。所持パルの状態を読み込む前なら、読み込んだ後に行う
+  // ---- 設定の行き先（`#/settings?world=<ID>&open=<意図>`。router.js の settingsHash・SETTINGS_OPEN） ----
+  // 意図の所へフォーカスする（登録者の意図と前の版の auto は、そのワールドの行を開く）。所持パルの状態を読み込む前なら、読み込んだ後に行う
   let pendingReveal = null;
   let destroyed = false;
-  function reveal({ worldId = '' } = {}) {
+  function reveal({ worldId = '', open = 'auto' } = {}) {
     if (destroyed) return;
-    if (!owned.state.ready) { pendingReveal = { worldId }; return; }
+    if (!owned.state.ready) { pendingReveal = { worldId, open }; return; }
     pendingReveal = null;
     const id = ownedWorldId(worldId);
     const world = id ? owned.state.auto.worlds.find((item) => ownedWorldId(item.id) === id) : null;
-    if (world) {
-      openWorlds.add(world.id);
-      renderedWorlds = '';
-      renderRegistered(owned.state);
-    }
+    if (world && (open === 'registrant' || open === 'auto')) openWorld(world);
     renderSelf();
     const move = () => {
       if (destroyed) return;
-      const target = revealTarget(id, world);
+      const target = revealTarget(open, id, world);
       target.scrollIntoView?.({ block: 'center' });
       target.focus({ preventScroll: true });
     };
     if (card.isConnected === false) afterAttach(move);
     else move();
   }
-  // フォーカスの先（上から順に最初に当てはまるもの）: ① 表示しているワールドがそのワールド（ワールドの指定がなければ表示しているワールド）で、
-  // 自分が決まっていない → このワールドでの自分。② 開いたワールドの行の、未設定の登録者の選択。③ その行の自動登録のチェック。
-  // ④ このワールドでの自分（出ていれば）。⑤ カードの見出し
-  function revealTarget(id, world) {
-    if (selfUnknown() && (!id || selfWorld === id)) return selfSelect;
+  // 行がもうあれば開くだけにする（作り直すと、処理中のボタン〔runButton〕が押せるボタンに替わり、ほかの行の開いた選択も閉じる）。
+  // まだ描いていなければ、開いた状態で描く
+  function openWorld(world) {
+    openWorlds.add(world.id);
+    const parts = worldParts.get(world.id);
+    if (parts) {
+      parts.details.open = true;
+      return;
+    }
+    renderedWorlds = '';
+    renderRegistered(owned.state);
+  }
+  // フォーカスの先（意図ごとに、上から順に最初に当てはまるもの。隠れている・押せないものは飛ばす。どれもなければカードの見出し）
+  // - self: このワールドでの自分
+  // - registrant: 開いたワールドの行の、未設定の登録者の選択 → このワールドでの自分
+  // - status: 状態の欄の操作（読み込みの許可 → 今すぐ読み込む。データがない・読めないときの行き先。自動登録のチェックのような、押すと
+  //   設定が変わるものへは移らない）
+  // - auto（前の版）: ① 表示しているワールドがそのワールド（ワールドの指定がなければ表示しているワールド）で、自分が決まっていない →
+  //   このワールドでの自分。② 未設定の登録者。③ その行の自動登録のチェック。④ このワールドでの自分
+  function revealTarget(open, id, world) {
     const parts = world ? worldParts.get(world.id) : null;
-    const registrant = parts?.registrants.find((item) => item.unmapped());
-    if (registrant) return registrant.select;
-    if (parts?.toggle) return parts.toggle;
-    if (!selfRow.hidden) return selfSelect;
+    const registrant = parts?.registrants.find((item) => item.unmapped())?.select;
+    const candidates = {
+      self: [selfSelect],
+      registrant: [registrant, selfSelect],
+      status: stateRow.hidden ? [] : [grant, autoNow],
+      auto: [selfUnknown() && (!id || selfWorld === id) ? selfSelect : null, registrant, parts?.toggle, selfSelect],
+    }[open] ?? [];
+    const usable = (node) => node && !node.hidden && !node.disabled && !(node === selfSelect && selfRow.hidden);
+    const target = candidates.find(usable);
+    if (target) return target;
     cardTitle.tabIndex = -1;
     return cardTitle;
   }
 
   const unsubscribe = owned.subscribe(render);
-  // ユーザーの一覧・対応表は名前の変更でも変わる（表示が同じなら描き直さない）。ログイン・ログアウトで自分の行を出し入れする
+  // ユーザーの一覧・対応表は名前の変更でも変わる（表示が同じなら描き直さない）。ログイン・ログアウトで自分の行を出し入れする。
+  // ID の変更の始まりと終わりで、このワールドでの自分を押せなくする・戻す
   const unsubscribeStore = context.store.subscribe(() => {
     renderRegistered(owned.state);
     renderSelf();
   });
-  // 別のタブでこのワールドでの自分を変えたとき
-  const unsubscribeSelf = context.self?.subscribe(renderSelf) ?? (() => {});
+  // 本人が変わったとき（このワールドでの自分・登録者の対応。別のタブの変更も）。対応表が変わったら登録者の選択も合わせる
+  const unsubscribeSelf = context.self?.subscribe(() => {
+    renderRegistered(owned.state);
+    renderSelf();
+  }) ?? (() => {});
   render(owned.state);
   owned.load().catch(() => {});
   return {

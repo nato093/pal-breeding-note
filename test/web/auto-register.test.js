@@ -262,7 +262,7 @@ test('自動登録: 対応が未設定のプレイヤーの配合は通知だけ
   await t.run();
   assert.equal(t.creates.length, 0);
   // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする（router.js の settingsHash）
-  assert.deepEqual(t.auto.notices().map((n) => [n.title, n.href]), [['プレイヤーの対応が未設定です', '#/settings?world=W1&open=auto']]);
+  assert.deepEqual(t.auto.notices().map((n) => [n.title, n.href]), [['プレイヤーの対応が未設定です', '#/settings?world=W1&open=registrant']]);
   t.auto.setMapping(P2, '仲間');
   await t.auto.idle();
   assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
@@ -410,19 +410,22 @@ test('自動登録: 牧場の上の突然変異タマゴが登録済みと食い
   assert.doesNotMatch(`${notice.title}${notice.body}`, /ヤクモマル|ツッパニャン|表は/);
 });
 
-test('自動登録: 前の版が保存した「プレイヤーの対応が未設定です」の行き先（#/settings）は、読み出すときにそのワールドの行き先にする（id はそのまま）', async () => {
+test('自動登録: 前の版が保存した「プレイヤーの対応が未設定です」の行き先（#/settings・open=auto）は、読み出すときにそのワールドの登録者の行き先にする（id はそのまま）', async () => {
   const t = await setup({ farms: [] });
   const key = 't.autoBreeding.notices.test.自分';
   const date = '2026-10-06T00:00:00.000Z';
   const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
   t.storage.set(key, JSON.stringify([
     { id: `auto-breed:test:unmapped:${WORLD}:00000000-0000-0000-0000-000000000002`, date, title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。', href: '#/settings' },
+    // 未配信の版（participant-self）が書いた、意図の分かれていない行き先（open=auto。自分が決まっていないと「このワールドでの自分」へ移った）
+    { id: `auto-breed:test:unmapped:${WORLD}:p-4`, date, title: 'プレイヤーの対応が未設定です', body: '', href: `#/settings?world=${WORLD}&open=auto` },
     // 未設定の通知でないもの・すでに行き先のあるものは変えない
     { id: 'auto-breed:test:conflict:f2:e2', date, title: '自動登録を保留した配合', body: 'A×B', href: '#/settings' },
     { id: `auto-breed:test:unmapped:${WORLD}:p-3`, date, title: 'プレイヤーの対応が未設定です', body: '', href: '#/list' },
   ]));
   assert.deepEqual(t.auto.notices().map((n) => [n.id, n.href]), [
-    [`auto-breed:test:unmapped:${WORLD}:00000000-0000-0000-0000-000000000002`, `#/settings?world=${WORLD}&open=auto`],
+    [`auto-breed:test:unmapped:${WORLD}:00000000-0000-0000-0000-000000000002`, `#/settings?world=${WORLD}&open=registrant`],
+    [`auto-breed:test:unmapped:${WORLD}:p-4`, `#/settings?world=${WORLD}&open=registrant`],
     ['auto-breed:test:conflict:f2:e2', '#/settings'],
     [`auto-breed:test:unmapped:${WORLD}:p-3`, '#/list'],
   ]);
@@ -746,7 +749,7 @@ test('自動登録（読み戻しの検証）: 保存した通知に日時のな
   const notices = t.auto.notices();
   assert.deepEqual(notices.map((n) => n.id), ['auto-breed:test:unmapped:W1:c', 'auto-breed:test:unmapped:W1:d']);
   // 前の版の「未設定」の行き先（設定タブの先頭）は、そのワールドの行き先に読み替える（外の URL は捨てたまま）
-  assert.deepEqual(notices.map((n) => [n.title.length, n.body.length, n.href ?? '']), [[40, 200, ''], [3, 0, '#/settings?world=W1&open=auto']]);
+  assert.deepEqual(notices.map((n) => [n.title.length, n.body.length, n.href ?? '']), [[40, 200, ''], [3, 0, '#/settings?world=W1&open=registrant']]);
   // 件数は NOTICE_MAX（50 件）まで
   t.storage.set(key, JSON.stringify(Array.from({ length: 80 }, (_, i) => ({ id: `auto-breed:test:unmapped:W1:${i}`, date, title: '未設定' }))));
   assert.equal(t.auto.notices().length, 50);
@@ -860,7 +863,7 @@ function oldTabSaveNotices(storage, key, added) {
 
 test('自動登録（成功の通知）: 旧版のタブが既存のキーを 50 件で切って書き戻しても、未設定・見送りの通知は消えず、成功の通知のまとめ（kind・batchId）も消えない', async () => {
   const t = await setup({ farms: [sheepFarm(), dogFarm()], worldId: WORLD });
-  const unmapped = { id: `auto-breed:test:unmapped:${WORLD}:p-2`, date: '2026-10-01T00:00:00.000Z', title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。', href: `#/settings?world=${WORLD}&open=auto` };
+  const unmapped = { id: `auto-breed:test:unmapped:${WORLD}:p-2`, date: '2026-10-01T00:00:00.000Z', title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。', href: `#/settings?world=${WORLD}&open=registrant` };
   // 見送りの通知 48 件（未設定より新しく、読み込みより古い）と未設定で 49 件
   const anomalies = Array.from({ length: 48 }, (_, i) => ({ id: `auto-breed:test:anomaly:f9:e${i}`, date: second(100 - i), title: '自動登録しなかったタマゴ', body: '' }));
   t.storage.set(NOTICES_KEY, JSON.stringify([...anomalies, unmapped]));
