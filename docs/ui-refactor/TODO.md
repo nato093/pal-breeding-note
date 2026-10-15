@@ -902,7 +902,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ゲームの UI アイコンと作業適性を取り込む
 
-- 状態: 済（2026-10-15。実装の記録は phase-3-4-drawer-data.md の game-assets の節。統合ブランチ `integrate/phase-4` へのマージは親のセッションが確かめてから）／ ブランチ: `feature/game-assets` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15。実装の記録は phase-3-4-drawer-data.md の game-assets の節。統合ブランチ `integrate/phase-4` へマージした）／ ブランチ: `feature/game-assets` ／ マージのコミット: `6126736`
 
 - [x] `openPak` に `list(prefix)` を足す
 - [x] `scripts/extract-ui-icons.mjs`（`--list`・`UI_ICONS` の表・縮小・形式の確認）と npm の scripts
@@ -920,20 +920,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 セーブから読める追加の情報（入手時刻・お気に入り・接続中の仲間・Day・ケーキの残りほか）
 
-- 状態: 未着手 ／ ブランチ: `feature/save-extras` ／ マージのコミット: （未）
+- 状態: 済（2026-10-16。実装の記録は phase-3-4-drawer-data.md の save-extras の節。統合ブランチ `integrate/phase-4` へのマージは親のセッションが確かめてから。お気に入りと孵化の残り時間は 2026-10-15 のユーザーの答えで見送った）／ ブランチ: `feature/save-extras` ／ マージのコミット: （未）
 
-- [ ] `check-save.mjs --probe`（個体の項目・最終ログインと RealDateTimeTicks・場所不明の入れ物・牧場の入れ物・孵化器）を書いて実セーブで確かめる
-- [ ] 結果を SAVE_FORMAT.md に書き、ない項目をユーザーに報告する
-- [ ] 入手時刻（OwnedTime か firstSeen）・並べ替え・NEW（lastViewed）
-- [ ] お気に入り（読み取り・ハート・キーワード・共有の列）
-- [ ] 接続中の仲間（GameTimeSaveData・ギルドの最終ログイン・online）と Day・Lv の表示
-- [ ] players の共有に level・online・lastOnlineAt を足す（Day の共有はユーザーに確かめる）
-- [ ] 観賞用ケージの場所（原因と分かったときだけ）
-- [ ] 牧場のケーキの残り（入れ物があるときだけ。ホストだけ）
-- [ ] 魂の強化・病気（項目があるときだけ。ドロワーと行のバッジ）
-- [ ] 孵化の残り時間は調査の結果しだい
-- [ ] テスト（save・owned・shared・gas・owned-view）と期待値の更新
-- [ ] build:gas、OPERATIONS.md、release-notes、ユーザーへの `gas:push`・`setup()` の依頼
+- [x] `check-save.mjs --probe`（個体の項目・最終ログインと RealDateTimeTicks・場所不明の入れ物・牧場の入れ物・孵化器）を書いて実セーブで確かめる（→ インプラントとパルリバーサーの入れ物・RecordData も）
+- [x] 結果を SAVE_FORMAT.md に書き、ない項目をユーザーに報告する
+- [x] 入手時刻（OwnedTime か firstSeen）・並べ替え・NEW（lastViewed）（→ OwnedTime。NEW の基準は別のキー `owned.seenAt`）
+- [x] お気に入り（読み取り・ハート・キーワード・共有の列）（→ 見送った。2026-10-15 のユーザーの答え）
+- [x] 接続中の仲間（GameTimeSaveData・ギルドの最終ログイン・online）と Day・Lv の表示
+- [x] players の共有に level・online・lastOnlineAt を足す（Day の共有はユーザーに確かめる）（→ level・online。lastOnlineAt は作らない。Day はワールドの列 `inGameDay`）
+- [x] 観賞用ケージの場所（原因と分かったときだけ）
+- [x] 牧場のケーキの残り（入れ物があるときだけ。ホストだけ）
+- [x] 魂の強化・病気（項目があるときだけ。ドロワーと行のバッジ）
+- [x] 孵化の残り時間は調査の結果しだい（→ 見送った。2026-10-15 のユーザーの答え）
+- [x] テスト（save・owned・shared・gas・owned-view）と期待値の更新
+- [x] build:gas、OPERATIONS.md、release-notes、ユーザーへの `gas:push`・`setup()` の依頼（→ 依頼はフェーズの報告で）
 
 ### 40. [implants](phase-3-4-drawer-data.md#implants-パル手術台とインプラントパルリバーサー)（L）
 
@@ -977,7 +977,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 - [ ] `npm test`・`npm run test:perf` が通る
 - [ ] 実セーブで確かめた項目を `docs/SAVE_FORMAT.md` に書いた。取り込んだ画像の権利表記と撤回の手順を `data/SOURCES.md` に書いた
-- [ ] GAS の反映（`npm run gas:push` → `npx clasp update-deployment <deployment ID>`）をユーザーに依頼した: save-extras（入手時刻・お気に入りの列、Day を共有するならワールドの列 → `setup()`）
+- [ ] GAS の反映（`npm run gas:push` → `npx clasp update-deployment <deployment ID>`）をユーザーに依頼した: save-extras（`OwnedPals` の `ownedAt` の列・`OwnedWorlds` の `inGameDay` の列 → `setup()`。お気に入りは見送った）
 - [ ] 配信（main の push）の前に、`npx clasp list-deployments` で本番の URL の版が上がったことを確かめた（ユーザーの「済んだ」だけで進めない。フェーズ 3 は版 8 のまま配信した）
 - [ ] 観点別のエージェントと Codex（読み取り専用。使う前に許可）で差分をレビューし、直した
 - [ ] 全体の最終報告（変更したファイル・実行したコマンド・画面の確かめ方・残した課題）

@@ -1338,7 +1338,7 @@
    - `OwnedTime` がなければ: IndexedDB に `${namespace}.owned.firstSeen.<worldId>`（個体 ID → 初めて見た時刻の ISO。20,000 件まで、古い順に捨てる）を持ち、読み込むたびに新しい個体 ID だけを足す（ホストの読み込みと参加者の共有の読み直しの両方。`web/js/owned.js` の読み込みの後）。個体の `ownedAt` はこれから付ける（共有はしない）。
    - 並べ替え `['ownedAt', '入手の新しい順']` を `OWNED_SORTS`（`web/js/core/owned.js:328-335`）に足す（`ownedAt` の新しい順 → 個体 ID。`ownedAt` が空の個体は最後）。owned-rows の列見出しの並べ替えにも出す。
    - NEW: `localStorage` の `${namespace}.owned.lastViewed.<env>.<userIdKey>.<worldId>`（時刻 1 つ）より後の `ownedAt` の個体に「NEW」のバッジ（状態チップ）。保存がない（初めて開いた）ときは付けず、今の時刻を保存する。所持パルの画面を離れるとき（`destroy`）に、そのとき見ていたデータのセーブの時刻を保存する。ログアウト・名前の変更でキーを移す（user-rename.js）。data-boundary の検証を通す。
-3. **お気に入り（O-57）**: `IsFavoritePal` があれば `PAL_FIELDS` に足し、`favorite: sp.IsFavoritePal === true`（ないときは false）。行の名前の横にハートの SVG（`createElementNS`・`title`「お気に入り」）、キーワードの status に「お気に入り」。共有は `OWNED_FIELDS` の末尾に `favorite`（`'1'`／空。`OWNED_ADDED_FIELDS` にも）。
+3. **お気に入り（O-57）**: **見送った（2026-10-15 のユーザーの答え）**。セーブに `IsFavoritePal` はなく、代わりの `FavoriteIndex` の意味を確かめられなかった（調べた結果は `docs/SAVE_FORMAT.md` の「見送ったもの」）。以下は元の案: `IsFavoritePal` があれば `PAL_FIELDS` に足し、`favorite: sp.IsFavoritePal === true`（ないときは false）。行の名前の横にハートの SVG（`createElementNS`・`title`「お気に入り」）、キーワードの status に「お気に入り」。共有は `OWNED_FIELDS` の末尾に `favorite`（`'1'`／空。`OWNED_ADDED_FIELDS` にも）。
 4. **接続中の仲間・Day・Lv（F006）**:
    - 解析: `LEVEL_SKIP`（`web/js/save/palworld.js:489-512`）に `GameTimeSaveData`（`[WS + '.GameTimeSaveData']: ['RealDateTimeTicks']`）を足し、`parseLevel` の結果に `realDateTimeTicks`。`readGuildPlayers`（`:416-447`）と IndependentGuild（`:406`）の `i64()` を `lastOnlineTicks` として読む（v1・v2 の両方）。
    - `buildSnapshot`: `players` の各プレイヤーに `lastOnlineAt`（ISO）と `online`（`|lastOnlineTicks − realDateTimeTicks|` が 10 秒以内。単位はティックなので 10 秒＝1 億ティック）を足す。読めないときは `online: null`（分からない）。`world.realTimeAt`（RealDateTimeTicks の ISO）も足す。
@@ -1349,7 +1349,7 @@
    - 表示: farm-board のカードと、理想個体の牧場の欄（ideal-farms の sticky 行）に「スペシャルケーキ ×7」、0 個なら「ケーキ切れ」（状態チップの警告の色）。ケーキの名前は `EGG_NAMES` と同じ取り出し（farm-board の手順 3）で `CAKE_NAMES` を足す。
    - 任意: 理想個体のケーキの選択の既定を、目標の組を置いている牧場の実際のケーキにする（ユーザーが選んだ値があればそちらを優先）。
 7. **魂の強化・病気など（F070）**: 手順 1 で項目があったものだけ。`PAL_FIELDS` に足して個体に `soul: { hp, attack, defense, craft }`・`condition: { sick, hunger, sanity }`。表示は owned-detail のドロワー（「魂の強化 HP+5 · 攻+10」）と、拠点・手持ちの個体の行に「病気」「空腹」のバッジだけ（行を太らせない）。共有は今は足さない（使われてから）。
-8. **孵化の残り時間（F088）**: 手順 1 の調査で、減っていく値と WorldOption の孵化時間設定（`PalEggDefaultHatchingTime`）が確かめられたときだけ、farm-board のタマゴと孵化待ちの 1 行に「あと 12 分」。確かめられなければ調査の結果を `docs/SAVE_FORMAT.md` に残して終える。
+8. **孵化の残り時間（F088）**: **見送った（2026-10-15 のユーザーの答え）**。孵化器の RawData にも作業にも減っていく値が見つからなかった（`docs/SAVE_FORMAT.md` の「見送ったもの」）。以下は元の案: 手順 1 の調査で、減っていく値と WorldOption の孵化時間設定（`PalEggDefaultHatchingTime`）が確かめられたときだけ、farm-board のタマゴと孵化待ちの 1 行に「あと 12 分」。確かめられなければ調査の結果を `docs/SAVE_FORMAT.md` に残して終える。
 9. `docs/SAVE_FORMAT.md` の「使う項目」（`:72-78`）と新しい節（接続中の判定・牧場のケーキ）、`docs/OPERATIONS.md` の所持パルの節を書く。
 
 ### 触るファイル
@@ -1373,7 +1373,7 @@
 ### release-notes の案
 - id: `YYYY-MM-DD-save-extras`
 - title: 「新しく入った個体に印」（10 字）
-- body: 「入手の新しい順とNEW・お気に入りの印、プレイ中の仲間とゲーム内の日数を出します。」（41 字）
+- body: 「入手の新しい順とNEW・お気に入りの印、プレイ中の仲間とゲーム内の日数を出します。」（41 字）→ お気に入りは見送った（2026-10-15 のユーザーの答え）ので、実装では「所持パルに入手の新しい順・NEW・観賞用ケージ、上のバーにプレイ中の仲間とゲーム内の日数を出します。」（50 字）にした
 - ケーキの残りを別に配信するなら、もう 1 件「牧場のケーキの残り」（9 字）・「配合牧場ごとのケーキの種類と残りを出し、切れたら印を付けます。ホストの画面だけです。」（42 字）。
 
 ### 完了の条件
@@ -1386,18 +1386,65 @@
 - [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 新しい列は `OWNED_ADDED_FIELDS` で末尾に足し、足す前の画面の共有・古い GAS・新しい項目のない古いスナップショットで壊れない。共有の範囲は統合プランの決定のとおり（入手時刻・お気に入りは共有、ケーキの残りはホストだけ）。セキュリティ — 名前は textContent、ハートは createElementNS（`test/static/security.test.js`）。性能 — 解析の時間の増え方を測って SAVE_FORMAT.md に書いた。INV-2 — 対象外（個体・プレイヤー・アイテムの事実だけ）。
 
 ### TODO
-- [ ] `check-save.mjs --probe`（個体の項目・最終ログインと RealDateTimeTicks・場所不明の入れ物・牧場の入れ物・孵化器）を書いて実セーブで確かめる
-- [ ] 結果を SAVE_FORMAT.md に書き、ない項目をユーザーに報告する
-- [ ] 入手時刻（OwnedTime か firstSeen）・並べ替え・NEW（lastViewed）
-- [ ] お気に入り（読み取り・ハート・キーワード・共有の列）
-- [ ] 接続中の仲間（GameTimeSaveData・ギルドの最終ログイン・online）と Day・Lv の表示
-- [ ] players の共有に level・online・lastOnlineAt を足す（Day の共有はユーザーに確かめる）
-- [ ] 観賞用ケージの場所（原因と分かったときだけ）
-- [ ] 牧場のケーキの残り（入れ物があるときだけ。ホストだけ）
-- [ ] 魂の強化・病気（項目があるときだけ。ドロワーと行のバッジ）
-- [ ] 孵化の残り時間は調査の結果しだい
-- [ ] テスト（save・owned・shared・gas・owned-view）と期待値の更新
-- [ ] build:gas、OPERATIONS.md、release-notes、ユーザーへの `gas:push`・`setup()` の依頼
+- [x] `check-save.mjs --probe`（個体の項目・最終ログインと RealDateTimeTicks・場所不明の入れ物・牧場の入れ物・孵化器）を書いて実セーブで確かめる（→ インプラントとパルリバーサーの入れ物・RecordData も足した）
+- [x] 結果を SAVE_FORMAT.md に書き、ない項目をユーザーに報告する（→ 事前の調査で親のセッションが報告し、お気に入りと孵化の残り時間はユーザーの答えで見送った）
+- [x] 入手時刻（OwnedTime か firstSeen）・並べ替え・NEW（lastViewed）（→ OwnedTime がある形。firstSeen は作らない。NEW の基準は別のキー `owned.seenAt`）
+- [x] お気に入り（読み取り・ハート・キーワード・共有の列）（→ 見送った。2026-10-15 のユーザーの答え）
+- [x] 接続中の仲間（GameTimeSaveData・ギルドの最終ログイン・online）と Day・Lv の表示
+- [x] players の共有に level・online・lastOnlineAt を足す（Day の共有はユーザーに確かめる）（→ level・online だけ。lastOnlineAt は作らない。Day はワールドの列 `inGameDay`〔ユーザーの決定〕）
+- [x] 観賞用ケージの場所（原因と分かったときだけ）
+- [x] 牧場のケーキの残り（入れ物があるときだけ。ホストだけ）
+- [x] 魂の強化・病気（項目があるときだけ。ドロワーと行のバッジ）
+- [x] 孵化の残り時間は調査の結果しだい（→ 見送った。2026-10-15 のユーザーの答え）
+- [x] テスト（save・owned・shared・gas・owned-view）と期待値の更新
+- [x] build:gas、OPERATIONS.md、release-notes、ユーザーへの `gas:push`・`setup()` の依頼（→ 依頼はフェーズの報告で親のセッションが行う）
+
+### 実装の記録（2026-10-16、ブランチ `feature/save-extras`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の implants・paldex はこちらを正とする）。着手の前に、親のセッションが実セーブで項目を調べ（読み取りのみ）、ユーザーに確かめた（2026-10-15。AskUserQuestion）: 入手時刻・Lv とプレイ中・Day を共有する（Day はワールドの行の新しい列 `inGameDay`）、お気に入りと孵化の残り時間は見送る。文書の file:line は関数名・文字列で探し直した。細かな UI はユーザーの指示（D27）のとおり聞かずに決めた（下の 7）。
+
+1. **調べる（手順 1）**: `scripts/check-save.mjs` に `--probe`（`npm run check:save -- "<ワールドのフォルダ>" --probe`）。中身は新しい `scripts/save-probe.mjs` の `probeWorld(worldDir, { snapshot, files, log })` で、ふだんの読み込みは変えない（`parseLevel`・`parsePalStorage` に任意の `{ extraPalFields }` を足し、渡したときだけ個体に `probe`〔生の値〕が付く）。プレイヤー名は console にだけ出る。**出力の読み方**:
+   - `[1] 個体の SaveParameter の項目`: 項目ごとに「level 書かれている数/個体の数・dps …・global …」と値の例・分布。`Level` で 0/… でも保管庫で全部書かれているなら「既定の値のときは書かれない」項目（魂の強化・`WorkerSick` など）。どこにもなければ、その版のセーブにない項目（`IsFavoritePal`・`CraftSpeeds`）。
+   - `[2] プレイ中`: `RealDateTimeTicks`・`GameDateTimeTicks`（÷ 864e9 とスナップショットの Day）と、ギルドのメンバーごとの差（秒）と `online`・Lv。接続中なら差 0〜0.02 秒、していなければ数時間。
+   - `[3] 場所が「不明」の個体`: 入れ物の持ち主の MapObject（`DisplayCharacter（CharacterContainer・拠点あり）` など）ごとの数。0 体なら直った（観賞用ケージは `display` の数）。
+   - `[4] 配合牧場`: 牧場ごとの ModuleMap のキーと長さ・ケーキ（`[]` はケーキ切れ・`null` は入れ物が読めない）。
+   - `[5] 孵化器`: MapObjectId と `ConcreteModel.RawData` の長さ・中のタマゴの数の分布と、`WorldOption.sav` の孵化の設定（`PalEggDefaultHatchingTime`）。
+   - `[6] インプラント・パルリバーサー`: アイテムの入れ物の持ち主の種類（ギルド保管庫・所持品〔`InventoryInfo` の種類〕・配合牧場・拠点の MapObject〔`ItemChest_04` など〕・拠点の外の宝箱・どこにもない入れ物）ごとの数と、アイテムごとの数（多い順 10 種）。
+   - `[7] RecordData`: プレイヤーごとの `PalCaptureCount`・`PaldeckUnlockFlag` の件数（pals.js で引ける数・捕獲数の合計）。
+2. **入手時刻と NEW（手順 2。OwnedTime がある形。firstSeen は作らない）**:
+   - `OwnedTime` はホストの PC のローカル時刻のティックなので、`web/js/save/palworld.js` に **`ticksToLocalIso(ticks)`**（BigInt で割り、ブラウザのタイムゾーンで年月日時を組み立てて ISO にする。0・読めない値は ''）を足し、`palFromParams` の `ownedAt`。スナップショットの個体と画面の個体に `ownedAt`（画面は core/owned.js の **`ownedTime(value)`** で toISOString の形だけを残す＝文字の順で時刻の順に比べられる）。共有は `OWNED_FIELDS` の末尾 `ownedAt`（`OWNED_ADDED_FIELDS`・30 字）。
+   - 並べ替え **`['ownedAt', '入手の新しい順', 'desc', '入手の古い順']`** を `OWNED_SORTS` の 2 番目（図鑑順の次）に。入手時刻のない個体は向きによらず最後、同じ時刻は図鑑順 → 個体 ID。図鑑順でないので種族の見出しは混ぜない。**列見出しには足していない**（行に入手の列がないため。並べ替えの選択だけ）。
+   - NEW の基準は **`web/js/owned-seen.js` の `createOwnedSeen({ storage, namespace })`**（`context.ownedSeen`。`read(env, userId, worldId)`・`write(env, userId, worldId, time)`〔古い時刻では戻さない〕）で、別のキー **`<namespace>.owned.seenAt.<env>.<userIdKey>`** に `{ ワールド ID: ISO }`（50 ワールドまで・`cleanOwnedSeen` で形を確かめる）。文書の `lastViewed.<env>.<userIdKey>.<worldId>`（ワールドごとのキー）ではなく、ワールドを 1 つのオブジェクトにまとめた（親のセッションの許可）。ID の変更は user-rename.js の「オブジェクトの形のキー」に足し、同じワールドは新しい方（**`mergeOwnedSeen`**）。
+   - 所持パルの画面（views/owned.js の `trackNew`）: そのワールドのデータが届いたときに基準を 1 回だけ読み、開いている間は変えない（読み直しで届いた新しい個体にも NEW が付く）。保存がない（初めて開いた）ときは NEW を付けず、そのときのデータのセーブの時刻を書く。見ていたデータのセーブの時刻（`meta.saveUpdatedAt`）を、画面を離れるとき（`destroy`）・タブが裏に回ったとき（document の `visibilitychange`。文書にない。タブを閉じると `destroy` が呼ばれないため）・別のワールドに替えたときに書く。入手時刻はセーブより前なので「前に見ていたデータのセーブの時刻より後に入手した個体」が NEW。
+   - 行の NEW は**要素を足さない**: `ownedRowItem(pal, { isNew })` が行に `is-new` のクラスと読み上げの「（新しく入手）」を付け、CSS の `.owned-row.is-new::before` が絵の左上に「NEW」（primary の地・9px）を描く。`rowSignature(pal, notes, marks, isNew)`。種族の見出しの行（`pal.heading`）は対象にしない。
+3. **プレイ中・Day・Lv（手順 4）**:
+   - 解析: `LEVEL_SKIP` に `GameTimeSaveData`（`RealDateTimeTicks`・`GameDateTimeTicks`）、ギルドのメンバーの `lastOnlineTicks`（v1・v2・IndependentGuild）。`buildSnapshot` のプレイヤーに **`online`**（差が 1 億ティック〔10 秒〕以内なら true・離れていれば false・読めなければ null）。**`lastOnlineAt`・`world.realTimeAt` は作らない**（通算の時間なので日時に直せない）。Day は `LevelMeta.sav` の値、なければ `floor(GameDateTimeTicks ÷ 864e9)`。画面の `world.inGameDay` は 1 以上の数か null。
+   - 共有: `sharedUpload` の players に `level`（1 以上のとき）・`online`（真偽のとき）、`validateOwnedUpload` の **`cleanOwnedPlayer`**（Lv 1〜999・真偽だけ）と **`ownedInGameDay`**。Day は送る側では `world.inGameDay`（`OWNED_UPLOAD_FIELDS_` は増やさない）、GAS はワールドの行の列 `inGameDay`（`OWNED_WORLD_OPTIONAL_HEADERS_`。列がなければ書かず、読むと null。応答の `world.inGameDay` も列がなければ null にした＝読み直したときと同じ）。core/boundary.js の `cleanSharedPlayers`・`cleanWorld` にも足した（0-4 の 6）。
+   - 表示（ui/owned-status.js の **`presenceOf(state, { now })`・`presenceItems(state, { now })`・`onlineUids(state, { now })`・`onlineKey`**）: ヘッダーのセーブ連携のパネルに「ゲーム内 123 日目」「プレイ中 Alice・Bob（セーブ 03:07 の時点）」（だれもいなければ「いません（…）」）「Lv Alice 52 · Bob 47」（8 人まで・ほか n 人）。分からない（古いデータ・古い共有）なら行を出さない。押す前の説明（title）にも同じ行。**参加者の画面の時刻は「ホストのセーブ 03:07 の時点」にした**（指示の「共有 03:07 の時点」から変えた。プレイ中はその保存の時点の状態で、共有した時刻とは別。昨日のセーブを今共有すると、共有の時刻ではいま接続しているように読めるため。Codex のレビュー 4）。所持者の選択肢（views/shared.js の **`holderChoices(data, ideals, { online })`**。所持パルと理想個体）は仲間の名前に「（プレイ中）」。ゲームを閉じた後も最後の保存には「プレイ中」が残るので、**選択肢は保存が新しいとき（この PC は 5 分 `PRESENCE_FRESH_LOCAL_MS`・共有は 10 分 `PRESENCE_FRESH_SHARED_MS`）だけ**で、データが同じまま古くなったら次の知らせ（読み直しの 10〜20 秒ごと）で外す。パネルは必ず時刻を添える。**自分には付けない**（理想個体のパネルの狭い選択欄で「Alice（自分・プレ…」と切れたため。自分のことは分かる）。
+   - **文書の「所持パルの要約（owned-status の 1 行）に「· 123 日目」」は入れていない**: その 1 行（データ元の 1 行）は D29 でなくし、どのワールドの・いつのデータかはヘッダーのセーブ連携だけに出す決まりになったため、日数もヘッダー（パネルと説明）に出した。
+4. **観賞用ケージ（手順 5）**: `parseLevel` が `MapObjectId` が `DisplayCharacter` の MapObject の ModuleMap の `CharacterContainer` の入れ物 ID と拠点を **`displayCages`** に集め、`buildSnapshot` の `charContainer` に `{ kind: 'display', baseId }`（ほかの入れ物と重なればそちら）。画面は `PLACE_LABELS.display`「観賞用ケージ」、`PLACE_ORDER` は拠点の次（場所のチップ・URL の `place=display`・ボックス順の並び）。所持者は拠点（`baseLabel`）、場所は「観賞用ケージ・拠点 1」（拠点のタマゴと同じ形）。ideal-goals.js の `palsOfPlayers` は拠点の個体と同じく預けた人の個体に数える。`canBeParent` は true（ケージから出せば親にできる）。古い画面は知らない場所を「不明」として受ける。前の版で保存した場所の条件（タブの中の保存・前のリンク）が前の既定〔グローバル以外のすべて〕かすべての場所と同じなら、`migrateFilter` が `display` を足す（条件に場所の一覧の版 **`placesVersion`**〔`PLACES_VERSION` = 2。`OWNED_MEMORY` にも〕を持ち、版 2 で利用者がケージだけを外した条件はそのまま。前は「不明」として出ていたケージの個体が消えないように。Codex のレビュー 2）。
+5. **牧場のケーキ（手順 6。ホストだけ）**: `parseBreedFarms` が牧場の ModuleMap の `ItemContainer` の入れ物 ID を取り、`parseLevel` のスロットのループ（牧場の解析をループの前に移した）でケーキ（`Cake`・`Cake02` など。ほかのアイテム・0 個は数えない）を種類ごとに合わせる。**文書の `cake: { itemId, count }` ではなく `cakes: [{ itemId, count }]`（配列）にした**: 実セーブで 1 か所に複数の種類が入っていた（例 `Cake03`×18 と `Cake02`×51）ため。空の入れ物は `[]`（ケーキ切れ）、入れ物が見つからない・ケーキを読む前のセーブは `null`（分からない）。画面の牧場の `cakes`（core/owned.js の `cakesOf`。16 件まで）、共有の牧場は常に `null`（共有しない）。名前は `scripts/extract-skills.mjs` の **`buildCakeNames`**（`ITEM_NAME_Cake*`）→ `web/data/items.js` の **`CAKE_NAMES`**（5 件。`renderEggNames(eggs, cakes)` が同じファイルに書く）、引くのは core/owned.js の **`cakeInfo(itemId)`**（`{ name, icon }`。表にない ID は名前に ID・アイコンなし）。表示は ui/farm-board.js の **`cakeLine(cakes, { className })`**（ゲームのアイコン 16px と「キノコケーキ ×51」を種類ごと。`[]` は状態チップ「ケーキ切れ」〔warning〕。`null` なら出さない）を、牧場ボードのカードの「タマゴ n 個」の下と、理想個体の配合牧場の詳細の行（状態のチップの下。`farmContext` の `cakes`）に。帯（固定の行）には出していない（高さを変えないため）。任意の「ケーキの選択の既定を牧場のケーキに」は D30 の最速の印とぶつかるのでやっていない。data/SOURCES.md の行を「タマゴ・ケーキの日本語名」にして変更記録。
+6. **魂の強化と状態（手順 7。ホストだけ）**: `PAL_FIELDS` に `Rank_HP`・`Rank_Attack`・`Rank_Defence`・`Rank_CraftSpeed`・`WorkerSick`・`HungerType`・`SanityValue`。個体の **`soul: { hp, attack, defense, craft }`**・**`condition: { sick, hunger, sanity }`**（種類は列挙の後ろの名前。None・Default は ''。SAN は書かれなければ 100）。画面は `soulOf`・`conditionOf` で形を確かめ、古いスナップショット・共有では null。個体の詳細（views/owned-detail.js の **`soulAndCondition(pal)`**）に節「魂の強化と状態」（魂の強化〔0 でないものだけ「HP +10 · 作業速度 +20」。なければ「なし」〕・状態〔「病気（Cold） · 空腹（Starvation）」。種類はゲームの内部名のまま。日本語の表は取り込んでいない〕・SAN）と、頭の印に「病気」「空腹」、場所の節に「入手 2026/10/15 21:52」。行は views/owned.js の **`conditionBadges(pal)`**（拠点・手持ちだけ）で名前の下の印の 1 行に「病気」（error-container）「空腹」（warning）。キーワードの特徴に「病気」「空腹」。
+7. **決めたこと（D27。細かな UI）**: NEW は行の左上（left 8px・top 2px）の角に重ねる小さな「NEW」（9px・太字・primary の地）。並べ替えの「入手の新しい順」は図鑑順の次。ヘッダーのパネルの行の順は「この PC → 表示中 → 更新 → ゲーム内 → プレイ中 → Lv」。ケーキの行は文字 12px・アイコン 16px。病気の印は error-container、空腹の印は warning の色。更新内容の通知は 2 件（`2026-10-16-save-extras`「新しく入った個体に印」・`2026-10-16-farm-cakes`「牧場のケーキの残り」）。
+8. **テスト**: 1,664 → 1,687 件（`npm test` exit 0）。`npm run test:perf` 13 件 exit 0。新規 test/save/save-extras.test.js（5 件: ローカル時刻のティック・個体の項目と既定の値と `--probe` の `probe`・プレイ中の 10 秒の境目と Day の予備・観賞用ケージ・牧場のケーキ）、test/web/save-extras.test.js（10 件: NEW の基準の保存と形・名前の変更で移す・初回と 2 回目の NEW と要素の数・タブが裏に回ったときの保存・入手の新しい順・ヘッダーのパネルとプレイ中の時刻・所持者の「（プレイ中）」と鮮度・病気と空腹の印・牧場のケーキ・個体の詳細の魂の強化と状態）。core/owned.test.js に 5 件（画面の形と古いスナップショット・並べ替え・観賞用ケージ・共有の往復と古い共有・ケーキの名前）、web/owned-store.test.js に 1 件（古い GAS に断られたら列を外して送り直す・覚えた幅・1 時間ごとの試し直し）、web/owned-view.test.js の migrateFilter に前の版の場所の読み替え、gas/owned.test.js に 1 件（`ownedAt` と `inGameDay` の列。列のない古いシート・前の版の画面・setup のやり直し）、static/extract-skills.test.js に 1 件（`CAKE_NAMES`）、core/boundary.test.js（players の Lv・プレイ中と日数の形）。期待値を直したもの: `OWNED_FIELDS`・`OWNED_ADDED_FIELDS` の幅、`OWNED_SORTS` の並び、場所の並び（`display`）、スナップショットの個体・プレイヤー・牧場の形、共有のワールドの形（`inGameDay`）。test/perf/owned.perf.js の共有 20,000 行と並べ替えの入力に入手時刻を足した（共有の整え直しと画面用の変換 130 → 136ms・予算 200ms、行の要素の数 33・41・47 個は変わらない）。
+9. **解析の時間（docs/SAVE_FORMAT.md）**: 同じセーブの写しを交互に 12 回読んだ中央値で、手元のワールド（1,576 体）582 → 613 ms（+5.4%）、別のワールド（1,032 体）111 → 118 ms（+6.7%）。
+10. **画面の確認（モック・1100×900・ライトとダーク。`Claude outputs/ui-audit-2026-10/shots/phase-4/`。注入 `se-inject.js`〔inject-ga.js の写しに入手時刻・プレイ中・観賞用ケージ・ケーキ・病気と空腹・魂の強化〕、撮影 `se-shots-tmpl.js`・`se-viewer-tmpl.js`。撮影 `se01-…`〜`se09-…`）**: 1 回目に開くと NEW 0 件で基準（データのセーブの時刻）が保存され、基準を 25 分前に戻して開き直すと、入手の新しい順の先頭 6 体に「NEW」（読み上げ「アヌビス（新しく入手）」）。所持者の選択肢「すべて・Alice（自分）・Bob（プレイ中）・Carol」（理想個体も同じ）。ヘッダーのパネルに「ゲーム内 123 日目」「プレイ中 Alice・Bob（セーブ 01:59 の時点）」「Lv Alice 52 · Bob 47 · Carol 33」。場所のチップに「観賞用ケージ」（7 個で 1 行に収まる）、行は「拠点 1／観賞用ケージ・拠点 1」。キーワード「空腹」で 2 体（「病気」「空腹」の印）、個体の詳細の「魂の強化と状態」（なし・病気（Sprain） · 空腹（Starvation）・SAN 12）、保管庫の個体は「HP +10 · 攻撃 +10」。牧場ボードに「スペシャルケーキ ×12」「ケーキ切れ」「キノコケーキ ×30 野菜ケーキ ×8」、理想個体（アヌビス・所持者すべて）の配合牧場の詳細の行にも同じ。参加者（`127.0.0.1:5199/?mock=1&as=viewer`）は「プレイ中 Alice・Bob（ホストのセーブ 01:59 の時点）」・Day・Lv、所持者の「Alice（プレイ中）・Bob（プレイ中）」、入手の新しい順。終わった後にブラウザを閉じ、5199 番のサーバーを止めた。
+    - 実セーブ（ホストの画面）の代わりに `check:save --probe` で確かめた: 手元のワールドで個体 1,576 体・入手時刻あり 1,424 体・プレイ中はホストだけ（もう 1 人は差 約 6.5 時間）・Day 624・ケーキ 7 か所（1 か所に 2〜3 種類）・場所不明 0。別のワールドで観賞用ケージ 454 体（前は不明）・ケーキ切れ 2 か所・病気 15 体。
+11. **レビュー（Codex・読み取り専用。メモリの「UI 改善の Codex はフル活用可」に従った）**: コミット `300bbec` の差分に指摘 4 件（高 1・中 3）。すべて直した（`0a5f381`）。
+    1. **高: 新しい画面が古い GAS に共有できない**（`ownedAt` の列で `INVALID_COLUMNS`）→ web/js/owned.js の `uploadLocal` が、列の幅で断られたら末尾の列（`OWNED_ADDED_FIELDS`）を 1 つずつ外して送り直し、受け付けた幅を覚える（`UPLOAD_WIDTH_RETRY` の 1 時間ごとに全部の列で試し直す）。新旧の画面 × 新旧の GAS（6126736 の gas と web を scratchpad に展開し、テストのハーネスで往復）の 4 通りで共有が通ることを確かめた（新しい画面 → 古い GAS は列 28 で通り、入手時刻・日数・Lv・プレイ中は届かない。古い画面 → 新しい GAS は日数 null・プレイ中 null・ケージの個体は「不明」）。GAS を先に反映する順番は変えていない（入手時刻を届けるため）。
+    2. **中: 前の版の場所の条件で観賞用ケージの個体が消える** → 上の 4 の `placesVersion` の読み替え。
+    3. **中: 「（プレイ中）」が保存の鮮度を過ぎても残る**（選択肢はデータが変わったときだけ作り直していた）→ 所持パル・理想個体とも、同じデータの知らせでも `onlineKey` が変われば選択肢だけ作り直す。
+    4. **中: 参加者の画面のプレイ中に共有の時刻を添えていた** → ホストのセーブの時刻（上の 3）。
+12. **確かめていないこと**:
+    - 実セーブをブラウザ（ホストの画面）で読んだ表示（ブラウザでは許可が要るため。`check:save` の出力で代えた）。とくに `ticksToLocalIso` を Worker の中で動かしたときのタイムゾーン（Node では確かめた。Worker もページと同じタイムゾーンのはず）。
+    - GAS に反映した後（`gas:push`・`update-deployment`・`setup()`）の参加者の画面（GAS はテストのハーネスで確かめた）。
+    - ブラウザの 2,000 行の DOM と時間は測り直していない（NEW は要素を足さず、病気・空腹の印は該当する個体だけ。test:perf の要素の数は変わらない）。
+    - 病気・空腹・魂の強化の種類と値がゲームの画面と合うか（ゲームの画面と照合していない）。「ケーキがないとタマゴを産まない」は既知のゲームの決まりとして書いた。
+13. **後のテーマへの申し送り**:
+    - **implants（在庫）**: `--probe` の [6] の入れ物の分け方がそのまま在庫の読み方になる。ギルド保管庫は `GuildExtraSaveDataMap` の `GuildItemStorage.RawData` の先頭 16 バイト（palworld.js の `guildStorages`）、所持品は `parsePlayer` の `inventoryContainers`（`Common`・`Essential` など）、拠点の箱は MapObject の `ModuleMap` の `ItemContainer`（`RawData` の先頭 16 バイト）で、MapObject の `Model.RawData` の 33〜48 バイト目（`decodeMapModel` の `baseCampId`）があれば拠点の中。拠点の外の宝箱（`TreasureBox_*`）は数えない。スロットは `decodeItemSlot`（`staticId`・`count`）。`parseLevel` のスロットのループは、牧場のケーキと同じ形（入れ物 ID の集合を先に作り、ループの中で数える）で足せる。手元では 31 種・406 個（拠点の箱 288・宝箱 85・所持品 13・ギルド保管庫 12 ほか）。
+    - **paldex（捕獲数）**: `--probe` の [7]。`Players/<uid>.sav` の `SaveData.RecordData` の `PalCaptureCount`（MapProperty<NameProperty, IntProperty>。キーはパル ID で、大文字小文字が違うものがある〔`createSpeciesResolver` で引く〕・`Human` などパルでないキーもある）と `PaldeckUnlockFlag`（MapProperty<NameProperty, BoolProperty>）。`PLAYER_SKIP` に `'.SaveData': [..., 'RecordData']` と `'.SaveData.RecordData': ['PalCaptureCount', 'PaldeckUnlockFlag']` を足して読む（`scripts/save-probe.mjs` の `readRecord` と同じ）。
+    - 個体の項目を足すときは `PAL_FIELDS` に足し、`--probe` の `PROBE_PAL_FIELDS` で有無を見る。`Level.sav` では既定の値のときに書かれない項目が多い（保管庫では書かれる）。
+    - 所持パルの行に何かを足すときは、行の要素の数の上限（owned.perf.js の 35・41・47 個）を見る。NEW のように行のクラスと `::before`／`::after` で描けば要素を増やさない（`.owned-row::before` は NEW が使っている）。
 
 ---
 
