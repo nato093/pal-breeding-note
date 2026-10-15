@@ -1506,15 +1506,20 @@ export function ownedView(context, route) {
     element.append(toggle);
     if (master) {
       const links = el('span', 'owned-species-links');
-      links.append(link('理想個体', buildHash('ideal', { to: master.id }), 'owned-species-link'), link('継承ルート', buildHash('route', { to: master.id }), 'owned-species-link'),
-        link('配合を探す', buildHash('search', { c: master.id }), 'owned-species-link'));
+      const named = (text, href, name) => {
+        const node = link(text, href, 'owned-species-link');
+        node.setAttribute('aria-label', name);
+        return node;
+      };
+      links.append(named('理想個体', buildHash('ideal', { to: master.id }), `${master.ja}の理想個体`),
+        named('継承ルート', buildHash('route', { to: master.id }), `${master.ja}への継承ルート`),
+        named('産まれる配合', buildHash('search', { c: master.id }), `${master.ja}が産まれる配合`));
       element.append(links);
     }
     const update = (next) => {
       const text = `${next.count} 体 · ♂${next.male} ♀${next.female}${next.eggs ? ` · タマゴ ${next.eggs}` : ''}${next.maxLevel ? ` · 最高 Lv ${next.maxLevel}` : ''}`;
       if (facts.textContent !== text) facts.textContent = text;
       toggle.setAttribute('aria-expanded', String(!next.collapsed));
-      toggle.setAttribute('aria-label', `${master?.ja ?? 'パル以外'}（${text}）を${next.collapsed ? '開く' : '畳む'}`);
       element.classList.toggle('is-collapsed', next.collapsed);
     };
     update(item);
@@ -1642,9 +1647,10 @@ export function ownedView(context, route) {
     results.classList.toggle('is-empty', !list.length);
     head.hidden = !list.length;
     renderCount(state, list.length, totals);
-    shownCount = list.length;
     // 図鑑順のときは種族の見出しを混ぜる（F068。ほかの並べ替えでは出さない）。以後の描き方は見出しを含めた items で行う
+    //（見えている範囲だけ描くか・並べ替えの動きを付けるかも、見出しを含めた行の数で決める）
     const items = filter.sort === 'dex' ? withSpeciesHeads(list, collapsed) : list;
+    shownCount = items.length;
     speciesKeys = filter.sort === 'dex' ? items.filter((item) => item.heading).map((item) => item.key) : [];
     renderFoldAll();
     // 見ていた行を同じ位置に戻す: データの更新のときと、行の高さが変わる（下の段の出し入れ）のに一覧の先頭が固定の部分の下に隠れているとき

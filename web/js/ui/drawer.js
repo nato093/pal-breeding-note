@@ -42,7 +42,9 @@ export function cleanDrawerState(value) {
   const entry = cleanEntry(value.entry);
   if (!entry || typeof value.env !== 'string' || typeof value.user !== 'string') return null;
   const stack = Array.isArray(value.stack) ? value.stack.map(cleanEntry).filter(Boolean).slice(-DRAWER_STACK_MAX) : [];
-  return { v: DRAWER_VERSION, env: value.env, user: value.user, entry, stack, pushed: value.pushed === true };
+  // id は開いた 1 回ごとの印（同じ画面の条件の変更で引き継いだエントリも同じ）。前の形（id なし）も受ける
+  const id = typeof value.id === 'string' && /^[a-z0-9-]{1,40}$/.test(value.id) ? value.id : '';
+  return { v: DRAWER_VERSION, env: value.env, user: value.user, entry, stack, pushed: value.pushed === true, ...(id ? { id } : {}) };
 }
 
 /**
@@ -104,6 +106,9 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     }
   };
 
+  // 開いた 1 回ごとの ID と、引き継いだエントリで閉じた ID（そのドロワーを持つ前のエントリへ戻っても開き直さない。このページの間だけ覚える）
+  let instance = '';
+  const dismissed = new Set();
   const historyState = () => (isObject(browserHistory?.state) ? browserHistory.state : {});
   function writeHistory(kind, drawerState) {
     const { drawer: _, ...rest } = historyState();
@@ -117,7 +122,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
   }
   const stateOf = (pushed) => {
     const where = currentScope();
-    return { v: DRAWER_VERSION, env: where?.env ?? '', user: where?.user ?? '', entry, stack: [...stack], pushed };
+    return { v: DRAWER_VERSION, env: where?.env ?? '', user: where?.user ?? '', entry, stack: [...stack], pushed, ...(instance ? { id: instance } : {}) };
   };
 
   const documentElement = () => doc?.documentElement ?? null;
@@ -161,14 +166,18 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     destroyContent();
     entry = next;
     let made = null;
-    try { made = render[next.kind]?.(next, context) ?? null; } catch { made = null; }
+    // 中身が後から見出しを直す（読み込みを待った個体の詳細・ニックネームの変更）。入れ替わった後の古い中身からは効かない
+    const setTitle = (text) => {
+      if (made && content === made && typeof text === 'string' && heading.textContent !== text) heading.textContent = text;
+    };
+    try { made = render[next.kind]?.(next, context, { setTitle }) ?? null; } catch { made = null; }
     content = made && made.element ? made : notFound();
     heading.textContent = content.title ?? '';
     const href = content.href ?? (next.kind === 'pal' && made ? buildHash('pal', {}, next.id) : '');
     page.hidden = !href;
     page.href = href || '#';
     back.hidden = stack.length === 0;
-    back.title = stack.length ? '前へ' : '';
+    back.title = stack.length ? '前の内容へ戻る' : '';
     body.replaceChildren(content.element);
     if (body.scrollTop) body.scrollTop = 0;
     element.hidden = false;
@@ -182,6 +191,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     destroyContent();
     entry = null;
     stack = [];
+    instance = '';
     body.replaceChildren();
     element.hidden = true;
     markOpen(false);
@@ -197,7 +207,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
   function open(value, { opener: from = null } = {}) {
     const next = cleanEntry(value);
     if (!next || !currentScope()) return;
-    if (from) opener = from;
+    if (from && !element.contains(from)) opener = from;
     if (entry && sameEntry(entry, next)) { heading.focus({ preventScroll: true }); return; }
     if (entry) {
       stack = [...stack, entry].slice(-DRAWER_STACK_MAX);
@@ -206,6 +216,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
       writeHistory('replace', stateOf(pushed));
     } else {
       stack = [];
+      instance = `${Date.now().toString(36)}-${++sequence}`;
       show(next);
       if (!writeHistory('push', stateOf(true))) writeHistory('replace', stateOf(false));
     }
@@ -226,9 +237,14 @@ export function createDrawer({ context, render = {}, main = null, history: brows
   function dismiss() {
     if (!entry) return;
     const own = cleanDrawerState(historyState().drawer)?.pushed === true;
+    const closing = instance;
     hide();
     if (own && typeof browserHistory?.back === 'function') browserHistory.back();
-    else writeHistory('replace', null);
+    else {
+      // 引き継いだエントリで閉じた: 同じドロワーを持つ前のエントリ（開いた所・条件を変える前）へ「戻る」で入っても開き直さない
+      if (closing) dismissed.add(closing);
+      writeHistory('replace', null);
+    }
   }
 
   /**
@@ -255,6 +271,14 @@ export function createDrawer({ context, render = {}, main = null, history: brows
       return;
     }
     if (!where) { hide(); return; }
+    // 起動の直後で環境（テスト／本番）がまだ分からないときは、開かずに残す（違う環境として消さない）
+    if (!where.env && saved.env) { hide(); return; }
+    // 引き継いだエントリで閉じたドロワー（このページで × を押した）は開き直さずに消す
+    if (saved.id && dismissed.has(saved.id)) {
+      hide();
+      writeHistory('replace', null);
+      return;
+    }
     if (saved.env !== where.env || saved.user !== where.user) {
       hide();
       writeHistory('replace', null);
@@ -262,11 +286,13 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     }
     if (entry && sameEntry(entry, saved.entry)) {
       stack = saved.stack;
+      instance = saved.id ?? instance;
       back.hidden = stack.length === 0;
       return;
     }
     stack = saved.stack;
     show(saved.entry);
+    instance = saved.id ?? '';
   }
 
   /** 同じ画面の条件の変更（context.update の pushState）で新しいエントリに引き継ぐ drawer（自分で積んだものではない印つき）。閉じていれば {} */

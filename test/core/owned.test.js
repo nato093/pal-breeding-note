@@ -73,12 +73,12 @@ test('所持パル: 配合牧場を状態とタマゴつきでデータに載せ
   assert.equal(owned.farms, null);
   assert.equal('farms' in sharedUpload(owned), false);
   assert.deepEqual(normalizeOwned({ ...snapshot, breedFarms: [] }, { pals, passives }).farms, []);
-  // 共有は短い鍵（n はタマゴの数、eggs の p は中身・m は突然変異）。読めない牧場は親を空にして s: 'u'（古い GAS・旧コードの画面が s を捨てても、
-  // 親のない牧場は置いてある組にならない）
+  // 共有は短い鍵（n はタマゴの数、eggs の p は中身・m は突然変異）。読めない牧場は s: 'u' と、どの個体にも当たらない仮の親 2 つ（古い GAS・
+  // 旧コードの画面が s を捨てても、置いてある組にも空き牧場にもならない。フェーズ 3 の終わりのレビュー）
   const upload = sharedUpload(withFarms);
   assert.deepEqual(upload.farms, [
     { id: 'F1', baseId: BASE, parents: ['b', 'c'], n: 3, eggs: [{ id: 'e1', p: 'SheepBall' }, { id: 'e2', p: 'Anubis', m: 1 }, { id: 'e3' }] },
-    { id: 'F2', baseId: BASE, parents: [], s: 'u', n: 1 },
+    { id: 'F2', baseId: BASE, parents: ['?1', '?2'], s: 'u', n: 1 },
     { id: 'F3', baseId: BASE, parents: [], n: 0, eggs: [] },
     { id: 'F4', baseId: BASE, parents: ['d'], n: 0, eggs: [] },
   ]);

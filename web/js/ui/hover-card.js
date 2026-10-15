@@ -39,7 +39,7 @@ function insideControl(node, root) {
   return false;
 }
 
-/** 解説の中身（パル）: 絵・No.・名前・属性と、所持 ♂n ♀m・登録 n 件 */
+/** 解説の中身（パル）: 絵・No.・名前・属性と、所持 n 体 · 親になれる ♂n ♀m・登録 n 件（パル詳細と同じ数え方） */
 export function palCardContent(palId, { index, owned } = {}) {
   const pal = palsById.get(palId);
   if (!pal) return null;
@@ -52,7 +52,7 @@ export function palCardContent(palId, { index, owned } = {}) {
   const facts = [];
   if (Array.isArray(owned?.pals)) {
     const entry = countsOf(owned.pals).species.get(palId);
-    facts.push(entry?.total ? `所持 ♂${entry.male} ♀${entry.female}（全 ${entry.total} 体）` : '未所持');
+    facts.push(entry?.total ? `所持 ${entry.total} 体 · 親になれる ♂${entry.male} ♀${entry.female}` : '未所持');
   }
   if (index?.byChild) {
     const born = index.byChild.get(palId)?.length ?? 0;

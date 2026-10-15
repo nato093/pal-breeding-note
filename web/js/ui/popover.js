@@ -1,6 +1,7 @@
 // 開いたり閉じたりする小さな部品（パル選択の候補・パッシブ選択・ヘッダーのパネル）の共通の土台。
 // document・window のリスナーは開いている間だけ付け、閉じるときに AbortController でまとめて外す。
 import { el } from './dom.js';
+import { focusInPlace } from './focus.js';
 
 let sequence = 0;
 // 本文の中で開いている板（host なし）。開いている間は html に .has-inline-popover を付け、トーストを板の下に下げる（app.css）。
@@ -89,7 +90,7 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     }
     anchor.setAttribute('aria-expanded', 'false');
     anchor.removeAttribute('aria-controls');
-    if (focus && anchor.isConnected) anchor.focus();
+    if (focus && anchor.isConnected) focusInPlace(anchor);
     onClose?.();
   }
 

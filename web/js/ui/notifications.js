@@ -2,7 +2,7 @@ import { el, button, link, empty, statusChip } from './dom.js';
 import { openDialog } from './dialog.js';
 import { icon } from './icons.js';
 import { palIcon, palsById } from './pal-icon.js';
-import { captureFocus, restoreFocus } from './focus.js';
+import { captureFocus, restoreFocus, focusInPlace } from './focus.js';
 import { groupNotifications, notificationCategory, unreadCounts } from '../notifications.js';
 
 const formatDate = (time) => new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric' }).format(new Date(time));
@@ -230,7 +230,7 @@ export function notificationMenu(notifications, { onOpen } = {}) {
     const footer = el('div', 'notification-footer');
     footer.append(button('すべての通知を見る →', () => {
       closePanel?.();
-      trigger.focus();
+      focusInPlace(trigger);
       openNotificationList(notifications, { filter });
     }, 'button quiet small notification-show-all'));
     panel.append(browser.element, footer);
@@ -251,7 +251,7 @@ export function notificationMenu(notifications, { onOpen } = {}) {
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
       closePanel?.();
-      trigger.focus();
+      focusInPlace(trigger);
     }, { signal: controller.signal });
     onOpen?.();
   }

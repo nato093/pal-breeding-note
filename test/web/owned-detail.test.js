@@ -186,6 +186,61 @@ test('所持パルの画面: 開いている個体の行に aria-current を付�
   view.destroy();
 });
 
+test('個体の詳細: 所持パルを読み込む前（読み込み直した直後に履歴から戻した）は読み込み中を出し、届いたら描いて見出しを直す。読み込んでもいなければ「最新のセーブにいません」', (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const loaded = owned.state.owned;
+  owned.state.ready = false;
+  owned.state.owned = null;
+  const titles = [];
+  const detail = ownedDetail({ owned, drawer: fakeDrawer() }, 'a', { setTitle: (text) => titles.push(text) });
+  assert.ok(detail);
+  assert.equal(detail.title, '所持パルの個体');
+  assert.match(detail.element.textContent, /所持パルを読み込み中…/);
+  // 読み込みの途中の知らせ（ready の前）では描かない
+  owned.emit();
+  assert.match(detail.element.textContent, /所持パルを読み込み中…/);
+  owned.state.owned = loaded;
+  owned.state.ready = true;
+  owned.emit();
+  assert.match(byClass(detail.element, 'owned-detail-level').textContent, /^Lv 40/);
+  assert.deepEqual(titles, ['アヌビス「あぬ」']);
+  detail.destroy();
+  // 読み込みが終わってもいない個体
+  const empty = fakeOwned();
+  empty.state.ready = false;
+  empty.state.owned = null;
+  const gone = ownedDetail({ owned: empty }, 'nobody');
+  empty.state.ready = true;
+  empty.state.owned = loaded;
+  empty.emit();
+  assert.match(gone.element.textContent, /この個体は最新のセーブにいません/);
+  gone.destroy();
+});
+
+test('個体の詳細: 読み直して描き直しても、フォーカスを同じ役目の部品（「パル詳細」など）へ引き継ぎ、ニックネームが変わったら見出しを直す', (t) => {
+  const { body } = installDom(t);
+  const owned = fakeOwned();
+  const titles = [];
+  const detail = ownedDetail({ owned, drawer: fakeDrawer() }, 'a', { setTitle: (text) => titles.push(text) });
+  body.append(detail.element);
+  byClass(detail.element, 'owned-detail-species').focus();
+  const renamed = snapshot();
+  renamed.pals[0] = { ...renamed.pals[0], nickname: 'あぬびす' };
+  owned.state.owned = normalizeOwned(renamed, { pals, passives });
+  owned.emit();
+  assert.equal(document.activeElement, byClass(detail.element, 'owned-detail-species'));
+  assert.equal(titles.at(-1), 'アヌビス「あぬびす」');
+  // いなくなって「閉じる」だけになったら、中身（フォーカスできるようにする）へ。ドロワーの外には落とさない
+  const gone = snapshot();
+  gone.pals = gone.pals.slice(1);
+  owned.state.owned = normalizeOwned(gone, { pals, passives });
+  owned.emit();
+  assert.equal(document.activeElement, detail.element);
+  assert.equal(detail.element.tabIndex, -1);
+  detail.destroy();
+});
+
 test('個体の詳細: 題名はニックネームつき', () => {
   assert.equal(ownedTitle({ name: 'モコロン', nickname: '' }), 'モコロン');
   assert.equal(ownedTitle({ name: 'モコロン', nickname: 'もこ' }), 'モコロン「もこ」');

@@ -261,7 +261,7 @@ async function boot() {
   // ヘッダーのパル検索（G-03。どの画面からでも、選んだパルを右のドロワーで開く。選んだら空に戻す）。ショートカットは「/」。
   // 候補は「データあり（登録か所持がある種族）」→「その他」の 2 群（F077）。ドロワーは context の後で作るので、選んだときに引く
   const palSearch = palPicker({
-    label: 'パルを探す', placeholder: 'パルを探す', popupHost: document.body, triggerLabel: 'パルを探す（/）',
+    label: 'パルを探す', placeholder: 'パルを探す', popupHost: document.body, triggerLabel: 'パルを探す（/）', searchLabel: 'パルを名前・英名・番号で探す',
     describe: () => palDataNotes(store.state.index, owned.state.owned),
     onChange: (id) => {
       if (!id) return;
@@ -388,7 +388,8 @@ async function boot() {
       // 同じ URL（押されている「すべて」をもう一度押すなど）では、履歴を増やさない
       if (location.hash === hash) return;
       saveEntry();
-      if (replace) history.replaceState(history.state, '', urlOf(hash));
+      // 置き換えでは、開いているドロワーを「積んだときの URL ではない」印にする（× で戻ると、置き換えた条件ごと前のエントリへ戻るため）
+      if (replace) history.replaceState({ ...history.state, ...drawer.carry() }, '', urlOf(hash));
       // 新しいエントリには新しい ID を付ける（条件と位置は、次に離れるときに書く）
       // 開いているドロワーは引き継ぐ（同じ画面の条件の変更では閉じない。引き継いだエントリはドロワーが積んだものではない印つき）
       else if (typeof history.pushState === 'function') history.pushState({ palEntry: memory.newEntryId(), ...drawer.carry() }, '', urlOf(hash));
@@ -443,7 +444,7 @@ async function boot() {
   const drawerContents = {
     pal: (entry) => palDrawer(context, entry.id),
     // 所持パルの個体の詳細（params.q は所持パルで入れていたキーワード。一致の理由の全文を出す。owned-detail）
-    owned: (entry) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '' }),
+    owned: (entry, _context, { setTitle } = {}) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '', setTitle }),
     // 全部の配合牧場（所持パルの帯の「右に開く」・セーブ連携のパネル・理想個体の配合牧場の詳細から。farm-board）
     farms: () => farmBoard(context, { mode: 'drawer' }),
     // 1 種族の所持個体（継承ルートの相手親のチップから。params.p は運ぶパッシブ。route-progress）
@@ -682,8 +683,22 @@ async function boot() {
     const popupOpen = active?.getAttribute?.('aria-expanded') === 'true' && Boolean(active?.getAttribute?.('aria-haspopup'));
     return ['input', 'select', 'textarea'].includes(tag) || Boolean(active?.isContentEditable) || popupOpen;
   };
+  // 本文にフォーカスがあるとき（「本文へ戻る」・本文を押した後）の Esc でも、右のドロワーを閉じる（ドロワーの中の Esc は drawer.js が受ける。
+  // 解説の板の Esc は先に受けて preventDefault）。文字の入力欄・候補やパネルを開いている間・ダイアログ・ヘッダーにフォーカスがあるときは閉じない
+  function escapeDrawer(event) {
+    if (!drawer.isOpen() || event.defaultPrevented || event.isComposing || showingLogin) return;
+    if (document.querySelector?.('dialog[open]')) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && !main.contains(active)) return;
+    const tag = String(active?.tagName ?? '').toLowerCase();
+    if (['input', 'select', 'textarea'].includes(tag) || active?.isContentEditable) return;
+    if ([...(document.querySelectorAll?.('[aria-expanded="true"]') ?? [])].some((node) => node.getAttribute?.('aria-haspopup'))) return;
+    event.preventDefault();
+    drawer.close({ reason: 'dismiss' });
+  }
   document.addEventListener?.('keydown', (event) => {
     const key = event.key;
+    if (key === 'Escape') { escapeDrawer(event); return; }
     if (key !== 'n' && key !== 'N' && key !== '/') return;
     if (shortcutBlocked(event)) return;
     event.preventDefault();

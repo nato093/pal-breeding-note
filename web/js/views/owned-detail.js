@@ -1,7 +1,8 @@
 // 所持パルの 1 体の詳細（右のドロワーの中身。owned-detail）。所持パルの一覧の並びを見たまま、その個体の全部の情報（パッシブの説明・
 // パートナースキル・アクティブスキル・個体値・場所の図・キーワードに一致した理由の全文）と、その種族で次にすること（親にして配合を探す・
 // 逆引き・継承ルート）を出す。出すのはセーブの所持データとゲームのマスターだけ（INV-2）。ニックネーム・プレイヤー名は textContent
-import { el, button, link } from '../ui/dom.js';
+import { el, button, link, loadingState } from '../ui/dom.js';
+import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { palsById, palIcon, humanIcon, elementChips, genderMark } from '../ui/pal-icon.js';
 import { passiveChip, passivesById } from '../ui/passive-picker.js';
 import { navIcon } from '../ui/nav-icons.js';
@@ -16,10 +17,11 @@ function section(title, className, ...children) {
   return box;
 }
 
-// 行き先のボタン（リンク。navIcon を 16px で添える）
+// 行き先のボタン（リンク。navIcon を 16px で添える）。data-focus-key は描き直したときにフォーカスを引き継ぐ目印
 function actionLink(text, href, view) {
   const node = link('', href, 'button secondary small pal-action');
   node.append(navIcon(view), el('span', '', text));
+  node.setAttribute('data-focus-key', `owned-detail:${text}`);
   return node;
 }
 
@@ -29,21 +31,36 @@ export const ownedTitle = (pal) => `${pal.name}${pal.nickname ? `「${pal.nickna
 /**
  * @param {object} context app.js の context（owned・drawer）
  * @param {string} instanceId 個体 ID（タマゴも同じ ID）
- * @param {{ terms?: string[], query?: string }} [options] 所持パルで入れていたキーワード（一致の理由の全文を出す）。query は語に分ける前の文
+ * @param {{ terms?: string[], query?: string, setTitle?: (text: string) => void }} [options] 所持パルで入れていたキーワード（一致の理由の
+ *   全文を出す）。query は語に分ける前の文。setTitle はドロワーの見出しを直す（ドロワーが渡す。読み直してニックネームが変わったときなど）
  * @returns {{ element: HTMLElement, title: string, registerInitial(): object | undefined, destroy(): void } | null}
- *   今のデータにいない個体は null（ドロワーが「見つかりません」）
+ *   読み込んだデータにいない個体は null（ドロワーが「見つかりません」）。所持パルをまだ読み込んでいなければ、読み込み中を出して届いたら描く
  */
-export function ownedDetail(context, instanceId, { terms, query = '' } = {}) {
+export function ownedDetail(context, instanceId, { terms, query = '', setTitle } = {}) {
   const owned = context.owned;
   const words = terms ?? (query ? keywordTerms(query) : []);
   const find = (state) => state?.owned?.pals?.find((pal) => pal.id === instanceId) ?? null;
   const first = find(owned?.state);
-  if (!first) return null;
+  // 読み込み直した直後（履歴からドロワーを戻した）は、所持パルの読み込み（IndexedDB・共有）がまだ終わっていない
+  const waiting = !first && owned?.state && !owned.state.ready && typeof owned.subscribe === 'function';
+  if (!first && !waiting) return null;
   const element = el('div', 'owned-detail');
   let shown = null;
 
+  // 中身を入れ替える（フォーカスが中にあれば、同じ役目の部品へ。なければ中身の先頭へ。ドロワーの Esc を受けられるように中に残す）
+  function replace(...nodes) {
+    const token = captureFocus(element);
+    const doc = globalThis.document;
+    const inside = Boolean(doc?.activeElement) && doc.activeElement !== doc.body && element.contains(doc.activeElement);
+    element.replaceChildren(...nodes);
+    if (!inside || restoreFocus(element, token)) return;
+    if (element.tabIndex === undefined || element.tabIndex < 0) element.tabIndex = -1;
+    element.focus({ preventScroll: true });
+  }
+
   function render(pal) {
     shown = pal;
+    setTitle?.(ownedTitle(pal));
     const master = pal.known ? palsById.get(pal.palId) : null;
     // 頭: 大きい絵・名前・ニックネーム・性別・Lv・★・印（タマゴ・ラッキー・アルファ）
     const head = el('div', `owned-detail-hero element-${master?.el?.[0] ?? 'Neutral'}`);
@@ -138,13 +155,14 @@ export function ownedDetail(context, instanceId, { terms, query = '' } = {}) {
       const species = button('', () => context.drawer?.open({ kind: 'pal', id: master.id }), 'button secondary small pal-action owned-detail-species');
       species.append(navIcon('search'), el('span', '', 'パル詳細'));
       species.setAttribute('aria-label', `${master.ja}のパル詳細`);
+      species.setAttribute('data-focus-key', 'owned-detail:species');
       actions.append(species);
-      if (!pal.egg) actions.append(actionLink('親にして配合を探す', buildHash('search', { p1: master.id }), 'search'));
-      actions.append(actionLink('逆引き（この種族が産まれる配合）', buildHash('search', { c: master.id }), 'search'),
-        actionLink('この種族を目標に継承ルート', buildHash('route', { to: master.id }), 'route'));
+      if (!pal.egg) actions.append(actionLink(`${master.ja}を親に使う配合`, buildHash('search', { p1: master.id }), 'search'));
+      actions.append(actionLink(`${master.ja}が産まれる配合`, buildHash('search', { c: master.id }), 'search'),
+        actionLink(`${master.ja}への継承ルート`, buildHash('route', { to: master.id }), 'route'));
       parts.push(actions);
     }
-    element.replaceChildren(...parts);
+    replace(...parts);
   }
 
   // 消えた個体（移動・引き渡し・解放）の案内。ドロワーは閉じずに案内と「閉じる」
@@ -153,14 +171,17 @@ export function ownedDetail(context, instanceId, { terms, query = '' } = {}) {
     const box = el('div', 'side-drawer-missing');
     box.append(el('p', '', 'この個体は最新のセーブにいません（移動・引き渡し・解放）。'),
       button('閉じる', () => context.drawer?.close({ reason: 'dismiss' }), 'button secondary small'));
-    element.replaceChildren(box);
+    replace(box);
   }
 
-  render(first);
-  // 所持パルを読み直したら、同じ個体 ID を新しいデータから引き直して描き直す（中身だけ。ドロワーのスクロールは保つ）
+  if (first) render(first);
+  else element.append(loadingState('所持パルを読み込み中…'));
+  // 所持パルを読み直したら、同じ個体 ID を新しいデータから引き直して描き直す（中身だけ。ドロワーのスクロールは保つ）。
+  // 読み込みを待っていたら、読み込みが終わるまで（ready）待つ
   let lastData = owned.state.owned;
   const unsubscribe = owned.subscribe?.((state) => {
-    if (state.owned === lastData) return;
+    if (!shown && !state.ready) return;
+    if (shown && state.owned === lastData) return;
     lastData = state.owned;
     const next = find(state);
     if (next) render(next);
@@ -169,7 +190,7 @@ export function ownedDetail(context, instanceId, { terms, query = '' } = {}) {
 
   return {
     element,
-    title: ownedTitle(first),
+    title: first ? ownedTitle(first) : '所持パルの個体',
     // ドロワーの中の N: その種族を親1 にして登録を開く（持っている個体を親にする。タマゴ・人間は初期値なし）
     registerInitial: () => (shown?.known && !shown.egg ? { parent1Id: shown.palId } : undefined),
     destroy() { unsubscribe(); },

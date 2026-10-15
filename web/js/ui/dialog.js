@@ -1,5 +1,6 @@
 import { el, button } from './dom.js';
 import { icon } from './icons.js';
+import { focusInPlace } from './focus.js';
 
 /**
  * モーダルのダイアログ。×・背景（closeOnBackdrop のとき）・Esc・呼び出し側のキャンセルのボタンは、どれも requestClose(reason) を通る。
@@ -42,7 +43,7 @@ export function openDialog(title, { className = '', onClose, closeOnBackdrop = t
     if (!requested && beforeClose) beforeClose('forced');
     dialog.remove();
     onClose?.();
-    if (previousFocus?.isConnected) previousFocus.focus();
+    if (previousFocus?.isConnected) focusInPlace(previousFocus);
   }, { once: true });
   // Esc（cancel）: 中の候補（ポップオーバー）を開いていれば、候補が先に閉じる（ui/popover.js が cancel を止める）。開いていなければ、
   // ブラウザの閉じ方を止めて requestClose を通す

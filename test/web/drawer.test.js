@@ -51,7 +51,10 @@ test('ドロワー: 開くと aside が見え、見出しにフォーカスし�
   assert.deepEqual(history.calls, ['push']);
   assert.equal(history.url, '/Pal/#/search');
   assert.equal(history.state.palEntry, 'e1');
-  assert.deepEqual(history.state.drawer, { v: DRAWER_VERSION, env: 'test', user: 'alice', entry: { kind: 'pal', id: 'SheepBall' }, stack: [], pushed: true });
+  // id は開いた 1 回ごとの印（同じ画面の条件の変更で引き継いだエントリも同じ）
+  const { id, ...saved } = history.state.drawer;
+  assert.match(id, /^[a-z0-9]+-\d+$/);
+  assert.deepEqual(saved, { v: DRAWER_VERSION, env: 'test', user: 'alice', entry: { kind: 'pal', id: 'SheepBall' }, stack: [], pushed: true });
   assert.equal(document.documentElement.getAttribute('data-side-drawer'), 'open');
   // 「ページで開く」は全画面のパル詳細
   assert.equal(byClass(aside, 'side-drawer-page').href, '#/pal/SheepBall');
@@ -182,6 +185,76 @@ test('ドロワー: 起動・戻る・進むでは history.state に合わせる
   // 形の合わない値は捨てる
   assert.equal(cleanDrawerState({ v: 1, env: 'test', user: 'a', entry: { kind: 'unknown', id: 'A' } }), null);
   assert.equal(cleanDrawerState({ v: 1, env: 'test', user: 'a', entry: { kind: 'pal', id: '' } }), null);
+});
+
+test('ドロワー: ドロワーの中の部品から別の中身を開いても、閉じたときのフォーカスは本文の開いた所へ戻る（中の部品は入れ替えで消える）', (t) => {
+  const { drawer } = setup(t);
+  const opener = new FakeElement('a');
+  document.body.append(opener);
+  drawer.open({ kind: 'pal', id: 'A' }, { opener });
+  const inside = new FakeElement('button');
+  byClass(drawer.element, 'side-drawer-body').append(inside);
+  drawer.open({ kind: 'pal', id: 'B' }, { opener: inside });
+  buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
+  assert.equal(document.activeElement, opener);
+});
+
+test('ドロワー: 中身は作るときに受け取る setTitle で見出しを後から直せる。入れ替わった後の古い中身からは効かない', (t) => {
+  // setup は DOM を入れるためだけに使い、setTitle を受け取る中身のドロワーを別に作る
+  setup(t);
+  const setters = [];
+  const made = createDrawer({
+    context: {}, main: new FakeElement('main'), history: fakeHistory({ state: {} }), doc: document, scope: () => ({ env: 'test', user: 'alice' }), url: () => '/',
+    render: {
+      pal: (entry, _context, { setTitle }) => {
+        setters.push(setTitle);
+        return { title: `パル ${entry.id}`, element: new FakeElement('div'), destroy() {} };
+      },
+    },
+  });
+  document.body.append(made.element);
+  made.open({ kind: 'pal', id: 'A' });
+  const title = () => byClass(made.element, 'side-drawer-title').textContent;
+  setters[0]('アヌビス「あぬびす」');
+  assert.equal(title(), 'アヌビス「あぬびす」');
+  made.open({ kind: 'pal', id: 'B' });
+  setters[0]('古い中身');
+  assert.equal(title(), 'パル B');
+  setters[1]('新しい題名');
+  assert.equal(title(), '新しい題名');
+});
+
+test('ドロワー: 同じ画面の条件の変更で引き継いだエントリで × を押すと、そのドロワーを持つ前のエントリへ「戻る」で入っても開き直さない（積んだエントリで閉じたときの「進む」は開き直す）', (t) => {
+  const { drawer, history } = setup(t);
+  drawer.open({ kind: 'pal', id: 'A' });
+  // 条件の変更（app.js の context.update の pushState）
+  history.pushState({ palEntry: 'e3', ...drawer.carry() }, '', '/Pal/#/search?p1=A');
+  assert.equal(history.state.drawer.pushed, false);
+  buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
+  assert.equal(drawer.isOpen(), false);
+  assert.equal(history.state.drawer, undefined);
+  history.back();
+  assert.equal(drawer.isOpen(), false);
+  assert.equal(history.state.drawer, undefined);
+  assert.equal(history.state.palEntry, 'e1');
+  // 新しく開いたドロワーは別の ID（閉じた ID に当たらない）
+  drawer.open({ kind: 'pal', id: 'B' });
+  assert.equal(drawer.isOpen(), true);
+  buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
+  history.forward();
+  assert.deepEqual(drawer.current(), { kind: 'pal', id: 'B' });
+});
+
+test('ドロワー: 起動の直後で環境がまだ分からないときは、保存したドロワーを開かずに残す', (t) => {
+  const saved = { v: 1, env: 'test', user: 'alice', entry: { kind: 'pal', id: 'A' }, stack: [], pushed: true, id: 'k1-1' };
+  const { drawer, history, setScope } = setup(t, { state: { palEntry: 'e2', drawer: saved } });
+  setScope({ env: '', user: 'alice' });
+  drawer.sync();
+  assert.equal(drawer.isOpen(), false);
+  assert.deepEqual(history.state.drawer, saved);
+  setScope({ env: 'test', user: 'alice' });
+  drawer.sync();
+  assert.deepEqual(drawer.current(), { kind: 'pal', id: 'A' });
 });
 
 test('ドロワー: 中身が対象を見失ったら「見つかりません」と「閉じる」を出す', (t) => {

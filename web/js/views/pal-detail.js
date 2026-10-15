@@ -86,7 +86,10 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
     // 説明の「○」はゲームのデータの数値の穴（所持パルの注記と同じくそのまま出す）。長ければ畳む
     if (desc.length > PARTNER_DESC_FOLD) {
       const fold = el('details', 'pal-partner-more');
-      fold.append(el('summary', '', `${desc.slice(0, PARTNER_DESC_FOLD - 4)}…`), el('p', 'pal-partner-desc', desc));
+      // 開いても summary は残し（押した部品が消えるとフォーカスが外へ落ちる）、省いた文を隠して「閉じる」にする（CSS）
+      const summary = el('summary', '');
+      summary.append(el('span', 'pal-partner-short', `${desc.slice(0, PARTNER_DESC_FOLD - 4)}…`));
+      fold.append(summary, el('p', 'pal-partner-desc', desc));
       partner.append(fold);
     } else if (desc) partner.append(el('p', 'pal-partner-desc', desc));
     info.append(partner);
@@ -168,7 +171,7 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
     ownedLine.hidden = false;
     const label = el('span', 'pal-owned-label', '所持');
     if (!entry?.total) {
-      ownedLine.replaceChildren(label, el('span', 'pal-owned-none', '未所持'));
+      ownedLine.replaceChildren(el('span', 'pal-owned-none', '未所持'));
       ownedTop.hidden = true;
       topPals = [];
       clearList(ownedRows);

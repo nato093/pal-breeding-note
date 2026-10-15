@@ -24,6 +24,9 @@ export const OWNED_FARMS_MAX_CHARS = 45000;
 export const OWNED_FARM_EGGS_MAX = 20;
 // 1 牧場のタマゴの数の上限（セーブの解析が読む数。web/js/save/palworld.js の MAX_FARM_EGGS）
 const OWNED_FARM_EGG_COUNT_MAX = 64;
+// 読めない牧場（s: 'u'）の親の代わり（個体 ID は英数字と - なので、どの個体にも当たらない）。古い画面は s を捨てるので、親を空にすると
+// 空き牧場として「空いた牧場に置くなら」を勧めてしまう。2 体の親がいる牧場として扱わせ、どの個体とも組にならないようにする
+export const OWNED_FARM_UNREADABLE_PARENTS = ['?1', '?2'];
 
 /** 突然変異のタマゴのアイテム ID か（PalEgg_MutationPal_*。親と関係ない子が入る） */
 export function isMutationEggItem(itemId) {
@@ -33,6 +36,8 @@ export function isMutationEggItem(itemId) {
 /** 配合牧場の一覧を検証して整える（形の合わないものは捨てる。知らない鍵は落とす）。 */
 export function cleanOwnedFarms(value) {
   if (!Array.isArray(value)) return [];
+  // 数の上限で切ったときは、元の数を of に残す（受け取った側が「一部だけ」と分かるように）
+  const cut = value.length > OWNED_MAX_FARMS ? Math.min(value.length, 10000) : 0;
   const farms = [];
   for (const farm of value.slice(0, OWNED_MAX_FARMS)) {
     if (!farm || typeof farm !== 'object') continue;
@@ -40,7 +45,10 @@ export function cleanOwnedFarms(value) {
     const parents = Array.isArray(farm.parents) ? farm.parents.filter((parent) => typeof parent === 'string').map((parent) => ownedText(parent, 40)).filter(Boolean) : [];
     if (!id || parents.length > 2) continue;
     const clean = { id, baseId: ownedText(farm.baseId, 40), parents };
-    if (farm.s === 'u') clean.s = 'u';
+    if (farm.s === 'u') {
+      clean.s = 'u';
+      clean.parents = [...OWNED_FARM_UNREADABLE_PARENTS];
+    }
     if (Array.isArray(farm.eggs)) {
       const eggs = [];
       for (const egg of farm.eggs.slice(0, OWNED_FARM_EGGS_MAX)) {
@@ -55,7 +63,8 @@ export function cleanOwnedFarms(value) {
       clean.eggs = eggs;
     }
     if (Number.isInteger(farm.n) && farm.n >= 0 && farm.n <= OWNED_FARM_EGG_COUNT_MAX) clean.n = farm.n;
-    if (Number.isInteger(farm.of) && farm.of > 0 && farm.of <= 10000) clean.of = farm.of;
+    const of = Number.isInteger(farm.of) && farm.of > 0 && farm.of <= 10000 ? farm.of : 0;
+    if (of || cut) clean.of = Math.max(of, cut);
     farms.push(clean);
   }
   return farms;
@@ -79,7 +88,7 @@ export function fitOwnedFarms(farms) {
   const kept = [];
   let length = 2;
   for (const farm of counted) {
-    const next = { ...farm, of: list.length };
+    const next = { ...farm, of: Math.max(Number.isInteger(farm.of) ? farm.of : 0, list.length) };
     const add = size(next) + (kept.length ? 1 : 0);
     if (length + add > OWNED_FARMS_MAX_CHARS) break;
     kept.push(next);

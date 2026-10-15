@@ -229,7 +229,7 @@ test('解説の板: パルのタイル・パッシブのチップに止まると
   assert.deepEqual(cards.current(), { kind: 'pal', id: 'SheepBall', pinned: false });
   assert.equal(cards.element.isConnected, true);
   assert.match(cards.element.textContent, /モコロン/);
-  assert.match(cards.element.textContent, /所持 ♂2 ♀3（全 7 体）/);
+  assert.match(cards.element.textContent, /所持 7 体 · 親になれる ♂2 ♀3/);
   assert.match(cards.element.textContent, /登録 産まれる 0 件・親 1 件/);
   assert.equal(tile.getAttribute('aria-describedby'), cards.element.id);
   // 離れると外す

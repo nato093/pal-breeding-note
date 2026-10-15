@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installDom, FakeElement } from '../helpers/dom.js';
-import { captureFocus, restoreFocus } from '../../web/js/ui/focus.js';
+import { captureFocus, restoreFocus, focusInPlace } from '../../web/js/ui/focus.js';
 
 function node(tag, attributes = {}) {
   const element = new FakeElement(tag);
@@ -115,4 +115,33 @@ test('フォーカス: key・group に " や改行が入っていても（URL �
   document.activeElement = body;
   assert.equal(restoreFocus(root, token), true);
   assert.equal(document.activeElement, last);
+});
+
+test('フォーカス: focusInPlace は画面に見えている部品へは本文をスクロールさせずに（preventScroll）、画面の外の部品へはふつうにフォーカスし、外された部品には何もしない', (t) => {
+  const { body } = installDom(t);
+  const calls = [];
+  const target = (top) => {
+    const element = node('button');
+    element.getBoundingClientRect = () => ({ top, bottom: top + 40, left: 0, width: 100 });
+    element.focus = (options) => { calls.push([top, options]); document.activeElement = element; };
+    return element;
+  };
+  const height = Object.getOwnPropertyDescriptor(globalThis, 'innerHeight');
+  globalThis.innerHeight = 900;
+  t.after(() => { if (height) Object.defineProperty(globalThis, 'innerHeight', height); else delete globalThis.innerHeight; });
+  // ヘッダーの中（sticky。html の scroll-padding-top の帯）の部品
+  const header = target(8);
+  // 画面の下の外・上の外
+  const below = target(1200);
+  const above = target(-300);
+  body.append(header, below, above);
+  focusInPlace(header);
+  focusInPlace(below);
+  focusInPlace(above);
+  assert.deepEqual(calls, [[8, { preventScroll: true }], [1200, undefined], [-300, undefined]]);
+  const removed = target(100);
+  focusInPlace(removed);
+  focusInPlace(null);
+  assert.equal(calls.length, 3);
+  assert.equal(document.activeElement, above);
 });
