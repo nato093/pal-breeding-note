@@ -150,9 +150,11 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
   if (as === 'viewer') seedViewerWorld();
   function seedViewerWorld() {
     const now = Date.now();
+    // Lv とプレイ中（save-extras。players の JSON の中）。Alice と Bob はプレイ中
     const players = [
-      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice' }, { uid: '00000000-0000-0000-0000-00000000b0b0', name: 'Bob' },
-      { uid: '00000000-0000-0000-0000-00000000ca01', name: 'Carol' },
+      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice', level: 52, online: true },
+      { uid: '00000000-0000-0000-0000-00000000b0b0', name: 'Bob', level: 47, online: true },
+      { uid: '00000000-0000-0000-0000-00000000ca01', name: 'Carol', level: 31, online: false },
     ];
     const bases = [{ id: 'base-1', label: '拠点 1' }, { id: 'base-2', label: '拠点 2' }];
     const species = ['SheepBall', 'PinkCat', 'CuteFox', 'FlowerDoll', 'CatMage', 'Kitsunebi', 'ChickenPal', 'Anubis', 'BlackCentaur', 'LongCat'].filter((id) => palIds.has(id));
@@ -176,6 +178,8 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
         talentHp: String((index * 13) % 101), talentShot: String((index * 29) % 101), talentDefense: String((index * 41) % 101), lucky: index === 7 ? '1' : '', alpha: '', egg: '',
         place: atBase ? 'base' : 'palbox', placeLabel: atBase ? base.label : `パルボックス ${page} ページ・${1 + (index % 5)} 行 ${1 + (index % 6)} 列`,
         holderUid: atBase ? '' : holder.uid, holder: atBase ? base.label : holder.name, baseId: atBase ? base.id : '', lastOwner: atBase ? holder.name : '', skillIds: '',
+        // 入手した時刻（save-extras）。後の個体ほど新しい（最後の個体は共有の 6 分前）
+        ownedAt: new Date(now - (6 + (26 - index) * 37) * 60 * 1000).toISOString(),
       };
       return OWNED_FIELDS.map((field) => value[field] ?? '');
     });
@@ -187,7 +191,7 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
       { id: 'farm-3', baseId: 'base-2', parents: [], n: 0, eggs: [] },
     ];
     const checked = validateOwnedUpload({
-      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice' }, saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(),
+      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice', inGameDay: 123 }, saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(),
       players, bases, farms, columns: OWNED_FIELDS, rows,
     });
     if (!checked.ok) return;
@@ -195,6 +199,7 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
     const world = {
       worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
       uploadedAt: new Date(now - 3 * 60 * 1000).toISOString(), uploadedBy: 'Alice', palCount: input.rows.length, players: input.players, bases: input.bases, farms: input.farms,
+      inGameDay: input.inGameDay,
     };
     ownedWorlds.set(input.worldId, { world, rows: input.rows });
   }
@@ -213,7 +218,7 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
       const world = {
         worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
         uploadedAt: serverTime, uploadedBy: String(request.userId ?? '').slice(0, 20), palCount: input.rows.length, players: input.players, bases: input.bases,
-        farms: input.farms,
+        farms: input.farms, inGameDay: input.inGameDay,
       };
       ownedWorlds.set(input.worldId, { world, rows: input.rows });
       return { stored: true, world, serverTime };

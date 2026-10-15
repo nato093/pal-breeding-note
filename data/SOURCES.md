@@ -12,10 +12,12 @@
 | パル画像 | 同上の `icons/pals/` | リポジトリのライセンスなし。画像は © Pocketpair, Inc.（ユーザー判断で利用） |
 | パッシブの内部名・日本語名・英名・ランク・効果の説明（`data/passives.csv`・`web/data/passives.js`） | PalCalc の同じ `db.json`（`npm run build:passives` = `scripts/import-passives.mjs`） | 同上。日本語名はゲーム本体の `DT_SkillNameText_Common` と一致することを確認（2026-10-05、名前のある 488 件） |
 | アクティブスキル・パートナースキルの日本語名と説明文（`web/data/skills.js`） | ゲーム本体の `DT_SkillNameText_Common`・`DT_SkillDescText_Common`・`DT_PalFirstActivatedInfoText` ほか（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-10 に取り出し） | © Pocketpair, Inc. |
-| タマゴの日本語名（`web/data/items.js`。所持パルのタマゴの行・配合牧場のカード） | ゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_PalEgg_*`（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-15 に取り出し） | © Pocketpair, Inc. |
+| タマゴ・ケーキの日本語名（`web/data/items.js` の `EGG_NAMES`・`CAKE_NAMES`。所持パルのタマゴの行・配合牧場のカードとケーキの残り） | ゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_PalEgg_*`・`ITEM_NAME_Cake*`（`npm run extract:skills` = `scripts/extract-skills.mjs`。タマゴは 2026-10-15、ケーキは 2026-10-16 に取り出し） | © Pocketpair, Inc. |
 | 作業適性（`web/data/work.js`。パル詳細の「作業適性」の行・所持パルのキーワード「採掘3」） | ゲーム本体の `DT_PalMonsterParameter_Common` の `WorkSuitability_*`（Lv）と `DT_UI_Common_Text_Common` の `COMMON_WORK_SUITABILITY_*`（作業の名前）。型の情報のない表なので、列の並びは実行ファイルの反射データから取る（`npm run extract:work` = `scripts/extract-work.mjs`・`scripts/game-tables.mjs`。v1.0.5 で 2026-10-15 に取り出し） | © Pocketpair, Inc. |
 
 > 変更記録（2026-10-15）: ユーザーの確認を得て、タマゴの日本語名の表（`web/data/items.js`）の行を足した（UI 改善フェーズ 3 の farm-board）。影響: 配信物にゲーム由来の文字列の表が 1 つ増える（画像は増えない）。配合に関する情報（INV-2）は含まない。
+
+> 変更記録（2026-10-16）: ユーザーの決定（UI 改善フェーズ 4 の save-extras。配合牧場のケーキの残りを出す）により、タマゴの日本語名の行を「タマゴ・ケーキの日本語名」にし、同じ表のケーキの名前（`ITEM_NAME_Cake`・`Cake02`〜`Cake05` の 5 件。`CAKE_NAMES`）を同じファイルに足した。影響: 配信物の文字列が 5 件増える（画像は game-assets で取り込み済み）。配合に関する情報（INV-2）は含まない。
 
 > 変更記録（2026-10-15）: ユーザーの決定（UI 改善フェーズ 4 の game-assets）により、作業適性の行を足した。理由: パル詳細と所持パルのキーワードで作業適性を使うため。文書の案（palworld-helper の CSV から `pals.js` に取り込む）ではなく、ゲーム本体の表から別の生成ファイル `web/data/work.js` に取り出した（取り込み元をゲーム本体にそろえ、`pals.js` の項目の許可リストを変えないため）。影響: 配信物にゲーム由来の表が 1 つ増える（約 18KB）。同じ表にある配合の値（`CombiRank` など）は書き出さない（下の「取り込まないもの」。`test/import.test.js` が値の形を確かめる）。
 

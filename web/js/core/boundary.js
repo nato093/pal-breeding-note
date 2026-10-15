@@ -147,10 +147,23 @@ export const PLAYERS_MAX = 100;
 export const BASES_MAX = 200;
 const CELL_MAX = 200;
 const CELL_LONG = { skillIds: 1000 };
+// 共有のプレイヤーの Lv・ワールドのゲーム内の日数の上限（core/owned-shared.js の cleanOwnedPlayer・ownedInGameDay と同じ。save-extras）
+const PLAYER_LEVEL_MAX = 999;
+const DAY_MAX = 1000000;
 
-/** 共有のプレイヤー（uid 40 字・名前 50 字。uid が空・40 字を超えるものは捨てる。uid は個体の所持者と比べるので切り詰めない） */
+/**
+ * 共有のプレイヤー（uid 40 字・名前 50 字。uid が空・40 字を超えるものは捨てる。uid は個体の所持者と比べるので切り詰めない）。
+ * save-extras で足した Lv（1〜999 の整数）とプレイ中（true・false）は、形が合うときだけ写す（古い共有にはない）
+ */
 export const cleanSharedPlayers = (value) => list(value, {
-  max: PLAYERS_MAX, map: (player) => (isObject(player) && idText(player.uid, 40) ? { uid: player.uid, name: text(player.name, 50) } : null),
+  max: PLAYERS_MAX,
+  map: (player) => {
+    if (!isObject(player) || !idText(player.uid, 40)) return null;
+    const clean = { uid: player.uid, name: text(player.name, 50) };
+    if (Number.isInteger(player.level) && player.level > 0 && player.level <= PLAYER_LEVEL_MAX) clean.level = player.level;
+    if (typeof player.online === 'boolean') clean.online = player.online;
+    return clean;
+  },
 });
 
 /** 共有の拠点（id 40 字・名前 60 字。id が空・40 字を超えるものは捨てる） */
@@ -170,6 +183,8 @@ function cleanWorld(value) {
     players: cleanSharedPlayers(value.players), bases: cleanSharedBases(value.bases),
     // 牧場を共有する前のデータ（farms がない）は null のまま（「牧場の情報がない」を「牧場なし」の [] と区別する）
     farms: Array.isArray(value.farms) ? cleanOwnedFarms(value.farms) : null,
+    // ゲーム内の日数（後から足した列。save-extras）。列のない GAS・古いホストの画面の共有では null
+    inGameDay: Number.isInteger(value.inGameDay) && value.inGameDay > 0 && value.inGameDay <= DAY_MAX ? value.inGameDay : null,
   };
 }
 

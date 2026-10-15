@@ -73,13 +73,18 @@ const OWNED_FIELDS = [
   'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars',
   'passiveIds', 'passive1', 'passive2', 'passive3', 'passive4', 'talentHp', 'talentShot', 'talentDefense',
   'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner',
-  'skillIds', 'eggItemId',
+  'skillIds', 'eggItemId', 'ownedAt',
 ];
 // 後から足した列（OWNED_FIELDS の末尾）。足す前の画面（開いたままのページ）からの共有も受け付けて空として扱い、
-// GAS は setup() を実行し直してシートに列が足されるまで書かずに読む。eggItemId はタマゴのアイテム ID（名前と突然変異。farm-board）
-const OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId'];
+// GAS は setup() を実行し直してシートに列が足されるまで書かずに読む。eggItemId はタマゴのアイテム ID（名前と突然変異。farm-board）、
+// ownedAt は入手した時刻（ISO。入手の新しい順と NEW。save-extras）
+const OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId', 'ownedAt'];
 // 覚えているアクティブスキルの ID（| 区切り）は、ほかの列より長くなる
-const OWNED_TEXT_MAX = { skillIds: 1000, eggItemId: 64 };
+const OWNED_TEXT_MAX = { skillIds: 1000, eggItemId: 64, ownedAt: 30 };
+// プレイヤーの Lv（players の JSON の中。save-extras）の上限
+const OWNED_PLAYER_LEVEL_MAX = 999;
+// ゲーム内の日数（ワールドの行の列 inGameDay。save-extras）の上限
+const OWNED_DAY_MAX = 1000000;
 const OWNED_MAX_ROWS = 20000;
 // 配合牧場（ワールドの行に JSON で 1 セル）。牧場の ID・拠点・親（個体 ID、2 体まで）と、farm-data で足した短い鍵:
 //   s: 'u'（親が読めない牧場。親は送らない）、eggs: [{ id, p, m }]（牧場の上のタマゴの中身。p はパル ID、m: 1 は突然変異。1 牧場 20 個まで）、
@@ -174,6 +179,25 @@ function ownedWorldId(value) {
 }
 
 /**
+ * 共有のプレイヤー 1 人（uid・name と、save-extras で足した level〔1〜999 の整数〕・online〔true・false〕）。uid がなければ null。
+ * level・online は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
+ */
+function cleanOwnedPlayer(player) {
+  if (!player || typeof player !== 'object') return null;
+  const clean = { uid: ownedText(player.uid, 40), name: ownedText(player.name, 50) };
+  if (!clean.uid) return null;
+  if (Number.isInteger(player.level) && player.level > 0 && player.level <= OWNED_PLAYER_LEVEL_MAX) clean.level = player.level;
+  if (typeof player.online === 'boolean') clean.online = player.online;
+  return clean;
+}
+
+/** ゲーム内の日数（1〜1000000 の整数）。違えば null（列に書かない・分からない） */
+function ownedInGameDay(value) {
+  const day = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  return Number.isInteger(day) && day > 0 && day <= OWNED_DAY_MAX ? day : null;
+}
+
+/**
  * 所持パルのアップロードを検証して整える。
  * @returns {{ ok: true, value: object } | { ok: false, errors: { field: string, code: string }[] }}
  */
@@ -214,8 +238,10 @@ function validateOwnedUpload(input) {
       worldId,
       worldName: ownedText(world.name, 100),
       hostName: ownedText(world.hostName, 50),
+      // ゲーム内の日数（save-extras）。GAS の OWNED_UPLOAD_FIELDS_ の最上位の項目を増やさないよう world の中で受ける（古い GAS は捨てるだけ）
+      inGameDay: ownedInGameDay(world.inGameDay),
       saveUpdatedAt: new Date(saveTime).toISOString(),
-      players: players.map((player) => ({ uid: ownedText(player && player.uid, 40), name: ownedText(player && player.name, 50) })).filter((player) => player.uid),
+      players: players.map(cleanOwnedPlayer).filter(Boolean),
       bases: bases.map((base) => ({ id: ownedText(base && base.id, 40), label: ownedText(base && base.label, 60) })).filter((base) => base.id),
       // 牧場を送らない古い画面からの共有では null（牧場の情報がない）。セルに入るよう縮める（GAS・開発用 API・画面で同じ上限）
       farms: source.farms === undefined || source.farms === null ? null : fitOwnedFarms(cleanOwnedFarms(source.farms)),

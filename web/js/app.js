@@ -6,6 +6,7 @@ import { createIdealStore, idealNotificationSource, goalObservationSource } from
 import { createSelfStore } from './self-player.js';
 import { createPlanMemory } from './ideal-plan-memory.js';
 import { createSearchSeen } from './search-seen.js';
+import { createOwnedSeen } from './owned-seen.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createAttention } from './attention.js';
@@ -367,6 +368,8 @@ async function boot() {
     planMemory: createPlanMemory({ storage: browserStorage, namespace }),
     // 配合を探すの「新」の印の基準（前にその画面を離れた時刻。この端末に環境・ID ごと）
     seen: createSearchSeen({ storage: browserStorage, namespace }),
+    // 所持パルの「NEW」の基準（ワールドごとに、前に所持パルの画面で見ていたデータのセーブの時刻。この端末に環境・ID ごと。save-extras）
+    ownedSeen: createOwnedSeen({ storage: browserStorage, namespace }),
     notifications,
     owned,
     autoRegister,

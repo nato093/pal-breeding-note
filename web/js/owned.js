@@ -5,7 +5,7 @@
 import pals from '../data/pals.js';
 import passives from '../data/passives.js';
 import { normalizeOwned, ownedFromShared, sharedUpload } from './core/owned.js';
-import { OWNED_MAX_ROWS } from './core/owned-shared.js';
+import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS } from './core/owned-shared.js';
 import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
 
@@ -16,6 +16,11 @@ const AUTO_INTERVAL = 20000;
 const SHARED_INTERVAL = 10000;
 // 自動のアップロードの間隔（ゲームは数分おきに保存するので、毎回は送らない）
 const UPLOAD_INTERVAL = 60000;
+// 古い GAS に合わせて狭めた列の幅を、全部の列で試し直すまでの間（save-extras）
+const UPLOAD_WIDTH_RETRY = 60 * 60 * 1000;
+// 古い GAS が列の幅の違う共有を断ったか（core/owned-shared.js の validateOwnedUpload の INVALID_COLUMNS。api.js の ApiError の response.errors）
+const columnsRejected = (error) => error?.code === 'VALIDATION'
+  && (Array.isArray(error.response?.errors) ? error.response.errors : []).some((item) => item?.field === 'columns' && item?.code === 'INVALID_COLUMNS');
 
 /** IndexedDB のキー・値の保存先。使えない環境ではメモリに置く（再読み込みで消える）。 */
 export function idbPersist(name = 'pal-note', indexedDB = globalThis.indexedDB) {
@@ -173,6 +178,9 @@ export function createOwnedStore({
   let lastShared = -Infinity;
   let lastUpload = -Infinity;
   let uploadTimer = null;
+  // 共有で GAS が受け付けた列の幅と、幅を狭めた時刻（古い GAS。uploadLocal）
+  let uploadWidth = Infinity;
+  let uploadWidthAt = -Infinity;
   // 登録の削除・解除を求めるたびに増やす。読み込みの途中で求められたら、その読み込みの結果では共有しない
   let linkEpoch = 0;
   // このページで実際に読み込んだ、登録したファイルの一式の印（開き直した直後の保存済みのデータでは共有しない）
@@ -370,15 +378,40 @@ export function createOwnedStore({
     const owned = normalizeOwned(local.snapshot, { pals, passives });
     const payload = sharedUpload(owned);
     try {
-      const response = await server.request('ownedUpload', {
+      const head = {
         userId: server.userId?.() ?? '', worldId: local.world.id,
-        world: { name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '' },
-        saveUpdatedAt: local.world.updatedAt || local.importedAt, ...payload,
-      });
+        // ゲーム内の日数（save-extras）は GAS の最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）
+        world: {
+          name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '',
+          ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
+        },
+        saveUpdatedAt: local.world.updatedAt || local.importedAt,
+      };
+      // 古い GAS（後から足した列を知らない）は列の幅が違う共有を INVALID_COLUMNS で断るので、末尾の列を 1 つずつ外して送り直し、受け付けた
+      // 幅を覚える（UPLOAD_WIDTH_RETRY ごとに全部の列で試し直す。GAS を後から更新しても戻る）。画面を GAS より先に配信しても共有は止まらない
+      //（足した列〔入手時刻など〕だけが届かない。save-extras の Codex のレビュー）
+      const full = payload.columns.length;
+      const start = uploadWidth < full && now() - uploadWidthAt < UPLOAD_WIDTH_RETRY ? uploadWidth : full;
+      let width = start;
+      let sent;
+      let response;
+      for (;;) {
+        sent = width >= full ? payload : { ...payload, columns: payload.columns.slice(0, width), rows: payload.rows.map((row) => row.slice(0, width)) };
+        try {
+          response = await server.request('ownedUpload', { ...head, ...sent });
+          break;
+        } catch (error) {
+          if (!columnsRejected(error) || width <= full - OWNED_ADDED_FIELDS.length) throw error;
+          width--;
+        }
+      }
+      // 全部の列で試して狭めたときだけ時刻を残す（覚えた幅で送ったときは、試し直す時刻を延ばさない）
+      if (start === full && width < full) uploadWidthAt = now();
+      uploadWidth = width;
       const others = state.shared.worlds.filter((world) => world.worldId !== response.world.worldId);
       state.shared.worlds = [...others, response.world];
       if (response.stored) {
-        state.shared.current = { world: response.world, columns: payload.columns, rows: payload.rows.map((row) => row.map(String)) };
+        state.shared.current = { world: response.world, columns: sent.columns, rows: sent.rows.map((row) => row.map(String)) };
         state.upload = { status: 'done', at: response.world.uploadedAt, error: '', worldId: local.world.id };
         await persist.set(sharedKey(scope()), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
       } else {

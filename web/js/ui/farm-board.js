@@ -6,13 +6,41 @@ import { palsById, palIcon, genderMark, gameIcon, eggIcon } from './pal-icon.js'
 import { passiveChip } from './passive-picker.js';
 import { farmNames } from '../core/ideal-farms.js';
 import { findByPair } from '../core/index.js';
-import { eggName } from '../core/owned.js';
+import { eggName, cakeInfo } from '../core/owned.js';
 import { buildHash } from '../router.js';
 
 /** カードに中身の絵を並べるタマゴの数（共有で送る数と同じ。残りは「ほか n 個」） */
 export const FARM_EGGS_SHOWN = 20;
 // 牧場のタマゴの上限（ゲームで確かめた値）。確かめるまでは「もうすぐいっぱい」のチップを出さない（N-08。2026-10-15 のユーザーの答え）
 export const FARM_EGG_CAP = 0;
+
+/**
+ * 牧場のケーキの 1 行（save-extras。N-09・F051。ホストの画面だけ）: ケーキの種類ごとにゲームのアイコン（読めなければ文字だけ）と
+ * 「キノコケーキ ×51」。入れ物にケーキがなければ「ケーキ切れ」（警告の状態チップ。ケーキがないとタマゴを産まない）。
+ * cakes が配列でない（ケーキを読む前のセーブ・共有のデータ。ケーキは共有しない）なら null（出さない）
+ * @param {{ itemId: string, count: number }[] | null | undefined} cakes
+ */
+export function cakeLine(cakes, { className = '' } = {}) {
+  if (!Array.isArray(cakes)) return null;
+  const line = el('p', `farm-cakes${className ? ` ${className}` : ''}`);
+  if (!cakes.length) {
+    line.append(statusChip('ケーキ切れ', 'warning', 'farm-cake-out'));
+    line.title = '配合牧場にケーキがありません（ケーキがないとタマゴを産みません）';
+    return line;
+  }
+  const texts = [];
+  for (const cake of cakes) {
+    const { name, icon } = cakeInfo(cake.itemId);
+    const text = `${name} ×${cake.count}`;
+    texts.push(text);
+    const item = el('span', 'farm-cake');
+    if (icon) item.append(gameIcon(`item/cake-${icon}.png`, { size: 16, className: 'cake-icon' }));
+    item.append(el('span', '', text));
+    line.append(item);
+  }
+  line.title = `ケーキ: ${texts.join('・')}`;
+  return line;
+}
 
 /**
  * 牧場の状態（チップの文と色）。読めない牧場・空き（親 0）・片親（1 体）・同性（同じ性別の 2 体）・配合中（♂♀）
@@ -162,6 +190,9 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     else if (!farm.parents.length) parents.append(el('p', 'farm-parents-note', '親を置いていません'));
     else parents.append(...farm.parents.map((id) => parentNode(id, byId)));
     card.append(parents, eggsNode(farm, data, byId));
+    // ケーキの残り（ホストの画面だけ。「タマゴ n 個」の下。save-extras）
+    const cakes = cakeLine(farm.cakes);
+    if (cakes) card.append(cakes);
     const records = recordsNode(farm, byId);
     if (records) card.append(records);
     return card;
@@ -171,7 +202,7 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
   const cardKey = ({ farm, name }, byId, counted) => JSON.stringify([counted, farm.id, name, farm.status, farm.parents.map((id) => {
     const pal = byId.get(id);
     return pal ? [pal.id, pal.gender, pal.level, pal.passives, pal.talent, pal.lastOwner, pal.nickname] : id;
-  }), farm.eggs, farm.eggs?.map((egg) => byId.get(egg.id)?.eggItemId ?? ''), farm.eggCount, recordsOf(farm, byId)?.count ?? null]);
+  }), farm.eggs, farm.eggs?.map((egg) => byId.get(egg.id)?.eggItemId ?? ''), farm.eggCount, recordsOf(farm, byId)?.count ?? null, farm.cakes ?? null]);
 
   let lastData;
   let lastIndex;

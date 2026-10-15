@@ -1,7 +1,8 @@
 // 手元のセーブで、所持パルの読み込みを確かめる（読み取りのみ）。
-// 使い方: npm run check:save -- "<ワールドのフォルダ>"
+// 使い方: npm run check:save -- "<ワールドのフォルダ>" [--probe]
 //   例: %LOCALAPPDATA%\Pal\Saved\SaveGames\<SteamID>\<ワールドID>
-// フォルダを省略すると、既定のセーブ場所から一番新しいワールドを使う。
+// フォルダを省略すると、既定のセーブ場所から一番新しいワールドを使う。--probe は、セーブにある項目と入れ物の中身を調べて足して出す
+//（scripts/save-probe.mjs。読み方は docs/ui-refactor/phase-3-4-drawer-data.md の save-extras の「実装の記録」）
 import fs from 'node:fs';
 import path from 'node:path';
 import { readWorldFiles, saveFileRole } from '../web/js/save/import.js';
@@ -11,6 +12,7 @@ import breeding from '../web/data/breeding.js';
 import pals from '../web/data/pals.js';
 import passives from '../web/data/passives.js';
 import { defaultSaveRoot, findWorlds } from './save-worlds.mjs';
+import { probeWorld } from './save-probe.mjs';
 
 function collect(worldDir) {
   const files = [];
@@ -24,7 +26,9 @@ function collect(worldDir) {
 }
 
 async function main() {
-  let worldDir = process.argv[2];
+  const args = process.argv.slice(2);
+  const probe = args.includes('--probe');
+  let worldDir = args.find((arg) => arg !== '--probe');
   if (!worldDir) {
     const root = defaultSaveRoot();
     const latest = findWorlds(root).find((world) => world.role === 'host');
@@ -41,7 +45,9 @@ async function main() {
   const savedAt = fs.statSync(path.join(worldDir, 'Level.sav')).mtime.toLocaleString('ja-JP');
   console.log(`ワールド名: ${owned.world.name || '（なし）'} / Level.sav の更新: ${savedAt} / 解析 ${ms} ms`);
   console.log(`読み込んだファイル: ${snapshot.files.used.length} 件${snapshot.files.skipped.length ? `、読めなかったファイル: ${snapshot.files.skipped.map((f) => `${f.path}（${f.reason}）`).join(', ')}` : ''}`);
-  console.log(`プレイヤー: ${owned.players.map((p) => `${p.name}（Lv${p.level}）`).join(', ')}`);
+  // プレイ中（この保存の時点で接続していた。save-extras）とゲーム内の日数
+  console.log(`プレイヤー: ${owned.players.map((p) => `${p.name}（Lv${p.level}${p.online === true ? '・プレイ中' : ''}）`).join(', ')}`);
+  console.log(`ゲーム内: ${owned.world.inGameDay ?? '不明'} 日目`);
   console.log(`パル（タマゴ含む）: ${owned.pals.length} 体`);
   for (const group of PLACE_ORDER) {
     const list = owned.pals.filter((p) => p.placeGroup === group);
@@ -77,6 +83,9 @@ async function main() {
   const mutants = farms.reduce((sum, farm) => sum + farm.eggs.filter((egg) => egg.mutant).length, 0);
   console.log(`画面用の牧場: ${farms.length} か所（読めない ${farms.filter((farm) => farm.status === 'uncertain').length}）・タマゴ ${eggTotal} 個（突然変異 ${mutants} 個・中身の分からない ${farms.reduce((sum, farm) => sum + farm.eggs.filter((egg) => !egg.palId).length, 0)} 個）`);
   for (const farm of farms) if (farm.eggCount) console.log(`  ${farm.id.slice(0, 8)}: タマゴ ${farm.eggCount} 個${farm.eggs.some((egg) => egg.mutant) ? `（突然変異 ${farm.eggs.filter((egg) => egg.mutant).length}）` : ''}`);
+  // 牧場のケーキ（save-extras。[] はケーキ切れ、null は分からない）
+  console.log(`牧場のケーキ: ${farms.map((farm) => (Array.isArray(farm.cakes) ? (farm.cakes.map((cake) => `${cake.itemId}×${cake.count}`).join('+') || 'ケーキ切れ') : '不明')).join(' / ') || 'なし'}`);
+  if (probe) await probeWorld(worldDir, { snapshot, files });
 }
 
 main().catch((error) => { console.error(error.message); process.exit(1); });

@@ -68,12 +68,15 @@ export const HOLDER_DEFAULT = 'mine';
  * 2 人以上なら UID の頭 8 字を添える）。2026-10-14 のユーザーのフィードバック（D29）で、前の「自分の個体」の選択肢と自分の player:<uid> の
  * 選択肢を、自分のプレイヤー名の 1 つにまとめた（中身は前の「自分の個体」と同じ集まり〔ideals.mine()〕）
  */
-export function holderChoices(data, ideals) {
+export function holderChoices(data, ideals, { online = new Set() } = {}) {
   const players = data?.players ?? [];
   const self = ideals?.selfUids?.() ?? new Set();
   const names = new Map();
   for (const player of players) names.set(player.name, (names.get(player.name) ?? 0) + 1);
-  const label = (player) => (!player.name || names.get(player.name) > 1 ? `${player.name || '不明なプレイヤー'}（${shortUid(player.uid)}）` : player.name);
+  // いまプレイ中の仲間（online。ui/owned-status.js の onlineUids。保存が新しいときだけ）は名前に「（プレイ中）」を添える（save-extras）。
+  // 自分には付けない（自分のことは分かる。理想個体のパネルの狭い選択欄で「（自分）」が切れないように）
+  const playing = (player) => (online.has(player.uid) ? '（プレイ中）' : '');
+  const label = (player) => `${!player.name || names.get(player.name) > 1 ? `${player.name || '不明なプレイヤー'}（${shortUid(player.uid)}）` : player.name}${playing(player)}`;
   const mine = players.filter((player) => self.has(player.uid));
   const selfName = [...new Set(mine.map((player) => player.name || '不明なプレイヤー'))].join('・');
   return [

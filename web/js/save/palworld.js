@@ -102,10 +102,10 @@ function makeWhitelistSkip(spec) {
   };
 }
 
-/** SaveParameter 配下の whitelist（prefix は '.SaveParameter' の位置）。 */
-function palFieldSpec(prefix) {
+/** SaveParameter 配下の whitelist（prefix は '.SaveParameter' の位置）。fields は読む項目（調べるときだけ足す。check-save の --probe） */
+function palFieldSpec(prefix, fields = PAL_FIELDS) {
   return {
-    [prefix]: PAL_FIELDS,
+    [prefix]: fields,
     [prefix + '.SlotId']: ['ContainerId', 'SlotIndex'],
     [prefix + '.SlotId.ContainerId']: ['ID'],
   };
@@ -120,15 +120,24 @@ function recoverInto(malformed, errors, key) {
   };
 }
 
-// SaveParameter のうち使うものだけ読む（他はサイズで飛ばす）
+// SaveParameter のうち使うものだけ読む（他はサイズで飛ばす）。OwnedTime 以降は save-extras（入手時刻・魂の強化・病気と空腹と SAN。
+// 魂の強化と病気・空腹は Level では既定〔0・None〕のとき書かれない。docs/SAVE_FORMAT.md）
 const PAL_FIELDS = [
   'CharacterID', 'NickName', 'Gender', 'Level', 'Rank', 'Talent_HP', 'Talent_Shot', 'Talent_Defense',
   'PassiveSkillList', 'EquipWaza', 'MasteredWaza', 'IsRarePal', 'IsPlayer', 'OwnerPlayerUId', 'OldOwnerPlayerUIds', 'SlotId',
+  'OwnedTime', 'Rank_HP', 'Rank_Attack', 'Rank_Defence', 'Rank_CraftSpeed', 'WorkerSick', 'HungerType', 'SanityValue',
 ];
 
 const uid = (v) => (typeof v === 'string' && v !== ZERO_GUID ? v : '');
 const str = (v) => (typeof v === 'string' ? v : '');
 const num = (v, d) => (typeof v === 'number' ? v : d);
+
+/** 列挙の値（'EPalStatusHungerType::Starvation'）の後ろの名前。既定の値（ないときと同じ）・文字列でなければ '' */
+function enumName(v, fallback) {
+  if (typeof v !== 'string') return '';
+  const name = v.includes('::') ? v.slice(v.lastIndexOf('::') + 2) : v;
+  return name && name !== fallback ? name.slice(0, 64) : '';
+}
 
 function genderOf(v) {
   if (typeof v !== 'string') return '';
@@ -169,6 +178,12 @@ function palFromParams(sp) {
     lastOwnerUid: old.length ? uid(old[old.length - 1]) : '',
     containerId: uid(cont.ID),
     slotIndex: num(slot.SlotIndex, 0),
+    // 入手した時刻（ホストの PC のローカル時刻のティック。持ち主のない個体〔NPC・タマゴ〕にはない）
+    ownedAt: ticksToLocalIso(sp.OwnedTime),
+    // 魂の強化（パルの魂で上げた段階。HP・攻撃・防御・作業速度）
+    soul: { hp: num(sp.Rank_HP, 0), attack: num(sp.Rank_Attack, 0), defense: num(sp.Rank_Defence, 0), craft: num(sp.Rank_CraftSpeed, 0) },
+    // 病気（拠点の作業の病気の種類）・空腹（Default 以外）・SAN（書かれないときは 100）
+    condition: { sick: enumName(sp.WorkerSick, 'None'), hunger: enumName(sp.HungerType, 'Default'), sanity: num(sp.SanityValue, 100) },
   };
 }
 
@@ -186,11 +201,38 @@ export function ticksToIso(ticks) {
   return Number.isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
+/**
+ * ホストの PC のローカル時刻で書かれた DateTime のティック（個体の OwnedTime・Level の Timestamp）を、本当の時刻（ISO）にする。
+ * ticksToIso は UTC として読むので、日本時間の PC では 9 時間ずれる。ページ（解析の Worker も）はホストの PC で動くので、ブラウザの
+ * タイムゾーンで年月日時を組み立てる。2^53 を超えるティックは 10 進の文字列で届くので BigInt で割る。0・読めない値は ''
+ */
+export function ticksToLocalIso(ticks) {
+  let ms;
+  try {
+    if (ticks === null || ticks === undefined || ticks === '') return '';
+    const big = typeof ticks === 'bigint' ? ticks : BigInt(typeof ticks === 'number' ? Math.trunc(ticks) : String(ticks).trim());
+    if (big <= 0n) return '';
+    ms = Number(big / 10000n - 62135596800000n);
+  } catch {
+    return '';
+  }
+  const wall = new Date(ms);
+  if (!Number.isFinite(ms) || Number.isNaN(wall.getTime())) return '';
+  const local = new Date(2000, 0, 1);
+  local.setFullYear(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate());
+  local.setHours(wall.getUTCHours(), wall.getUTCMinutes(), wall.getUTCSeconds(), wall.getUTCMilliseconds());
+  return Number.isNaN(local.getTime()) ? '' : local.toISOString();
+}
+
 function bump(obj, key, n = 1) {
   obj[key] = (obj[key] || 0) + n;
 }
 
 const SP_SKIP = makeWhitelistSkip({ '': ['SaveParameter'], ...palFieldSpec('.SaveParameter') });
+// 調べるとき（check-save の --probe）だけ、読む項目を足した skip を作る
+const spSkipWith = (extra) => (extra.length ? makeWhitelistSkip({ '': ['SaveParameter'], ...palFieldSpec('.SaveParameter', [...PAL_FIELDS, ...extra]) }) : SP_SKIP);
+// 足した項目の生の値（書かれていない項目は入れない）
+const probeValues = (sp, extra) => Object.fromEntries(extra.filter((name) => sp[name] !== undefined).map((name) => [name, sp[name]]));
 
 /** RawData 内の 'SaveParameter' を持つプロパティ列を読む。 */
 function readSaveParameterList(reader) {
@@ -294,7 +336,11 @@ function parseBreedFarms(ws, malformed) {
   const wantedEggObjects = new Set();
   for (const mo of ws.MapObjectSaveData || []) {
     if (str(mo.MapObjectId).toLowerCase() !== 'breedfarm') continue;
-    const farm = { id: '', baseCampId: '', status: 'ok', parentInstanceIds: [], eggMapObjectIds: [], eggContainerIds: [] };
+    const farm = { id: '', baseCampId: '', status: 'ok', parentInstanceIds: [], eggMapObjectIds: [], eggContainerIds: [], cakeContainerId: '' };
+    // 牧場のケーキの入れ物（ModuleMap の ItemContainer。RawData の先頭 16 バイトが入れ物 ID。save-extras）
+    const cakeModule = ((mo.ConcreteModel && mo.ConcreteModel.ModuleMap) || []).find((x) => x.key === ITEM_CONTAINER_MODULE);
+    const cakeRaw = cakeModule && cakeModule.value && cakeModule.value.RawData;
+    if (cakeRaw instanceof Uint8Array && cakeRaw.length >= 16) farm.cakeContainerId = uid(guidAt(cakeRaw, 0));
     try {
       const model = decodeMapModel(mo.Model.RawData);
       farm.id = model.instanceId;
@@ -403,8 +449,9 @@ function decodeGroup(raw, groupType) {
     try {
       const playerUid = r.guid();
       r.fstring(); // guild_name_2
-      r.i64();
-      g.players = [{ uid: uid(playerUid), name: r.fstring() }];
+      // last_online_real_time（ワールドが動いた通算の時間のティック。GameTimeSaveData.RealDateTimeTicks と同じ時計。save-extras）
+      const lastOnlineTicks = r.i64();
+      g.players = [{ uid: uid(playerUid), name: r.fstring(), lastOnlineTicks }];
     } catch {
       g.players = [];
     }
@@ -420,7 +467,7 @@ function readGuildPlayers(r) {
     r.skipBytes(4 + 16); // unknown_i32, admin_player_uid
     const players = r.tarray((x) => {
       const p = { uid: uid(x.guid()) };
-      x.i64();
+      p.lastOnlineTicks = x.i64(); // last_online_real_time
       p.name = x.fstring();
       x.u8v(); // role
       return p;
@@ -439,7 +486,7 @@ function readGuildPlayers(r) {
   r.skipBytes(16); // admin_player_uid
   const players = r.tarray((x) => {
     const p = { uid: uid(x.guid()) };
-    x.i64();
+    p.lastOnlineTicks = x.i64(); // last_online_real_time
     p.name = x.fstring();
     return p;
   });
@@ -491,8 +538,11 @@ const LEVEL_SKIP = makeWhitelistSkip({
   [WS]: [
     'CharacterSaveParameterMap', 'MapObjectSaveData', 'BaseCampSaveData', 'ItemContainerSaveData',
     'DynamicItemSaveData', 'GroupSaveDataMap', 'GuildExtraSaveDataMap', 'InLockerCharacterInstanceIDArray',
-    'WorkSaveData',
+    'WorkSaveData', 'GameTimeSaveData',
   ],
+  // ワールドが動いた通算の時間（RealDateTimeTicks。ギルドのメンバーの最終ログインと同じ時計で、プレイ中の判定に使う）と、
+  // ゲーム内の時刻（GameDateTimeTicks。1 日 = 864e9 ティック。Day）。save-extras
+  [WS + '.GameTimeSaveData']: ['RealDateTimeTicks', 'GameDateTimeTicks'],
   [WS + '.CharacterSaveParameterMap.Key']: ['PlayerUId', 'InstanceId'],
   [WS + '.CharacterSaveParameterMap.Value']: ['RawData'],
   [MO]: ['MapObjectId', 'Model', 'ConcreteModel'],
@@ -514,13 +564,20 @@ const LEVEL_SKIP = makeWhitelistSkip({
 });
 
 const ITEM_CONTAINER_MODULE = 'EPalMapObjectConcreteModelModuleType::ItemContainer';
+const CHARACTER_CONTAINER_MODULE = 'EPalMapObjectConcreteModelModuleType::CharacterContainer';
+// 牧場の入れ物のケーキ（Cake・Cake02〜Cake05。ほかのアイテムは数えない）
+const CAKE_ITEM = /^Cake\d*$/i;
 
 /**
  * Level.sav（解凍済み GVAS）を読む。結果はプレーンなデータのみ（Worker 間で structured clone 可能、元バッファを参照しない）。
  * @param {Uint8Array|ArrayBuffer} gvasBytes
+ * @param {{ extraPalFields?: string[] }} [options] extraPalFields は個体の SaveParameter から足して読む項目（check-save の --probe だけ。
+ *   個体の probe に生の値が入る）。ふだんは渡さない
  * @returns {object} level（buildSnapshot に渡す）
  */
-export function parseLevel(gvasBytes) {
+export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
+  const extra = Array.isArray(extraPalFields) ? extraPalFields.filter((name) => typeof name === 'string') : [];
+  const spSkip = spSkipWith(extra);
   const malformed = {};
   const errors = [];
   // 構造の一部が壊れていても（または未知の型でも）サイズで飛ばして続行し、malformed.properties に数える
@@ -538,13 +595,13 @@ export function parseLevel(gvasBytes) {
       const key = e.key || {};
       const raw = e.value && e.value.RawData;
       if (!(raw instanceof Uint8Array)) throw new Error('no RawData');
-      const sp = readSaveParameterList(new GvasReader(raw, { skip: SP_SKIP }));
+      const sp = readSaveParameterList(new GvasReader(raw, { skip: spSkip }));
       if (!sp) throw new Error('no SaveParameter');
       const p = palFromParams(sp);
       if (p.isPlayer) {
         players.push({ uid: uid(key.PlayerUId), instanceId: uid(key.InstanceId), name: p.nickname, level: p.level });
       } else {
-        pals.push({ instanceId: uid(key.InstanceId), ...p });
+        pals.push({ instanceId: uid(key.InstanceId), ...p, ...(extra.length ? { probe: probeValues(sp, extra) } : {}) });
       }
     } catch {
       bump(malformed, 'characters');
@@ -610,12 +667,19 @@ export function parseLevel(gvasBytes) {
     }
   }
 
+  // 配合牧場（自動登録の照合に使う）。ケーキの入れ物を下のスロットのループで読むので先に集める
+  const breedFarms = parseBreedFarms(ws, malformed);
+  // 牧場の入れ物 ID → ケーキ（アイテム ID → 個数。スロットの順）。入れ物が見つからない牧場はケーキが分からない（null のまま）
+  const farmCakes = new Map(breedFarms.filter((farm) => farm.cakeContainerId).map((farm) => [farm.cakeContainerId, null]));
+
   // 卵が入っているアイテムコンテナとスロット
   const eggSlot = new Map(); // localId → { containerId, slotIndex }
   const eggContainers = new Set();
   for (const e of ws.ItemContainerSaveData || []) {
     const containerId = uid(e.key && e.key.ID);
     const slots = (e.value && e.value.Slots) || [];
+    const cakes = farmCakes.has(containerId) ? new Map() : null;
+    if (cakes) farmCakes.set(containerId, cakes);
     for (const s of slots) {
       const raw = s && s.RawData;
       if (!(raw instanceof Uint8Array) || raw.length === 0) continue;
@@ -625,10 +689,33 @@ export function parseLevel(gvasBytes) {
           eggSlot.set(slot.localId, { containerId, slotIndex: slot.slotIndex });
           eggContainers.add(containerId);
         }
+        if (cakes && slot.count > 0 && CAKE_ITEM.test(slot.staticId)) cakes.set(slot.staticId, (cakes.get(slot.staticId) || 0) + slot.count);
       } catch {
         bump(malformed, 'itemSlots');
       }
     }
+  }
+  for (const farm of breedFarms) {
+    const cakes = farm.cakeContainerId ? farmCakes.get(farm.cakeContainerId) : null;
+    farm.cakes = cakes ? [...cakes].map(([itemId, count]) => ({ itemId, count })) : null;
+    delete farm.cakeContainerId;
+  }
+
+  // 観賞用ケージ（MapObjectId が DisplayCharacter。ModuleMap の CharacterContainer の RawData の先頭 16 バイトが入れ物 ID）。
+  // 中の個体の SlotId はこの入れ物を指す（前は場所が「不明」になっていた。save-extras）
+  const displayCages = [];
+  for (const mo of ws.MapObjectSaveData || []) {
+    if (!/^DisplayCharacter/i.test(str(mo.MapObjectId))) continue;
+    const m = ((mo.ConcreteModel && mo.ConcreteModel.ModuleMap) || []).find((x) => x.key === CHARACTER_CONTAINER_MODULE);
+    const raw = m && m.value && m.value.RawData;
+    if (!(raw instanceof Uint8Array) || raw.length < 16) continue;
+    let baseCampId = '';
+    try {
+      baseCampId = decodeMapModel(mo.Model.RawData).baseCampId;
+    } catch {
+      bump(malformed, 'mapObjectModels');
+    }
+    displayCages.push({ containerId: uid(guidAt(raw, 0)), baseCampId });
   }
 
   // 卵の入ったコンテナを持つマップオブジェクト（宝箱・地面の卵・孵化器など）
@@ -666,14 +753,15 @@ export function parseLevel(gvasBytes) {
     });
   }
 
-  // 配合牧場（自動登録の照合に使う）
-  const breedFarms = parseBreedFarms(ws, malformed);
-
   const inLockerInstanceIds = (ws.InLockerCharacterInstanceIDArray || []).map((x) => uid(x && x.InstanceId)).filter(Boolean);
 
+  const gameTime = ws.GameTimeSaveData && typeof ws.GameTimeSaveData === 'object' ? ws.GameTimeSaveData : {};
   return {
     kind: 'level',
     savedAtTicks: properties.Timestamp ?? null,
+    // ワールドが動いた通算の時間とゲーム内の時刻（ティック。読めなければ null。save-extras）
+    realDateTimeTicks: gameTime.RealDateTimeTicks ?? null,
+    gameDateTimeTicks: gameTime.GameDateTimeTicks ?? null,
     players,
     pals,
     guilds,
@@ -681,6 +769,7 @@ export function parseLevel(gvasBytes) {
     guildStorages,
     eggs,
     containerOwners,
+    displayCages,
     inLockerInstanceIds,
     breedFarms,
     counts: {
@@ -767,10 +856,16 @@ const STORAGE_SKIP = makeWhitelistSkip({
  *   pals[i].arrayIndex は SaveParameterArray の添字（保管庫のスロット）。pals[i].containerId / slotIndex は
  *   SaveParameter.SlotId の値で、dps では預ける前のパルボックスの位置を指す（場所の判定には使わない）
  */
-export function parsePalStorage(gvasBytes) {
+export function parsePalStorage(gvasBytes, { extraPalFields = [] } = {}) {
   const malformed = {};
   const spPath = SPA + '.SaveParameter';
-  const r = new GvasReader(gvasBytes, { skip: STORAGE_SKIP });
+  // extraPalFields は parseLevel と同じ（check-save の --probe だけ）
+  const extra = Array.isArray(extraPalFields) ? extraPalFields.filter((name) => typeof name === 'string') : [];
+  const skip = extra.length ? makeWhitelistSkip({
+    '': ['SaveParameterArray'], [SPA]: ['SaveParameter', 'InstanceId'], [SPA + '.InstanceId']: ['PlayerUId', 'InstanceId'],
+    ...palFieldSpec(SPA + '.SaveParameter', [...PAL_FIELDS, ...extra]),
+  }) : STORAGE_SKIP;
+  const r = new GvasReader(gvasBytes, { skip });
   const header = r.readHeader();
   const kind = SAVE_CLASS_KIND[header.saveGameClassName];
   if (kind !== 'dps' && kind !== 'global') {
@@ -791,7 +886,10 @@ export function parsePalStorage(gvasBytes) {
     if (!sp || typeof sp !== 'object') continue; // malformed（onError で計数済み）
     if (isEmptyCharacterId(str(sp.CharacterID))) continue;
     const iid = e.InstanceId || {};
-    pals.push({ instanceId: uid(iid.InstanceId), keyPlayerUid: uid(iid.PlayerUId), arrayIndex: i, ...palFromParams(sp) });
+    pals.push({
+      instanceId: uid(iid.InstanceId), keyPlayerUid: uid(iid.PlayerUId), arrayIndex: i, ...palFromParams(sp),
+      ...(extra.length ? { probe: probeValues(sp, extra) } : {}),
+    });
   }
   return { kind, slotCount: arr.length, pals, malformed };
 }
@@ -862,10 +960,18 @@ function palEntry(source, instanceId, p, loc) {
     ownerUid: p.ownerUid,
     lastOwnerUid: p.lastOwnerUid,
     location: loc,
+    // save-extras: 入手した時刻（ISO。ないときは ''）・魂の強化・病気と空腹と SAN
+    ownedAt: p.ownedAt || '',
+    soul: { ...p.soul },
+    condition: { ...p.condition },
   };
 }
 
 const unwrap = (x) => (x && typeof x === 'object' && 'data' in x && !('kind' in x) ? x.data : x);
+
+// プレイ中とみなす最終ログインと通算の時間の差（10 秒 = 1 億ティック）と、ゲーム内の 1 日のティック
+const ONLINE_TICKS = 1e8;
+const TICKS_PER_DAY = 864e9;
 
 // GUID 文字列、またはファイル名形式（32 桁の 16 進）を GUID 文字列にそろえる
 const normUid = (s) => {
@@ -931,6 +1037,10 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
   for (const b of bases) {
     if (b.containerId) charContainer.set(b.containerId, { kind: 'base', playerUid: '', baseId: b.id });
   }
+  // 観賞用ケージ（拠点に置く。中の個体は拠点の持ち物として扱う。save-extras）。ほかの入れ物と重なれば、そちらを優先する
+  for (const cage of level.displayCages || []) {
+    if (cage.containerId && !charContainer.has(cage.containerId)) charContainer.set(cage.containerId, { kind: 'display', playerUid: '', baseId: cage.baseCampId || '' });
+  }
   for (const gs of level.guildStorages || []) {
     if (gs.containerId) itemContainer.set(gs.containerId, { kind: 'egg-guild', playerUid: '', guildId: gs.guildId });
   }
@@ -951,6 +1061,19 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
   for (const p of playerSaves) {
     if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0 });
   }
+  // プレイ中（この保存の時点で接続していた）か。ギルドのメンバーの最終ログイン（last_online_real_time）と、ワールドが動いた通算の時間
+  //（RealDateTimeTicks）が 10 秒（1 億ティック）以内なら true、離れていれば false、どちらかが読めなければ null（分からない）。
+  // 2 つは同じ時計（日時ではない）で、接続中の人は保存のたびに同じ値になる（2026-10-15 に 11 世代で差 0〜0.02 秒。docs/SAVE_FORMAT.md）
+  const real = Number(level.realDateTimeTicks);
+  const online = new Map();
+  for (const g of level.guilds) {
+    for (const m of g.players) {
+      const last = Number(m.lastOnlineTicks);
+      if (!m.uid || !Number.isFinite(real) || real <= 0 || m.lastOnlineTicks === undefined || !Number.isFinite(last)) continue;
+      online.set(m.uid, online.get(m.uid) === true || Math.abs(real - last) <= ONLINE_TICKS);
+    }
+  }
+  for (const p of playerMap.values()) p.online = online.has(p.uid) ? online.get(p.uid) : null;
 
   // パル（instanceId で重複除去）
   const pals = [];
@@ -1067,16 +1190,20 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     const eggs = f.eggContainerIds.flatMap((id) => (eggsByContainer.get(id) || [])
       // itemId はタマゴのアイテム（突然変異タマゴは PalEgg_MutationPal_*）
       .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw, itemId: egg.staticId })));
-    return { id: f.id, baseId: f.baseCampId, status, parents, eggs };
+    // ケーキ（牧場の入れ物のケーキの種類と個数。[] はケーキ切れ、null は入れ物が読めない。ホストの画面だけ・共有しない。save-extras）
+    const cakes = Array.isArray(f.cakes) ? f.cakes.map((cake) => ({ itemId: cake.itemId, count: cake.count })) : null;
+    return { id: f.id, baseId: f.baseCampId, status, parents, eggs, cakes };
   });
 
   const m = meta && meta.kind === 'levelMeta' ? meta : null;
   if (m) for (const [k, v] of Object.entries(m.malformed || {})) bump(stats.malformed, `meta.${k}`, v);
+  // ゲーム内の日数は LevelMeta.sav の InGameDay。読めなければ Level.sav のゲーム内の時刻から（floor(GameDateTimeTicks ÷ 864e9) と一致する）
+  const gameTicks = Number(level.gameDateTimeTicks);
   const world = {
     name: m ? m.worldName : '',
     hostName: m ? m.hostPlayerName : '',
     savedAt: ticksToIso(level.savedAtTicks) || (m ? ticksToIso(m.timestampTicks) : ''),
-    inGameDay: m ? m.inGameDay : 0,
+    inGameDay: m && m.inGameDay > 0 ? m.inGameDay : Number.isFinite(gameTicks) && gameTicks > 0 ? Math.floor(gameTicks / TICKS_PER_DAY) : 0,
   };
 
   return {

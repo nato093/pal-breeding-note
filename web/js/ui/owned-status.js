@@ -92,6 +92,73 @@ export function grantWithReport(owned) {
   }, (error) => toast(error?.code === 'permission' ? PERMISSION_DENIED : error.message, { kind: 'error' }));
 }
 
+// ---- プレイ中の仲間・ゲーム内の日数・Lv（save-extras。F006） ----
+// プレイ中は「その保存の時点で接続していた」（ギルドの最終ログインとワールドの通算の時間が一致）。ゲームを閉じた後も最後の保存には
+// 残るので、文には必ず保存（共有）の時刻を添え、所持者の選択肢の「（プレイ中）」は保存が新しいときだけ付ける。
+// ゲームは約 30 秒ごとに保存し、ホストの画面は 1 分ごとに読むので、この PC のデータは 5 分、共有は 10 分（ホストの PC との時計のずれの分）
+export const PRESENCE_FRESH_LOCAL_MS = 5 * 60 * 1000;
+export const PRESENCE_FRESH_SHARED_MS = SHARED_STALE_MS;
+// Lv の行に並べる人数（残りは「ほか n 人」）
+const LEVELS_SHOWN = 8;
+
+/**
+ * 表示中のデータのプレイ中・日数・Lv。データがなければ null。
+ * @returns {null | { day: number | null, known: boolean, online: object[], levels: object[], at: string, label: string, fresh: boolean }}
+ *   known はプレイ中が分かるプレイヤーがいるか（古いデータ・古い共有では false）、at は添える時刻（プレイ中はその保存の時点の状態なので、
+ *   共有でも共有した時刻ではなくホストのセーブの時刻。Codex のレビュー）、label は「セーブ」「ホストのセーブ」、fresh はその保存が新しい
+ *  （いまもプレイ中とみなせる）か
+ */
+export function presenceOf(state, { now = Date.now } = {}) {
+  const owned = state?.owned;
+  const meta = state?.meta;
+  if (!owned || !meta?.source) return null;
+  const players = Array.isArray(owned.players) ? owned.players : [];
+  const shared = meta.source === 'shared';
+  const saved = Date.parse(meta.saveUpdatedAt);
+  const fresh = Number.isFinite(saved) && now() - saved <= (shared ? PRESENCE_FRESH_SHARED_MS : PRESENCE_FRESH_LOCAL_MS);
+  const day = Number.isInteger(owned.world?.inGameDay) && owned.world.inGameDay > 0 ? owned.world.inGameDay : null;
+  return {
+    day,
+    known: players.some((player) => typeof player.online === 'boolean'),
+    online: players.filter((player) => player.online === true),
+    levels: players.filter((player) => Number.isInteger(player.level) && player.level > 0),
+    at: meta.saveUpdatedAt || '',
+    label: shared ? 'ホストのセーブ' : 'セーブ',
+    fresh,
+  };
+}
+
+/** いまプレイ中とみなす人の UID（保存が新しいときだけ。所持者の選択肢の「（プレイ中）」） */
+export function onlineUids(state, { now = Date.now } = {}) {
+  const info = presenceOf(state, { now });
+  return info?.fresh ? new Set(info.online.map((player) => player.uid)) : new Set();
+}
+
+/** onlineUids の印（同じなら選択肢を作り直さない。データが同じでも、時間がたって保存が古くなると変わる） */
+export const onlineKey = (state, options) => [...onlineUids(state, options)].sort().join(',');
+
+/**
+ * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（セーブ 03:07 の時点）」。参加者は「ホストのセーブ」。
+ * 分からなければ出さない）・
+ * Lv（「Alice 52 · Bob 47」。分かる人だけ）
+ */
+export function presenceItems(state, { now = Date.now } = {}) {
+  const info = presenceOf(state, { now });
+  if (!info) return [];
+  const items = [];
+  if (info.day) items.push(['ゲーム内', `${info.day} 日目`]);
+  if (info.known) {
+    const names = info.online.map((player) => player.name || '名前なし');
+    items.push(['プレイ中', `${names.length ? names.join('・') : 'いません'}（${info.label} ${formatShortTime(info.at, now(), '時刻不明')} の時点）`]);
+  }
+  if (info.levels.length) {
+    const shown = info.levels.slice(0, LEVELS_SHOWN).map((player) => `${player.name || '名前なし'} ${player.level}`);
+    const rest = info.levels.length - shown.length;
+    items.push(['Lv', `${shown.join(' · ')}${rest > 0 ? ` · ほか ${rest} 人` : ''}`]);
+  }
+  return items;
+}
+
 export function dateTime(value) {
   const time = new Date(value);
   return value && Number.isFinite(time.getTime())

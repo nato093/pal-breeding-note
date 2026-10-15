@@ -667,3 +667,44 @@ test('所持パル（owned-status）: 登録がない（empty）ときの文は�
   assert.equal(await store.autoRefresh(), 'empty');
   assert.equal(store.state.auto.error, 'セーブのファイルが登録されていません');
 });
+
+test('所持パル: 古い GAS（後から足した列を知らない）が列の幅の違う共有を断ったら、末尾の列を外して送り直し、受け付けた幅を覚えて 1 時間ごとに試し直す（save-extras）', async () => {
+  const shared = sharedServer();
+  const { OWNED_FIELDS } = await import('../../web/js/core/owned-shared.js');
+  const { ApiError } = await import('../../web/js/api.js');
+  // 入手時刻の列（ownedAt）を足す前の GAS の検証と同じ: 知っている列より広い共有は INVALID_COLUMNS・INVALID_ROWS
+  let known = OWNED_FIELDS.length - 1;
+  const widths = [];
+  const old = {
+    ...shared.server,
+    async request(action, input = {}) {
+      if (action === 'ownedUpload') {
+        widths.push(input.columns.length);
+        if (input.columns.length > known) {
+          throw new ApiError('VALIDATION', { ok: false, code: 'VALIDATION', errors: [{ field: 'columns', code: 'INVALID_COLUMNS' }, { field: 'rows', code: 'INVALID_ROWS' }] });
+        }
+      }
+      return shared.server.request(action, input);
+    },
+  };
+  const host = setup({ server: old });
+  await host.register(WORLD_A, hostFiles(T0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(widths, [OWNED_FIELDS.length, OWNED_FIELDS.length - 1]);
+  assert.equal(host.store.state.upload.status, 'done');
+  assert.deepEqual(host.store.state.shared.current.columns, OWNED_FIELDS.slice(0, -1));
+  // 次の共有は覚えた幅で 1 回だけ送る
+  host.advance(60000);
+  assert.equal(await host.store.uploadLocal({ force: true }), 'uploaded');
+  assert.deepEqual(widths.slice(2), [OWNED_FIELDS.length - 1]);
+  // 1 時間たったら全部の列で試し直す（GAS を更新していれば、そのまま通る）
+  known = OWNED_FIELDS.length;
+  host.advance(60 * 60 * 1000);
+  assert.equal(await host.store.uploadLocal({ force: true }), 'uploaded');
+  assert.deepEqual(widths.slice(3), [OWNED_FIELDS.length]);
+  // 列の幅でない検証の失敗は送り直さない。足した列を全部外しても断られたら諦める
+  known = 0;
+  host.advance(60 * 60 * 1000);
+  assert.equal(await host.store.uploadLocal({ force: true }), 'error');
+  assert.equal(host.store.state.upload.status, 'error');
+});

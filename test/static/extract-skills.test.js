@@ -77,3 +77,18 @@ test('タマゴの名前の取り出し: ITEM_NAME_PalEgg_* の行だけを、�
   assert.ok(Object.keys(EGG_NAMES).length >= 40);
   assert.ok(Object.keys(EGG_NAMES).every((id) => /^PalEgg_\w+$/.test(id)));
 });
+
+test('ケーキの名前の取り出し: ITEM_NAME_Cake・Cake02 などの行だけを、名前のない行を捨てて ID の順に。書き出しは CAKE_NAMES（save-extras）', async () => {
+  const { buildCakeNames, renderEggNames } = await import('../../scripts/extract-skills.mjs');
+  const cakes = buildCakeNames(new Map([
+    ['ITEM_NAME_Cake05', 'スペシャルケーキ'], ['ITEM_NAME_Cake', 'ケーキ'], ['ITEM_NAME_Cake09', '-'],
+    ['ITEM_NAME_CakeMix', 'ケーキの素'], ['ITEM_DESC_Cake', '説明'], ['ITEM_NAME_PalEgg_Fire_01', '炎のタマゴ'],
+  ]));
+  assert.deepEqual(cakes, { Cake: 'ケーキ', Cake05: 'スペシャルケーキ' });
+  const text = renderEggNames({ PalEgg_Fire_01: '炎のタマゴ' }, cakes);
+  assert.match(text, /export const EGG_NAMES = \{\n {2}"PalEgg_Fire_01": "炎のタマゴ",\n\};/);
+  assert.match(text, /export const CAKE_NAMES = \{\n {2}"Cake": "ケーキ",\n {2}"Cake05": "スペシャルケーキ",\n\};/);
+  // 配信する表は取り出したもの（ゲームの 5 種）
+  const { CAKE_NAMES } = await import('../../web/data/items.js');
+  assert.deepEqual(CAKE_NAMES, { Cake: 'ケーキ', Cake02: 'キノコケーキ', Cake03: '野菜ケーキ', Cake04: '豪華野菜ケーキ', Cake05: 'スペシャルケーキ' });
+});

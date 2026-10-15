@@ -42,6 +42,7 @@
 | `OtomoCharacterContainerId` | `Players\<uid>.sav` | 手持ち（そのプレイヤー） |
 | `PalStorageContainerId` | `Players\<uid>.sav` | パルボックス（そのプレイヤー） |
 | 拠点の `WorkerDirector` の `container_id` | `BaseCampSaveData` | 拠点 N（番号はギルドの拠点の並び順） |
+| 観賞用ケージ（`MapObjectId` が `DisplayCharacter`）の `ConcreteModel.ModuleMap` の `CharacterContainer` の `RawData` の先頭 16 バイト | `MapObjectSaveData` | 観賞用ケージ・拠点 N（save-extras。2026-10-16。下の「観賞用ケージ」） |
 
 - 拠点のパルには `OwnerPlayerUId` がない。`OldOwnerPlayerUIds` の最後を「預けた人」として出す。
 - パル次元ストレージ（`_dps.sav`）とグローバルパルボックス（`GlobalPalStorage.sav`）は、それぞれのファイルの `SaveParameterArray` から読む（空き枠は `CharacterID` が `None`）。
@@ -81,6 +82,7 @@
 ## 使う項目
 
 `CharacterID`・`NickName`・`Gender`・`Level`（ないときは 1）・`Rank`（凝縮。ないときは 1 = 星なし）・`Talent_HP` / `Talent_Shot` / `Talent_Defense`（個体値）・`PassiveSkillList`（パッシブの内部名）・`EquipWaza` / `MasteredWaza`（アクティブスキル）・`IsRarePal`（ラッキー）・`OwnerPlayerUId`・`OldOwnerPlayerUIds`・`SlotId`。
+2026-10-16 から（save-extras。下の「セーブから読む追加の情報」）: `OwnedTime`（入手した時刻）・`Rank_HP` / `Rank_Attack` / `Rank_Defence` / `Rank_CraftSpeed`（魂の強化）・`WorkerSick`（病気）・`HungerType`（空腹）・`SanityValue`（SAN）。`Level.sav` の `worldSaveData.GameTimeSaveData` の `RealDateTimeTicks`・`GameDateTimeTicks` と、ギルドのメンバーの `last_online_real_time` も読む。
 
 `EquipWaza`（装備中）と `MasteredWaza`（習得済み）は、どちらも `EPalWazaID::<ID>` の EnumProperty の配列。手元のセーブ（1561 体）では、`EquipWaza` は全員にあり、`MasteredWaza` は 1039 体にだけあった。片方にしかないスキルもあるため、2 つを合わせたもの（装備中を先、重複を除く）を「覚えているアクティブスキル」とする（2026-10-10）。
 
@@ -91,6 +93,58 @@
 アクティブスキルとパートナースキルの日本語名は、ゲーム本体の同じ `DT_SkillNameText_Common` の `ACTION_SKILL_<ID>`・`PARTNERSKILL_<パル ID>` の行から取り出す（`npm run extract:skills` → `web/data/skills.js`）。名前が `-` の行は捨てる。パートナースキルの行がないナエモチ（花）（`PlantSlime_Flower`）は、ナエモチ（`PlantSlime`）の名前を使う。
 
 説明文は、アクティブスキルが `DT_SkillDescText_Common` の `ACTION_SKILL_<ID>`、パートナースキルが `DT_PalFirstActivatedInfoText` の `PAL_FIRST_SPAWN_DESC_<パル ID>`。文の中の参照（`<characterName id=|…|/>`・`<uiCommon id=|COMMON_ELEMENT_NAME_Dark|…/>` など）は、`DT_PalNameText_Common`（`PAL_NAME_`）・`DT_ItemNameText_Common`（`ITEM_NAME_`）・`DT_MapObjectNameText_Common`（`MAPOBJECT_NAME_`）・`DT_SkillNameText_Common`（`ACTION_SKILL_`）・`DT_UI_Common_Text_Common` から名前を引いて置き換える。アイコン（`<img …/>`）と文字の飾り（`<Status_Up>…</>`）は外し、レベルで変わる数値（`{Passive1_EffectValue1}` など）は ○、レベルで変わる追記（`{ReferenceMsgId_…}`。`DT_PartnerSkillAppendText` の行で、レベル 1 は空）は外す（2026-10-10）。
+
+## セーブから読む追加の情報（save-extras。2026-10-15〜16 に手元のセーブで確認）
+
+`npm run check:save -- "<ワールドのフォルダ>" --probe`（`scripts/save-probe.mjs`。読み取りのみ・ふだんの読み込みは変えない）で、個体の項目の有無・プレイ中の差・場所が不明の個体の入れ物・牧場の入れ物とケーキ・孵化器・インプラントとパルリバーサーの入れ物・`RecordData` を出せる。出力の読み方は `docs/ui-refactor/phase-3-4-drawer-data.md` の save-extras の「実装の記録」。
+
+### 入手した時刻（`OwnedTime`）
+
+- DateTime（u64 のティック。2^53 を超えるので 10 進の文字列で読む）。持ち主のある個体には全部ある（ないのは持ち主のない NPC・タマゴなど）。パル次元ストレージ・グローバルパルボックスの個体にもある。
+- **ホストの PC のローカル時刻**（日本時間の PC なら日本時間）のティック。`Level.sav` の `Timestamp` と同じで、UTC として読む `ticksToIso` では 9 時間ずれる。`web/js/save/palworld.js` の `ticksToLocalIso` が、ブラウザのタイムゾーンで年月日時を組み立てて本当の時刻（ISO）にする（ページはホストの PC で動くため。BigInt で割るのでミリ秒まで合う）。手元のセーブで、バックアップより後に増えた 27 体は全部それより新しく、孵化させた時刻と合った。
+- 画面は個体の `ownedAt`（toISOString の形。空は分からない）。入手の新しい順の並べ替え（`OWNED_SORTS` の `ownedAt`。時刻のない個体は向きによらず最後）と、所持パルの「NEW」（前に所持パルの画面で見ていたデータのセーブの時刻より後に入手した個体。`web/js/owned-seen.js`）。共有は個体の列の末尾 `ownedAt`（`OWNED_ADDED_FIELDS`）。
+- なお、スナップショットの `world.savedAt`（`Level.sav` の `Timestamp` を `ticksToIso` で読んだもの）も同じく 9 時間ずれているが、画面では使っていない（セーブの更新日時はファイルの日時）。
+
+### 魂の強化と状態
+
+- `Rank_HP`・`Rank_Attack`・`Rank_Defence`・`Rank_CraftSpeed`（ByteProperty。段階の数）: `Level.sav` では既定（0）のとき書かれない（手元で `Level` に書かれていたのは `Rank_CraftSpeed` の 1 体だけ）。パル次元ストレージ・グローバルパルボックスでは全部書かれる（例 10）。
+- `WorkerSick`（EnumProperty `EPalBaseCampWorkerSickType::None` など）・`HungerType`（EnumProperty `EPalStatusHungerType::Default`・`Starvation` など）・`SanityValue`（FloatProperty。書かれないときは 100）。`Level.sav` で病気の個体は手元のワールドでは 0 体（別のワールドで 15 体）、空腹は 5 体、SAN が 100 でない個体は 10〜14 体。
+- 画面は個体の `soul: { hp, attack, defense, craft }`・`condition: { sick, hunger, sanity }`（種類はゲームの内部名のまま。日本語の表は取り込んでいない）。個体の詳細のドロワーの「魂の強化と状態」の節と、拠点・手持ちの行の「病気」「空腹」の印。**共有しない**（参加者の画面では `null`）。
+- `IsFavoritePal`・`CraftSpeeds` は手元のセーブのどの個体にもなかった。
+
+### プレイ中の仲間とゲーム内の日数
+
+- `worldSaveData.GameTimeSaveData` に `RealDateTimeTicks`・`GameDateTimeTicks`（Int64Property）がある（読み取りの許可リスト `LEVEL_SKIP` に足した）。
+- `RealDateTimeTicks` は**日時ではなく、ワールドが動いた通算の時間**（ホストのゲームが止まっている間は増えない）。ギルドのメンバーごとの `last_online_real_time`（ギルドの `RawData` の末尾のメンバーの並び。`readGuildPlayers` が前は読み飛ばしていた）が同じ時計で、接続中の人は保存のたびに `RealDateTimeTicks` と同じ値になる（11 世代で差 0〜0.02 秒）。接続していない人は数時間ずれた。
+- → プレイヤーの `online` は、差が 10 秒（1 億ティック）以内なら true、離れていれば false、どちらかが読めなければ null（分からない）。最終ログインの日時（`lastOnlineAt`）は作らない（通算の時間なので日時に直せない）。`Players/*.sav` の `LastOnlineDateTime` は保存のたびに全員分が書き直されるので使えない。
+- ゲームを閉じた後も最後の保存には「プレイ中」が残るので、画面では必ずセーブの時刻を添え（「Alice・Bob（セーブ 03:07 の時点）」。参加者も共有した時刻ではなく「ホストのセーブ」の時刻）、所持者の選択肢の「（プレイ中）」は保存が新しいとき（この PC は 5 分・共有は 10 分以内）だけ付ける。
+- ゲーム内の日数は `LevelMeta.sav` の `InGameDay`（前から読んでいた）。`floor(GameDateTimeTicks ÷ 864e9)` と 4 世代で一致したので、`LevelMeta.sav` が読めないときはこちらから求める。
+- 共有: プレイヤーの Lv・プレイ中は `players` の JSON の中（`level`・`online`。古い GAS は捨てるだけ）、日数はワールドの行の新しい列 `inGameDay`（送る側では既存の `world` の中に入れる。GAS は `setup()` をやり直すまで書かずに読む）。
+
+### 観賞用ケージ
+
+- 場所が「不明」になっていた個体は、手元のワールドでは 0 体だったが、別のワールドで 454 体・4 体があり、**すべて観賞用ケージ（`MapObjectId` が `DisplayCharacter`）**の個体だった。ケージの `ConcreteModel.ModuleMap` のキーは `EPalMapObjectConcreteModelModuleType::CharacterContainer` だけで、その `RawData`（20 バイト）の先頭 16 バイトが入れ物 ID（`CharacterContainerSaveData` に `SlotNum` 40）。12 個とも拠点（`baseCampId`）に属し、中の個体は全員に持ち主がある。
+- → 場所 `display`（「観賞用ケージ・拠点 N」。所持者は拠点。所持者の絞り込みでは拠点の個体と同じく預けた人の個体）。古い画面は知らない場所を「不明」として受ける。2024 年の古いワールドには入れ物のない「不明」が残る（別の原因。調べていない）。
+
+### 配合牧場のケーキ
+
+- 牧場（`BreedFarm`）の `ConcreteModel.ModuleMap` に `ItemContainer`（`RawData` 34 バイト。先頭 16 バイトが入れ物 ID）と `Workee` がある。手元の 7 か所すべてに入れ物があり、ケーキが入っていた。**1 か所に複数の種類が入っていることがある**（例 `Cake03`×18 と `Cake02`×51）。
+- → スナップショットの牧場に `cakes: [{ itemId, count }]`（ケーキ〔`Cake`・`Cake02`〜`Cake05`〕だけ・同じ種類は合わせる・スロットの順）。空の入れ物は `[]`（ケーキ切れ）、入れ物が見つからないときは `null`（分からない）。**共有しない**（ホストの画面だけ）。名前はゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_Cake*`（`web/data/items.js` の `CAKE_NAMES`。ケーキ・キノコケーキ・野菜ケーキ・豪華野菜ケーキ・スペシャルケーキ）。
+
+### 見送ったもの（調べた結果）
+
+- **お気に入り**（2026-10-15 のユーザーの答えで見送り）: `IsFavoritePal` はない。代わりに `FavoriteIndex`（ByteProperty 0〜3。`Level.sav` では 0 は書かれない。保管庫では全部書かれる）があり、手元のセーブでは 2×350・1×296・3×142・0×86。並んで `bFavoriteChangedByFriendship`（BoolProperty）がある。手持ちの 10 体は全部 1、孵化したばかりの 465 体で 1 は 3 体で、ゲームのお気に入りの印と対応するかを確かめられなかったので取り込まない。
+- **孵化の残り時間**（F088。2026-10-15 のユーザーの答えで見送り）: 孵化器（`MultiElectricHatchingPalEgg` など）の `ConcreteModel.RawData` は、配合なしは 44 バイトで変わらない。卵が入ると 2.6〜14 KB（卵ごとの `SaveParameter` が入る）。`WorkSaveData` の作業は `Progress` が f32 の 3600・1800・2400。卵 10 個のまま 50 分（6 世代）で、`RawData` も作業も 1 バイトも変わらなかった（減っていく値が見つからない）。`WorldOption.sav` の `PalEggDefaultHatchingTime` は 1。
+- `CraftSpeeds`（作業適性の個体の値）: ない。作業適性は種族の値（game-assets の `web/data/work.js`）。
+
+### 後のテーマが使う入れ物（--probe の [6]・[7]）
+
+- インプラント（`PalPassiveSkillChange_*`）とパルリバーサー（`PalGenderReverse`）: `ItemContainerSaveData` のスロット。入れ物の持ち主は、ギルド保管庫（`GuildExtraSaveDataMap` の `GuildItemStorage.RawData` の先頭 16 バイト）・プレイヤーの所持品（`Players/*.sav` の `InventoryInfo` の `*ContainerId`。`Essential` など）・拠点の MapObject（`ItemChest_04` などの `ModuleMap` の `ItemContainer`）・拠点の外の宝箱（`TreasureBox_*`。在庫に数えない）。手元のセーブでは 31 種・406 個（拠点の箱 288・拠点の外の宝箱 85・所持品 13・ギルド保管庫 12 ほか）。implants の在庫はここから。
+- 捕獲数と図鑑: `Players/<uid>.sav` の `SaveData.RecordData` の `PalCaptureCount`（MapProperty<NameProperty, IntProperty>。キーはパル ID〔大文字小文字が違うことがある〕、`Human` などパルでないキーもある）・`PaldeckUnlockFlag`（MapProperty<NameProperty, BoolProperty>）。手元では 1 人 220〜250 件。paldex は `PLAYER_SKIP` に `RecordData` を足して読む。
+
+### 解析の時間
+
+上の項目を足した前後で、同じセーブの写しを交互に 12 回ずつ読んだ中央値（1 回目を除く。2026-10-16、この PC）: 手元のワールド（個体 1,576 体・`Level.sav` 2.7 MB）で 582 → 613 ms（+5.4%）、別のワールド（1,032 体）で 111 → 118 ms（+6.7%）。
 
 ## 注意
 

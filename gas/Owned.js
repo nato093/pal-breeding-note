@@ -21,6 +21,12 @@ function ownedFarmsCell_(table, cell) {
   return Array.isArray(farms) ? cleanOwnedFarms(farms) : null;
 }
 
+// ゲーム内の日数（後から足した列 inGameDay。save-extras）。列がない（setup() を実行し直す前）・空なら null
+function ownedDayCell_(table, cell) {
+  if (!Object.prototype.hasOwnProperty.call(table.index, 'inGameDay')) return null;
+  return ownedInGameDay(cell('inGameDay'));
+}
+
 function readOwnedWorlds_(env) {
   var table = readTable_(sheetFor_(env, 'ownedWorlds'), OWNED_WORLD_HEADERS_);
   var worlds = [];
@@ -36,7 +42,9 @@ function readOwnedWorlds_(env) {
         palCount: Number(cell('palCount')) || 0,
         players: ownedJson_(cell('players'), []), bases: ownedJson_(cell('bases'), []),
         // farms 列は後から足した列。列がない（setup() を実行し直す前）・牧場を送らない古い画面から共有されたときは null（情報がない）
-        farms: ownedFarmsCell_(table, cell)
+        farms: ownedFarmsCell_(table, cell),
+        // inGameDay 列も後から足した列（save-extras）。列がない・送らない古い画面から共有されたときは null
+        inGameDay: ownedDayCell_(table, cell)
       }
     });
   });
@@ -115,7 +123,9 @@ function actionOwnedUpload_(req, env) {
     var world = {
       worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
       uploadedAt: serverTime, uploadedBy: uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases,
-      farms: input.farms
+      farms: input.farms,
+      // 列がない（setup() を実行し直す前の）シートには書かないので、返す値も読み直したときと同じ null にする
+      inGameDay: Object.prototype.hasOwnProperty.call(current.table.index, 'inGameDay') ? input.inGameDay : null
     };
     var worldSheet = sheetFor_(env, 'ownedWorlds');
     writeTableRow_(worldSheet, current.table, existing ? existing.rowNumber : worldSheet.getLastRow() + 1, {
@@ -123,7 +133,8 @@ function actionOwnedUpload_(req, env) {
       saveUpdatedAt: world.saveUpdatedAt, uploadedAt: world.uploadedAt, uploadedBy: quoteForSheet(world.uploadedBy),
       palCount: String(world.palCount), players: quoteForSheet(JSON.stringify(world.players)), bases: quoteForSheet(JSON.stringify(world.bases)),
       // 列がない（setup() を実行し直す前の）シートでは書かれない
-      farms: quoteForSheet(JSON.stringify(world.farms))
+      farms: quoteForSheet(JSON.stringify(world.farms)),
+      inGameDay: world.inGameDay === null ? '' : String(world.inGameDay)
     });
     return { stored: true, world: world, serverTime: serverTime };
   });

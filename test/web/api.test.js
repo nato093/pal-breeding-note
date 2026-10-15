@@ -132,7 +132,7 @@ test('API: signup の自動再送は生成した UUID を再利用し、次の�
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const ownedWorld = (worldId = WORLD, extra = {}) => ({
   worldId, worldName: 'World9', hostName: 'Alice', saveUpdatedAt: '2026-10-05T10:00:00.000Z', uploadedAt: '2026-10-05T10:01:00.000Z',
-  uploadedBy: 'ホスト', palCount: 1, players: [], bases: [], farms: null, ...extra,
+  uploadedBy: 'ホスト', palCount: 1, players: [], bases: [], farms: null, inGameDay: null, ...extra,
 });
 const ownedBase = { ok: true, env: 'test', api: 1, serverTime: '2026-10-05T10:02:00.000Z' };
 const respond = (body) => createApi({ transport: async () => body });

@@ -1366,7 +1366,7 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => inputLabeled(label).checked), [false, true, false]);
   const chips = Object.fromEntries(descendants(document.getElementById('main')).filter((node) => node.className.split(' ').includes('place-chip'))
     .map((node) => [node.getAttribute('data-value'), node.getAttribute('aria-pressed')]));
-  assert.deepEqual(chips, { party: 'true', palbox: 'true', base: 'true', dps: 'true', global: 'true', egg: 'false', unknown: 'true' });
+  assert.deepEqual(chips, { party: 'true', palbox: 'true', base: 'true', display: 'true', dps: 'true', global: 'true', egg: 'false', unknown: 'true' });
   assert.ok(find((node) => node.getAttribute('aria-label') === 'パル: No.1 モコロン'));
   // パッシブは文字列の ID だけ
   assert.ok(find((node) => node.getAttribute('data-focus-key') === 'passive-chip:パッシブ:Legend'));

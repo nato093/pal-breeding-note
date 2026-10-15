@@ -142,8 +142,9 @@ export function palsOfPlayers(data, uids) {
   for (const player of players) count.set(player.name, (count.get(player.name) ?? 0) + 1);
   const names = new Set(players.filter((player) => player.name && uids.has(player.uid) && count.get(player.name) === 1).map((player) => player.name));
   // 拠点に置かれたタマゴ（地面・孵化器・保管箱）には最後の持ち主が入らないので、誰の個体にもしない（孵化させて受け取った人の個体になる）
+  // 観賞用ケージ（display。save-extras）の個体も拠点の個体と同じく、預けた人（最後の持ち主）の個体にする
   return data.pals.filter((pal) => (pal.holderUid && uids.has(pal.holderUid))
-    || (pal.place === 'base' && (pal.lastOwnerUid ? uids.has(pal.lastOwnerUid) : Boolean(pal.lastOwner) && names.has(pal.lastOwner)))
+    || ((pal.place === 'base' || pal.place === 'display') && (pal.lastOwnerUid ? uids.has(pal.lastOwnerUid) : Boolean(pal.lastOwner) && names.has(pal.lastOwner)))
     || (pal.place === 'global' && uids.has(HOST_UID)));
 }
 

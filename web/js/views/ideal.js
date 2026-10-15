@@ -18,6 +18,8 @@ import { passiveCounts, ownedCounts, ownedRouteStarts } from '../core/owned.js';
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
+import { onlineUids, onlineKey } from '../ui/owned-status.js';
+import { cakeLine } from '../ui/farm-board.js';
 import {
   idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
 } from '../core/ideal.js';
@@ -288,6 +290,8 @@ export function idealView(context, route) {
   // 選択肢を作ったときの自分のプレイヤー（後から分かった・変わったら描き直す。下の store の購読）
   const selfKey = () => [...(ideals?.selfUids?.() ?? [])].join(',');
   let shownSelf = null;
+  // 選択肢を作ったときのプレイ中の仲間（保存が古くなると変わる。save-extras）
+  let shownOnline = null;
   const holderSelect = el('select');
   holderSelect.addEventListener('change', () => {
     conditions.holder = holderSelect.value;
@@ -298,7 +302,10 @@ export function idealView(context, route) {
   // 名前は所持パルの所持者と同じ（自分のプレイヤーは「（自分）」を付けて先頭、同じ名前は UID の頭 8 字。views/shared.js）
   let syncingHolders = false;
   function renderHolders() {
-    const choices = holderChoices(owned?.state?.owned, ideals);
+    // いまプレイ中の人には「（プレイ中）」（保存が新しいときだけ。save-extras）
+    const online = owned?.state ? onlineUids(owned.state) : new Set();
+    shownOnline = [...online].sort().join(',');
+    const choices = holderChoices(owned?.state?.owned, ideals, { online });
     shownSelf = selfKey();
     syncingHolders = true;
     try {
@@ -831,6 +838,8 @@ export function idealView(context, route) {
       inUse: complete ? farmsInUse(all, new Set(own.map((farm) => farm.id))) : new Map(),
       empties: complete && data.farmsCounted !== false ? emptyFarms(all) : [],
       baseLabel: (baseId) => labels.get(baseId) || '拠点',
+      // 牧場 ID → ケーキ（[{ itemId, count }]。ホストの画面だけ。共有・ケーキを読む前のセーブは null。save-extras）
+      cakes: new Map(all.map((farm) => [farm.id, farm.cakes ?? null])),
     };
   }
 
@@ -971,6 +980,9 @@ export function idealView(context, route) {
     // 交換を見送った「そのまま」（D15）は、チップの横に理由
     if (!pending && state.skipped) main.append(el('span', 'ideal-farm-reason', '入れ替えても全体の速さの目安が上がりません'));
     row.append(main);
+    // その牧場のケーキの残り（ホストの画面だけ。0 個なら「ケーキ切れ」。save-extras）
+    const cakes = cakeLine(view.farm?.cakes?.get(item.farm.id), { className: 'ideal-farm-cakes' });
+    if (cakes) row.append(cakes);
     if (pending) return row;
     if (item.status === 'swap') row.append(swapTable(item, view.pairs[item.to]), moveList(item.out, item.in, view));
     else if (item.status === 'none' && item.out.length) {
@@ -1525,7 +1537,11 @@ export function idealView(context, route) {
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
-    if (ownedState.owned === lastOwned && ownedState.ready === lastReady) return;
+    if (ownedState.owned === lastOwned && ownedState.ready === lastReady) {
+      // データが同じでも、時間がたって保存が古くなったら「（プレイ中）」を外すため、所持者の選択肢だけ描き直す（save-extras）
+      if (!destroyed && onlineKey(ownedState) !== shownOnline) renderHolders();
+      return;
+    }
     lastOwned = ownedState.owned;
     lastReady = ownedState.ready;
     update();

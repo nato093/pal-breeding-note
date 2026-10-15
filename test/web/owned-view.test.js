@@ -7,7 +7,7 @@ import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned } from '../../web/js/core/owned.js';
 import { parseHash } from '../../web/js/router.js';
-import { ownedView, ownedRowItem, OWNED_MEMORY, migrateFilter, DEFAULT_PLACES } from '../../web/js/views/owned.js';
+import { ownedView, ownedRowItem, OWNED_MEMORY, migrateFilter, DEFAULT_PLACES, filterFromParams } from '../../web/js/views/owned.js';
 import { cleanSaved } from '../../web/js/core/boundary.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { fakeHandle } from '../helpers/file-handles.js';
@@ -1944,16 +1944,17 @@ test('所持パル画面: 「すべて解除」と 0 件のときの「条件を
 test('所持パル画面: 古い保存の条件（タマゴ・グローバルのチェック、所持者の拠点・グローバル、場所の 1 つ）と古い URL を読み替える（migrateFilter）', (t) => {
   installDom(t);
   const pick = (filter) => ({ holder: filter.holder, places: filter.places, bases: 'bases' in filter });
-  const all = ['party', 'palbox', 'base', 'dps', 'global', 'egg', 'unknown'];
-  assert.deepEqual(DEFAULT_PLACES, ['party', 'palbox', 'base', 'dps', 'egg', 'unknown']);
+  // 観賞用ケージ（display）は save-extras で足した場所（拠点の次）
+  const all = ['party', 'palbox', 'base', 'display', 'dps', 'global', 'egg', 'unknown'];
+  assert.deepEqual(DEFAULT_PLACES, ['party', 'palbox', 'base', 'display', 'dps', 'egg', 'unknown']);
   assert.deepEqual(migrateFilter({}).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ place: 'egg' }).places, ['egg']);
   assert.deepEqual(migrateFilter({ place: '' }).places, DEFAULT_PLACES);
-  assert.deepEqual(migrateFilter({ eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.deepEqual(migrateFilter({ eggs: false }).places, ['party', 'palbox', 'base', 'display', 'dps', 'unknown']);
   assert.deepEqual(migrateFilter({ globals: true }).places, all);
   // 矛盾した古い組み合わせ（場所「タマゴ」でタマゴを隠す・場所「グローバル」でグローバルを出さない）は 0 件にせず、
   // 場所を選んでいない既定（タマゴ・グローバルの表示はそのまま）に戻す（B14。前は places が [] で 0 件だった）
-  assert.deepEqual(migrateFilter({ place: 'egg', eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.deepEqual(migrateFilter({ place: 'egg', eggs: false }).places, ['party', 'palbox', 'base', 'display', 'dps', 'unknown']);
   assert.deepEqual(migrateFilter({ place: 'global', globals: false }).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ place: 'global' }).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ place: 'global', globals: true }).places, ['global']);
@@ -1969,11 +1970,20 @@ test('所持パル画面: 古い保存の条件（タマゴ・グローバルの
   assert.equal(migrateFilter({ holder: `player:${P1}` }).holder, `player:${P1}`);
   // 新しい形はそのまま（古い項目は持たない。場所は決まった順に並べる。壊れた値は既定）
   assert.deepEqual(migrateFilter({ holder: 'mine', places: ['egg', 'palbox', 'xxx'], elements: ['Fire', 'Bad'], passiveMode: 'none', query: 'x', eggs: false }), {
-    holder: 'mine', places: ['palbox', 'egg'], elements: ['Fire'], palId: '', passives: [], passiveMode: 'none', query: 'x', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
+    holder: 'mine', places: ['palbox', 'egg'], placesVersion: 2, elements: ['Fire'], palId: '', passives: [], passiveMode: 'none', query: 'x', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   });
+  // 観賞用ケージ（display）を足す前の版の既定（グローバル以外のすべて）・すべての場所の保存とリンクは、display を足して読み替える
+  //（前は「不明」として出ていたケージの個体が消えないように。save-extras・Codex のレビュー）。版 2 の条件で利用者がケージだけを外したものはそのまま
+  const legacyDefault = ['party', 'palbox', 'base', 'dps', 'egg', 'unknown'];
+  assert.deepEqual(migrateFilter({ places: legacyDefault }).places, DEFAULT_PLACES);
+  assert.deepEqual(migrateFilter({ places: [...legacyDefault, 'global'] }).places, all);
+  assert.deepEqual(migrateFilter({ places: legacyDefault, placesVersion: 2 }).places, legacyDefault);
+  assert.deepEqual(migrateFilter({ places: ['palbox', 'base'] }).places, ['palbox', 'base']);
+  assert.deepEqual(filterFromParams(new URLSearchParams('place=party,palbox,base,dps,egg,unknown')).places, DEFAULT_PLACES);
+  assert.deepEqual(cleanSaved({ places: legacyDefault, placesVersion: 1 }, OWNED_MEMORY).placesVersion, undefined);
   // 覚えている条件がないときの所持者は自分（mine。D29 で「すべて」から変えた）。自分のプレイヤーが分からなければ画面は「すべて」として扱う
   assert.deepEqual(migrateFilter(null), {
-    holder: 'mine', places: DEFAULT_PLACES, elements: [], palId: '', passives: [], passiveMode: 'include', query: '', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
+    holder: 'mine', places: DEFAULT_PLACES, placesVersion: 2, elements: [], palId: '', passives: [], passiveMode: 'include', query: '', sort: 'dex', dir: 'asc', stars: 0, talent: { hp: 0, shot: 0, defense: 0 },
   });
   // 旧コードの保存（タブを切り替えて戻った viewState）から開く: 所持者「拠点 1」・タマゴを隠す・グローバルを表示 → 場所「拠点」（どの拠点も）
   const states = new Map([['owned', { filter: { holder: `base:${B1}`, place: '', palId: '', passives: [], query: '', sort: 'dex', eggs: false, globals: true, stars: 0, talent: { hp: 0, shot: 0, defense: 0 } } }]]);
@@ -2082,7 +2092,7 @@ test('所持パル画面: 列見出しは一覧の前の別の要素（toolbar�
   // 同じ意味は同じ言い方（列見出しは「〈名前〉で並べ替え（〈向き〉）」、選択は「〈名前〉が〈向き〉」。A9）
   assert.equal(headButton(view, 'passives').getAttribute('aria-label'), 'パッシブのランクで並べ替え（高い順）');
   assert.equal(headButton(view, 'place').getAttribute('aria-label'), '所持者・場所で並べ替え（ボックス順）');
-  assert.deepEqual(sortOf(view).children.map((node) => node.textContent), ['図鑑番号順', 'パッシブのランクが高い順', 'レベルが高い順', 'パル濃縮（★）が多い順',
+  assert.deepEqual(sortOf(view).children.map((node) => node.textContent), ['図鑑番号順', '入手の新しい順', 'パッシブのランクが高い順', 'レベルが高い順', 'パル濃縮（★）が多い順',
     '個体値の合計が高い順', '個体値の合計が低い順', 'HP の個体値が高い順', '攻撃の個体値が高い順', '防御の個体値が高い順', 'ボックス順']);
   await headButton(view, 'hp').dispatch('click');
   assert.deepEqual(hpOrder(view), [90, 50, 10]);

@@ -2,13 +2,13 @@
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
 import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX } from './owned-shared.js';
-import { isObject, int, text, idText, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
+import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
 import passiveList from '../../data/passives.js';
 import { ACTIVE_SKILLS, PARTNER_SKILLS, ACTIVE_SKILL_DESCS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
-import { EGG_NAMES } from '../../data/items.js';
+import { EGG_NAMES, CAKE_NAMES } from '../../data/items.js';
 import palWork, { WORKS } from '../../data/work.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
@@ -18,6 +18,8 @@ export const PLACE_LABELS = Object.freeze({
   party: '手持ち',
   palbox: 'パルボックス',
   base: '拠点',
+  // 拠点の観賞用ケージ（MapObjectId が DisplayCharacter。save-extras。古い画面は知らない場所を「不明」として受ける）
+  display: '観賞用ケージ',
   dps: 'パル次元ストレージ',
   global: 'グローバルパルボックス',
   'egg-ground': 'タマゴ（地面）',
@@ -29,7 +31,7 @@ export const PLACE_LABELS = Object.freeze({
 });
 
 // 一覧の「場所」の絞り込みに出す順番
-export const PLACE_ORDER = ['party', 'palbox', 'base', 'dps', 'global', 'egg', 'unknown'];
+export const PLACE_ORDER = ['party', 'palbox', 'base', 'display', 'dps', 'global', 'egg', 'unknown'];
 
 export const placeGroup = (kind) => (String(kind).startsWith('egg-') ? 'egg' : kind);
 
@@ -193,6 +195,42 @@ function cleanPassives(ids) {
 }
 const talentOf = (hp, shot, defense) => ({ hp: int(hp, TALENT), shot: int(shot, TALENT), defense: int(defense, TALENT) });
 
+// ---- save-extras（入手時刻・魂の強化・病気と空腹と SAN・プレイ中・Day）。どれも欠けている（古いスナップショット・共有）なら「不明」 ----
+// 入手した時刻は toISOString の形（ミリ秒つき・Z）だけを残す（同じ形の文字列どうしなら、文字の順で時刻の順に比べられる。NEW の判定）
+const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+/** 時刻の文字列（toISOString の形）ならそのまま、違えば '' */
+export const ownedTime = (value) => (typeof value === 'string' && ISO_MS.test(value) && Number.isFinite(Date.parse(value)) ? value : '');
+const SOUL = { min: 0, max: 100, fallback: 0 };
+// 魂の強化（{ hp, attack, defense, craft }。段階の数）。スナップショットにない（読む前のセーブ）・共有では null
+function soulOf(value) {
+  if (!isObject(value)) return null;
+  return { hp: int(value.hp, SOUL), attack: int(value.attack, SOUL), defense: int(value.defense, SOUL), craft: int(value.craft, SOUL) };
+}
+// 病気（種類の名前。なければ ''）・空腹（Default 以外の種類。なければ ''）・SAN（0〜100。読めなければ null）。ないとき null
+function conditionOf(value) {
+  if (!isObject(value)) return null;
+  const sanity = typeof value.sanity === 'number' && Number.isFinite(value.sanity) ? Math.min(100, Math.max(0, Math.round(value.sanity * 10) / 10)) : null;
+  return { sick: internalName(value.sick, 64), hunger: internalName(value.hunger, 64), sanity };
+}
+// プレイヤーの Lv（0 は分からない）とプレイ中（true・false、分からなければ null）
+const PLAYER_LEVEL = { min: 0, max: 999, fallback: 0 };
+const playerExtras = (player) => ({ level: int(player.level, PLAYER_LEVEL), online: typeof player.online === 'boolean' ? player.online : null });
+// ゲーム内の日数（1 以上。0・欠けている・読めなければ null）
+const cleanDay = (value) => {
+  const day = intOrNull(value, { min: 0, max: 1000000 });
+  return day > 0 ? day : null;
+};
+// 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない。ホストの画面だけ）
+const CAKES_MAX = 16;
+function cakesOf(value) {
+  if (!Array.isArray(value)) return null;
+  return list(value, {
+    max: CAKES_MAX,
+    map: (cake) => (isObject(cake) && internalName(cake.itemId) && int(cake.count, { min: 0, fallback: 0 }) > 0
+      ? { itemId: cake.itemId, count: int(cake.count, { min: 0, max: 1000000, fallback: 0 }) } : null),
+  });
+}
+
 /**
  * スナップショットを画面用の一覧にする。
  * @param {object} snapshot buildSnapshot の結果
@@ -206,8 +244,9 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   const passiveById = new Map(passives.map((passive) => [passive.id, passive]));
   // 読み戻したセーブの解析結果は、要素ごとに形を確かめる（壊れた要素だけを捨てる）。uid・拠点の ID は個体の所持者・場所と比べるので切り詰めない
   const objects = (value) => list(value, { map: (item) => (isObject(item) ? item : null) });
+  // プレイヤーの Lv とプレイ中（save-extras）は形を確かめて入れ直す（古いスナップショットのプレイヤーには online がない＝分からない）
   const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
-    .map((player) => [player.uid, { ...player, name: text(player.name, 50) }]));
+    .map((player) => [player.uid, { ...player, name: text(player.name, 50), ...playerExtras(player) }]));
   const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
   // ギルドが複数あるワールドでは、拠点の番号がギルドごとに重なるのでギルド名を添える
   const guildNames = new Map(objects(snapshot?.guilds).map((guild) => [guild.id, guild.name]));
@@ -240,7 +279,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const atBase = egg && kind !== 'egg-inventory' && Boolean(location.baseId) && bases.has(location.baseId);
     const holderUid = !atBase && (['party', 'palbox', 'dps'].includes(kind) || egg) ? location.playerUid || source.ownerUid || '' : '';
     let holder;
-    if (kind === 'base' || atBase) holder = baseLabel(location.baseId);
+    // 観賞用ケージは拠点に置くので、拠点の個体と同じく拠点の持ち物として扱う（save-extras）
+    if (kind === 'base' || kind === 'display' || atBase) holder = baseLabel(location.baseId);
     else if (kind === 'global') holder = globalHolder;
     else if (kind === 'egg-guild') holder = 'ギルド保管庫';
     else holder = playerName(players, holderUid) || '不明';
@@ -249,7 +289,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const boxAt = kind === 'palbox' ? palboxPosition(location.slotIndex) : null;
     if (boxAt) placeDetail = palboxLabel(boxAt);
     else if (kind === 'base') placeDetail = baseLabel(location.baseId);
-    else if (egg && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
+    else if ((egg || kind === 'display') && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
     const passiveIds = cleanPassives(source.passives);
     const pal = palsById.get(palId);
     const rank = int(source.rank, RANK);
@@ -289,6 +329,10 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       lastOwnerUid: source.lastOwnerUid ?? '',
       lastOwner: playerName(players, source.lastOwnerUid),
       baseId: location.baseId ?? '',
+      // save-extras: 入手した時刻（ISO。持ち主のない個体・読む前のセーブは ''）・魂の強化と状態（読む前のセーブは null。共有しない）
+      ownedAt: ownedTime(source.ownedAt),
+      soul: soulOf(source.soul),
+      condition: conditionOf(source.condition),
     });
   }
   const farms = Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).map((farm) => {
@@ -298,11 +342,15 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     return {
       id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
       status: farm.status === 'uncertain' ? 'uncertain' : 'ok', eggs, eggCount: eggs.length,
+      // 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない〔ケーキを読む前のセーブ・入れ物が読めない〕。共有しない）
+      cakes: cakesOf(farm.cakes),
     };
   }) : null;
   attachFarms(entries, farms);
+  const world = isObject(snapshot?.world) ? snapshot.world : {};
   return {
-    world: snapshot?.world ?? {},
+    // ゲーム内の日数（inGameDay）は 1 以上の数か null（save-extras）
+    world: { ...world, inGameDay: cleanDay(world.inGameDay) },
     // 一覧に出すプレイヤーと拠点は、共有と同じ件数まで（所持者の名前は、上ですべてのプレイヤーから引いている）
     players: [...players.values()].slice(0, PLAYERS_MAX),
     bases: [...bases.values()].sort((a, b) => (a.number || Infinity) - (b.number || Infinity)).slice(0, BASES_MAX)
@@ -335,6 +383,17 @@ const eggNames = new Map(Object.entries(EGG_NAMES).map(([id, name]) => [id.toLow
 /** タマゴの名前（「暗黒デカタマゴ」など。表にない ID・空なら ''。farm-board） */
 export const eggName = (itemId) => eggNames.get(String(itemId ?? '').toLowerCase()) ?? '';
 
+// ケーキのアイテム ID（小文字）→ [表の ID, 日本語名]（配合牧場のケーキの残り。save-extras）
+const cakeNames = new Map(Object.entries(CAKE_NAMES).map(([id, name]) => [id.toLowerCase(), [id, name]]));
+/**
+ * ケーキの名前と表の ID（ゲームのアイコンのファイル名 item/cake-〈ID〉.png に使う）。表にない ID は名前に ID をそのまま出し、icon は ''
+ * @returns {{ name: string, icon: string }}
+ */
+export function cakeInfo(itemId) {
+  const found = cakeNames.get(String(itemId ?? '').toLowerCase());
+  return found ? { name: found[1], icon: found[0] } : { name: String(itemId ?? ''), icon: '' };
+}
+
 /** 突然変異のタマゴか（アイテム ID か、牧場の上のタマゴの印で見る） */
 export const isMutantEgg = (pal) => Boolean(pal?.egg && (isMutationEggItem(pal.eggItemId) || pal.farm?.mutant));
 
@@ -366,7 +425,9 @@ function keywordFields(pal) {
     passiveDescs: pal.passiveDescs ?? [],
     gender: GENDER_WORDS[pal.gender] ?? [],
     // 配合牧場の親と牧場の上のタマゴは「配合牧場」、突然変異のタマゴは「突然変異」でも探せる（farm-board）
-    status: [pal.egg && 'タマゴ', pal.egg && eggName(pal.eggItemId), pal.lucky && 'ラッキー', pal.alpha && 'アルファ', pal.farm && '配合牧場', isMutantEgg(pal) && '突然変異'],
+    // 病気・空腹の個体は「病気」「空腹」でも探せる（save-extras。ホストの画面だけ）
+    status: [pal.egg && 'タマゴ', pal.egg && eggName(pal.eggItemId), pal.lucky && 'ラッキー', pal.alpha && 'アルファ', pal.farm && '配合牧場', isMutantEgg(pal) && '突然変異',
+      pal.condition?.sick && '病気', pal.condition?.hunger && '空腹'],
     holder: [pal.holder],
     place: [pal.placeLabel],
     // 預けた人は拠点の個体にだけ出しているので、探すのもそれに合わせる
@@ -567,6 +628,8 @@ const compareText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  */
 export const OWNED_SORTS = Object.freeze([
   ['dex', '図鑑番号順', 'asc', '図鑑番号が大きい順'],
+  // 入手した時刻（save-extras。孵化させた子を見つける）。入手の時刻のない個体（タマゴ・持ち主のない個体・古いデータ）はどちらの向きでも最後
+  ['ownedAt', '入手の新しい順', 'desc', '入手の古い順'],
   ['passives', 'パッシブのランクが高い順', 'desc', 'パッシブのランクが低い順'],
   ['level', 'レベルが高い順', 'desc', 'レベルが低い順'],
   ['stars', 'パル濃縮（★）が多い順', 'desc', 'パル濃縮（★）が少ない順'],
@@ -627,9 +690,16 @@ export function sortOwned(pals, key = 'dex', dir) {
     shot: [(a, b) => b.talent.shot - a.talent.shot, dex],
     defense: [(a, b) => b.talent.defense - a.talent.defense, dex],
     place: [(a, b) => compareText(a.holder, b.holder) || placeRank(a) - placeRank(b) || boxIndex(a) - boxIndex(b), dex],
+    // 時刻の文字列は同じ形（ownedTime）なので、文字の順で比べる
+    ownedAt: [(a, b) => compareText(b.ownedAt ?? '', a.ownedAt ?? ''), dex],
   };
   const [first, rest] = comparators[sort.key];
   const sign = sort.dir === SORT_BY_KEY.get(sort.key)[2] ? 1 : -1;
+  // 入手の時刻のない個体は、向きによらず最後（並べ替えの最初の比較の前に分ける）
+  if (sort.key === 'ownedAt') {
+    const missing = (pal) => (pal.ownedAt ? 0 : 1);
+    return [...pals].sort((a, b) => missing(a) - missing(b) || sign * first(a, b) || rest(a, b) || compareText(a.id, b.id));
+  }
   // パッシブのランクの順は個体ごとのランクの合計を先に求める（比べるたびに数えない）
   const list = sort.key === 'passives' ? pals.map((pal) => ({ pal, sum: rankSum(pal) })) : null;
   if (list) {
@@ -835,13 +905,19 @@ export function sharedUpload(owned) {
       passiveIds: pal.passives.join('|'), talentHp: String(pal.talent.hp), talentShot: String(pal.talent.shot), talentDefense: String(pal.talent.defense),
       lucky: pal.lucky ? '1' : '', alpha: pal.alpha ? '1' : '', egg: pal.egg ? '1' : '', place: pal.place, placeLabel: pal.placeLabel,
       holderUid: pal.holderUid, holder: pal.holder, baseId: pal.baseId, lastOwner: pal.lastOwner, skillIds: pal.skills.join('|'),
-      eggItemId: pal.eggItemId ?? '',
+      eggItemId: pal.eggItemId ?? '', ownedAt: pal.ownedAt ?? '',
     };
     for (let i = 0; i < 4; i++) value[`passive${i + 1}`] = pal.passiveNames[i] ?? '';
     return OWNED_FIELDS.map((field) => value[field] ?? '');
   });
   return {
-    players: owned.players.map((player) => ({ uid: player.uid, name: player.name })),
+    // プレイヤーの Lv とプレイ中（save-extras）は players の JSON の中に足す（古い GAS は捨てるだけで、共有は止まらない）。
+    // 分からない値（Lv 0・プレイ中 null）は送らない
+    players: owned.players.map((player) => ({
+      uid: player.uid, name: player.name,
+      ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
+      ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
+    })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
     // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。牧場ごとにタマゴの数（n）と中身（eggs。20 個まで）を足し、セルに入るよう
     // 縮めてから送る（farm-data。owned-shared.js の fitOwnedFarms）。読めない牧場は親を空にして s: 'u'（古い GAS・旧コードの画面が s を
@@ -864,6 +940,8 @@ function sharedFarms(value, palsById) {
     id: farm.id, baseId: farm.baseId, parents: farm.s === 'u' ? [] : farm.parents, status: farm.s === 'u' ? 'uncertain' : 'ok',
     eggs: Array.isArray(farm.eggs) ? farm.eggs.map((egg) => ({ id: egg.id, palId: palsById.has(egg.p) ? egg.p : '', mutant: egg.m === 1 })) : null,
     eggCount: Number.isInteger(farm.n) ? farm.n : Array.isArray(farm.eggs) ? farm.eggs.length : 0,
+    // ケーキは共有しない（ホストの画面だけ。save-extras）
+    cakes: null,
   }));
   return {
     farms,
@@ -885,9 +963,9 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   const index = new Map(columns.map((field, i) => [field, i]));
   // 列の位置は 1 回だけ引き、行ごとには位置で読む（20,000 行で列名を何度も探さない）
   const at = (field) => index.get(field) ?? -1;
-  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS, EGG_ITEM] = [
+  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS, EGG_ITEM, OWNED_AT] = [
     'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars', 'passiveIds', 'talentHp', 'talentShot', 'talentDefense',
-    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds', 'eggItemId',
+    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds', 'eggItemId', 'ownedAt',
   ].map(at);
   const PASSIVE_NAMES = [at('passive1'), at('passive2'), at('passive3'), at('passive4')];
   const entries = [];
@@ -933,13 +1011,17 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       // 共有には位置の列がないので、placeLabel の文字から読む（書式の違う古い共有は null で、文字だけを出す）
       box: kind === 'palbox' ? parseBoxLabel(placeLabel) : null,
       holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
+      // ownedAt は後から足した列（save-extras）。列のない共有（GAS の setup() の前・古い画面）では空。魂の強化と状態は共有しない（null）
+      ownedAt: ownedTime(get(OWNED_AT)), soul: null, condition: null,
     });
   }
   const farmData = sharedFarms(world.farms, palsById);
   attachFarms(entries, farmData.farms);
   return {
-    world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50) },
-    players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
+    // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）
+    world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay) },
+    // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）
+    players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', ...playerExtras(player) })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
