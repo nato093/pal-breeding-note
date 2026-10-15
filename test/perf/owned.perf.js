@@ -233,6 +233,48 @@ test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,00
   }
 });
 
+test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,000 行（1 割はタマゴ）で、目標の一覧の状態（完成品・いちばん近い個体・孵化待ち）が 100ms 以内', async () => {
+  const { goalProgress, eggMatches, cleanGoal } = await import('../../web/js/core/ideal-goals.js');
+  const { normalizeOwned } = await import('../../web/js/core/owned.js');
+  let state = 0x474f414c;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const pick = (items) => items[Math.floor(random() * items.length)];
+  const passiveIds = passives.map((passive) => passive.id);
+  const uid = '00000000-0000-0000-0000-000000000001';
+  const owned = normalizeOwned({
+    version: 1, world: { name: 'World9', hostName: 'Alice' }, players: [{ uid, name: 'Alice', level: 50 }], bases: [], stats: {},
+    pals: Array.from({ length: OWNED_MAX_ROWS }, (_, i) => ({
+      instanceId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`, characterId: 'SheepBall', gender: pick(['Male', 'Female']),
+      level: 1 + Math.floor(random() * 60), rank: 1, nickname: '', passives: Array.from({ length: Math.floor(random() * 5) }, () => pick(passiveIds)),
+      skills: ['AirCanon'], talent: { hp: Math.floor(random() * 101), shot: Math.floor(random() * 101), defense: Math.floor(random() * 101) },
+      location: i % 10 === 0 ? { kind: 'egg-ground', playerUid: uid, baseId: '' } : { kind: 'palbox', playerUid: uid, slotIndex: i % 960 },
+    })),
+  }, { pals, passives });
+  // どの目標も完成しない（個体値 100 を 3 つとパッシブ 3 つ）ので、全部の目標でいちばん近い個体と孵化待ちを求める（いちばん重い形）
+  const goals = Array.from({ length: 100 }, (_, i) => cleanGoal({
+    id: `g${i}`, name: `目標${i}`, palId: 'SheepBall', passives: passiveIds.slice(i % 50, (i % 50) + 3), mode: i % 4 === 0 ? 'only' : 'include',
+    targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none', addedAt: '', worlds: {},
+  }));
+  // 目標の一覧は描くたびに自分の個体の配列を作り直す（ideals.mine()）ので、毎回新しい配列で測る（索引を作る時間を含める）
+  for (let round = 0; round < 2; round++) {
+    const mine = owned.pals.slice();
+    const start = performance.now();
+    let unfinished = 0;
+    for (const goal of goals) {
+      const { found, nearest } = goalProgress(goal, mine);
+      if (!found.length && nearest) unfinished++;
+      eggMatches(goal, owned.pals, mine);
+    }
+    const spent = performance.now() - start;
+    console.log(`目標の一覧の状態（同じ種族の目標 100 件・同じ種族の 20,000 行）${round + 1} 回目: ${spent.toFixed(2)} ms（未完成 ${unfinished} 件）`);
+    assert.equal(unfinished, 100);
+    assert.ok(spent < 100, `目標の一覧の状態が 100ms を超えました: ${spent.toFixed(2)} ms`);
+  }
+});
+
 test('性能: 所持パルの行の部品（ownedRowItem）を 200 行作るのが 100ms 以内・2,000 行が 1 秒以内で、1 行の要素は 35 個以下（印のある行は 41 個以下。全部の行に印があっても 2,000 行で 80,000 以下）', async (t) => {
   const { installDom, descendants } = await import('../helpers/dom.js');
   installDom(t);

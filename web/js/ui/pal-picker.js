@@ -5,6 +5,7 @@ import { el, button } from './dom.js';
 import { icon } from './icons.js';
 import { palTile, palsById } from './pal-icon.js';
 import { createPopover, scrollWithin } from './popover.js';
+import { focusInPlace } from './focus.js';
 
 const activePals = pals.filter((pal) => pal.active);
 // 番号（頭の 0 を外す）か和名・英名（ひらがな・カタカナ・大文字小文字をそろえる）に完全に一致したか
@@ -85,7 +86,7 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder:
     selected = id;
     popover.close();
     renderSelected();
-    trigger.focus();
+    focusInPlace(trigger);
     onChange(id);
   }
 

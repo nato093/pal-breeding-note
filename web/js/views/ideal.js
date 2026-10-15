@@ -12,7 +12,7 @@ import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/p
 import { talentInput } from '../ui/talent-input.js';
 import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
-import { goalMatches, eggMatches, goalNearest, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
+import { eggMatches, goalProgress, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { goalOwnedHash } from '../ideals.js';
 import { passiveCounts, ownedCounts, ownedRouteStarts } from '../core/owned.js';
 import { shortestRoute } from '../core/route.js';
@@ -195,8 +195,7 @@ function goalSummary(goal) {
 // all は全部の個体（孵化待ちのタマゴを数える。自分の個体のタマゴと、拠点に置かれた持ち主のないタマゴ。farm-board）。
 // 未完成なら gap に、いちばん近い自分の個体との差（「パッシブ 3/4 · 攻撃あと 8」。同じ種族がいなければ「未所持」。goals-detail の I-24）
 const GAP_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
-function goalGap(goal, pals) {
-  const near = goalNearest(goal, pals);
+function goalGap(goal, near) {
   if (!near) return '未所持';
   const parts = [];
   if (near.passives.total) parts.push(`パッシブ ${near.passives.have}/${near.passives.total}`);
@@ -208,11 +207,12 @@ function goalGap(goal, pals) {
 }
 function goalStatus(goal, pals, all = null) {
   if (pals === undefined || pals === null) return { done: false, text: '未確認', unknown: true };
-  const found = goalMatches(goal, pals);
+  // 完成品と、なければいちばん近い個体（種族ごとの索引で 1 回に求める。同じ種族の目標 100 件 × 20,000 行でも止まらない）
+  const { found, nearest } = goalProgress(goal, pals);
   if (!found.length) {
     const hatching = all ? eggMatches(goal, all, pals).length : 0;
     // 種族だけの目標は、持っていれば完成なので差は「未所持」だけ
-    const gap = isSpeciesGoal(goal) ? '未所持' : goalGap(goal, pals);
+    const gap = isSpeciesGoal(goal) ? '未所持' : goalGap(goal, nearest);
     return { done: false, text: hatching ? `未完成（孵化待ちに ${hatching} 個）` : '未完成', hatching, gap };
   }
   const [first] = found;

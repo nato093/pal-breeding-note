@@ -161,7 +161,11 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     destroyContent();
     entry = next;
     let made = null;
-    try { made = render[next.kind]?.(next, context) ?? null; } catch { made = null; }
+    // 中身が後から見出しを直す（読み込みを待った個体の詳細・ニックネームの変更）。入れ替わった後の古い中身からは効かない
+    const setTitle = (text) => {
+      if (made && content === made && typeof text === 'string' && heading.textContent !== text) heading.textContent = text;
+    };
+    try { made = render[next.kind]?.(next, context, { setTitle }) ?? null; } catch { made = null; }
     content = made && made.element ? made : notFound();
     heading.textContent = content.title ?? '';
     const href = content.href ?? (next.kind === 'pal' && made ? buildHash('pal', {}, next.id) : '');
@@ -197,7 +201,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
   function open(value, { opener: from = null } = {}) {
     const next = cleanEntry(value);
     if (!next || !currentScope()) return;
-    if (from) opener = from;
+    if (from && !element.contains(from)) opener = from;
     if (entry && sameEntry(entry, next)) { heading.focus({ preventScroll: true }); return; }
     if (entry) {
       stack = [...stack, entry].slice(-DRAWER_STACK_MAX);

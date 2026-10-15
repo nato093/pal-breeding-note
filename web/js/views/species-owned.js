@@ -6,6 +6,10 @@ import { hasPassives, sortOwned, canBeParent, PLACE_ORDER } from '../core/owned.
 import { buildHash } from '../router.js';
 import { ownedRowItem, openDetailOnClick } from './owned.js';
 
+// 見出しごとに描く行の上限（同じ種族を 2,000 体以上持っていても、ドロワーに全部の行を作らない。残りは「所持パルで開く」で見る。
+// 継承ルートの「ほか N 体」の CARRIERS_MORE_MAX と同じ数。フェーズ 3 の終わりのレビュー）
+export const SPECIES_OWNED_SHOWN = 100;
+
 /**
  * @param {object} context app.js の context（owned・drawer）
  * @param {string} palId 種族
@@ -20,10 +24,12 @@ export function speciesOwnedPanel(context, palId, { passives = [] } = {}) {
   const summary = el('p', 'species-owned-summary');
   const parentsHead = el('h3', 'owned-detail-heading', '親にできる個体');
   const parentRows = el('div', 'pal-owned-rows species-owned-rows');
+  const parentsMore = el('p', 'muted species-owned-more');
   const othersHead = el('h3', 'owned-detail-heading', 'タマゴ・グローバルパルボックス');
   const otherRows = el('div', 'pal-owned-rows species-owned-rows');
+  const othersMore = el('p', 'muted species-owned-more');
   const open = link('所持パルで開く →', buildHash('owned', { pal: palId, place: PLACE_ORDER.join(','), p: passives.join(',') }), 'species-owned-open');
-  element.append(summary, parentsHead, parentRows, othersHead, otherRows, open);
+  element.append(summary, parentsHead, parentRows, parentsMore, othersHead, otherRows, othersMore, open);
   openDetailOnClick(parentRows, context.drawer);
   openDetailOnClick(otherRows, context.drawer);
   const highlight = passives.length ? { wanted: passives } : undefined;
@@ -54,8 +60,13 @@ export function speciesOwnedPanel(context, palId, { passives = [] } = {}) {
         : `所持 ${list.length} 体 · 親になれる ♂${males} ♀${females}${passives.length ? ` · 選んだパッシブをすべて持つ ${matching.length} 体` : ''}`;
     parentsHead.hidden = !parents.length;
     othersHead.hidden = !others.length;
-    syncList(parentRows, parents, rowOptions);
-    syncList(otherRows, others, rowOptions);
+    syncList(parentRows, parents.slice(0, SPECIES_OWNED_SHOWN), rowOptions);
+    syncList(otherRows, others.slice(0, SPECIES_OWNED_SHOWN), rowOptions);
+    for (const [note, rows] of [[parentsMore, parents], [othersMore, others]]) {
+      const over = rows.length - SPECIES_OWNED_SHOWN;
+      note.hidden = over <= 0;
+      note.textContent = over > 0 ? `ほか ${over} 体は「所持パルで開く」で見られます。` : '';
+    }
     open.hidden = !list.length;
   }
   render();

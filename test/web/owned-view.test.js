@@ -3196,6 +3196,25 @@ test('1 種族の所持個体（species。ドロワーの中身）: 親にでき
   none.destroy();
 });
 
+test('1 種族の所持個体（species）: 同じ種族をたくさん持っていても、見出しごとに 100 行までを描き、残りは「所持パルで開く」へ案内する', async (t) => {
+  installDom(t);
+  const { speciesOwnedPanel, SPECIES_OWNED_SHOWN } = await import('../../web/js/views/species-owned.js');
+  const many = Array.from({ length: 230 }, (_, i) => ({
+    ...snapshot.pals[0], instanceId: `p${i}`, characterId: 'PinkCat', gender: i % 2 ? 'Male' : 'Female',
+    location: i < 180 ? { ...snapshot.pals[0].location, kind: 'palbox', playerUid: P1 } : { ...snapshot.pals[0].location, kind: 'global', playerUid: '' },
+  }));
+  const owned = fakeOwned({ version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: many } });
+  const panel = speciesOwnedPanel(context(owned), 'PinkCat');
+  assert.equal(SPECIES_OWNED_SHOWN, 100);
+  assert.match(panel.element.querySelector('.species-owned-summary').textContent, /^所持 230 体/);
+  const lists = panel.element.querySelectorAll('.species-owned-rows');
+  assert.deepEqual(lists.map((list) => list.querySelectorAll('.owned-row').length), [100, 50]);
+  const notes = panel.element.querySelectorAll('.species-owned-more');
+  assert.deepEqual(notes.map((note) => [note.hidden, note.textContent]), [[false, 'ほか 80 体は「所持パルで開く」で見られます。'], [true, '']]);
+  assert.equal(panel.element.querySelector('.species-owned-open').hidden, false);
+  panel.destroy();
+});
+
 test('所持パル画面（種族の見出し）: 図鑑順のときだけ種族の見出し（数・♂♀・タマゴ・最高 Lv と行き先）を混ぜ、畳むと個体の行が消えて viewState に残る。「種族を畳む／開く」', (t) => {
   installDom(t);
   const memory = {};

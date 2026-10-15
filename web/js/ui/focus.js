@@ -7,6 +7,21 @@
 // 探すときも [data-focus-key="…"] の CSS の文字列は作らず、getAttribute の値で比べる（URL の値から作った key に " や改行が入っても落ちない）。
 
 const usable = (node) => !node.disabled && !node.hidden;
+
+/**
+ * 画面に見えている部品へは、本文をスクロールさせずにフォーカスする（候補・パネル・ダイアログを閉じてトリガーへ戻すときなど）。
+ * ヘッダー（sticky）の中の部品は html の scroll-padding-top の帯に入るので、ふつうの focus() では Chrome が「隠れている」として
+ * 本文をスクロールする（フェーズ 3 の終わりの計測: ヘッダーのパル検索を Esc で閉じると scrollY が 500 → 46）。
+ * 画面の外にある部品は、ふつうに見える所まで動かす。画面から外された部品には何もしない
+ */
+export function focusInPlace(node) {
+  if (!node || node.isConnected === false) return;
+  const rect = node.getBoundingClientRect?.();
+  const height = globalThis.innerHeight;
+  const visible = Boolean(rect) && Number.isFinite(height) && rect.bottom > 0 && rect.top < height;
+  if (visible) node.focus({ preventScroll: true });
+  else node.focus();
+}
 // root の中で、属性 name の値が value の要素（並びの順）
 const withAttribute = (root, name, value) => Array.from(root.querySelectorAll(`[${name}]`)).filter((node) => node.getAttribute(name) === value);
 

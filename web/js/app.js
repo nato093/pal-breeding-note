@@ -443,7 +443,7 @@ async function boot() {
   const drawerContents = {
     pal: (entry) => palDrawer(context, entry.id),
     // 所持パルの個体の詳細（params.q は所持パルで入れていたキーワード。一致の理由の全文を出す。owned-detail）
-    owned: (entry) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '' }),
+    owned: (entry, _context, { setTitle } = {}) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '', setTitle }),
     // 全部の配合牧場（所持パルの帯の「右に開く」・セーブ連携のパネル・理想個体の配合牧場の詳細から。farm-board）
     farms: () => farmBoard(context, { mode: 'drawer' }),
     // 1 種族の所持個体（継承ルートの相手親のチップから。params.p は運ぶパッシブ。route-progress）

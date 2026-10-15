@@ -33,6 +33,8 @@ export function isMutationEggItem(itemId) {
 /** 配合牧場の一覧を検証して整える（形の合わないものは捨てる。知らない鍵は落とす）。 */
 export function cleanOwnedFarms(value) {
   if (!Array.isArray(value)) return [];
+  // 数の上限で切ったときは、元の数を of に残す（受け取った側が「一部だけ」と分かるように）
+  const cut = value.length > OWNED_MAX_FARMS ? Math.min(value.length, 10000) : 0;
   const farms = [];
   for (const farm of value.slice(0, OWNED_MAX_FARMS)) {
     if (!farm || typeof farm !== 'object') continue;
@@ -55,7 +57,8 @@ export function cleanOwnedFarms(value) {
       clean.eggs = eggs;
     }
     if (Number.isInteger(farm.n) && farm.n >= 0 && farm.n <= OWNED_FARM_EGG_COUNT_MAX) clean.n = farm.n;
-    if (Number.isInteger(farm.of) && farm.of > 0 && farm.of <= 10000) clean.of = farm.of;
+    const of = Number.isInteger(farm.of) && farm.of > 0 && farm.of <= 10000 ? farm.of : 0;
+    if (of || cut) clean.of = Math.max(of, cut);
     farms.push(clean);
   }
   return farms;
@@ -79,7 +82,7 @@ export function fitOwnedFarms(farms) {
   const kept = [];
   let length = 2;
   for (const farm of counted) {
-    const next = { ...farm, of: list.length };
+    const next = { ...farm, of: Math.max(Number.isInteger(farm.of) ? farm.of : 0, list.length) };
     const add = size(next) + (kept.length ? 1 : 0);
     if (length + add > OWNED_FARMS_MAX_CHARS) break;
     kept.push(next);

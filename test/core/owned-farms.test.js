@@ -4,6 +4,9 @@ import {
   cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, validateOwnedUpload, OWNED_FIELDS,
   OWNED_FARMS_MAX_CHARS, OWNED_FARM_EGGS_MAX, OWNED_MAX_FARMS,
 } from '../../web/js/core/owned-shared.js';
+import { ownedFromShared } from '../../web/js/core/owned.js';
+import pals from '../../web/data/pals.js';
+import passives from '../../web/data/passives.js';
 
 // 最悪の場合の牧場（ID・拠点・親が 40 字、タマゴの中身 20 個も 40 字の ID）
 const longId = (prefix, i) => `${prefix}${String(i).padStart(6, '0')}`.padEnd(40, 'x');
@@ -35,6 +38,24 @@ test('牧場の共有: cleanOwnedFarms は短い鍵（s・eggs・n・of）を確
   // 中身は 1 牧場 20 個まで
   assert.equal(cleanOwnedFarms([fullFarm(0)])[0].eggs.length, OWNED_FARM_EGGS_MAX);
   assert.equal(cleanOwnedFarms([{ ...fullFarm(0), eggs: [...fullFarm(0).eggs, ...fullFarm(1).eggs] }])[0].eggs.length, OWNED_FARM_EGGS_MAX);
+});
+
+test('牧場の共有: 200 件の上限で切ったときも、残した牧場に of（元の数）を付け、縮めても元の数を残し、受け取った側は「一部だけ」', () => {
+  const farms = Array.from({ length: OWNED_MAX_FARMS + 1 }, (_, i) => ({ id: `F${i}`, baseId: 'B', parents: [], n: 0, eggs: [] }));
+  const cleaned = cleanOwnedFarms(farms);
+  assert.equal(cleaned.length, OWNED_MAX_FARMS);
+  assert.ok(cleaned.every((farm) => farm.of === OWNED_MAX_FARMS + 1));
+  // 上限の中なら of は付けない。送られてきた of（元の数）は小さくしない
+  assert.ok(cleanOwnedFarms(farms.slice(0, 3)).every((farm) => !('of' in farm)));
+  assert.equal(cleanOwnedFarms([{ ...farms[0], of: 500 }, ...farms.slice(1)])[0].of, 500);
+  // 縮めて牧場を切るときも、元の数（201）を下回らない
+  const big = Array.from({ length: OWNED_MAX_FARMS + 1 }, (_, i) => fullFarm(i));
+  const cut = fitOwnedFarms(cleanOwnedFarms(big));
+  assert.ok(cut.length < OWNED_MAX_FARMS + 1);
+  assert.ok(cut.every((farm) => farm.of === OWNED_MAX_FARMS + 1));
+  const shared = ownedFromShared({ world: { farms: cleaned }, columns: OWNED_FIELDS, rows: [] }, { pals, passives });
+  assert.equal(shared.farmsPartial, true);
+  assert.equal(ownedFromShared({ world: { farms: cleanOwnedFarms(farms.slice(0, 5)) }, columns: OWNED_FIELDS, rows: [] }, { pals, passives }).farmsPartial, false);
 });
 
 test('牧場の共有: fitOwnedFarms は 45,000 字に収める（そのまま → 中身を外して数だけ → 牧場を切って of）', () => {

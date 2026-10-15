@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanGoal, parseGoals, goalKey, goalMatches, eggMatches, goalNearest, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
+import { cleanGoal, parseGoals, goalKey, goalMatches, eggMatches, goalNearest, goalProgress, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const talent = (hp = 0, shot = 0, defense = 0) => ({ hp, shot, defense });
@@ -251,4 +251,51 @@ test('近い個体（goalNearest）: 欲しいパッシブの数 → 足りな�
   assert.equal(goalNearest(goal({ mode: 'only', passives: ['P1'] }), [pals[2]]).extra, 1);
   // 同じ種族がいない（タマゴだけ）なら null
   assert.equal(goalNearest(goal(), [pals[3], pals[4]]), null);
+});
+
+test('目標の一覧の状態（goalProgress）: 種族ごとの索引で求めた完成品と近い個体が、全部の個体を 1 体ずつ見る素朴な決め方と同じ（並び・同点・タマゴ・別の種族・「欲しいものだけ」）', () => {
+  let state = 7;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const pick = (items) => items[Math.floor(random() * items.length)];
+  const ids = ['P1', 'P2', 'P3', 'P4', 'P5'];
+  // ID は並びと別の順（同点を ID で決めるのを確かめる）。パッシブは重なることもある
+  const pals = Array.from({ length: 400 }, (_, i) => pal(`id${String((i * 7919) % 400).padStart(3, '0')}`, pick(['X', 'X', 'Y']), pick(['M', 'F']),
+    Array.from({ length: Math.floor(random() * 5) }, () => pick(ids)), talent(pick([0, 50, 90, 100]), pick([0, 50, 90, 100]), pick([0, 50, 100])),
+    { egg: random() < 0.1 }));
+  // 素朴な決め方（前の goalNearest）
+  const naive = (target) => {
+    const wanted = [...new Set(target.passives)];
+    let best = null;
+    for (const item of pals) {
+      if (item.egg || item.palId !== target.palId) continue;
+      const have = wanted.filter((id) => item.passives.includes(id)).length;
+      const short = Object.fromEntries(['hp', 'shot', 'defense'].map((key) => [key, target.targets[key] > 0 ? Math.max(0, target.targets[key] - item.talent[key]) : 0]));
+      const lack = short.hp + short.shot + short.defense;
+      const extra = target.mode === 'only' ? Math.max(0, new Set(item.passives).size - have) : 0;
+      if (!best || have > best.passives.have || (have === best.passives.have && (lack < best.lack || (lack === best.lack && item.id < best.pal.id)))) {
+        best = { pal: item, passives: { have, total: wanted.length }, short, extra, lack };
+      }
+    }
+    if (!best) return null;
+    const { lack: _, ...result } = best;
+    return result;
+  };
+  let finished = 0;
+  for (let i = 0; i < 60; i++) {
+    const target = goal({ id: `g${i}`, palId: pick(['X', 'Y', 'Z']), passives: ids.filter(() => random() < 0.4), mode: pick(['include', 'only']),
+      targets: { hp: pick([0, 50, 90]), shot: pick([0, 50, 100]), defense: pick([0, 50]) } });
+    const progress = goalProgress(target, pals);
+    assert.deepEqual(progress.found.map((item) => item.id), goalMatches(target, pals).map((item) => item.id), `完成品 ${i}`);
+    assert.deepEqual(goalNearest(target, pals), naive(target), `近い個体 ${i}`);
+    if (progress.found.length) finished++;
+    else assert.deepEqual(progress.nearest, naive(target), `未完成の近い個体 ${i}`);
+  }
+  // 完成と未完成の両方を確かめている
+  assert.ok(finished > 5 && finished < 55, `完成の数 ${finished}`);
+  // 種族のない目標・個体の配列でないもの
+  assert.deepEqual(goalProgress({ ...goal(), palId: '' }, pals), { found: [], nearest: null });
+  assert.deepEqual(goalProgress(goal(), null), { found: [], nearest: null });
 });

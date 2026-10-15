@@ -177,8 +177,110 @@ export function goalMatches(goal, pals) {
 export function eggMatches(goal, pals, mine = null) {
   if (!goal.palId) return [];
   const meets = goalTest(goal, { egg: true });
-  const own = Array.isArray(mine) ? new Set(mine.map((pal) => pal.id)) : null;
-  return pals.filter((pal) => pal.egg && pal.palId === goal.palId && (!own || own.has(pal.id) || !pal.holderUid) && meets(pal));
+  const own = Array.isArray(mine) ? ownIds(mine) : null;
+  return (eggsBySpecies(pals).get(goal.palId) ?? []).filter((pal) => (!own || own.has(pal.id) || !pal.holderUid) && meets(pal));
+}
+
+// 目標の一覧は目標ごとに同じ個体の配列を渡すので、配列から作る索引は配列ごとに 1 回だけ作って覚える（WeakMap。配列が捨てられたら消える）。
+// 同じ種族の目標 100 件 × 同じ種族の 20,000 行で、目標ごとに全部の個体を見直すと、近い個体だけで約 1.3 秒・孵化待ちで約 0.4 秒
+// 止まった（フェーズ 3 の終わりのレビュー）。個体の配列は作り直されるので（読み直し・ideals.mine()）、中身が変わっても古い索引は使わない
+const memo = (build) => {
+  const cache = new WeakMap();
+  return (list) => {
+    let value = cache.get(list);
+    if (value === undefined) cache.set(list, (value = build(list)));
+    return value;
+  };
+};
+const ownIds = memo((mine) => new Set(mine.map((pal) => pal.id)));
+const eggsBySpecies = memo((pals) => {
+  const groups = new Map();
+  for (const pal of pals) {
+    if (!pal.egg || !pal.palId) continue;
+    const group = groups.get(pal.palId);
+    if (group) group.push(pal);
+    else groups.set(pal.palId, [pal]);
+  }
+  return groups;
+});
+// タマゴでない個体を種族ごとに分け、個体値を型付き配列に写し、パッシブ → その種類を持つ個体の位置の一覧を持つ
+const speciesIndex = memo((pals) => {
+  const groups = new Map();
+  for (const pal of pals) {
+    if (pal.egg || !pal.palId) continue;
+    let group = groups.get(pal.palId);
+    if (!group) groups.set(pal.palId, (group = { pals: [], byPassive: new Map() }));
+    const at = group.pals.length;
+    group.pals.push(pal);
+    const own = pal.passives;
+    for (let i = 0; i < own.length; i++) {
+      if (own.indexOf(own[i]) !== i) continue;
+      const list = group.byPassive.get(own[i]);
+      if (list) list.push(at);
+      else group.byPassive.set(own[i], [at]);
+    }
+  }
+  for (const group of groups.values()) {
+    const size = group.pals.length;
+    group.talent = { hp: new Int16Array(size), shot: new Int16Array(size), defense: new Int16Array(size) };
+    group.distinct = new Uint8Array(size);
+    group.pals.forEach((pal, at) => {
+      for (const key of GOAL_STATS) group.talent[key][at] = pal.talent[key];
+      group.distinct[at] = distinctCount(pal.passives);
+    });
+  }
+  return groups;
+});
+
+/**
+ * 目標の一覧の 1 行に要るもの（goals-detail）: 完成品（goalMatches と同じ個体・同じ並び）と、完成品がなければいちばん近い個体（goalNearest と同じ）。
+ * 種族ごとの索引を使い、目標ごとには欲しいパッシブを持つ個体の数え上げと個体値の型付き配列だけを見る
+ * @param {object} goal cleanGoal で整えたもの
+ * @param {object[]} pals 自分の個体
+ * @returns {{ found: object[], nearest: ReturnType<typeof goalNearest> }}
+ */
+export function goalProgress(goal, pals) {
+  return progressOf(goal, pals, false);
+}
+
+// withNearest: 完成品があっても、いちばん近い個体を求める（goalNearest）
+function progressOf(goal, pals, withNearest) {
+  const group = goal?.palId && Array.isArray(pals) ? speciesIndex(pals).get(goal.palId) : null;
+  if (!group) return { found: [], nearest: null };
+  const wanted = [...new Set(goal.passives)];
+  const size = group.pals.length;
+  // 欲しいパッシブのうち持っている数（持っている個体だけ、パッシブ → 個体の位置の一覧から数える）
+  const counts = new Uint8Array(size);
+  let most = 0;
+  for (const id of wanted) {
+    for (const at of group.byPassive.get(id) ?? []) if (++counts[at] > most) most = counts[at];
+  }
+  const target = GOAL_STATS.map((key) => (goal.targets[key] > 0 ? goal.targets[key] : 0));
+  const [hp, shot, defense] = target;
+  const { talent, distinct } = group;
+  const only = goal.mode === 'only';
+  const found = [];
+  if (most === wanted.length) {
+    for (let at = 0; at < size; at++) {
+      if (counts[at] !== most || (only && distinct[at] !== most)) continue;
+      if (talent.hp[at] >= hp && talent.shot[at] >= shot && talent.defense[at] >= defense) found.push(group.pals[at]);
+    }
+  }
+  if (found.length && !withNearest) return { found, nearest: null };
+  // いちばん近い個体: 欲しいパッシブを持つ数が最も多い個体のうち、足りない個体値の合計が少ない順 → 個体 ID
+  let best = -1;
+  let bestLack = Infinity;
+  for (let at = 0; at < size; at++) {
+    if (counts[at] !== most) continue;
+    const lack = Math.max(0, hp - talent.hp[at]) + Math.max(0, shot - talent.shot[at]) + Math.max(0, defense - talent.defense[at]);
+    if (lack < bestLack || (lack === bestLack && group.pals[at].id < group.pals[best].id)) {
+      best = at;
+      bestLack = lack;
+    }
+  }
+  const pal = group.pals[best];
+  const short = Object.fromEntries(GOAL_STATS.map((key, i) => [key, Math.max(0, target[i] - pal.talent[key])]));
+  return { found, nearest: { pal, passives: { have: most, total: wanted.length }, short, extra: only ? Math.max(0, distinct[best] - most) : 0 } };
 }
 
 /**
@@ -190,21 +292,7 @@ export function eggMatches(goal, pals, mine = null) {
  *   extra は「欲しいものだけ」のときの余計なパッシブの数（それ以外は 0）。同じ種族がいなければ null
  */
 export function goalNearest(goal, pals) {
-  if (!goal?.palId) return null;
-  const wanted = [...new Set(goal.passives)];
-  let best = null;
-  for (const pal of pals ?? []) {
-    if (pal.egg || pal.palId !== goal.palId) continue;
-    const have = wanted.filter((id) => pal.passives.includes(id)).length;
-    const short = Object.fromEntries(GOAL_STATS.map((key) => [key, goal.targets[key] > 0 ? Math.max(0, goal.targets[key] - pal.talent[key]) : 0]));
-    const lack = GOAL_STATS.reduce((sum, key) => sum + short[key], 0);
-    const extra = goal.mode === 'only' ? Math.max(0, distinctCount(pal.passives) - have) : 0;
-    const candidate = { pal, passives: { have, total: wanted.length }, short, extra, lack };
-    if (!best || have > best.passives.have || (have === best.passives.have && (lack < best.lack || (lack === best.lack && pal.id < best.pal.id)))) best = candidate;
-  }
-  if (!best) return null;
-  const { lack: _, ...result } = best;
-  return result;
+  return progressOf(goal, pals, true).nearest;
 }
 
 // 個体のパッシブの種類の数（同じパッシブが重なっていても 1 つ）。パッシブは 4 個までなので、Set を作らずに数える

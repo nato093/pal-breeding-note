@@ -129,13 +129,18 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     return box;
   }
 
-  // その組の登録済みの配合の件数（記録の件数だけ。子の名前・予測は出さない）
-  function recordsNode(farm, byId) {
+  // その組（親が 2 体とも分かる牧場）の登録済みの配合の件数（記録の件数だけ。子の名前・予測は出さない）。組でない・索引がなければ null
+  function recordsOf(farm, byId) {
     const parents = farm.parents.map((id) => byId.get(id)).filter((pal) => pal?.known);
     if (farm.status === 'uncertain' || parents.length !== 2) return null;
     const index = context.store?.state?.index;
     if (!index?.byPair) return null;
-    const count = findByPair(index, parents[0].palId, parents[1].palId).length;
+    return { parents, count: findByPair(index, parents[0].palId, parents[1].palId).length };
+  }
+  function recordsNode(farm, byId) {
+    const records = recordsOf(farm, byId);
+    if (!records) return null;
+    const { parents, count } = records;
     const href = buildHash('search', { p1: parents[0].palId, p2: parents[1].palId });
     return link(count ? `この組の登録 ${count} 件を見る` : 'この組の登録はまだありません', href, 'farm-records');
   }
@@ -157,11 +162,11 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     return card;
   }
 
-  // カードの中身の署名（同じなら作り直さない。親・タマゴ・個体の値・記録の索引で変わる）
+  // カードの中身の署名（同じなら作り直さない。親・タマゴ〔中身とタマゴの名前〕・個体の値・その組の登録の件数で変わる）
   const cardKey = ({ farm, name }, byId) => JSON.stringify([farm.id, name, farm.status, farm.parents.map((id) => {
     const pal = byId.get(id);
     return pal ? [pal.id, pal.gender, pal.level, pal.passives, pal.talent, pal.lastOwner, pal.nickname] : id;
-  }), farm.eggs, farm.eggCount]);
+  }), farm.eggs, farm.eggs?.map((egg) => byId.get(egg.id)?.eggItemId ?? ''), farm.eggCount, recordsOf(farm, byId)?.count ?? null]);
 
   let lastData;
   let lastIndex;

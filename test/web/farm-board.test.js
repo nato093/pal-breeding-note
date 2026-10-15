@@ -100,6 +100,18 @@ test('配合牧場ボード: タマゴの数と中身の絵（突然変異は印
   partial.destroy();
 });
 
+test('配合牧場ボード: 開いたまま記録を足して索引が変わると、その組の登録の件数を直す', (t) => {
+  installDom(t);
+  const app = context(data());
+  const board = farmBoard(app);
+  const link = () => byClass(byClass(board.element, 'farm-card')[0], 'farm-records')[0].textContent;
+  assert.equal(link(), 'この組の登録はまだありません');
+  app.store.state = { index: buildIndex([{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen', parent1Gender: '', parent2Gender: '', registrant: 'A', memo: '', updatedAt: '2026-10-01T00:00:00Z' }], pals) };
+  board.update();
+  assert.equal(link(), 'この組の登録 1 件を見る');
+  board.destroy();
+});
+
 test('配合牧場ボード: その組の登録済みの配合の件数へのリンクだけを出し、子の名前・「→」の式は出さない（INV-2）。牧場の情報がなければ案内', (t) => {
   installDom(t);
   const records = [{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen', parent1Gender: '', parent2Gender: '', registrant: 'A', memo: '', updatedAt: '2026-10-01T00:00:00Z' }];

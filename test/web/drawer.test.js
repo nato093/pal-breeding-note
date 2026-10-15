@@ -184,6 +184,43 @@ test('ドロワー: 起動・戻る・進むでは history.state に合わせる
   assert.equal(cleanDrawerState({ v: 1, env: 'test', user: 'a', entry: { kind: 'pal', id: '' } }), null);
 });
 
+test('ドロワー: ドロワーの中の部品から別の中身を開いても、閉じたときのフォーカスは本文の開いた所へ戻る（中の部品は入れ替えで消える）', (t) => {
+  const { drawer } = setup(t);
+  const opener = new FakeElement('a');
+  document.body.append(opener);
+  drawer.open({ kind: 'pal', id: 'A' }, { opener });
+  const inside = new FakeElement('button');
+  byClass(drawer.element, 'side-drawer-body').append(inside);
+  drawer.open({ kind: 'pal', id: 'B' }, { opener: inside });
+  buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
+  assert.equal(document.activeElement, opener);
+});
+
+test('ドロワー: 中身は作るときに受け取る setTitle で見出しを後から直せる。入れ替わった後の古い中身からは効かない', (t) => {
+  // setup は DOM を入れるためだけに使い、setTitle を受け取る中身のドロワーを別に作る
+  setup(t);
+  const setters = [];
+  const made = createDrawer({
+    context: {}, main: new FakeElement('main'), history: fakeHistory({ state: {} }), doc: document, scope: () => ({ env: 'test', user: 'alice' }), url: () => '/',
+    render: {
+      pal: (entry, _context, { setTitle }) => {
+        setters.push(setTitle);
+        return { title: `パル ${entry.id}`, element: new FakeElement('div'), destroy() {} };
+      },
+    },
+  });
+  document.body.append(made.element);
+  made.open({ kind: 'pal', id: 'A' });
+  const title = () => byClass(made.element, 'side-drawer-title').textContent;
+  setters[0]('アヌビス「あぬびす」');
+  assert.equal(title(), 'アヌビス「あぬびす」');
+  made.open({ kind: 'pal', id: 'B' });
+  setters[0]('古い中身');
+  assert.equal(title(), 'パル B');
+  setters[1]('新しい題名');
+  assert.equal(title(), '新しい題名');
+});
+
 test('ドロワー: 中身が対象を見失ったら「見つかりません」と「閉じる」を出す', (t) => {
   const { drawer } = setup(t, { missing: ['Gone'] });
   drawer.open({ kind: 'pal', id: 'Gone' });
