@@ -9,7 +9,7 @@ import { createPlanMemory } from './ideal-plan-memory.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
-import { startRouter, buildHash, parseHash, sameScreen, routeKey } from './router.js';
+import { startRouter, buildHash, parseHash, sameScreen, routeKey, SETTINGS_OPEN } from './router.js';
 import { el, button, link, field, runButton, debounce } from './ui/dom.js';
 import { createViewMemory, restoreScroll } from './ui/view-memory.js';
 import { captureFocus, restoreFocus } from './ui/focus.js';
@@ -93,8 +93,19 @@ async function boot() {
     store, owned, storage: browserStorage, namespace,
     identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId), selfUid: self.get(worldId) }),
   });
-  // 自分を変えたら（別のタブの変更も）、同じセーブのまま完成を判定し直す（そのとき完成しているものは知らせない）
-  self.subscribe(() => ideals.identityChanged());
+  // 本人が変わったら（このワールドでの自分・登録者の対応。別のタブの変更も）、同じセーブのまま完成を判定し直す（そのとき完成している
+  // ものは知らせない）。ID の変更中は判定し直せない（ideals.js）ので、変更中に来た分は、変更が終わった store の通知で 1 回だけ判定し直す
+  //（この store の購読は ideals より後に足すので、変更中に届いた新しいセーブの判定〔完成を知らせる〕が先に済む）
+  let identityLater = false;
+  self.subscribe(() => {
+    if (store.state.renaming) identityLater = true;
+    else ideals.identityChanged();
+  });
+  store.subscribe((state) => {
+    if (!identityLater || state.renaming) return;
+    identityLater = false;
+    ideals.identityChanged();
+  });
   const notifications = createNotificationStore({
     store, storage: browserStorage, namespace,
     sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), idealNotificationSource({ store, ideals }), autoRegister.notices],
@@ -535,13 +546,42 @@ async function boot() {
     }
     return null;
   };
+  const plainClick = (event) => !(event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey);
+  const hrefOf = (anchor) => (anchor ? String(anchor.getAttribute?.('href') ?? anchor.href ?? '') : '');
+  // 設定を開いたまま、設定の行き先（`#/settings?…&open=<意図>`。views/settings.js が読んだら URL から外す）のリンクを押したときは、
+  // 履歴を増やさずに今のエントリのまま行き先を当てる。増やすと、外した後の `#/settings` が 2 件続き、「戻る」が 1 回空振りする。
+  // 行き先はその場でフォーカスを移すだけで、条件の変更（同じ画面の 1 選択＝1 履歴）ではないので増やさない。当てたら true。
+  // later は当てる時機（既定はすぐ）
+  function sameScreenDestination(event, hash, later = (apply) => apply()) {
+    if (showingLogin || !hash.startsWith('#/') || hash === location.hash) return false;
+    const next = parseHash(hash);
+    if (next.view !== 'settings' || !SETTINGS_OPEN.includes(next.params.get('open')) || !currentView?.applyRoute || !sameScreen(shownRoute, next)) return false;
+    event.preventDefault();
+    later(() => context.update(hash, { replace: true }));
+    return true;
+  }
   root.addEventListener('click', (event) => {
-    if (event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    if (!plainClick(event)) return;
     const anchor = anchorOf(event.target);
-    const hash = anchor ? String(anchor.getAttribute?.('href') ?? anchor.href ?? '') : '';
+    const hash = hrefOf(anchor);
     if (!hash.startsWith('#/') || hash === location.hash) return;
+    if (sameScreenDestination(event, hash)) return;
     saveEntry();
     intent = String(anchor.className).split(' ').includes('nav-tab') ? 'tab' : 'navigate';
+  });
+  // ダイアログ（body に置く。設定の「通知一覧」など）の中のリンクも、同じ画面への行き先なら同じく履歴を増やさない。
+  // リンクを押して閉じたダイアログは、閉じた後（close イベント。後から来る）でフォーカスを開いたボタンへ戻すので、行き先はその後に当てる
+  //（close が来ないときのために、少し後にも 1 回だけ当てる）
+  const afterClose = (dialog) => (apply) => {
+    if (!dialog || dialog.open) { apply(); return; }
+    let done = false;
+    const once = () => { if (!done) { done = true; apply(); } };
+    dialog.addEventListener('close', once, { once: true });
+    setTimeout(once, 100);
+  };
+  document.addEventListener?.('click', (event) => {
+    if (!plainClick(event) || root.contains?.(event.target)) return;
+    sameScreenDestination(event, hrefOf(event.target?.closest?.('a') ?? null), afterClose(event.target?.closest?.('dialog')));
   });
   window.addEventListener('scroll', () => {
     if (showingLogin) return;
@@ -633,12 +673,15 @@ async function boot() {
   wishlist.subscribe(notifications.changed);
   ideals.subscribe(notifications.changed);
   owned.subscribe(autoRegister.evaluate);
-  // 別のタブで下書き・ウィッシュリスト・理想個体の登録・このワールドでの自分・既読を書き換えたら読み直す。
+  // 別のタブで下書き・ウィッシュリスト・理想個体の登録・このワールドでの自分・登録者の対応・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {
     drafts.reload(event.key);
     wishlist.reload(event.key);
     ideals.reload(event.key);
     self.reload(event.key);
+    // 登録者の対応（自動登録の対応表）は自分のプレイヤーの決め方にも使うので、本人の変化として知らせる（このタブで変えたときと同じく、
+    // 判定し直しと理想個体・所持パル・設定の描き直し）
+    if (autoRegister.reload(event.key)) self.changed();
     notifications.reload(event.key);
   });
   // 配信された版（version.json）を 5 分ごとと、タブに戻ったときに確かめる。版の無いローカルでは確かめない。

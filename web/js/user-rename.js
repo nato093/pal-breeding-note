@@ -110,7 +110,8 @@ export function createRenamer({ store, drafts, wishlist, ideals, self, notificat
   function clearPlan() {
     try { storage?.removeItem(planKey); } catch { /* 残っても、次に同じ予定をやり直すだけ。 */ }
   }
-  const localSaveFailed = () => Boolean(drafts?.saveFailed || wishlist?.saveFailed || ideals?.saveFailed);
+  // この端末に書けずに手元にだけ残しているデータ（今の ID の分）があれば、ID を変えると移せずに失われるので始めない
+  const localSaveFailed = () => Boolean(drafts?.saveFailed || wishlist?.saveFailed || ideals?.saveFailed || self?.saveFailed);
 
   // 端末内のデータを移し、各ストアのキャッシュを捨てて描き直させる
   function moveLocal(plan) {
@@ -120,8 +121,10 @@ export function createRenamer({ store, drafts, wishlist, ideals, self, notificat
     for (const key of keys(`${namespace}.wishlist.${plan.env}.`)) wishlist?.reload(key);
     for (const key of keys(`${namespace}.ideals.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.notifications.read.`)) notifications?.reload(key);
-    // このワールドでの自分はワールドごとのキーなので、どのキーでも読み直させる
-    self?.reload(`${namespace}.ideals.self.`);
+    // このワールドでの自分はワールドごとのキーなので、どのキーでも読み直させる。ID の変更では、ここはまだログイン中の ID が前の ID の
+    // ままなので、知らせるのは次の store の通知（新しい ID になった後）まで遅らせる（前の ID のキーは移して消したので、すぐ知らせると
+    // 理想個体・所持パル・設定が自分を一度「分からない」として描き直し、新しい ID でもう一度描き直していた）
+    self?.reload(`${namespace}.ideals.self.`, { defer: true });
     return ok;
   }
 

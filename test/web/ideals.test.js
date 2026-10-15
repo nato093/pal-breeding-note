@@ -248,12 +248,12 @@ test('理想個体の登録: selfUids は表示しているワールドの自分
 });
 
 // 「このワールドでの自分」（selfUid）を選べる形（app.js と同じく identity に selfUid を渡す）。chosen はワールド ID → UID
-function setupSelf({ userId = '新人', pals = null, at = time(0), chosen = {} } = {}) {
+function setupSelf({ userId = '新人', pals = null, at = time(0), chosen = {}, storage = memoryStorage() } = {}) {
   const store = fakeSubject({ env: 'test', userId, passcode: '入力', renaming: false, users: ['仲間', '他の人', '新人'] });
   const owned = fakeSubject({ owned: pals ? { players: PLAYERS, pals } : null, meta: pals ? { worldId: WORLD_A, worldName: 'テスト', saveUpdatedAt: at } : null });
   let ids = 0;
   const ideals = createIdealStore({
-    store, owned, storage: memoryStorage(), now: () => Date.UTC(2026, 9, 8, 1, 0), uuid: () => `id-${++ids}`,
+    store, owned, storage, now: () => Date.UTC(2026, 9, 8, 1, 0), uuid: () => `id-${++ids}`,
     identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: {}, selfUid: chosen[worldId] ?? '' }),
   });
   const show = (list, saveUpdatedAt) => {
@@ -345,4 +345,35 @@ test('理想個体の登録（このワールドでの自分）: identityKey は
   assert.equal(ideals.identityKey(), `${WORLD_A}|u-me`);
   chosen[WORLD_A] = 'u-other';
   assert.equal(ideals.identityKey(), `${WORLD_A}|u-other`);
+});
+
+test('理想個体の登録（このワールドでの自分）: 古いセーブのタブで判定し直しても、新しいセーブのタブが付けた判定は巻き戻さず、余計な完成の通知を出さない', () => {
+  const storage = memoryStorage();
+  const key = 'pal-note.ideals.test.新人';
+  // 同じワールドを、タブ A は未完成の古いセーブ（0 分）、タブ B は完成品が入った新しいセーブ（5 分）で開いている。どちらも自分が分からない（新人）
+  const chosen = {};
+  const a = setupSelf({ storage, chosen, pals: [sheep('x', 90, ['Rare'], 'u-other')], at: time(0) });
+  const b = setupSelf({ storage, chosen, pals: [sheep('x', 90, ['Rare'], 'u-other'), sheep('y', 100, ['Rare'], 'u-other')], at: time(5) });
+  a.ideals.add(GOAL);
+  assert.deepEqual(b.ideals.list()[0].worlds, {});
+  // B で自分を選ぶ（自分のキーは両方のタブで同じ）。B は新しいセーブで判定し、そのとき完成していたものは知らせない
+  chosen[WORLD_A] = 'u-other';
+  assert.equal(b.ideals.identityChanged(), true);
+  const judgedInB = storage.map.get(key);
+  assert.deepEqual(JSON.parse(judgedInB)[0].worlds[WORLD_A], { checked: true, complete: true, completedAt: '', observedAt: time(5), worldName: 'テスト' });
+  // A は自分のキーの storage イベントで判定し直そうとするが、B が新しいセーブで付けた判定は古いデータ（未完成）で書き換えない
+  //（書き換える目標がなければ保存せず、購読者だけ呼ぶ）
+  let emitted = 0;
+  a.ideals.subscribe(() => emitted++);
+  assert.equal(a.ideals.identityChanged(), false);
+  assert.equal(emitted, 1);
+  assert.equal(storage.map.get(key), judgedInB);
+  a.ideals.reload(key);
+  assert.equal(storage.map.get(key), judgedInB);
+  assert.equal(a.ideals.list()[0].worlds[WORLD_A].complete, true);
+  // B が読み直しても、巻き戻された判定がないので「未完成 → 完成」と知らせない
+  b.ideals.reload(key);
+  assert.equal(b.ideals.list()[0].worlds[WORLD_A].completedAt, '');
+  assert.deepEqual(b.notices(), []);
+  assert.deepEqual(a.notices(), []);
 });

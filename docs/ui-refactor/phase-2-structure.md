@@ -766,7 +766,7 @@
    - `2026-10-08-ideal-alpha`（`:28-31`）を配列から消す。`2026-10-08-ideal-generations`（`:36-39`）の body を「完全体作成組では、子を親と入れ替えながら作る手順も数えます。20 秒ごとに更新します。」（43 字）に。先頭のコメント（`:1-2`）に「機能をなくしたら元の告知を消すか書き直す。id は再利用しない」「開く先があれば href（#/… だけ）を書く」を足す。
    - 開く先のあるお知らせに `href` を足す（G-25。例: `2026-10-10-owned-keyword` → `#/owned`、`2026-10-08-ideal-groups` → `#/ideal`、このフェーズの各テーマのお知らせ → その画面）。
    - **プロジェクトの `CLAUDE.md:16`**: 「（右上のベルの通知欄と、設定タブの「通知一覧」に出る）」→「（右上のベルの通知欄と、ベルの「すべての通知を見る」に出る）」。同じ節の末尾に変更記録を 1 行（例「> 変更記録（<日付>）: 設定の「通知」カードを廃止し、履歴はベルの「すべての通知を見る」から開く形にしたため、通知の出る場所の記述を直した。影響: 規約の意味は変わらない」）。**CLAUDE.md は設定で Edit が拒否されている可能性がある**（グローバルの規約「評価基準の保護」）。拒否されたら、文案をユーザーに示して手で直してもらう。
-7. **行き先を該当の箇所まで**（F026）: 自動登録の「プレイヤーの対応が未設定です」の href を `#/settings?world=<worldId>&open=auto`（participant-self・copy-dead-ends で作った行き先。まだなら直す。今は `'#/settings'` `auto-register.js:228`）。食い違い・異常の href は find-merge・autoreg-visibility で `#/search?p1=&p2=`。
+7. **行き先を該当の箇所まで**（F026）: 自動登録の「プレイヤーの対応が未設定です」の href を `#/settings?world=<worldId>&open=auto`（participant-self・copy-dead-ends で作った行き先。まだなら直す。今は `'#/settings'` `auto-register.js:228`）。（追記 2026-10-15: フェーズ 1d の participant-self と、フェーズ 1d の終わりのレビューの直しで済んだ。行き先は意図つきの `settingsHash(worldId, 'registrant')`〔`#/settings?world=<worldId>&open=registrant`〕で、前の版の通知も読み出すときに読み替える。phase-1d の「フェーズ 1d の終わりのレビューの直し」の 6）食い違い・異常の href は find-merge・autoreg-visibility で `#/search?p1=&p2=`。
 
 ### 触るファイル
 - 変更: `web/js/notifications.js`、`web/js/ui/notifications.js`、`web/js/ideals.js`（通知に palId）、`web/js/auto-register.js`（palId・href）、`web/js/views/settings.js`、`web/js/release-notes.js`、`web/css/app.css`、`CLAUDE.md`（プロジェクト。変更記録つき）
@@ -1047,7 +1047,7 @@
    - ワールドの行の中（`breedingPanel`）には、自動登録のオン・オフだけを残す。
    - **この欄は `views/owned-settings.js` の中に置く**（`mappedUser` の import をほかのファイルに移すと `test/import.test.js:32-34` を直す必要がある。どうしても分けるなら、テストの許可リストを変更記録つきで直す）。
    - 呼び名をそろえる: `auto-register.js:227` の未設定の通知の本文を「{名前}の配合を登録できません。設定の「プレイヤーの対応」で選んでください。」（60 字を超える名前は `clip` で省かれる）、`views/ideal.js` の案内（participant-self で直した文）・`docs/OPERATIONS.md:62,130,132` の「登録者の対応」を「プレイヤーの対応」に。
-4. **理想個体の「未確認」を 1 回だけ**（C-06）: 目標の行（`goalStatus` `views/ideal.js:141-149`）は「未確認」だけにし、理由は目標のダイアログの表の上に 1 回だけ「自分のプレイヤーが分からないため、完成を確かめられません［設定で選ぶ］」（participant-self の行き先 `#/settings?world=<id>&open=auto`）。所持パルのデータがない「未確認」も同じく 1 回だけ。
+4. **理想個体の「未確認」を 1 回だけ**（C-06）: 目標の行（`goalStatus` `views/ideal.js:141-149`）は「未確認」だけにし、理由は目標のダイアログの表の上に 1 回だけ「自分のプレイヤーが分からないため、完成を確かめられません［設定で選ぶ］」（participant-self の行き先。追記 2026-10-15: 今は意図つきの `settingsHash(worldId, 'self')`〔`#/settings?world=<id>&open=self`〕。所持パルのデータがない「未確認」は `settingsHash(worldId, 'status')`。phase-1d の「フェーズ 1d の終わりのレビューの直し」の 6）。所持パルのデータがない「未確認」も同じく 1 回だけ。
 5. **ワールドの登録モーダル**（`openWorldDialog`）
    - C-23: ① の下に「エクスプローラーのアドレス欄に `%LOCALAPPDATA%\Pal\Saved\SaveGames` を貼ると開けます」＋［コピー］（`navigator.clipboard.writeText(SAVE_ROOT)`。失敗したらトースト「コピーできませんでした」）。
    - C-24: パスを読み取れたら入力欄の下に「✓ Steam 7656…1234 ／ ワールド 4A43…」、読み取れなければ赤字で「…\SaveGames\<数字>\<32 桁の英数字> まで含めて貼ってください」（空欄のときは何も出さない）、登録済みのワールドの ID なら「登録済みのワールドです（ファイルを足します）」。この行も固定の高さ。パスの欄とファイルの一覧の等幅をやめる（`app.css:878`・`:869`）。

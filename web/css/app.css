@@ -185,6 +185,9 @@ input, select, textarea {
   min-width: 0;
   color: var(--md-sys-color-on-surface);
 }
+/* 押せない選択（ID の変更中の「このワールドでの自分」・読み込み中の「使うワールド」など）も、押せないボタンと同じ M3 の無効
+   （文字は on-surface の 38%、枠は 12%）。押せない理由は title（ui/dom.js の setDisabled） */
+select:disabled { color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent); border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent); cursor: default; }
 textarea { resize: vertical; }
 :focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
 /* 見た目は隠して読み上げだけに出す文（短い表記の全文など） */

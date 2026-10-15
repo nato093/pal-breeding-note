@@ -624,7 +624,7 @@ test('継承ルート: 所持パルのデータがないときは、開始と目
   const hint = view.element.querySelector('.route-owned').querySelector('.setup-hint');
   assert.equal(hint.querySelector('p').textContent, '所持パルのデータがありません。');
   assert.equal(hint.querySelector('a').textContent, 'セーブ連携を開く');
-  assert.equal(hint.querySelector('a').getAttribute('href') ?? hint.querySelector('a').href, '#/settings?open=auto');
+  assert.equal(hint.querySelector('a').getAttribute('href') ?? hint.querySelector('a').href, '#/settings?open=status');
   assert.doesNotMatch(view.element.textContent, /設定タブ/);
   view.destroy();
 });
@@ -2576,4 +2576,227 @@ test('所持パル画面（このワールドでの自分）: 所持者が自分
   app.self.reload('pal-note.ideals.self.');
   assert.deepEqual(view.element.querySelectorAll('.owned-row'), rows);
   view.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// フェーズ 1d の終わりのレビューの直し: 設定の行き先の意図（open）・このワールドでの自分の選択・行を作り直さない行き先
+// ---------------------------------------------------------------------------
+// 設定の画面を行き先つきで作り、付けた後にフォーカスが移るのを待つ
+async function openSettings(app, hash) {
+  const { settingsView } = await import('../../web/js/views/settings.js');
+  const view = settingsView(app, parseHash(hash));
+  document.body.append(view.element);
+  await tick();
+  return view;
+}
+const closeSettings = (view) => { view.destroy(); view.element.remove(); };
+const cardHeading = (root) => root.querySelector('.owned-settings').querySelector('h2');
+
+test('設定画面（行き先の意図）: ID とセーブの名前が違うホストで対応も自分も未設定のとき、registrant は未設定の登録者、self は自分の選択へ（auto は前の決め方のまま自分）', async (t) => {
+  installDom(t);
+  const { app } = selfApp(hostOwned(), { userId: '仲間', users: ['仲間'], autoRegister: fakeAutoRegister() });
+  // 自動登録の「プレイヤーの対応が未設定です」: そのワールドの行を開いて、未設定の登録者へ（自分も決まっていないが、自分へは移らない）
+  let view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
+  assert.equal(view.element.querySelector('.owned-world-details').open, true);
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceの登録者');
+  closeSettings(view);
+  // 理想個体の「設定で選ぶ」: このワールドでの自分（行は開かない）
+  view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=self`);
+  assert.equal(document.activeElement, selfSelectOf(view.element));
+  assert.equal(view.element.querySelector('.owned-world-details').open, false);
+  closeSettings(view);
+  // 前の版の通知・ブックマーク（open=auto）: 前の決め方のまま（自分が決まっていなければ自分）
+  view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=auto`);
+  assert.equal(document.activeElement, selfSelectOf(view.element));
+  assert.equal(view.element.querySelector('.owned-world-details').open, true);
+  closeSettings(view);
+  // どれも URL から行き先を外す。知らない意図は何もしない（URL も変えない）
+  document.activeElement = document.body;
+  view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=other`);
+  assert.equal(document.activeElement, document.body);
+  assert.deepEqual(app.replacements, ['#/settings', '#/settings', '#/settings']);
+  closeSettings(view);
+});
+
+test('設定画面（行き先の意図）: registrant は未設定の登録者がいなければ自分の選択、自分の行もなければ見出しへ移る', async (t) => {
+  installDom(t);
+  const mapped = fakeAutoRegister();
+  mapped.mapping = () => ({ [P1]: '仲間', [P2]: '仲間' });
+  const { app } = selfApp(hostOwned(), { userId: '仲間', users: ['仲間'], autoRegister: mapped });
+  let view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
+  assert.equal(view.element.querySelector('.owned-world-details').open, true);
+  assert.equal(document.activeElement, selfSelectOf(view.element));
+  closeSettings(view);
+  // 所持パルのデータがない（自分の行が出ない）
+  const empty = selfApp(fakeOwned(null));
+  view = await openSettings(empty.app, `#/settings?world=${SELF_WORLD}&open=registrant`);
+  assert.equal(document.activeElement, cardHeading(view.element));
+  closeSettings(view);
+});
+
+test('設定画面（行き先の意図）: status（データがない・読めない）は状態の欄の操作へ移り、行を開かず、Space で切り替わる自動登録のチェックには移らない', async (t) => {
+  installDom(t);
+  // 自分は同じ名前で決まり、登録者も全員対応づけてある（前の決め方 auto では、自動登録のチェックへ移っていた）
+  const mapped = fakeAutoRegister();
+  mapped.mapping = () => ({ [P2]: 'Alice' });
+  const owned = hostOwned();
+  const { app } = selfApp(owned, { userId: 'Alice', users: ['Alice'], autoRegister: mapped });
+  const before = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=auto`);
+  assert.equal(document.activeElement.type, 'checkbox');
+  closeSettings(before);
+  const view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=status`);
+  assert.equal(document.activeElement.textContent, '今すぐ読み込む');
+  assert.equal(view.element.querySelector('.owned-world-details').open, false);
+  // 許可が要るときは「読み込みを許可」
+  owned.state.auto = { ...owned.state.auto, status: 'permission' };
+  owned.emit();
+  view.applyRoute(parseHash(`#/settings?world=${SELF_WORLD}&open=status`));
+  assert.equal(document.activeElement.textContent, '読み込みを許可');
+  // 読み込み中で押せないときは見出し
+  owned.state.auto = { ...owned.state.auto, status: 'ready' };
+  owned.state.busy = true;
+  owned.emit();
+  view.applyRoute(parseHash(`#/settings?world=${SELF_WORLD}&open=status`));
+  assert.equal(document.activeElement, cardHeading(view.element));
+  assert.equal(view.element.querySelector('.owned-world-details').open, false);
+  closeSettings(view);
+  // 登録したワールドがない（参加している人。状態の欄は出ない）は見出し
+  const guest = selfApp(guestOwned());
+  const other = await openSettings(guest.app, '#/settings?open=status');
+  assert.equal(document.activeElement, cardHeading(other.element));
+  closeSettings(other);
+});
+
+test('設定画面（行き先）: 設定を開いたまま行き先が来ても、登録したワールドの行は作り直さず開くだけ（処理中のボタン・ほかの開いた行はそのまま）', async (t) => {
+  installDom(t);
+  const owned = hostOwned();
+  const OTHER = 'FEDCBA9876543210FEDCBA9876543210';
+  owned.state.auto.worlds.push({ ...owned.state.auto.worlds[0], id: OTHER, dir: OTHER, name: '別のワールド', playedAt: '' });
+  const { app } = selfApp(owned, { userId: '仲間', users: ['仲間'], autoRegister: fakeAutoRegister() });
+  const view = await openSettings(app, '#/settings');
+  const items = view.element.querySelectorAll('.owned-registered-item');
+  const [first, second] = view.element.querySelectorAll('.owned-world-details');
+  // ほかのワールドの行を開いておき、行き先のワールドの「CSV で保存」を処理している途中（runButton が aria-busy を付けて押せなくする）
+  second.open = true;
+  await second.dispatch('toggle');
+  const csv = first.querySelectorAll('button').find((node) => node.textContent === 'CSV で保存');
+  assert.equal(csv.disabled, false);
+  csv.disabled = true;
+  csv.setAttribute('aria-busy', 'true');
+  view.applyRoute(parseHash(`#/settings?world=${SELF_WORLD}&open=registrant`));
+  assert.deepEqual(view.element.querySelectorAll('.owned-registered-item'), items);
+  assert.equal(first.open, true);
+  assert.equal(second.open, true);
+  assert.equal(csv.disabled, true);
+  assert.equal(csv.getAttribute('aria-busy'), 'true');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceの登録者');
+  // 読み直し（同じ内容）でも作り直さない
+  owned.emit();
+  assert.deepEqual(view.element.querySelectorAll('.owned-registered-item'), items);
+  closeSettings(view);
+});
+
+test('設定画面（登録者）: 対応を変えても行を作り直さず（フォーカスが残る）、本人の変化として知らせて自分の自動の名前を描き直す。別のタブの変更では選択を合わせる', async (t) => {
+  installDom(t);
+  const autoRegister = fakeAutoRegister();
+  let mapping = {};
+  autoRegister.mapping = () => mapping;
+  autoRegister.setMapping = (uid, userId) => { mapping = userId ? { ...mapping, [uid]: userId } : {}; };
+  const { app } = selfApp(hostOwned(), { userId: '仲間', users: ['仲間'], autoRegister });
+  let changes = 0;
+  app.self.subscribe(() => changes++);
+  const view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
+  const items = view.element.querySelectorAll('.owned-registered-item');
+  const select = document.activeElement;
+  assert.equal(select.getAttribute('aria-label'), 'Aliceの登録者');
+  assert.equal(selfSelectOf(view.element).children[0].textContent, '未設定（自分の個体を判定しません）');
+  select.value = '仲間';
+  await select.dispatch('change');
+  assert.equal(changes, 1);
+  assert.deepEqual(view.element.querySelectorAll('.owned-registered-item'), items);
+  assert.equal(document.activeElement, select);
+  assert.equal(selfSelectOf(view.element).children[0].textContent, '自動（Alice）');
+  // 別のタブで対応を変えた（app.js が storage イベントで self.changed を呼ぶ）: 登録者の選択も合わせる
+  mapping = { [P2]: '仲間' };
+  app.self.changed();
+  const frank = view.element.querySelectorAll('select').find((node) => node.getAttribute('aria-label') === 'Frankの登録者');
+  assert.equal(frank.value, '仲間');
+  assert.equal(selfSelectOf(view.element).children[0].textContent, '自動（Frank）');
+  closeSettings(view);
+});
+
+test('設定画面（このワールドでの自分）: ID の変更中は選べず（理由は title）、変更中に change が来ても保存しない。終わったら選べる', (t) => {
+  installDom(t);
+  const { app, values } = selfApp(guestOwned());
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const select = selfSelectOf(card.element);
+  assert.equal(select.disabled, false);
+  app.store.state.renaming = true;
+  app.store.emit();
+  assert.equal(select.disabled, true);
+  assert.equal(select.title, 'ID の変更が終わってから選んでください');
+  select.value = P2;
+  select.dispatch('change');
+  assert.equal(values.has(selfKeyOf('仲間')), false);
+  assert.equal(select.value, '');
+  app.store.state.renaming = false;
+  app.store.emit();
+  assert.equal(select.disabled, false);
+  assert.equal(select.title, '');
+  select.value = P2;
+  select.dispatch('change');
+  assert.equal(values.get(selfKeyOf('仲間')), P2);
+  card.destroy();
+});
+
+test('設定画面（このワールドでの自分）: 表示するワールドが替わった直後に、まだ前のワールドの選択肢で選んでも保存せず、離れたら今のワールドの選択肢に作り直す', async (t) => {
+  installDom(t);
+  const owned = guestOwned();
+  const { app, values } = selfApp(owned);
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  document.body.append(card.element);
+  const select = selfSelectOf(card.element);
+  const before = select.children.map((node) => node.textContent);
+  // 選んでいる途中に、別のワールド（プレイヤーは Carol だけ）に替わった。選択肢はフォーカスが外れるまで作り直さない
+  select.focus();
+  const OTHER = 'FEDCBA9876543210FEDCBA9876543210';
+  owned.state.meta = { ...owned.state.meta, worldId: OTHER };
+  owned.state.owned = normalizeOwned({ ...holderSnapshot, players: [{ uid: P3, name: 'Carol', level: 1 }] }, { pals, passives });
+  owned.emit();
+  assert.deepEqual(select.children.map((node) => node.textContent), before);
+  // 前のワールドの Bob を選んでも、どちらのワールドのキーにも保存しない
+  select.value = P2;
+  await select.dispatch('change');
+  assert.equal(values.has(selfKeyOf('仲間')), false);
+  assert.equal(values.has(`pal-note.ideals.self.test.仲間.${OTHER}`), false);
+  document.activeElement = document.body;
+  await select.dispatch('blur');
+  await settle();
+  assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'Carol']);
+  assert.equal(select.value, '');
+  // 作り直した後は、今のワールドに保存する
+  select.value = P3;
+  await select.dispatch('change');
+  assert.equal(values.get(`pal-note.ideals.self.test.仲間.${OTHER}`), P3);
+  card.destroy();
+});
+
+test('設定画面: 「このワールドでの自分」の説明は選択の説明（aria-describedby）で、登録者の行のプレイヤーの名前は自分の選択肢と同じ付け方', (t) => {
+  installDom(t);
+  // 同じ名前の 2 人（Bob）と名前のないプレイヤーがいるホスト
+  const owned = hostOwned();
+  owned.state.local.snapshot = { ...owned.state.local.snapshot, players: [{ uid: P1, name: 'Bob', level: 1 }, { uid: P2, name: 'Bob', level: 1 }, { uid: P3, name: '', level: 1 }] };
+  owned.state.owned = normalizeOwned(owned.state.local.snapshot, { pals, passives });
+  const { app } = selfApp(owned, { userId: '仲間', users: ['仲間'], autoRegister: fakeAutoRegister() });
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const select = selfSelectOf(card.element);
+  const note = card.element.querySelector('.owned-self-note');
+  assert.ok(note.id);
+  assert.equal(select.getAttribute('aria-describedby'), note.id);
+  const names = select.children.slice(1).map((node) => node.textContent);
+  assert.deepEqual(names, ['Bob（00000000）', 'Bob（ABCD1234）', '不明なプレイヤー（1A2B3C4D）']);
+  const rows = card.element.querySelectorAll('.owned-breeding-player');
+  assert.deepEqual(rows.map((row) => row.children[0].textContent), names);
+  assert.deepEqual(rows.map((row) => row.children[1].getAttribute('aria-label')), names.map((name) => `${name}の登録者`));
+  card.destroy();
 });

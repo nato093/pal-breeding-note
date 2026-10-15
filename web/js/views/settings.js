@@ -6,7 +6,7 @@ import { openNotificationList } from '../ui/notifications.js';
 import { toCsv } from '../core/csv.js';
 import { identityKey } from '../core/pair.js';
 import { ownedWorldId } from '../core/owned-shared.js';
-import { buildHash, parseHash } from '../router.js';
+import { buildHash, parseHash, SETTINGS_OPEN } from '../router.js';
 import { viewHeading, watchView } from './shared.js';
 import { tabLabel } from './tabs.js';
 import { ownedSettingsCard } from './owned-settings.js';
@@ -114,12 +114,14 @@ export function settingsView(context, route = parseHash('#/settings')) {
     }
   }
   const view = watchView(store, element, renderData);
-  // 設定の行き先（`#/settings?world=<ID>&open=auto`。router.js の settingsHash）: セーブ連携のそのワールドの行を開き、設定することに
-  // フォーカスする。作るときと、同じ画面のまま URL が変わったとき（設定を開いたまま通知を押したなど）に読む。
+  // 設定の行き先（`#/settings?world=<ID>&open=<意図>`。router.js の settingsHash・SETTINGS_OPEN）: セーブ連携の、意図の所
+  //（このワールドでの自分・そのワールドの未設定の登録者・状態の欄の操作。前の版の auto は前の決め方）へフォーカスする。
+  // 作るときと、同じ画面のまま URL が変わったとき（設定を開いたまま通知を押したなど）に読む。
   // 読んだら URL から world・open を外す（戻る・進む・読み込み直しで、もう一度開いてフォーカスを動かさない）
   function applyRoute(next) {
-    if (next?.params?.get('open') !== 'auto') return;
-    ownedCard?.reveal({ worldId: ownedWorldId(next.params.get('world')) });
+    const open = next?.params?.get('open');
+    if (!SETTINGS_OPEN.includes(open)) return;
+    ownedCard?.reveal({ worldId: ownedWorldId(next.params.get('world')), open });
     context.replace?.(buildHash('settings'));
   }
   applyRoute(route);

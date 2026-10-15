@@ -112,8 +112,8 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     // 許可はクリックの中で（await を挟まずに）求める
     const grant = button('読み込みを許可', () => grantPermission(), 'button primary');
     const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
-    // 設定のセーブ連携のカード（読んでいる・表示しているワールドの行を開いてフォーカス。router.js の settingsHash）
-    const settings = link('設定を開く', settingsHash(), 'save-status-settings');
+    // 設定のセーブ連携のカード（状態の欄の操作〔許可・今すぐ読み込む〕か見出しへフォーカス。router.js の settingsHash の 'status'）
+    const settings = link('設定を開く', settingsHash('', 'status'), 'save-status-settings');
     settings.addEventListener('click', () => popup.close({ focus: false }));
     const actions = el('div', 'header-panel-actions');
     actions.append(grant, reload, settings);
@@ -133,7 +133,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       grant.hidden = !(state.auto.enabled && state.auto.status === 'permission');
       reload.hidden = !state.auto.worlds?.length;
       reload.disabled = state.busy;
-      settings.href = settingsHash(state.linkedWorldId || state.meta?.worldId || '');
+      settings.href = settingsHash(state.linkedWorldId || state.meta?.worldId || '', 'status');
     };
     render();
     return render;

@@ -78,6 +78,8 @@ export function createIdealStore({
   }
 
   const stale = (goal, view) => !(Date.parse(goal.worlds[view.worldId]?.observedAt) >= Date.parse(view.at));
+  // そのワールドの記録が、今のデータより新しいセーブで判定したもの（新しいセーブを開いている別のタブが書いた）
+  const newer = (goal, view) => Date.parse(goal.worlds[view.worldId]?.observedAt) > Date.parse(view.at);
 
   // 1 件の、そのワールドでの記録を新しいデータで作り直す。mode は
   // 'notify'（新しいセーブ。未完成から完成に変わったら知らせる）・'quiet'（登録した時点。完成していても知らせない）・
@@ -129,7 +131,9 @@ export function createIdealStore({
     /**
      * 本人（自分のプレイヤー）が変わったら呼ぶ（このワールドでの自分・登録者の対応を変えた、別のタブで変わった）。
      * 同じセーブの時刻でも、表示しているワールドを判定し直す（通知はしない）。自分が分からなくなったときは、記録を消さずに
-     * 購読者だけを呼ぶ（画面の「未確認」を描き直させる）。名前の変更中は書き換えない（終わった後の store の通知で判定し直される）
+     * 購読者だけを呼ぶ（画面の「未確認」を描き直させる）。名前の変更中は書き換えない（app.js が、終わった後の store の通知で 1 回呼ぶ）。
+     * そのワールドの記録が今のデータより新しいセーブで判定したもの（新しいセーブを開いている別のタブが書いた）は、判定し直さずに残す
+     *（古いデータで未完成に巻き戻すと、新しいセーブのタブがそれを読んで「未完成 → 完成」と知らせ直すため）
      */
     identityChanged() {
       const key = scope();
@@ -137,9 +141,9 @@ export function createIdealStore({
       const view = current();
       if (!view) { emit(); return false; }
       const goals = latest(key);
-      if (!goals.length) { emit(); return false; }
+      if (!goals.some((goal) => !newer(goal, view))) { emit(); return false; }
       const byPal = bySpecies(view.pals);
-      save(key, goals.map((goal) => judged(goal, view, byPal, 'identity')));
+      save(key, goals.map((goal) => (newer(goal, view) ? goal : judged(goal, view, byPal, 'identity'))));
       return true;
     },
     /**

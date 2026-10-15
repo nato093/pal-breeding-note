@@ -156,7 +156,7 @@ export function inheritanceView(context, route) {
     if (!pals) {
       // 行き先はセーブ連携（登録したワールドがあれば、その行を開く）
       if (passives.length) {
-        ownedSection.append(setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: settingsHash(owned.state?.linkedWorldId ?? '') } }));
+        ownedSection.append(setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: settingsHash(owned.state?.linkedWorldId ?? '', 'status') } }));
       }
       return;
     }

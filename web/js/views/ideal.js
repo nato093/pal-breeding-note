@@ -189,8 +189,8 @@ function goalSummary(goal) {
  * データがないときはセーブ連携を開く行き先（action。worldId は表示しているワールド）を添える
  */
 function goalStatus(goal, pals, worldId = '') {
-  if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）', action: { label: 'セーブ連携を開く', href: settingsHash(worldId) } };
-  if (pals === null) return { done: false, text: '未確認（このワールドでの自分が未設定）', action: { label: '設定で選ぶ', href: settingsHash(worldId) } };
+  if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）', action: { label: 'セーブ連携を開く', href: settingsHash(worldId, 'status') } };
+  if (pals === null) return { done: false, text: '未確認（このワールドでの自分が未設定）', action: { label: '設定で選ぶ', href: settingsHash(worldId, 'self') } };
   const found = goalMatches(goal, pals);
   if (!found.length) return { done: false, text: '未完成' };
   const [first] = found;
@@ -1063,7 +1063,7 @@ export function idealView(context, route) {
       clearPlan();
       // データがなければ 1 文と行き先（セーブ連携。登録したワールドがあれば、その行を開く）
       showResults([owned && !owned.state.ready ? loadingState('所持パルを読み込み中…')
-        : empty('所持パルのデータがありません。', link('セーブ連携を開く', settingsHash(owned?.state?.linkedWorldId ?? ''), 'button secondary'), { icon: 'ideal' })]);
+        : empty('所持パルのデータがありません。', link('セーブ連携を開く', settingsHash(owned?.state?.linkedWorldId ?? '', 'status'), 'button secondary'), { icon: 'ideal' })]);
       return;
     }
     if (!to) { clearPlan(); showResults([empty('目標のパルを選んでください。')]); return; }

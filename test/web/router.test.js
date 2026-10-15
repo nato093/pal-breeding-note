@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHash, buildHash, startRouter, sameScreen } from '../../web/js/router.js';
+import { parseHash, buildHash, startRouter, sameScreen, settingsHash, SETTINGS_OPEN } from '../../web/js/router.js';
 
 test('ルーティング: 旧招待パラメータは認証情報として取り出さない', () => {
   const route = parseHash('#/search?p1=A&k=旧値');
@@ -92,4 +92,15 @@ test('ルーティング: 変わったときの知らせに、k を除いた後�
   events.get('hashchange')();
   assert.deepEqual(calls, [['search', { hash: '#/search?p1=A' }], ['route', { hash: '#/route?to=B' }]]);
   stop();
+});
+
+test('ルーティング: 設定の行き先は意図（self・registrant・status。前の版の auto）ごとの URL で、知らない意図は auto にする', () => {
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  assert.deepEqual([...SETTINGS_OPEN], ['self', 'registrant', 'status', 'auto']);
+  assert.equal(settingsHash(world, 'self'), `#/settings?world=${world}&open=self`);
+  assert.equal(settingsHash(world, 'registrant'), `#/settings?world=${world}&open=registrant`);
+  assert.equal(settingsHash('', 'status'), '#/settings?open=status');
+  // 意図を渡さない・知らない意図は、前の版の決め方（auto）
+  assert.equal(settingsHash(world), `#/settings?world=${world}&open=auto`);
+  assert.equal(settingsHash(world, 'other'), `#/settings?world=${world}&open=auto`);
 });

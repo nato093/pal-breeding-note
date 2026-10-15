@@ -9,6 +9,8 @@ import { idText } from './core/boundary.js';
 
 // セーブのプレイヤーの UID（GUID の 16 進とハイフン）。形の合わない値は保存しない・読まない
 const UID = /^[0-9A-Fa-f-]{1,64}$/;
+// キーの末尾のワールド ID（ownedWorldId の形。ID に「.」があっても、別の人のキーを今のログインの分に数えないため）
+const WORLD = /^[0-9A-F]{32}$/;
 const cleanUid = (value) => {
   const uid = idText(value, 64);
   return UID.test(uid) ? uid : '';
@@ -27,20 +29,42 @@ export function selfKey(namespace, env, userId, worldId) {
 /**
  * このワールドでの自分の保存。ログイン中（store.state の env・userId・passcode）の分だけ読み書きする。
  * 保存できない端末（localStorage が使えない・容量不足）でも、ページを開いている間は効くよう、手元にも持つ。
+ * 購読者は「本人が変わった」ときに呼ぶ（選んだ・別のタブで変わった・登録者の対応が変わった〔changed〕）。app.js が完成の判定をし直し、
+ * 理想個体・所持パル・設定が描き直す
  * @returns {{ key(worldId): string, get(worldId): string, set(worldId, uid): boolean, readonly saveFailed: boolean,
- *   reload(storageKey): void, subscribe(listener): () => void }}
+ *   reload(storageKey, options?): void, changed(): void, subscribe(listener): () => void }}
  */
 export function createSelfStore({ store, storage, namespace = 'pal-note' }) {
   const listeners = new Set();
   // 読んだ値（キー → UID。無ければ ''）と、この端末に書けなかった値（ページを開いている間はこちらを使う）
   const cache = new Map();
   const unsaved = new Map();
-  let saveFailed = false;
   const emit = () => listeners.forEach((listener) => listener());
+  // 次の store の通知まで遅らせている知らせ（reload の defer）。遅らせている間だけ store を購読する（購読は後から足すので、
+  // その通知を受けるほかの購読者〔ideals.js の判定・各画面〕の後で知らせる）
+  let stopDeferred = null;
+  function defer() {
+    if (stopDeferred) return;
+    stopDeferred = store.subscribe?.(() => {
+      stopDeferred?.();
+      stopDeferred = null;
+      emit();
+    }) ?? null;
+    // 購読できない store（テストの偽物）では、遅らせずに知らせる
+    if (!stopDeferred) emit();
+  }
 
   function key(worldId) {
     const { env, userId, passcode } = store.state;
     return passcode ? selfKey(namespace, env, userId, worldId) : '';
+  }
+
+  // 今のログインのキーか（'<namespace>.ideals.self.<env>.<userIdKey>.<ワールド ID>'）
+  function isCurrent(storageKey) {
+    const { env, userId, passcode } = store.state;
+    const user = passcode && typeof userId === 'string' && userId ? userIdKey(userId) : '';
+    const prefix = `${SELF_PREFIX(namespace)}${env}.${user}.`;
+    return Boolean(env && user) && storageKey.startsWith(prefix) && WORLD.test(storageKey.slice(prefix.length));
   }
 
   function read(storageKey) {
@@ -75,17 +99,30 @@ export function createSelfStore({ store, storage, namespace = 'pal-note' }) {
         unsaved.delete(storageKey);
         cache.set(storageKey, value);
       } else unsaved.set(storageKey, value);
-      saveFailed = unsaved.size > 0;
       emit();
       return saved;
     },
-    get saveFailed() { return saveFailed; },
-    /** 別のタブの storage イベント・名前の変更の後。キーが SELF_PREFIX で始まれば読み直して知らせる（SELF_PREFIX そのものなら全部） */
-    reload(storageKey) {
+    /**
+     * 今のログイン（env・ID）の分で、この端末に書けずに手元にだけ残している値があるか（ID の変更は、これが立っている間は始めない。
+     * user-rename.js）。前にログインしていた別の ID の分は数えない
+     */
+    get saveFailed() { return [...unsaved.keys()].some(isCurrent); },
+    /**
+     * 別のタブの storage イベント・ID の変更の後。キーが SELF_PREFIX で始まれば読み直して知らせる（SELF_PREFIX そのものなら全部）。
+     * 保存先に書かれた値の方が新しいので、そのキーの書けずに残していた値も捨てる。
+     * defer: 知らせを次の store の通知まで遅らせる（ID の変更で端末のデータを移した直後は、まだログイン中の ID が前の ID のままで、
+     * 知らせると各画面が前の ID のキー〔移して消した〕を読んで、自分が一度「分からない」になるため）
+     */
+    reload(storageKey, { defer: later = false } = {}) {
       if (typeof storageKey !== 'string' || !storageKey.startsWith(SELF_PREFIX(namespace))) return;
       cache.clear();
-      emit();
+      if (storageKey === SELF_PREFIX(namespace)) unsaved.clear();
+      else unsaved.delete(storageKey);
+      if (later) defer();
+      else emit();
     },
+    /** 本人の決め方が、このストアの外で変わった（登録者の対応を変えた・別のタブで変わった）。購読者に知らせる */
+    changed() { emit(); },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

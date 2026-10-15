@@ -243,7 +243,7 @@
 ### INV-2・互換・セキュリティ・性能の注意
 
 - **INV-2**: `self-player.js` は配合表も `core/ideal.js` も読まない。`ideals.js` が import するのは `core/ideal-goals.js` だけのまま。
-- **互換**: 保存キーは新しく足すだけで、目標の保存の形（`ideals.<env>.<user>` の配列）は変えない。**旧コードのタブ**は self のキーを知らないので、今の規則（対応表＋同じ名前）のまま判定を続ける。新しいセーブを読んだときに旧タブが古い本人で判定を書く可能性はあるが、新しいタブは次の `identityChanged`・`observe` で正しい本人に戻す（通知が 1 件余分に出る程度で、データは壊れない）。古い通知の `href` は読み出し時に読み替える（id は変えない）。
+- **互換**: 保存キーは新しく足すだけで、目標の保存の形（`ideals.<env>.<user>` の配列）は変えない。**旧コードのタブ**は self のキーを知らないので、今の規則（対応表＋同じ名前）のまま判定を続ける。新しいセーブを読んだときに旧タブが古い本人で判定を書く可能性はあるが、新しいタブは次の `identityChanged`・`observe` で正しい本人に戻す（通知が 1 件余分に出る程度で、データは壊れない）。古い通知の `href` は読み出し時に読み替える（id は変えない）。（追記 2026-10-15、フェーズ 1d の終わりのレビューの直し: **旧コードのタブで ID を変えると、旧版の `moveUserStorage` は self のキーを知らないので移さず、新しい ID では「このワールドでの自分」が未設定に戻る**〔前の ID のキー `<namespace>.ideals.self.<env>.<前の userIdKey>.<ワールド ID>` は残ったまま〕。旧版のコードは直せず、新しいタブからは「前の ID のキーが残っているのは旧版で ID を変えたから」と見分けられないので、手当てする経路はない。データは壊れない〔目標は旧版も新しい ID へ移す。自分は設定で選び直せば戻る〕。配信の後に旧版のタブを開き直すまでの間だけ起きる）
 - **セキュリティ**: 選択肢の名前（セーブのプレイヤー名）は `textContent` で出す。保存する uid は形を確かめ、players にあるものだけ採用する。
 - **性能**: `identityChanged` は本人を変えたときだけ。理想個体の再計算は stable-render の署名が変わったときだけ（20 秒ごとの確認で無条件に再計算しない）。
 
@@ -300,6 +300,7 @@ title 10 字・body 49 字（node で `length` を数えて確かめた）。
    - **フォーカスの時機**: 画面を作った直後（`card.isConnected` が false）は、app.js が画面を付けた後、さらに画面を移ったときの位置の合わせ（`restoreScroll(0)` が 1 フレーム後に先頭へ戻す）の後になるよう、2 フレーム待ってから `scrollIntoView({ block: 'center' })` と `focus({ preventScroll: true })`（`afterAttach`。フレームのない環境〔テスト〕は `setTimeout(…, 0)`）。同じ画面のまま来たとき（設定を開いたまま通知を押した）はすぐ。光らせる動きは付けていない。
    - 所持パルの状態を読み込む前（`owned.state.ready` が false）なら `pendingReveal` に覚え、`ready` になった最初の `render` で 1 回だけ行う（参加している人で、共有の取得が `ready` より後になったときは、自分の行がまだないので ④・⑤ に移る。後から何十秒も経ってフォーカスを奪わないよう、待ち続けない）。
    - ⑤ の見出しは `h2`「セーブ連携」に `tabIndex = -1` を付けてから。
+   - （追記 2026-10-15）フェーズ 1d の終わりのレビューの直し（`fix/phase-1d-review-self`）で、1 つの URL が「設定で選ぶ」「対応が未設定」「データがない・読めない」の 3 つの意図を兼ねていたのを分けた: **`settingsHash(worldId, open)`**（`open` は router.js の `SETTINGS_OPEN` の `self`・`registrant`・`status`・`auto`。省くと `auto`）と **`reveal({ worldId, open })`**。①〜⑤ の決め方は `open=auto`（前の版の通知・ブックマーク）だけに残る。後のフェーズは、この文書の末尾の「フェーズ 1d の終わりのレビューの直し」の「このワールドでの自分・設定の行き先・ID の変更」の 6 を正とする。
 7. **理想個体（手順 7）**: `goalStatus(goal, pals, worldId)` が自分の分からないときに `{ text: '未確認（このワールドでの自分が未設定）', action: { label: '設定で選ぶ', href: settingsHash(worldId) } }` を返す（worldId は `ownedWorldId(owned.state.meta.worldId)`）。行の状態の列は `div.ideal-goal-state`（`span.ideal-goal-status` と、その下の `a.button.secondary.small.ideal-goal-action`）。リンクは行ごとに 1 つ作っておき、`action` がないときは `hidden`。`data-focus-key` は `goal-action:<id>`。押すとダイアログを閉じる（「呼び出す」と同じ）。noPairs は D29 の追記どおり変えていない。計算の署名（`key`）に `ideals.identityKey()` を足した（ケーキの比べ方の鍵 `nextCakeKey` には足していない。候補の個体は所持者が自分のときの `self`〔自分の個体の ID の並び〕でもう鍵に入っているため）。本人を変えたときは、所持者が「すべて」でも計算し直す（配合牧場の詳細の「自分の個体は太字」が変わるため）。`context.store` の購読と `context.self` の購読は同じ `selfChanged`（`selfKey() !== shownSelf` なら `update()`）。
 8. **所持パル（手順 8）**: `context.self` の購読を足し、`context.store` の購読と同じ `selfChanged`（`renderFilters`・`renderResults({ keepPosition: true })`）を呼ぶ。`holderIds` は触っていない（自分の UID の並びが鍵）。
 9. **自動登録（手順 9）**: `unmappedNotice` の `href` を `settingsHash(ctx.worldId)` にした。前の版の通知の読み替えは、export した **`unmappedHref(notice)`**（id が `auto-breed:<env>:unmapped:<worldId>:<uid>` で、`href` が `'#/settings'` のときだけ `settingsHash(<worldId>)`）を `readNotices` の最後に通す。ほかの行き先・外の URL（もとから捨てている）は変えない。保存し直さない（旧コードのタブが読んでも前と同じ形）。
@@ -307,9 +308,9 @@ title 10 字・body 49 字（node で `length` を数えて確かめた）。
 11. **テスト**: 1,388 → 1,412 件。足したもの: test/web/self-player.test.js（4 件）、ideal-goals.test.js（selfUid）、ideals.test.js（identityChanged の ①〜⑤ と identityKey の 5 件）、user-rename.test.js（self のキーの移動・大小・失敗、moveLocal の reload）、auto-register.test.js（古い通知の読み替え）、owned-view.test.js（設定の行 3 件・行き先 3 件・所持パルの描き直し 1 件）、ideal-view.test.js（描き直しと計算の省き方・「未確認」と「設定で選ぶ」）、app.test.js（storage イベントでの描き直しと通知なし・「設定で選ぶ」から設定へ移ってフォーカスと保存）。期待値を直したもの: auto-register.test.js の 2 か所（文書の :235 は今は「対応が未設定のプレイヤー…」のテストの `'#/settings'` と、「読み戻しの検証」の `'#/settings'`）。ideal-view.test.js:493-505 は D29 の追記どおり直す必要がなかった。どれも web/ の変更を外す（`git stash push -- web/`）と落ちることを確かめた。
 12. **画面（モック・1100px。`Claude outputs/ui-audit-2026-10/shots/participant-self/`）**: inject.js（プレイヤーは Alice・Bob・Carol）で入れ、セーブのプレイヤー名と違う ID「Dave」で新規登録し、目標 2 件（アヌビス〔伝説〕・ジェッドラン〔伝説・希少・個体値 100〕）を入れた。(1) 目標のダイアログはどちらも「未確認（このワールドでの自分が未設定）」と「設定で選ぶ」（`#/settings?world=0123…&open=auto`）。所持者は「すべて」（`01-goals-unknown-light.png`）。(2) 押すとダイアログが閉じ、URL は `#/settings`、フォーカスは「このワールドでの自分」（窓の中。`02-settings-focus-light.png`）。(3) Alice を選ぶと、アヌビスが「完成済み: Alice · …」、ジェッドランは「未完成」になり、未読の数は 64 のまま（`completedAt` は ''）。理想個体の所持者は「Alice（自分）」（`03-goals-after-choose-light.png`）。(4) 新しいセーブ（ジェッドランの完成品を足した）で読み直すと、ベルに「理想個体が完成しました」がジェッドランの 1 件だけ出た（`04-…`）。(5) 2 つのタブ（モックはタブごとに作られるので、どちらにもいる seed のユーザー「架空データ」で。セーブのプレイヤー名とは違う）: タブ 2 の設定で Bob → Carol と変えると、タブ 1 の理想個体の所持者が「Bob（自分）」→「Carol（自分）」、所持の状況が ♂10 ♀9 → ♂3 ♀4 → ♂2 ♀1、組が 9 → 3 → 1 に描き直り、個体値の欄のフォーカスは残った（位置は結果が短くなってページが窓の高さになったので 0 に詰まった）。所持パルでも Carol → Alice で 27 → 70 体になり、500px の位置とキーワード欄のフォーカスが残った（`05-…`・`06-…`）。(6) 前の版の形の「プレイヤーの対応が未設定です」を入れると、ベルのリンクは `#/settings?world=0123…&open=auto` に読み替わり、押すと設定の「このワールドでの自分」へ移った（自分は決まっていたので ④。登録したワールドの行を開いて登録者へ移るのはテスト）（`07-…`）。設定を開いたまま押しても（同じ画面）移った。(7) 名前を Dave → Erin に変えると、キーが `…self.test.erin.0123…` へ移り、選択は Bob のまま、理想個体の所持者も「Bob（自分）」。(8) ダーク（`08-goals-unknown-dark.png`・`09-…`・`10-settings-chosen-dark.png`）も見た。横のはみ出しなし。
 13. **後のテーマへの申し送り**:
-    - copy-dead-ends: 設定への行き先は router.js の `settingsHash(worldId)`。設定は `open=auto` だけを受け、`reveal` のフォーカスの順は上の 6（①〜⑤）。ワールドの登録など、別の場所へ移したい案内を足すときは、`open` に別の値を足して `settingsView` の `applyRoute` と `reveal` を広げる（今は `auto` 以外を無視する）。理想個体の「未確認（所持パルのデータがありません）」には行き先を付けていない（このテーマの範囲外）。
+    - copy-dead-ends: 設定への行き先は router.js の `settingsHash(worldId)`。設定は `open=auto` だけを受け、`reveal` のフォーカスの順は上の 6（①〜⑤）。（追記 2026-10-15: 意図ごとの `settingsHash(worldId, open)` に変えた。上の 6 の追記）ワールドの登録など、別の場所へ移したい案内を足すときは、`open` に別の値を足して `settingsView` の `applyRoute` と `reveal` を広げる（今は `auto` 以外を無視する）。理想個体の「未確認（所持パルのデータがありません）」には行き先を付けていない（このテーマの範囲外）。
     - roles（フェーズ 2）: 「このワールドでの自分」の行は `label.owned-import-row.owned-self-row`（`select.owned-self`）で、`dl.owned-settings-status` の直後。描くのは `ownedSettingsCard` の中の `renderSelf()`、決まっていないかは `selfUnknown()`。参加している人の「参加しているワールドなので、自動登録は動きません。」は変えていない。
-    - 互換: 旧コードのタブは self のキーを知らず、今の規則（対応表＋同じ名前）で判定を書く。同じセーブの時刻で書かれると、新しいタブは次の `identityChanged`（自分を変えた・別のタブで変わった）か新しいセーブの `observe` まで直さない（文書の想定どおり。データは壊れない）。
+    - 互換: 旧コードのタブは self のキーを知らず、今の規則（対応表＋同じ名前）で判定を書く。同じセーブの時刻で書かれると、新しいタブは次の `identityChanged`（自分を変えた・別のタブで変わった）か新しいセーブの `observe` まで直さない（文書の想定どおり。データは壊れない）。（追記 2026-10-15: 旧コードのタブで ID を変えたときは self のキーが移らない。「INV-2・互換・セキュリティ・性能の注意」の互換の追記）
 
 ---
 
@@ -923,9 +924,9 @@ title 13 字・body 38 字。
    - 継承ルートの欄名は「運びたいパッシブ」（「（所持パルから探す）」を外した）。
 4. **ログイン画面（手順 4）**: 文書のとおり。h1「ログイン」「新規登録」、新規登録の説明は `p.muted.login-lead`、ラベル「ID（20 文字まで）」「共通パスワード」、注記はそのまま。フォーカスは `main.replaceChildren(panel)` の後に `(userId.value ? password : userId).focus()`（ログインと新規登録を切り替えたときも同じ。前の ID が残っている端末はパスワード）。
 5. **「設定タブの〜」を 1 文＋ボタンに（手順 5）**: **`setupHint({ text, action, kind = 'info' })`**（ui/dom.js）→ `div.setup-hint.setup-hint-{kind}` の中に `p`（文）と、`action.href` があれば `a.button.secondary.small`、`action.run` があれば `button.button.secondary.small`（action がなければ文だけ）。CSS は所持パルの案内の帯と同じ地と文字の大きさ（`.setup-hint-warning` は warning の地）。
-   - 継承ルート（所持パルのデータがなく、パッシブを選んでいるとき）: `setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: settingsHash(owned.state.linkedWorldId ?? '') } })`。理想個体: `empty('所持パルのデータがありません。', link('セーブ連携を開く', settingsHash(…)), { icon: 'ideal' })`。**行き先は文書の `settingsHash('')` ではなく、登録して読んでいるワールドがあればその ID**（そのワールドの行を開く。なければ文書どおり `#/settings?open=auto`）。
+   - 継承ルート（所持パルのデータがなく、パッシブを選んでいるとき）: `setupHint({ text: '所持パルのデータがありません。', action: { label: 'セーブ連携を開く', href: settingsHash(owned.state.linkedWorldId ?? '') } })`。理想個体: `empty('所持パルのデータがありません。', link('セーブ連携を開く', settingsHash(…)), { icon: 'ideal' })`。**行き先は文書の `settingsHash('')` ではなく、登録して読んでいるワールドがあればその ID**（そのワールドの行を開く。なければ文書どおり `#/settings?open=auto`）。（追記 2026-10-15、フェーズ 1d の終わりのレビューの直し: 「セーブ連携を開く」は意図 `status` の `settingsHash(worldId, 'status')` にした〔状態の欄の「読み込みの許可」「今すぐ読み込む」か見出しへ。行は開かない〕。`auto` のままだと、自分も登録者も決まっているホストでは自動登録のチェックへ移り、Space で自動登録が切り替わっていた）
    - 所持パルの案内（ui/owned-status.js の `ownedNotices`）: **未登録（自動の読み込みがオフでデータがない）と、自動の読み込みで登録が 1 つもない（`'empty'`）は、文書の `register` にした**（文「セーブのファイルが登録されていません。」＋「ワールドを登録」で `openWorldDialog(context)`。owned-status の記録 15 の「このテーマで決める」）。理由: 押せばこの画面のままモーダルで登録でき、設定へ移って「＋ ワールドを登録」を探す手間がない（行き止まりをなくす目的にいちばん近い）。owned-status のテストにあった「設定の操作（読み込み・登録）はこの画面に出さない」は、登録だけこの画面に出す形に直した（「今すぐ読み込む」は今までどおり設定とヘッダーだけ）。読めないエラー（`'error'`）は auto.error の文（空なら「セーブを読めませんでした」）＋action `settings`（「セーブ連携を開く」で `context.navigate(settingsHash(owned.state.linkedWorldId))`）。登録されていないプレイヤーのファイルは「登録されていないプレイヤーのファイルがあります: 〈名前〉（Players\…sav）。」＋action `editWorld`（「ワールドを編集」で `openWorldDialog(context, { world })`。world は `owned.state.auto.worlds` の `linkedWorldId` のもの。見つからなければ設定へ）。views/owned.js の `noticeActions` は `grant`・`register`・`settings`・`editWorld`・`unknownPlace`。web/js/owned.js の `'empty'` の文は「セーブのファイルが登録されていません」（設定の欄・ヘッダーの困っていることにも出るので「設定で」と書かない。ほかの auto.error と同じく句点なし）。
-   - **文書にない「設定タブの〜」**: ヘッダーのセーブ連携（ui/save-status.js）の未連携の title「…設定タブの「セーブ連携」で登録できます」→「セーブのファイルが登録されていません」。あわせて、そのポップオーバーの「設定を開く」の行き先を `#/settings` から `settingsHash(state.linkedWorldId || state.meta?.worldId || '')`（開いている間も書き換える）にした（セーブ連携の板から来るので、設定のセーブ連携のカードへ）。
+   - **文書にない「設定タブの〜」**: ヘッダーのセーブ連携（ui/save-status.js）の未連携の title「…設定タブの「セーブ連携」で登録できます」→「セーブのファイルが登録されていません」。あわせて、そのポップオーバーの「設定を開く」の行き先を `#/settings` から `settingsHash(state.linkedWorldId || state.meta?.worldId || '')`（開いている間も書き換える）にした（セーブ連携の板から来るので、設定のセーブ連携のカードへ）。（追記 2026-10-15: 意図 `status` を渡す形にした。フェーズ 1d の終わりのレビューの直し）
    - **文書にない行き止まり**: 理想個体の目標のダイアログの「未確認（所持パルのデータがありません）」に action「セーブ連携を開く」（`settingsHash(worldId)`）を足した（participant-self の記録 13 の申し送り。押すとダイアログを閉じるのは「設定で選ぶ」と同じ）。
    - ベルの空: `div.notification-empty` の中に `p.muted`「新しい通知はありません。」と `button.button.secondary.small`「これまでの通知」。押すとパネルを閉じ、**ベルのボタンへフォーカスを移してから** `openNotificationList(notifications)` を開く（一覧を閉じるとベルへ戻る）。設定の「通知一覧」カードとプロジェクトの CLAUDE.md の記述はそのまま（bell）。
 6. **状態表示（手順 6）**: **`errorState(message, retry)`**（ui/dom.js）→ `div.error-state`（role=alert）の中に `p` と、retry があれば `button.button.secondary.small`「もう一度読み込む」（`runButton` で `retry()`。Promise の間は押せない。失敗しても投げない＝失敗の文は store の状態で描き直す）。`.empty-state` のクラスは付けず、error-container の地・on-error-container の文字・error の左の帯 4px（ライト・ダークとも画面で確かめた。ダーク rgb(90,28,38)・rgb(255,217,221)・帯 rgb(255,146,160)）。`.card-stack:has(> :is(.empty-state, .error-state):only-child)` で地を透明にする。**`loadingState(text)`** → `empty(text)` に `.loading-state` と role=status（アイコンなし）。
@@ -945,7 +946,7 @@ title 13 字・body 38 字。
     - visual-parts: 新しい部品の CSS は `.error-state`（error-container の地＋左の帯）・`.setup-hint`（`.setup-hint-warning`）・`.empty-icon`・`.empty-actions`・`.notification-empty`。状態チップの is-error と errorState の色をそろえるならここ。ui/icons.js を作るときも、`empty` は `navIcon(view)` を呼ぶだけなので、`navIcon` の名前と引数（タブの名前）を変えない（変えるなら ui/dom.js の `empty` も直す）。理想個体の「ウィッシュリストにあります」は disabled のボタン（押せないボタンの見た目の対象）。
     - フェーズ 2 の find-merge・goals-merge: タブの名前と並びは views/tabs.js の `TABS` だけを直せば、ナビ・見出し・`createViewMemory` の `views` がそろう（配合検索 → 配合を探す、逆引き・一覧・下書き・ウィッシュリストを外す）。消すタブの画面が `tabLabel` を使っていれば、その画面ごと消える。一覧の 0 件の 2 つの文と「絞り込みを解除」・配合検索の「この親の配合を登録」は、配合を探すの全件表示・条件の 0 件へ引き継ぐ。理想個体の `missingActions` の「ウィッシュリストに追加」は goals-merge で「目標に登録」に替える（D5）。
     - bell: ベルの空は `div.notification-empty`（`p.muted`＋「これまでの通知」）。「すべての通知を見る →」にするなら、このボタンを置き換える。設定の「通知一覧」カードとプロジェクトの CLAUDE.md の記述は残してある。
-    - roles: 参加者向けの案内も `setupHint`（1 文＋行き先）で作れる。設定の行き先は今までどおり `settingsHash(worldId)`（`open=auto` だけ）。
+    - roles: 参加者向けの案内も `setupHint`（1 文＋行き先）で作れる。設定の行き先は今までどおり `settingsHash(worldId)`（`open=auto` だけ）。（追記 2026-10-15: 意図ごとの `settingsHash(worldId, open)`〔`self`・`registrant`・`status`〕に変えた。合う意図を渡す。末尾の「フェーズ 1d の終わりのレビューの直し」の 6）
     - そのほか: 文言を足すときは README の「表記の決まり」と `test/static/wording.test.js` の `BANNED` を見る（コメントは調べない）。
 
 ---
@@ -1465,14 +1466,72 @@ title 11 字・body 35 字。
 - フェーズ 2 の goals-merge: ウィッシュリストの `restore`（web/js/wishlist.js）も、消した時点のキーが今のキーと違っても戻す（views/wishlist.js は戻り値も見ていない）。目標に統合するときに、ideals.js・drafts.js と同じく今のキーだけにする。
 - フェーズ 2 の bell: 自動登録の通知は 2 つのキー（成功は `autoBreeding.registered`）。種類のチップ・個別の既読は `notices()` が返す合わせた一覧で作れる。
 - フェーズ 3 の drawer: 本文の中の板を開いている間はトーストが `calc(var(--z-panel) - 1)` に下がる（ドロワーの中の板も、host なしなら同じ）。ドロワーを `<aside>` で作り、中の板を body に浮かせるなら、浮かせた板（60）はトーストより上のまま。
-- リポジトリの README の冒頭の「親A × 親B → 子C」は、表記の決まり（親の組は「＋」）と違うが、範囲の外なので直していない。
+- リポジトリの README の冒頭の「親A × 親B → 子C」は、表記の決まり（親の組は「＋」）と違うが、範囲の外なので直していない。（→ 下の `fix/phase-1d-review-self` の 12 で直した）
+
+### このワールドでの自分・設定の行き先・ID の変更（2026-10-15、ブランチ `fix/phase-1d-review-self`）
+
+フェーズ 1d の終わりのレビューの指摘のうち、このワールドでの自分・設定の行き先・ID の変更の分（通知・下書き・トースト・文言・見た目の分は上の `fix/phase-1d-review-notices`）。番号は親のセッションが渡した指摘の番号（重要度順）。細かな UI・文言・API の細部はユーザーの指示のとおり担当が決めた。上のテーマ（participant-self・copy-dead-ends）の「実装の記録」と食い違う所は、ここを正とする。
+
+1. **古いセーブのタブの判定し直しが、新しいセーブのタブの判定を巻き戻す（中）**
+   - 原因: 同じワールドを、未完成の古いセーブのタブ A と、完成品が入った新しいセーブのタブ B で開き、B で自分を選ぶと、A が自分のキーの storage イベントで `identityChanged` を呼び、古いデータで未完成に書き戻した。B はそれを読み（`observe` の stale）、「未完成 → 完成」と知らせていた。
+   - 直し（web/js/ideals.js）: `identityChanged` は、そのワールドの記録の `observedAt` が今のデータの時刻（`view.at`）より新しい目標（`newer(goal, view)`）を判定し直さずに残す。書き換える目標が 1 つもなければ保存せず、購読者だけ呼んで false を返す（前は目標があれば必ず保存して true）。同じ時刻・古い記録・記録のない目標は、前のとおり `'identity'` で判定し直す。
+   - テスト（ideals.test.js 1 件）: 保存先を共有する 2 つのストア（0 分と 5 分のセーブ）で、B で選ぶ → A の `identityChanged` は false・購読者 1 回・保存先は変わらない → A・B が読み直しても通知なし。直す前のコードでは A が true を返して落ちる。
+   - 残ること: B が判定する前に、A が記録のない目標を古いデータで判定した（A で目標を登録した直後など）ときは、B は新しいセーブの `observe` で「未完成 → 完成」と知らせる。目標を登録したときの `'quiet'` と同じ前からの形で、古いタブの判定は「そのセーブでは未完成」という事実なので、巻き戻しではない。
+2. **別のタブで「登録者の対応」を変えても、本人の変更の経路に入らない（中）**
+   - 直し: web/js/auto-register.js に **`reload(key)`**（今の環境の対応表のキー `<namespace>.autoBreeding.players.<env>.` なら、設定の変化として `subscribe` の購読者〔ヘッダーのセーブ連携〕に知らせて true。対応表はキャッシュせず読むたびに保存先から読むので、捨てるものはない。登録し直し〔`evaluate`〕は変えたタブが行う）。web/js/self-player.js に **`changed()`**（本人の決め方がこのストアの外で変わったことを購読者に知らせる）。app.js の storage イベントで `if (autoRegister.reload(event.key)) self.changed()`。self の購読者は app.js の判定し直し（`ideals.identityChanged`）・理想個体と所持パルの `selfChanged`・設定の「このワールドでの自分」なので、このタブで選んだときと同じ経路で全部が描き直る。
+   - 設定の登録者の select の change（views/owned-settings.js）も、前の `context.ideals?.identityChanged?.()` と `renderSelf()` の代わりに `context.self.changed()`（self のない文脈だけ前のとおり `identityChanged`）。行に描く内容と署名は **`registeredViews(state)`** に分け、change ではその署名を `renderedWorlds` に入れて行を作り直さない（選んだ select はもう新しい対応を出している。前は対応表が署名に入っているため、次の描き直し〔所持パルの読み直しなど〕で行ごと作り直し、フォーカスが外れていた）。設定の self の購読は `renderRegistered`（別のタブで対応を変えたときに登録者の select を合わせる）と `renderSelf`。
+   - テスト: app.test.js（別のタブの形で対応表を書いて storage イベント → 目標が「完成済み」・completedAt は空・ベルの数は同じ・所持者の選択肢に自分。関係のないキー・別の環境の対応表では何もしない）、owned-view.test.js（登録者を変えても行は同じ要素・フォーカスはその select・self の購読者が 1 回・自分の先頭の選択肢が「自動（Alice）」。`self.changed()` で Frank の登録者の select が合う）。
+3. **保存に失敗した「自分」が ID の変更で失われる・saveFailed が今の ID 以外の分でも立ったまま残る（中）**
+   - 直し（web/js/self-player.js）: `saveFailed` は、書けなかった値（`unsaved`）のうち今のログイン（passcode・env・userIdKey）のキー `<namespace>.ideals.self.<env>.<userIdKey>.<32 桁の 16 進>` の分だけで数える（末尾がワールド ID だけのキーにしたのは、ID に「.」があるとき別の人〔`taro.x`〕のキーを `taro` の分に数えないため。user-rename.js の `SELF_WORLD` と同じ考え方）。`reload(storageKey)` は、そのキーの書けなかった値も捨てる（保存先に書かれた別のタブ・ID の変更の値の方が新しい）。`SELF_PREFIX` そのもの（ID の変更の後）なら全部捨てる。
+   - web/js/user-rename.js の `localSaveFailed` に `self?.saveFailed` を足した（ID の変更・`followServer`・`resumeLocal` が、ほかの保存の失敗と同じく止まる）。api.js の LOCAL_SAVE は「この端末への保存（下書き・ウィッシュリスト・目標・このワールドでの自分）に失敗しています。保存できる状態にしてからお試しください。」（前の担当の「この端末への下書き・ウィッシュリスト・目標の保存に…」に自分を足すと「の」が続いて読みにくいので、括弧に並べる形にした）。
+   - テスト: self-player.test.js（別の ID・「.」のある別の人・別の環境・ログアウト中は数えない、別のタブがそのキーに書いたら捨てて保存先を読む、頭だけなら全部捨てる）、user-rename.test.js（今の ID の自分が書けていないと LOCAL_SAVE〔文に「このワールドでの自分」〕で始めず、rename を送らない。書けたら変えられる）。
+4. **ID の変更の途中で、自分が一度「分からない」になり、理想個体・所持パル・設定を 2 回余分に描き直す（低）**
+   - 原因: `moveLocal` は、サーバの応答の後・ログイン中の ID を新しい ID にする前（store.js の `sendRename` の beforeApply）に呼ばれる。そこで `self.reload` が購読者を呼ぶと、各画面は前の ID のキー（移して消した）を読んで自分が分からない形に描き、新しい ID になった store の通知でもう一度描いていた。
+   - 直し: self-player.js の **`reload(storageKey, { defer: true })`** は、キャッシュ（と書けなかった値）だけを捨て、知らせを次の store の通知まで遅らせる（遅らせている間だけ store を購読し、1 回知らせたら外す。購読を後から足すので、その通知を受けるほかの購読者〔ideals.js・各画面〕の後に知らせる。購読できない store では遅らせずに知らせる）。user-rename.js の `moveLocal` は `self?.reload('<namespace>.ideals.self.', { defer: true })`。新しい ID になった store の通知（`apply`）では、各画面の store の購読が新しいキーを読み、自分の並び（`selfKey`）が前と同じなので描き直さない。遅らせた知らせはその後の 1 回で、まだ ID の変更中なので、下の 5 の形で変更が終わった後に 1 回判定し直す。
+   - テスト（user-rename.test.js 1 件）: 本物の store（開発用 API）と self で Taro → Jiro。self の購読者は 1 回だけで、そのとき読める自分は前と同じ UID・ログイン中の ID は Jiro（途中で '' を読まない）。直す前のコードでは ['', 'Taro'] の 1 回で落ちる。
+5. **ID の変更中に選んだ「自分」が、変更の後に判定し直されない（低）**
+   - 直し: 設定の「このワールドでの自分」は、ID の変更中は押せない（`setDisabled(selfSelect, renaming, 'ID の変更が終わってから選んでください')`。変更の始まりと終わりの store の通知で切り替わる。途中で選ぶと、移し終えた前の ID のキーに書いて失われることもある）。変更中に change が来ても保存せず、選択肢を作り直す。app.js は self の購読で、変更中なら `identityLater` を立て、`renaming` が false になった store の通知で `ideals.identityChanged()` を 1 回呼ぶ（この store の購読は ideals より後に登録するので、変更中に届いた新しいセーブの判定〔`observe`。完成を知らせる〕が先に済み、新しいセーブの完成の通知を消さない）。4 の遅らせた知らせも変更中に来るので、ID を変えるたびに、終わった後で 1 回判定し直す（同じ本人・同じデータなら記録は変わらない）。
+   - 見た目: select の押せない形が見えなかった（文字も枠もふつうのまま）ので、web/css/app.css に `select:disabled`（押せないボタンと同じ M3 の無効: 文字は on-surface の 38%・枠は 12%・矢印のカーソル）を足した（読み込み中の「使うワールド」にも効く）。test/static/styles.test.js で確かめる。
+   - テスト: owned-view.test.js（変更中は disabled と title、change が来ても保存しない、終わったら選べる）、app.test.js（rename の応答を待たせ、変更中の select が押せない・別のタブで自分を変えても変更中は判定し直さない・終わったら新しい ID の保存先で 1 回判定し直して完成済み〔completedAt は空・ベルの数は同じ〕・自分のキーも新しい ID へ移る）。app.js を戻すと落ちる。
+6. **1 つの URL が 3 つの意図を兼ね、原因と関係のない所へフォーカスが移る（中）**（「プレイヤーの対応が未設定です」から来ても、ID とセーブの名前が違うホストで対応も自分も未設定なら「このワールドでの自分」へ。データがない・読めないときの「セーブ連携を開く」で自動登録のチェックへ移り、Space で自動登録が切り替わる）
+   - 直し（API の変更）: router.js に **`SETTINGS_OPEN`**（`['self', 'registrant', 'status', 'auto']`）と **`settingsHash(worldId = '', open = 'auto')`**（知らない意図は `auto`）。views/settings.js の `applyRoute` は `SETTINGS_OPEN` の値だけを受け、`ownedCard.reveal({ worldId, open })`。views/owned-settings.js の `reveal` は `registrant` と `auto` のときだけそのワールドの行を開き、フォーカスの先（`revealTarget(open, id, world)`。隠れている・押せないものは飛ばし、どれもなければカードの見出し h2「セーブ連携」）を意図ごとにした:
+     - `self`: このワールドでの自分。
+     - `registrant`: 開いたワールドの行の、未設定の登録者の select → このワールドでの自分。
+     - `status`: 状態の欄の「読み込みを許可」→「今すぐ読み込む」（状態の欄が出ていないとき・読み込み中で押せないときは見出し）。行は開かず、押すと設定が変わる自動登録のチェックへは移らない。
+     - `auto`（前の版の通知・ブックマーク・未配信の版の通知）: participant-self の記録 6 の ①〜⑤ のまま。
+   - 呼び出し元: 理想個体の目標の「未確認（このワールドでの自分が未設定）」の「設定で選ぶ」は `self`。「未確認（所持パルのデータがありません）」・理想個体と継承ルートの「所持パルのデータがありません。」の「セーブ連携を開く」・所持パルの案内の読めないエラーの「セーブ連携を開く」と、「ワールドを編集」で行が見つからないとき・ヘッダーのセーブ連携の「設定を開く」は `status`。自動登録の「プレイヤーの対応が未設定です」は `registrant`。前の版の通知の読み替え（`unmappedHref`）は、行き先が `'#/settings'` か未配信の版の `settingsHash(worldId, 'auto')` なら `registrant` にする（id は変えない・保存し直さない）。
+   - テスト: router.test.js（意図ごとの URL・知らない意図は auto）、owned-view.test.js 3 件（ID とセーブの名前が違うホストで対応も自分も未設定: `registrant` は「Aliceの登録者」・`self` は自分で行を開かない・`auto` は前のとおり自分・知らない意図は何もしない／`registrant` は未設定の登録者がいなければ自分・自分の行がなければ見出し／`status` は「今すぐ読み込む」・許可が要るときは「読み込みを許可」・読み込み中は見出し・行を開かない〔同じ設定で `auto` はチェックへ移る〕・登録したワールドがなければ見出し）、auto-register.test.js（前の版と未配信の版の行き先が `registrant` に読み替わる）。期待値を直したもの: app.test.js・ideal-view.test.js（3 か所）・owned-view.test.js（継承ルート）・save-status.test.js（2 か所）・auto-register.test.js（3 か所）の `open=auto`。
+7. **表示するワールドが替わった直後に選ぶと、別のワールドのキーに保存される（低）**: owned-settings.js で、選択肢を作ったときのワールド **`optionsWorld`**（`syncOptions` が選択肢を当てたとき〔フォーカスが外れてから作り直したときを含む〕に入れる）を持ち、change では今の `selfWorld` と違えば保存せず、選択肢を作り直す（フォーカス中なので、作り直すのは離れてから）。テスト（owned-view.test.js 1 件）: 選んでいる途中にワールドが替わり、前のワールドの Bob を選んでもどちらのキーにも保存しない → 離れると今のワールドの選択肢（Carol）になり、選ぶと今のワールドに保存する。
+8. **設定を開いたまま行き先が来ると、登録したワールドの行を全部作り直す（低・改善）**: `reveal` の `renderedWorlds = ''` をやめ、**`openWorld(world)`**: 行があれば `details.open = true` にするだけ、まだ描いていなければ開いた状態で描く。テスト（owned-view.test.js 1 件）: 2 つのワールドの行で、ほかの行を開き、行き先のワールドの「CSV で保存」を処理中（aria-busy・disabled）にしてから行き先 → 行の要素は同じ・両方開いたまま・処理中のまま・未設定の登録者へフォーカス。
+9. **設定を開いたまま行き先のリンクを押すと、「戻る」が 1 回空振りする（低）**: 直した（安全に作れたため）。app.js の **`sameScreenDestination(event, hash, later)`**: 設定を表示中（作り直さない同じ画面）に `#/settings?…&open=<SETTINGS_OPEN の値>` のリンクを押したら、ブラウザの移動を止め（`preventDefault`）、`context.update(hash, { replace: true })` で今のエントリのまま行き先を当てる（applyRoute が URL から外す）。本文・ヘッダーのリンク（root の click。ベル・ヘッダーのセーブ連携の板）はすぐ、body に置くダイアログの中のリンク（document の click。設定の「通知一覧」）は、閉じたダイアログが close イベントでフォーカスを開いたボタンへ戻した後（close が来なければ 100ms 後に 1 回）に当てる（すぐ当てると、後から来る close がフォーカスを「通知一覧」へ戻していた。画面で見つけた）。行き先はその場でフォーカスを移すだけで、条件の変更（同じ画面の 1 選択＝1 履歴）ではないので、render-contract の決まりは変えていない。ほかの画面からの行き先は今までどおり新しいエントリ（設定へ移るので、「戻る」で前の画面へ戻る）。テスト（app.test.js 1 件）: 設定でヘッダーのセーブ連携の「設定を開く」を押すと click が止められ、pushState なし、replaceState は `…?open=status` → `#/settings`、フォーカスは見出し。ほかの画面へのリンクは止めない。ダイアログの中のリンクは、テストの偽の document が click を受けないので画面だけで確かめた。
+10. **「このワールドでの自分」の説明が select と結び付いていない・登録者の行のプレイヤーの名前の付け方が違う（低）**: 説明の small に `id="owned-self-note"`（設定の画面は 1 つだけ）を付けて select の `aria-describedby` に。登録者の行のプレイヤーの名前と select の aria-label（「〈名前〉の登録者」）を `playerLabels`（名前がない・同じ名前が 2 人以上なら「Bob（ABCD1234）」「不明なプレイヤー（…）」）にした（前は名前か「プレイヤー 〈UID の頭 8 字〉」）。テスト（owned-view.test.js 1 件）。
+11. **旧版のタブで ID を変えると self のキーが移らない（低・文書）**: participant-self の「INV-2・互換・セキュリティ・性能の注意」の互換の項に書き足した。手当てする経路はない（旧版のコードは直せない）。
+12. **リポジトリの README.md の冒頭の「親A × 親B → 子C」（低・文書）**: 「親A＋親B → 子C」にした。同じ README の理想個体の説明の「所持パルのどの ♂×♀ を配合牧場に置くとよいか」も親の組なので「♂＋♀」にした（表記の決まりの表の「×（親の組）」）。
+
+**release-notes**: participant-self の件の body（「設定のセーブ連携で「このワールドでの自分」を選べます。理想個体の完成の判定と自分の個体に使います。」）と食い違う所はないので変えていない。新しい件も足していない（この版は未配信）。
+
+**ほかの文書**: README の 5-2（main へのマージが止められたときの統合ブランチ）・5-4（`settingsHash` の意図・self の `changed`・`reload` の `defer`）、docs/OPERATIONS.md の設定の行き先と所持パルの案内の行き先、phase-2-structure.md の bell の 7・roles の 4 の `open=auto`（意図に読み替える注）、participant-self・copy-dead-ends の「実装の記録」に一言。
+
+**テスト**: 1,481 → 1,498 件（`npm test` exit 0）。`npm run test:perf` 12 件すべて通過。足したテストは、直す前のコード（web/ を戻す・ideals.js・self-player.js と user-rename.js と api.js・app.js をそれぞれ戻す）で落ちることを確かめた。
+
+**画面（モック `?mock=1&seed=80`・1100×900。`Claude outputs/ui-audit-2026-10/shots/phase-1d-review-self/`）**: inject.js の写し（プレイヤーは Alice・Bob・Carol）で入れ、セーブのプレイヤー名と違う ID「Dave」で新規登録し、目標を 2 件入れた。
+- 6 の `self`（`02-goals-self-link.js`）: 目標のダイアログの「設定で選ぶ」は 2 件とも `#/settings?world=0123…&open=self`。押すとダイアログが閉じ、URL は `#/settings`、フォーカスは「このワールドでの自分」（窓の中）、aria-describedby の先は説明の文（`02-goals-unknown-light.png`・`02-settings-self-focus-light.png`）。
+- 9 と 6 の `status`・`registrant`（`03-same-screen-link.js`）: 設定を開いたまま、ヘッダーのセーブ連携の「設定を開く」（`…&open=status`）を押すと history.length 4 のまま・URL `#/settings`・フォーカスは見出し「セーブ連携」（モックには登録したワールドがなく、状態の欄が出ないため）。前の版の形の「プレイヤーの対応が未設定です」（行き先 `#/settings`）はベルで `…&open=registrant` に読み替わり、押しても 4 のまま・フォーカスは「このワールドでの自分」（登録したワールドの行がないので自分へ）。「戻る」1 回で `#/ideal?to=Anubis&p=Legend` に戻った（`03-status-focus-light.png`）。設定の「通知一覧」のダイアログの中の同じ通知（`05-dialog-link.js`）も 4 のまま・フォーカスは見出し（直す前は「通知一覧」のボタン）・「戻る」1 回で `#/list`。
+- 5（`04-rename-hold.js`・`04-rename-hold-dark.js`）: 開発用 API のモジュールを差し替えて rename の応答を 5 秒待たせ、自分を Bob にしてから ID を Erin に変えた。変更中は select が押せず（title「ID の変更が終わってから選んでください」、文字と枠が薄い。`04-renaming-self-disabled-{light,dark}.png`）、その間に別のタブの形で自分を Carol にすると select は Carol になるが、目標は判定し直さない（アヌビス〔伝説〕は Bob で完成のまま）。終わると ID は Erin・自分のキーは `…self.test.erin.0123…` に Carol・select は押せる・目標は Carol で判定し直して未完成（completedAt は空）・ベルの数は 0。
+- 7・8 は、モックでは選んでいる途中に表示するワールドを替えられない・登録したワールド（ファイルのハンドル）を作れないので、テストだけで確かめた。
+- 横のはみ出しは目で見た範囲でなし。終わった後にブラウザを閉じ、5191 番のサーバを止めた（待ち受け 0 件）。
+
+**申し送り**:
+- 設定へ移る案内を足すときは、`settingsHash(worldId, open)` に合う意図を渡す（意図を足すときは router.js の `SETTINGS_OPEN` と owned-settings.js の `revealTarget` を広げる。`open` を省くと前の版の `auto`）。フェーズ 2 の roles の参加者向けの案内・bell の行き先もこれを使う。
+- 本人の決め方を self の外で変えるもの（登録者の対応のほか、フェーズ 2 の roles で足すものなど）は `self.changed()` を呼べば、判定し直しと各画面の描き直しが同じ経路で走る。ID の変更中に呼んでも、変更が終わった後に 1 回判定し直す（app.js の `identityLater`）。
+- 1 の「残ること」（古いタブが記録のない目標を古いデータで判定すると、新しいタブが新しいセーブで知らせる）は前からの形のまま。
 
 ## フェーズ 1d の終わりのチェックリスト
 
-- [ ] 6 テーマのブランチをすべて `main` に `--no-ff` でマージした（push・配信はユーザーの確認の後）。
-- [ ] `npm test` と `npm run test:perf` が通る。
-- [ ] `web/js/release-notes.js` に 6 件（各テーマ 1 件。新しい順・title 20 字・body 60 字以内）。
-- [ ] 観点別のエージェントと Codex（読み取り専用。事前に許可を取り、シェルが動くか先に確かめる）で、フェーズ 1d の差分をレビューし、指摘を直した。
-- [ ] 統合プランの「検証」のシナリオのうち、このフェーズの分を確かめた: 参加者として「このワールドでの自分」を選ぶと、登録済みの目標が「完成済み」になり、選んだ時点の完成は通知されない。その後の共有の更新で新しく完成した目標はベルに出る。
-- [ ] 規約ファイル（プロジェクトの CLAUDE.md）は変えていない（設定の「通知一覧」カードの削除と CLAUDE.md:16 の文言の変更はフェーズ 2 の bell）。
+- [ ] 6 テーマのブランチをすべて `main` に `--no-ff` でマージした（push・配信はユーザーの確認の後）。（2026-10-15: main へのマージは Claude Code の自動モードの判定で止められたので、6 テーマとレビューの直しは統合ブランチ `integrate/phase-1d` に `--no-ff` でマージした。main への反映〔main を integrate/phase-1d に進める〕はユーザーの確認の後。TODO.md の「次にやること」）
+- [x] `npm test` と `npm run test:perf` が通る。（`fix/phase-1d-review-self` で 1,498 件・性能 12 件）
+- [x] `web/js/release-notes.js` に 6 件（各テーマ 1 件。新しい順・title 20 字・body 60 字以内）。
+- [x] 観点別のエージェントと Codex（読み取り専用。事前に許可を取り、シェルが動くか先に確かめる）で、フェーズ 1d の差分をレビューし、指摘を直した。（上の「フェーズ 1d の終わりのレビューの直し」の 2 本）
+- [x] 統合プランの「検証」のシナリオのうち、このフェーズの分を確かめた: 参加者として「このワールドでの自分」を選ぶと、登録済みの目標が「完成済み」になり、選んだ時点の完成は通知されない。その後の共有の更新で新しく完成した目標はベルに出る。
+- [x] 規約ファイル（プロジェクトの CLAUDE.md）は変えていない（設定の「通知一覧」カードの削除と CLAUDE.md:16 の文言の変更はフェーズ 2 の bell）。（e11f91d からの差分に CLAUDE.md はない）
 - [ ] ユーザーへの報告（変更したファイル・実行したコマンド・画面の確かめ方）。

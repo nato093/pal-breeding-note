@@ -845,15 +845,15 @@ async function cachedSignIn(development) {
   return { ...signedIn, 'pal-note.authenticated': 'test', 'pal-note.cache.test': JSON.stringify({ records, warnings, serverTime, users }) };
 }
 
-// 開発 API に 1 ワールドの所持パルを共有しておく（所持者のプレイヤーは PLAYER）。extra で個体の列を書き換える
-async function shareWorld(development, worldId, extra = {}) {
+// 開発 API に 1 ワールドの所持パルを共有しておく（所持者のプレイヤーは PLAYER）。extra で個体の列を書き換える。players でセーブのプレイヤーを変える
+async function shareWorld(development, worldId, extra = {}, players = [{ uid: PLAYER, name: 'アリス' }]) {
   const row = Object.fromEntries(OWNED_FIELDS.map((field) => [field, '']));
   Object.assign(row, { instanceId: `pal-${worldId.slice(0, 4)}`, palId: 'SheepBall', palName: 'モコロン', gender: 'M', level: '10', rank: '1', stars: '0',
     talentHp: '50', talentShot: '50', talentDefense: '50', lucky: 'false', alpha: 'false', egg: 'false', place: 'palbox', placeLabel: 'パルボックス',
     holderUid: PLAYER, holder: 'アリス' }, extra);
   const response = await development({
     action: 'ownedUpload', passcode: '入力', userId: '架空データ', worldId, world: { name: 'ワールド', hostName: 'アリス' },
-    saveUpdatedAt: new Date().toISOString(), players: [{ uid: PLAYER, name: 'アリス' }], bases: [], farms: [],
+    saveUpdatedAt: new Date().toISOString(), players, bases: [], farms: [],
     columns: OWNED_FIELDS, rows: [OWNED_FIELDS.map((field) => row[field])],
   });
   assert.equal(response.stored, true);
@@ -958,7 +958,7 @@ test('画面: 別のタブで「このワールドでの自分」を選んだら
   await byClass('ideal-goals-button').dispatch('click');
   const status = () => byClass('ideal-goal-status').textContent;
   assert.equal(status(), '未確認（このワールドでの自分が未設定）');
-  assert.equal(byClass('ideal-goal-action').href, `#/settings?world=${WORLD_A}&open=auto`);
+  assert.equal(byClass('ideal-goal-action').href, `#/settings?world=${WORLD_A}&open=self`);
   const before = Number(byClass('notification-badge').textContent);
   const key = `pal-note.ideals.self.test.架空データ.${WORLD_A}`;
   values.set(key, PLAYER);
@@ -994,6 +994,101 @@ test('画面: 理想個体の「設定で選ぶ」で設定へ移ると、「こ
   await select.dispatch('change');
   assert.equal(values.get(`pal-note.ideals.self.test.架空データ.${WORLD_A}`), PLAYER);
   assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].complete, true);
+});
+
+test('画面: 別のタブで「登録者の対応」を変えたら（storage イベント）、本人の変化として理想個体の目標の状態と所持者の選択肢を描き直し、完成済みにしても通知は出さない', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_A);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', worlds: {} }];
+  const { values, events } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals) }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const status = () => byClass('ideal-goal-status').textContent;
+  assert.equal(status(), '未確認（このワールドでの自分が未設定）');
+  assert.equal(selectHaving('mine'), undefined);
+  const before = Number(byClass('notification-badge').textContent);
+  // 関係のないキー・別の環境の対応表では何もしない
+  for (const key of ['pal-note.autoBreeding.settings', `pal-note.autoBreeding.players.prod.${WORLD_A}`]) {
+    values.set(key, JSON.stringify({ [PLAYER]: '架空データ' }));
+    events.get('storage')({ key });
+  }
+  assert.equal(status(), '未確認（このワールドでの自分が未設定）');
+  // 別のタブの設定で、アリスの登録者をログイン中の ID（架空データ）にした
+  const key = `pal-note.autoBreeding.players.test.${WORLD_A}`;
+  values.set(key, JSON.stringify({ [PLAYER]: '架空データ' }));
+  events.get('storage')({ key });
+  assert.match(status(), /^完成済み: アリス/);
+  assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].completedAt, '');
+  assert.equal(Number(byClass('notification-badge').textContent), before);
+  assert.ok(selectHaving('mine'));
+});
+
+test('画面: ID の変更中は「このワールドでの自分」を選べず、変更中に別のタブで自分が変わったら、変更が終わってから 1 回判定し直す（通知は出さない）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const BOB = '00000000000000000000000000000002';
+  // 共有された所持パル（アリスのモコロン）。プレイヤーはアリスとボブで、この端末の自分はボブ（モコロンを持っていない）
+  await shareWorld(development, WORLD_A, {}, [{ uid: PLAYER, name: 'アリス' }, { uid: BOB, name: 'ボブ' }]);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', worlds: {} }];
+  const selfKey = `pal-note.ideals.self.test.架空データ.${WORLD_A}`;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const api = async (request) => {
+    if (request.action === 'rename') await held;
+    return development(request);
+  };
+  const { values, events, calls } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals), [selfKey]: BOB }, api, hash: '#/settings' });
+  // ワールドごとのキー（このワールドでの自分）を ID の変更で移すには、保存先のキーの一覧が要る
+  Object.defineProperty(window.localStorage, 'length', { get: () => values.size });
+  window.localStorage.key = (index) => [...values.keys()][index] ?? null;
+  const selfSelect = () => find((node) => node.tagName === 'select' && node.getAttribute('aria-label') === 'このワールドでの自分');
+  for (let i = 0; i < 50 && !selfSelect()?.children.some((option) => option.value === BOB); i++) await flush();
+  assert.equal(selfSelect().value, BOB);
+  const judged = () => JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A];
+  assert.equal(judged().complete, false);
+  const before = Number(byClass('notification-badge').textContent);
+  // ID を変える（サーバの応答を待たせる）
+  byText('ID を変更').dispatch('click');
+  descendants(find((node) => node.tagName === 'dialog' && node.open)).find((node) => node.tagName === 'input').value = 'Jiro';
+  const renaming = byText('変更する').dispatch('click');
+  for (let i = 0; i < 50 && !calls.some((request) => request.action === 'rename'); i++) await flush();
+  assert.equal(selfSelect().disabled, true);
+  assert.equal(selfSelect().title, 'ID の変更が終わってから選んでください');
+  // 変更中に、別のタブで自分をアリス（モコロンを持っている）にした。変更中は判定し直さない
+  values.set(selfKey, PLAYER);
+  events.get('storage')({ key: selfKey });
+  assert.equal(judged().complete, false);
+  release();
+  await renaming;
+  for (let i = 0; i < 10; i++) await flush();
+  assert.match(byClass('settings-view').textContent, /ログイン中の ID: Jiro/);
+  // 変更が終わってから、新しい ID の保存先で 1 回判定し直す（そのとき完成していたものは知らせない）
+  assert.equal(values.get(`pal-note.ideals.self.test.jiro.${WORLD_A}`), PLAYER);
+  const after = JSON.parse(values.get('pal-note.ideals.test.jiro'))[0].worlds[WORLD_A];
+  assert.deepEqual([after.complete, after.completedAt], [true, '']);
+  assert.equal(Number(byClass('notification-badge').textContent), before);
+  assert.equal(selfSelect().disabled, false);
+  assert.equal(selfSelect().value, PLAYER);
+});
+
+test('画面: 設定を開いたまま設定の行き先のリンク（ヘッダーのセーブ連携の「設定を開く」）を押しても、履歴を増やさずにその場で行き先へ移る', async (t) => {
+  const { pushes, replacements } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/settings', pushState: true });
+  await flush();
+  await byClass('save-status-button').dispatch('click');
+  const open = byClass('save-status-settings');
+  assert.equal(open.href, '#/settings?open=status');
+  const before = replacements.length;
+  const clicked = await clickLink(open);
+  // ブラウザの移動（新しいエントリと hashchange）を止め、今のエントリのまま行き先を当てて URL から外す
+  assert.equal(clicked.defaultPrevented, true);
+  assert.deepEqual(pushes, []);
+  assert.deepEqual(replacements.slice(before).map((url) => url.replace(/^[^#]*/, '')), ['#/settings?open=status', '#/settings']);
+  assert.equal(location.hash, '#/settings');
+  // 登録したワールドがないので、セーブ連携のカードの見出しへ
+  assert.equal(document.activeElement, byClass('owned-settings').querySelector('h2'));
+  // 別の画面からの行き先・設定への行き先でないリンクは、今までどおりブラウザが移る（印だけ付ける）
+  const toList = new FakeElement('a');
+  toList.href = '#/list';
+  assert.equal((await clickLink(toList)).defaultPrevented, false);
 });
 
 test('画面: 戻る・進むのエントリは、表示中のワールドと違うワールドで書いたものを使わない', async (t) => {

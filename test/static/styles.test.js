@@ -183,6 +183,10 @@ test('静的検査: 押せないボタンは opacity で薄くせず（M3 の無
   // 無効の色は処理中のボタン（runButton が disabled と aria-busy を付ける）には当てない
   assert.match(css, /^button:disabled:not\(\[aria-busy="true"\]\)[^{]*\{[^}]*color: color-mix\(in srgb, var\(--md-sys-color-on-surface\) 38%, transparent\)/m);
   assert.match(css, /:disabled[^{]*:not\(\[aria-busy="true"\]\)[^{]*\{[^}]*background: color-mix\(in srgb, var\(--md-sys-color-on-surface\) 12%, transparent\)/);
+  // 押せない選択（ID の変更中の「このワールドでの自分」など）も同じ無効の色（文字 38%・枠 12%）。透明度で薄くしない
+  assert.match(rule('select:disabled'), /color: color-mix\(in srgb, var\(--md-sys-color-on-surface\) 38%, transparent\)/);
+  assert.match(rule('select:disabled'), /border-color: color-mix\(in srgb, var\(--md-sys-color-on-surface\) 12%, transparent\)/);
+  assert.doesNotMatch(rule('select:disabled'), /opacity/);
   // select は OS の ▼ をやめ、色ごとの data URI（data URI の SVG は currentColor を使えない）
   assert.match(css, /^select \{[^}]*appearance: none[^}]*background-image: var\(--select-arrow\)/m);
   for (const value of [light('--select-arrow'), darkOnly('--select-arrow')]) assert.match(value, /^url\("data:image\/svg\+xml,/);

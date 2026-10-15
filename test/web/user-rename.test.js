@@ -7,6 +7,7 @@ import { createDraftStore } from '../../web/js/drafts.js';
 import { createWishlistStore } from '../../web/js/wishlist.js';
 import { createNotificationStore } from '../../web/js/notifications.js';
 import { createRenamer, moveUserStorage } from '../../web/js/user-rename.js';
+import { createSelfStore } from '../../web/js/self-player.js';
 
 const PASSCODE = '名前の変更の試験';
 const record = { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen' };
@@ -122,6 +123,42 @@ test('名前の変更: 端末のデータを移したら、このワールドで
   const renamer = createRenamer({ store, self: { reload: (key) => reloads.push(key) }, storage: memoryStorage() });
   renamer.followServer('jiro', 'Jiro', 'prod');
   assert.deepEqual(reloads, ['pal-note.ideals.self.']);
+});
+
+test('名前の変更: このワールドでの自分を知らせるのは新しい ID になった後の 1 回だけで、途中で自分が一度「分からない」にならない', async () => {
+  const development = createDevelopmentApi();
+  const me = await device(development, 'Taro');
+  const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+  const UID = '00000000-0000-0000-0000-000000000001';
+  const self = createSelfStore({ store: me.store, storage: me.storage });
+  const renamer = createRenamer({ store: me.store, drafts: me.drafts, wishlist: me.wishlist, self, notifications: me.notifications, storage: me.storage });
+  assert.equal(self.set(WORLD, UID), true);
+  // 知らせを受けたときに読める自分と、ログイン中の ID（理想個体・所持パル・設定は、知らせを受けて自分を読み直して描く）
+  const seen = [];
+  self.subscribe(() => seen.push([self.get(WORLD), me.store.state.userId]));
+  assert.equal(await renamer.rename('Jiro'), 'Jiro');
+  assert.deepEqual(seen, [[UID, 'Jiro']]);
+  assert.equal(me.storage.getItem(`pal-note.ideals.self.test.jiro.${WORLD}`), UID);
+  assert.equal(me.storage.getItem(`pal-note.ideals.self.test.taro.${WORLD}`), null);
+});
+
+test('名前の変更: このワールドでの自分をこの端末に保存できていない間は始めない（今の ID の分だけ）', async () => {
+  const development = createDevelopmentApi();
+  const me = await device(development, 'Taro');
+  const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+  const self = createSelfStore({ store: me.store, storage: me.storage });
+  const renamer = createRenamer({ store: me.store, drafts: me.drafts, wishlist: me.wishlist, self, notifications: me.notifications, storage: me.storage });
+  me.storage.failing.add(`pal-note.ideals.self.test.taro.${WORLD}`);
+  assert.equal(self.set(WORLD, '00000000-0000-0000-0000-000000000001'), false);
+  assert.equal(self.saveFailed, true);
+  // ID を変えると、手元にだけある自分が移せずに失われるので始めない（下書き・ウィッシュリスト・目標の保存の失敗と同じ）
+  await assert.rejects(renamer.rename('Jiro'), { code: 'LOCAL_SAVE', message: /このワールドでの自分/ });
+  assert.equal(me.sent.some((request) => request.action === 'rename'), false);
+  assert.equal(me.store.state.renaming, false);
+  // 保存できたら変えられる
+  me.storage.failing.clear();
+  assert.equal(self.set(WORLD, '00000000-0000-0000-0000-000000000001'), true);
+  assert.equal(await renamer.rename('Jiro'), 'Jiro');
 });
 
 test('端末内の移動: 移し先に保存できなければ元を残し、失敗を返す', () => {
