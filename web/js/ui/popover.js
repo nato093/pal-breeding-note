@@ -3,6 +3,14 @@
 import { el } from './dom.js';
 
 let sequence = 0;
+// 本文の中で開いている板（host なし）。開いている間は html に .has-inline-popover を付け、トーストを板の下に下げる（app.css）。
+// 本文の中の板は固定のパネル（--z-panel）などの重なりの中にあり、z-index だけではトースト（--z-toast）より上に出せないため。
+// 閉じずに外された板（描き直しで wrapper ごと消えた）は、次に開閉したときに数えない
+const inlineOpen = new Set();
+function markInline() {
+  for (const node of inlineOpen) if (!node.isConnected) inlineOpen.delete(node);
+  globalThis.document?.documentElement?.classList?.toggle('has-inline-popover', inlineOpen.size > 0);
+}
 
 /**
  * anchor の位置から popup の left・width・max-height と上下を決め、CSS 変数（--picker-left・--picker-width・
@@ -75,6 +83,10 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     controller.abort();
     controller = null;
     element.remove();
+    if (!host) {
+      inlineOpen.delete(element);
+      markInline();
+    }
     anchor.setAttribute('aria-expanded', 'false');
     anchor.removeAttribute('aria-controls');
     if (focus && anchor.isConnected) anchor.focus();
@@ -86,6 +98,10 @@ export function createPopover({ anchor, wrapper, host = null, className = 'picke
     controller = new AbortController();
     const { signal } = controller;
     (host ?? wrapper).append(element);
+    if (!host) {
+      inlineOpen.add(element);
+      markInline();
+    }
     anchor.setAttribute('aria-expanded', 'true');
     anchor.setAttribute('aria-controls', element.id);
     document.addEventListener('pointerdown', (event) => { if (!inside(event.target)) close({ focus: false }); }, { signal });

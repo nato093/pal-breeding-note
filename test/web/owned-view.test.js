@@ -1503,6 +1503,12 @@ test('所持パル画面: 所持者の選択肢は「すべて・自分のプレ
   await holderSelect(view).dispatch('change');
   assert.equal(rowIds(view).length, 5);
   assert.deepEqual(filterChips(view), ['所持者: すべて']);
+  // チップの × は飾り（aria-hidden）の SVG のアイコン（ui/icons.js の close。パッシブのチップの × と同じ）。名前はチップの aria-label
+  const chipX = view.element.querySelector('.filter-chips').querySelector('.filter-chip-x');
+  assert.equal(chipX.getAttribute('aria-hidden'), 'true');
+  assert.equal(chipX.textContent, '');
+  assert.equal(chipX.querySelector('svg').getAttribute('class'), 'close-icon');
+  assert.equal(view.element.querySelector('.filter-chips').querySelector('.filter-chip').getAttribute('aria-label'), '所持者: すべて を外す');
   await view.element.querySelector('.filter-chips').querySelector('.filter-chip').dispatch('click');
   assert.equal(holderSelect(view).value, 'mine');
   assert.deepEqual(rowIds(view), ['ペンタマ', 'キツネビ']);

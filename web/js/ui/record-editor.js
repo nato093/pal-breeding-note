@@ -44,7 +44,7 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
   let createId = crypto.randomUUID();
   const pickers = [];
   let unsubscribe = () => {};
-  const title = draft ? (draftId ? '下書きを編集' : '下書きに登録') : original ? '配合を編集' : '見つけた配合を登録';
+  const title = draft ? (draftId ? '下書きを編集' : '下書きに保存') : original ? '配合を編集' : '見つけた配合を登録';
   const modal = openDialog(title, {
     className: 'record-dialog', closeOnBackdrop: false,
     onClose: () => { unsubscribe(); pickers.forEach((picker) => picker.destroy()); },
@@ -108,7 +108,7 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
   const submit = button(draft ? '下書きに保存' : original ? '変更を保存' : '登録', null, 'button primary');
   submit.type = 'submit';
   submit.setAttribute('form', form.id);
-  const continuous = original || draftId ? null : button(draft ? '続けて下書きに登録' : '続けて登録', () => save(true), 'button secondary');
+  const continuous = original || draftId ? null : button(draft ? '続けて下書きに保存' : '続けて登録', () => save(true), 'button secondary');
   form.append(selections, warning, field('登録者', registrant), field('メモ（200文字まで）', memo), errors);
   modal.body.append(form);
   modal.footer.append(button('キャンセル', modal.close, 'button secondary'));
@@ -183,11 +183,11 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
     if (!saved) { errors.replaceChildren(el('p', '', '下書きを保存できませんでした。画面を開き直してください。')); return; }
     if (keepOpen) {
       prepareNext(checked.value);
-      toast('下書きに登録しました。続けて登録できます');
+      toast('下書きに保存しました。続けて保存できます');
       return;
     }
     modal.close();
-    toast(draftId ? '下書きを保存しました' : '下書きに登録しました');
+    toast(draftId ? '下書きを保存しました' : '下書きに保存しました');
   }
 
   async function save(keepOpen = false) {

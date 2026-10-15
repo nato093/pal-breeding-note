@@ -407,6 +407,25 @@ test('理想個体画面: 目標のパルを ♂ と ♀ で持っていない�
   guest.destroy();
 });
 
+test('理想個体画面: 「ウィッシュリストに追加」で追加できなかったとき、ID の変更中なら「ID の変更が終わってから追加してください」と出す', async (t) => {
+  const { body } = install(t);
+  const wishlist = { scope: () => 'test.仲間', list: () => [], add: () => null };
+  const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), wishlist };
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  body.append(view.element);
+  const add = view.element.querySelector('.ideal-results').querySelector('.empty-state').querySelector('button');
+  const toasts = () => body.querySelectorAll('.toast').map((node) => node.textContent);
+  ctx.store.state.renaming = true;
+  await add.dispatch('click');
+  assert.deepEqual(toasts(), ['ID の変更が終わってから追加してください']);
+  // 変更中でなければ今までどおり（ログインの状態が変わった・配合をまだ読めていない）
+  ctx.store.state.renaming = false;
+  await add.dispatch('click');
+  assert.deepEqual(toasts(), ['ID の変更が終わってから追加してください', '配合を読み込んでから追加してください']);
+  assert.equal(add.textContent, 'ウィッシュリストに追加');
+  view.destroy();
+});
+
 test('理想個体画面: 所持パルが読み込まれたら作り直し、パッシブを選ぶと URL を変える', async (t) => {
   install(t);
   const owned = fakeOwned(null);

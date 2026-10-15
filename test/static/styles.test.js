@@ -142,7 +142,7 @@ test('静的検査: 性別の色はトークン（--gender-male・--gender-femal
     assert.match(light(name), /^#[0-9a-f]{6}$/, `ライトの ${name}`);
     assert.match(darkOnly(name), /^#[0-9a-f]{6}$/, `ダークの ${name}`);
   }
-  const escape = (text) => text.replace(/[[\]().:"]/g, '\$&');
+  const escape = (text) => text.replace(/[[\]().:"]/g, '\\$&');
   const rule = (selector) => css.match(new RegExp(String.raw`^${escape(selector)} \{([^}]*)\}`, 'm'))?.[1] ?? '';
   assert.match(rule('.gender-M'), /var\(--gender-male\)/);
   assert.match(rule('.gender-F'), /var\(--gender-female\)/);
@@ -176,7 +176,7 @@ test('静的検査: 入力欄の枠（outline）は背景と白に 3:1 以上。
 
 test('静的検査: 押せないボタンは opacity で薄くせず（M3 の無効の色）、押して処理している間（aria-busy）は今の色のまま。select の開閉の印はパル選択と同じ ∨（CSS の data URI）', async () => {
   const { css, light, darkOnly } = await themes();
-  const escape = (text) => text.replace(/[[\]().:"]/g, '\$&');
+  const escape = (text) => text.replace(/[[\]().:"]/g, '\\$&');
   const rule = (selector) => css.match(new RegExp(String.raw`^${escape(selector)} \{([^}]*)\}`, 'm'))?.[1] ?? '';
   assert.match(rule('button:disabled'), /cursor: default/);
   assert.doesNotMatch(rule('button:disabled'), /opacity/);
@@ -214,4 +214,16 @@ test('静的検査: 状態の印は 1 つの部品（.status-chip と tone）。
       assert.doesNotMatch(body, /background|(?:^|[;\s])color:|border-radius/, selector.trim());
     }
   }
+});
+
+test('静的検査: 重なり順は「スナックバー ＜ トースト ＜ 候補の板」。本文の中の板（固定のパネルの重なりの中）を開いている間は、トーストをパネルより下に下げる', async () => {
+  const { css, light } = await themes();
+  const z = (name) => Number(light(name));
+  for (const name of ['--z-panel', '--z-snackbar', '--z-toast', '--z-popover']) assert.ok(Number.isInteger(z(name)), name);
+  assert.ok(z('--z-snackbar') < z('--z-toast') && z('--z-toast') < z('--z-popover'));
+  assert.match(css, /^\.toast-region \{[^}]*z-index: var\(--z-toast\)/m);
+  assert.match(css, /^\.picker-popover-floating \{[^}]*z-index: var\(--z-popover\)/m);
+  // 本文の中の板（.picker-popover）は --z-panel。その間のトーストは --z-panel より下（ui/popover.js が html に .has-inline-popover を付ける）
+  assert.match(css, /^\.picker-popover \{[^}]*z-index: var\(--z-panel\)/m);
+  assert.match(css, /^\.has-inline-popover \.toast-region \{ z-index: calc\(var\(--z-panel\) - 1\); \}/m);
 });

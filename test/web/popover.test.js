@@ -191,3 +191,35 @@ test('ポップオーバー: scrollWithin は一覧だけを動かし、選ん�
   scrollWithin(fake, {});
   assert.equal(fake.scrollTop, 5);
 });
+
+test('ポップオーバー: 本文の中で開く板（host なし）が開いている間だけ、html に .has-inline-popover を付ける（トーストを板の下に下げる。浮かせる板は付けない）', async (t) => {
+  const { body, wrapper, anchor, popover } = setup(t);
+  const html = document.createElement('html');
+  document.documentElement = html;
+  const marked = () => html.className.split(' ').includes('has-inline-popover');
+  popover.open();
+  assert.equal(marked(), true);
+  // 2 つ目の板が開いている間は、1 つ目を閉じても付けたまま
+  const other = document.createElement('div');
+  const otherAnchor = document.createElement('button');
+  other.append(otherAnchor);
+  body.append(other);
+  const second = createPopover({ anchor: otherAnchor, wrapper: other });
+  second.open();
+  popover.close({ focus: false });
+  assert.equal(marked(), true);
+  second.close({ focus: false });
+  assert.equal(marked(), false);
+  // 閉じずに外された板（描き直しで wrapper ごと消えた）は、次に開閉したときに数えない
+  popover.open();
+  wrapper.remove();
+  second.open();
+  second.close({ focus: false });
+  assert.equal(marked(), false);
+  // body・ダイアログに浮かせる板（--z-popover でトーストより上）では付けない
+  const floating = createPopover({ anchor, wrapper, host: body });
+  floating.open();
+  assert.equal(marked(), false);
+  floating.destroy();
+  second.destroy();
+});

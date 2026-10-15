@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import data from '../../web/data/breeding.js';
+import pals from '../../web/data/pals.js';
+import { decodeBreeding, breedChild } from '../../web/js/core/breeding.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, ApiError } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
@@ -538,10 +540,10 @@ test('自動登録: 性別で変わる組み合わせを別の結果として送
   await registerElsewhere(t, { parent1Id: 'CatMage', parent1Gender: 'M', parent2Id: 'FoxMage', parent2Gender: 'F', childId: 'SheepBall' });
   await t.run();
   assert.equal(t.creates[0].allowDifferentChild, true);
-  // 登録はできているので、成功の通知も残す
-  assert.deepEqual(t.auto.notices().map((n) => n.title), ['配合を自動登録しました', '自動登録を保留した配合']);
+  // 登録はできているので、成功の通知も残す（同じ日時なら、対応の要る通知が先）
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['自動登録を保留した配合', '配合を自動登録しました']);
   // 登録済みの子は両方（並びは登録の順）
-  const conflict = t.auto.notices()[1];
+  const conflict = t.auto.notices()[0];
   assert.match(conflict.body, /子 (クレメーナ・モコロン|モコロン・クレメーナ)）/);
   assert.doesNotMatch(conflict.body, /フォレーオ|表は/);
 });
@@ -823,25 +825,125 @@ test('自動登録（成功の通知）: 1 件目の登録の後で止まって�
   }
 });
 
-test('自動登録（成功の通知）: 成功は新しい 20 件まで残し、成功がいくら増えても「プレイヤーの対応が未設定です」や見送りの通知は追い出さない', async () => {
-  const t = await setup({ worldId: WORLD });
-  const key = 't.autoBreeding.notices.test.自分';
+// 成功の通知の保存先（既存のキー autoBreeding.notices は旧版のタブも読み書きするので、成功は別のキーに持つ）
+const NOTICES_KEY = 't.autoBreeding.notices.test.自分';
+const REGISTERED_KEY = 't.autoBreeding.registered.test.自分';
+const successNotice = (id, date, world = WORLD) => ({
+  id: `auto-breed:test:registered:${id}`, date, title: '配合を自動登録しました', body: `登録 ${id}`, href: '#/search?p1=SheepBall&p2=SwordCutlassfish',
+  kind: 'auto-registered', worldId: world, batchId: date,
+});
+const second = (n) => `2026-10-05T00:${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}.000Z`;
+// 旧版（e11f91d。配信中の版）のタブの通知の保存を写したもの（auto-register.js の cleanSavedNotice・readNotices・saveNotices）。
+// 既存のキーを読み（id・date・title・body・href だけを写し、kind・worldId・batchId は捨てる。50 件まで）、足して日時の新しい順に
+// 50 件で切って書き戻す
+function oldTabSaveNotices(storage, key, added) {
+  const clean = (value) => {
+    if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id || value.id.length > 200) return null;
+    if (/^auto-breed:[^:]*:mismatch:/.test(value.id) || !Number.isFinite(Date.parse(value.date))) return null;
+    const notice = { id: value.id, date: new Date(value.date).toISOString(), title: String(value.title ?? '').slice(0, 40), body: String(value.body ?? '').slice(0, 200) };
+    if (typeof value.href === 'string' && value.href.startsWith('#/')) notice.href = value.href;
+    return notice;
+  };
+  let saved = [];
+  try { saved = JSON.parse(storage.get(key)) ?? []; } catch { /* 読めなければ空 */ }
+  const before = [];
+  for (const value of Array.isArray(saved) ? saved : []) {
+    if (before.length >= 50) break;
+    const notice = clean(value);
+    if (notice) before.push(notice);
+  }
+  const ids = new Set(before.map((n) => n.id));
+  const next = [...before, ...added.filter((n) => !ids.has(n.id) && ids.add(n.id))]
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, 50);
+  storage.set(key, JSON.stringify(next));
+}
+
+test('自動登録（成功の通知）: 旧版のタブが既存のキーを 50 件で切って書き戻しても、未設定・見送りの通知は消えず、成功の通知のまとめ（kind・batchId）も消えない', async () => {
+  const t = await setup({ farms: [sheepFarm(), dogFarm()], worldId: WORLD });
   const unmapped = { id: `auto-breed:test:unmapped:${WORLD}:p-2`, date: '2026-10-01T00:00:00.000Z', title: 'プレイヤーの対応が未設定です', body: 'Frankの配合を登録できません。', href: `#/settings?world=${WORLD}&open=auto` };
-  const anomaly = { id: 'auto-breed:test:anomaly:f1:e1', date: '2026-10-01T00:00:00.000Z', title: '自動登録しなかったタマゴ', body: '' };
-  // 前の成功 30 件（新しい順）。旧コードのタブが書き直して kind のないものも、id で成功と分かる
-  const old = Array.from({ length: 30 }, (_, i) => {
-    const date = `2026-10-05T00:00:${String(29 - i).padStart(2, '0')}.000Z`;
-    const notice = { id: `auto-breed:test:registered:old-${29 - i}`, date, title: '配合を自動登録しました', body: `前の登録 ${29 - i}` };
-    return i % 2 ? notice : { ...notice, kind: 'auto-registered', worldId: WORLD, batchId: date };
-  });
-  t.storage.set(key, JSON.stringify([...old, unmapped, anomaly]));
-  // 読み出しも成功は 20 件まで
-  assert.deepEqual(t.auto.notices().map((n) => n.id), [...old.slice(0, 20).map((n) => n.id), unmapped.id, anomaly.id]);
+  // 見送りの通知 48 件（未設定より新しく、読み込みより古い）と未設定で 49 件
+  const anomalies = Array.from({ length: 48 }, (_, i) => ({ id: `auto-breed:test:anomaly:f9:e${i}`, date: second(100 - i), title: '自動登録しなかったタマゴ', body: '' }));
+  t.storage.set(NOTICES_KEY, JSON.stringify([...anomalies, unmapped]));
   await t.run();
-  const saved = JSON.parse(t.storage.get(key));
-  assert.deepEqual(saved.map((n) => n.id), [`auto-breed:test:registered:${t.creates[0].record.id}`, ...old.slice(0, 19).map((n) => n.id), unmapped.id, anomaly.id]);
-  assert.deepEqual(t.auto.notices().map((n) => n.id), saved.map((n) => n.id));
-  // 保存し直しても、旧コードのタブが書いた kind のない成功に kind は足さない（読み出したままの形）
-  assert.equal(saved[2].kind, undefined);
-  assert.equal(saved[1].kind, 'auto-registered');
+  assert.equal(t.creates.length, 2);
+  // 成功の通知は既存のキーに入れない（旧版のタブが 50 件で切ると、成功の分だけ古い未設定・見送りが押し出されるため）
+  assert.deepEqual(JSON.parse(t.storage.get(NOTICES_KEY)).map((n) => n.id), [...anomalies, unmapped].map((n) => n.id));
+  assert.deepEqual(JSON.parse(t.storage.get(REGISTERED_KEY)).map((n) => n.id).sort(), t.creates.map((c) => `auto-breed:test:registered:${c.record.id}`).sort());
+  // 旧版のタブが新しい見送りを 1 件足して書き戻す
+  const added = { id: 'auto-breed:test:anomaly:f9:new', date: '2026-10-06T01:00:00.000Z', title: '自動登録しなかったタマゴ', body: '' };
+  oldTabSaveNotices(t.storage, NOTICES_KEY, [added]);
+  const notices = t.auto.notices();
+  assert.deepEqual(notices.filter((n) => n.kind !== 'auto-registered').map((n) => n.id), [added.id, ...anomalies.map((n) => n.id), unmapped.id]);
+  assert.deepEqual(notices.filter((n) => n.kind === 'auto-registered').map((n) => [n.worldId, n.batchId]), [[WORLD, FIRST_READ], [WORLD, FIRST_READ]]);
+  // 通知欄では、成功の 2 件が 1 行のまま
+  const rows = groupNotifications(notices.map(cleanNotification));
+  assert.deepEqual(rows.filter((row) => row.kind === 'auto-registered').map((row) => row.count), [2]);
+  // 新しいタブがこの後に既存のキーへ保存しても（次の読み込みで未設定）、どれも消えない
+  t.lay([sheepFarm(P2, 'f3')]);
+  await t.run();
+  assert.equal(t.auto.notices().filter((n) => n.kind === 'auto-registered').length, 2);
+  assert.ok(t.auto.notices().some((n) => n.id === unmapped.id));
+});
+
+test('自動登録（成功の通知）: 1 回の読み込みで 21 件以上登録しても全部残し、通知欄の 1 行の件数が登録した件数と合う', async () => {
+  const table = decodeBreeding(data);
+  // 同じ種族どうしの組（子は同じ種族）を 25 か所の牧場に置く
+  const species = pals.map((pal) => pal.id).filter((id) => breedChild(table, id, 'M', id, 'F') === id).slice(0, 25);
+  assert.equal(species.length, 25);
+  const farms = species.map((id, i) => farm(`g${i}`, [parent(id, 'Male'), parent(id, 'Female')], [id]));
+  const t = await setup({ farms, worldId: WORLD });
+  await t.run();
+  assert.equal(t.creates.length, 25);
+  assert.deepEqual(t.toasts, ['配合を自動登録しました（25件）']);
+  const notices = t.auto.notices();
+  assert.equal(notices.length, 25);
+  const rows = groupNotifications(notices.map(cleanNotification));
+  assert.deepEqual(rows.map((row) => [row.count, row.more]), [[25, 'ほか 24 件']]);
+});
+
+test('自動登録（成功の通知）: 成功は新しい読み込み 20 回分を残し（古い読み込みは丸ごと外す）、全体は 200 件まで。未設定・見送りの通知の数とは別に数える', async () => {
+  const t = await setup({ worldId: WORLD });
+  // 前の読み込み 22 回分（各 2 件。新しい順）
+  const batches = Array.from({ length: 22 }, (_, i) => second(200 - i));
+  const old = batches.flatMap((date, i) => [successNotice(`b${i}-1`, date), successNotice(`b${i}-2`, date)]);
+  const unmapped = { id: `auto-breed:test:unmapped:${WORLD}:p-2`, date: '2026-10-01T00:00:00.000Z', title: 'プレイヤーの対応が未設定です', body: '' };
+  t.storage.set(REGISTERED_KEY, JSON.stringify(old));
+  t.storage.set(NOTICES_KEY, JSON.stringify([unmapped]));
+  // 読み出しも新しい 20 回分（40 件）まで
+  assert.deepEqual(t.auto.notices().map((n) => n.id), [...old.slice(0, 40).map((n) => n.id), unmapped.id]);
+  await t.run();
+  // 新しい読み込みの 1 件と、前の 19 回分（38 件）
+  const saved = JSON.parse(t.storage.get(REGISTERED_KEY));
+  assert.deepEqual(saved.map((n) => n.id), [`auto-breed:test:registered:${t.creates[0].record.id}`, ...old.slice(0, 38).map((n) => n.id)]);
+  assert.deepEqual(saved.map((n) => n.kind), saved.map(() => 'auto-registered'));
+  assert.deepEqual(JSON.parse(t.storage.get(NOTICES_KEY)).map((n) => n.id), [unmapped.id]);
+  // 全体は 200 件まで: いちばん新しい読み込みは全部、入り切らない読み込みから先は丸ごと外す
+  const big = [
+    ...Array.from({ length: 150 }, (_, i) => successNotice(`x${i}`, second(300))),
+    ...Array.from({ length: 60 }, (_, i) => successNotice(`y${i}`, second(299))),
+    ...Array.from({ length: 3 }, (_, i) => successNotice(`z${i}`, second(298))),
+  ];
+  t.storage.set(REGISTERED_KEY, JSON.stringify(big));
+  assert.deepEqual(t.auto.notices().filter((n) => n.kind === 'auto-registered').map((n) => n.id), big.slice(0, 150).map((n) => n.id));
+  t.storage.set(REGISTERED_KEY, JSON.stringify(Array.from({ length: 250 }, (_, i) => successNotice(`w${i}`, second(300)))));
+  assert.equal(t.auto.notices().filter((n) => n.kind === 'auto-registered').length, 200);
+});
+
+test('自動登録（成功の通知）: 既存のキーに残っている成功の形の通知（未配信の版が書いたもの）は読まず、既存のキーに書き戻さない', async () => {
+  const t = await setup({ farms: [sheepFarm(P2)], worldId: WORLD });
+  const stale = [successNotice('stale-1', second(10)), { ...successNotice('stale-2', second(9)), kind: undefined }];
+  t.storage.set(NOTICES_KEY, JSON.stringify(stale));
+  assert.deepEqual(t.auto.notices(), []);
+  // 次に既存のキーへ保存するとき（未設定の通知）に、成功の形の通知は落ちる
+  await t.run();
+  assert.deepEqual(JSON.parse(t.storage.get(NOTICES_KEY)).map((n) => n.title), ['プレイヤーの対応が未設定です']);
+});
+
+test('自動登録（成功の通知）: 名前の変更で、成功の通知のキーも新しい名前へ移す', async () => {
+  const raw = memoryStorage();
+  const t = await setup({ farms: [], storage: safeStorage(raw), worldId: WORLD });
+  raw.setItem('t.autoBreeding.registered.test.旧名', JSON.stringify([successNotice('moved', second(5))]));
+  assert.equal(moveUserStorage(raw, 't', 'test', '旧名', '自分'), true);
+  assert.equal(raw.getItem('t.autoBreeding.registered.test.旧名'), null);
+  assert.deepEqual(t.auto.notices().map((n) => [n.id, n.kind, n.batchId]), [['auto-breed:test:registered:moved', 'auto-registered', second(5)]]);
 });

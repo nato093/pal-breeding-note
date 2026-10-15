@@ -157,7 +157,7 @@ export function draftsView(context) {
   const headingActions = el('div', 'heading-actions');
   headingActions.append(bulkRegister, bulkRemove);
   heading.append(headingActions);
-  const addWithDialog = button('＋ 下書きに登録', () => context.register({}, { draft: true }), 'button secondary small');
+  const addWithDialog = button('＋ 下書きに保存', () => context.register({}, { draft: true }), 'button secondary small');
   const count = el('p', 'result-note');
   const toolbar = el('div', 'drafts-toolbar');
   toolbar.append(addWithDialog, count);
@@ -232,7 +232,7 @@ export function draftsView(context) {
       if (!rows.has(draft.id)) rows.set(draft.id, draftRow(context, draft, removeOne));
       rows.get(draft.id).update(draft, drafts.status(draft.id));
     }
-    if (!items.length) list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに登録」から作れます。', null, { icon: 'drafts' }));
+    if (!items.length) list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに保存」から作れます。', null, { icon: 'drafts' }));
     else {
       // 付け直すとフォーカスと開いている候補が外れるため、位置の違う行（新しい行・送信に失敗して戻った行・元に戻した行）だけを差し込む。
       items.forEach((draft, index) => {

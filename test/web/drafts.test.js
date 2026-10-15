@@ -5,6 +5,7 @@ import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { createDraftStore } from '../../web/js/drafts.js';
+import { createRenamer } from '../../web/js/user-rename.js';
 import { openRecordEditor } from '../../web/js/ui/record-editor.js';
 import { draftsView, registerDrafts } from '../../web/js/views/drafts.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
@@ -356,6 +357,48 @@ test('下書き: 一括削除の元に戻すは、名前の変更中なら戻さ
   app.store.state.renaming = false;
 });
 
+test('下書き: ID の変更が終わった後の元に戻す（一括削除・1 件の削除）は、前の ID のキーへ戻さず 0・false を返す（今のキーなら戻す）', async (t) => {
+  const app = await setup(t);
+  const [first, second, third] = ['Alpaca', 'Boar', 'Deer'].map((parent1Id) => app.drafts.add({ parent1Id }));
+  const oldKey = app.drafts.scope();
+  // ストア: 消した時点のキーが今のログインのキーと違えば戻さない
+  const removed = app.drafts.removeAll([first.id, second.id], oldKey);
+  const single = app.drafts.remove(third.id, oldKey);
+  const renamer = createRenamer({ store: app.store, drafts: app.drafts, storage: app.storage, namespace: 'test-note' });
+  assert.equal(await renamer.rename('別の名前'), '別の名前');
+  assert.notEqual(app.drafts.scope(), oldKey);
+  assert.equal(app.drafts.restoreMany(removed, oldKey), 0);
+  assert.equal(app.drafts.restore(single.draft, single.index, oldKey), false);
+  // 前の ID のキーに書き戻さない（名前の変更で移して消したキー）・今の ID の下書きも増えない
+  assert.equal(app.storage.getItem(oldKey), null);
+  assert.deepEqual(app.drafts.list(), []);
+  // 今のキーなら今までどおり戻せる
+  const key = app.drafts.scope();
+  const kept = app.drafts.add({ parent1Id: 'Kitsunebi' });
+  const again = app.drafts.removeAll([kept.id], key);
+  assert.equal(app.drafts.restoreMany(again, key), 1);
+});
+
+test('下書き: 一括削除・1 件の削除の後に ID の変更が終わってから「元に戻す」を押すと、戻さずに「元に戻せませんでした」を出す', async (t) => {
+  const app = await setup(t);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  app.drafts.add({ parent1Id: 'Boar' });
+  const view = mount(t, app);
+  const [, row] = rows(view);
+  await iconNamed(row, '削除').dispatch('click');
+  await buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.deepEqual(app.drafts.list(), []);
+  const renamer = createRenamer({ store: app.store, drafts: app.drafts, storage: app.storage, namespace: 'test-note' });
+  await renamer.rename('別の名前');
+  for (const text of ['下書きを削除しました', '1 件の下書きを削除しました']) {
+    const toastNode = app.body.querySelector('.toast-list').children.find((node) => node.textContent.startsWith(text));
+    await buttonNamed(toastNode, '元に戻す').dispatch('click');
+  }
+  assert.deepEqual(app.drafts.list(), []);
+  const errors = app.body.querySelector('.toast-alerts').children;
+  assert.deepEqual(errors.map((node) => [node.getAttribute('role'), node.textContent.startsWith('元に戻せませんでした')]), [['alert', true], ['alert', true]]);
+});
+
 test('下書き: 1 行の削除は確認なしで消し、元に戻すと同じ位置に戻る', async (t) => {
   const app = await setup(t);
   const [first, second, third] = [app.drafts.add({ parent1Id: 'Alpaca' }), app.drafts.add({ parent1Id: 'Boar' }), app.drafts.add({ parent1Id: 'Deer' })];
@@ -501,13 +544,13 @@ test('下書き: ダブルクリックの 2 回目は、詰まってきた次の
   assert.equal(app.calls.length, 1);
 });
 
-test('下書き: 下書きに登録はモーダルの下書き版で、サーバに送らずに登録者とメモも保存する', async (t) => {
+test('下書き: 「＋ 下書きに保存」はモーダルの下書き版で、サーバに送らずに登録者とメモも保存する', async (t) => {
   const app = await setup(t);
   const view = mount(t, app);
-  await buttonNamed(view.element, '＋ 下書きに登録').dispatch('click');
+  await buttonNamed(view.element, '＋ 下書きに保存').dispatch('click');
   let [dialog] = openDialogs();
-  assert.equal(dialog.querySelector('h2').textContent, '下書きに登録');
-  assert.ok(buttonNamed(dialog, '続けて下書きに登録'));
+  assert.equal(dialog.querySelector('h2').textContent, '下書きに保存');
+  assert.ok(buttonNamed(dialog, '続けて下書きに保存'));
   const pickTrigger = async (index, query) => {
     await dialog.querySelectorAll('.picker-trigger')[index].dispatch('click');
     const search = dialog.querySelector('.picker-search');
@@ -517,7 +560,7 @@ test('下書き: 下書きに登録はモーダルの下書き版で、サーバ
   };
   await pickTrigger(0, 'モコロン');
   dialog.querySelector('textarea').value = '親2は未確認';
-  await buttonNamed(dialog, '続けて下書きに登録').dispatch('click');
+  await buttonNamed(dialog, '続けて下書きに保存').dispatch('click');
   assert.equal(dialog.open, true);
   assert.equal(dialog.querySelector('textarea').value, '');
   await pickTrigger(1, 'フラリーナ');
@@ -533,7 +576,7 @@ test('下書き: 下書きに登録はモーダルの下書き版で、サーバ
   await iconNamed(row, '編集').dispatch('click');
   [dialog] = openDialogs();
   assert.equal(dialog.querySelector('h2').textContent, '下書きを編集');
-  assert.equal(buttonNamed(dialog, '続けて下書きに登録'), undefined);
+  assert.equal(buttonNamed(dialog, '続けて下書きに保存'), undefined);
   assert.match(dialog.querySelectorAll('.picker-trigger')[0].textContent, /モコロン/);
   assert.equal(dialog.querySelector('textarea').value, '親2は未確認');
   await pickTrigger(2, 'セレムーン');

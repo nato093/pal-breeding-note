@@ -67,7 +67,8 @@ const GENDER_NAMES = { M: 'オス', F: 'メス' };
 
 /**
  * 性別の印。文字の ♂♀ を色の丸い地に置く（色は CSS のトークン --gender-male・--gender-female）。inline: true なら色だけ
- *（文の中・牧場の行のように、丸い地を置くと行の高さが崩れる所）。読み上げは「オス」「メス」。性別が分からなければ null。
+ *（文の中・牧場の行のように、丸い地を置くと行の高さが崩れる所）。読み上げ（aria-label）は「オス」「メス」で、title は付けない。
+ * 性別が分からなければ null。
  * 要素は 1 つ（.gender の span。所持パルの 2,000 行の DOM の予算を増やさない）
  */
 export function genderMark(gender, { inline = false } = {}) {
@@ -75,8 +76,8 @@ export function genderMark(gender, { inline = false } = {}) {
   if (!name) return null;
   const mark = el('span', `gender gender-${gender}${inline ? ' gender-inline' : ''}`, gender === 'M' ? '♂' : '♀');
   mark.setAttribute('role', 'img');
+  // 読み上げの名前だけ（title は付けない。ツールチップで画面に「オス」「メス」と出さない。README の表記の決まり）
   mark.setAttribute('aria-label', name);
-  mark.title = name;
   return mark;
 }
 

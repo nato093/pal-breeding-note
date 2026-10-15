@@ -83,6 +83,9 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
   const sending = (id) => Boolean(statuses.get(id)?.sending);
   // 名前の変更中は書き換えない（変更の後で、新しい名前の保存先へ移すため）
   const locked = () => Boolean(store.state.renaming);
+  // 元に戻すのは、消した時点のキーが今のログインのキーと同じときだけ。ID を変えた後（変更で前のキーは新しいキーへ移して消している）・
+  // 別の ID でログインした後に、前のキーへ書き戻して戻せたように見せない
+  const restorable = (key) => Boolean(key) && key === scope() && !locked();
 
   // 送信中でない ids の下書きをまとめて消し、元に戻すための { draft, index }[]（index は消す前の位置。小さい順）を返す。消せなければ null
   function removeAll(ids, key = scope()) {
@@ -128,10 +131,11 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
       save(key, drafts.filter((draft, current) => current !== index));
       return { draft: drafts[index], index };
     },
-    // 削除した時点の ID・環境の下書きに戻す（元に戻すの前に別の ID でログインしても混ざらない）。
+    // 削除した時点の ID・環境の下書きに戻す。今のログインのキーと違えば（ID の変更の後・別の ID でログインした後）戻さず false
     restore(draft, index, key) {
+      if (!restorable(key)) return false;
       const drafts = latest(key);
-      if (!key || locked() || drafts.some((item) => item.id === draft.id)) return false;
+      if (drafts.some((item) => item.id === draft.id)) return false;
       save(key, [...drafts.slice(0, index), draft, ...drafts.slice(index)]);
       return true;
     },
@@ -141,9 +145,9 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     },
     removeAll,
     // removeAll で消した下書きを、消した時点の ID・環境に index の小さい順に差し込み直す（index は今の長さに丸める。
-    // 同じ ID がもうあれば飛ばす）。戻した数を返す
+    // 同じ ID がもうあれば飛ばす）。戻した数を返す。今のログインのキーと違えば（restore と同じ）戻さず 0
     restoreMany(items, key) {
-      if (!key || locked() || !Array.isArray(items)) return 0;
+      if (!restorable(key) || !Array.isArray(items)) return 0;
       const drafts = [...latest(key)];
       const ids = new Set(drafts.map((draft) => draft.id));
       let restored = 0;
