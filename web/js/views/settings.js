@@ -57,7 +57,7 @@ function importDeviceData(context, data) {
   const read = data.notificationsRead.filter((id) => unread.has(id));
   if (read.length) {
     context.notifications.markRead(read);
-    parts.push(`既読 ${read.length}`);
+    parts.push(`通知の既読 ${read.length}`);
   }
   let mapped = 0;
   for (const [worldId, mapping] of Object.entries(data.playerMappings)) {
@@ -70,7 +70,7 @@ function importDeviceData(context, data) {
     }
   }
   if (mapped) {
-    parts.push(`登録者の対応 ${mapped}`);
+    parts.push(`プレイヤーの対応 ${mapped}`);
     // 自分のプレイヤーが変わったかもしれない（理想個体の「自分の個体」。設定の select で選んだときと同じ）
     if (context.self?.changed) context.self.changed();
     else context.ideals?.identityChanged?.();
@@ -135,6 +135,8 @@ export function settingsView(context, route = parseHash('#/settings')) {
   fileInput.accept = 'application/json,.json';
   fileInput.setAttribute('aria-label', 'この端末のデータのファイル');
   fileInput.tabIndex = -1;
+  // 選ぶのは「読み込む」のボタン（隠した入力は読み上げにも出さない）
+  fileInput.setAttribute('aria-hidden', 'true');
   const exportDevice = button('書き出す', () => {
     const data = buildDeviceData({
       env: store.state.env, userId: store.state.userId,
@@ -147,7 +149,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
   fileInput.addEventListener('change', () => readDeviceFile(fileInput.files?.[0]));
   const deviceRow = el('div', 'settings-actions');
   deviceRow.append(exportDevice, importDevice, fileInput);
-  deviceCard.append(deviceTitle, el('p', 'muted', '下書き・目標・通知の既読・自動登録の記録は、この端末にだけ残ります。書き出したファイルを別の端末で読み込むと、今のデータに足します（パスワードと所持パルは含みません）。'),
+  deviceCard.append(deviceTitle, el('p', 'muted', '下書き・目標・通知の既読・自動登録の記録・プレイヤーの対応は、この端末にだけ残ります。書き出したファイルを別の端末で読み込むと、今のデータに足します（パスワードと所持パルは含みません）。'),
     deviceCounts, deviceRow);
   async function readDeviceFile(file) {
     fileInput.value = '';
@@ -169,7 +171,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
   function renderDevice() {
     const counts = [
       ['下書き', context.drafts?.list().length ?? 0], ['目標', context.ideals?.list().length ?? 0],
-      ['既読', readIds(context).length], ['自動登録の記録', context.autoRegister?.notices?.().length ?? 0],
+      ['通知の既読', readIds(context).length], ['自動登録の記録', context.autoRegister?.notices?.().length ?? 0],
     ];
     const text = counts.map(([label, count]) => `${label} ${count}`).join(' · ');
     if (deviceCounts.textContent !== text) deviceCounts.textContent = text;

@@ -207,7 +207,8 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
   columns.append(main, reference);
   form.append(selections, genderRow, columns);
   modal.body.append(form);
-  modal.footer.append(button('キャンセル', () => modal.requestClose('cancel'), 'button secondary'));
+  // 新しく作るモーダルは閉じても入力を下書きに残すので「閉じる」。編集（配合・下書き）は変更を捨てるので「キャンセル」
+  modal.footer.append(button(original || draftId ? 'キャンセル' : '閉じる', () => modal.requestClose('cancel'), 'button secondary'));
   if (continuous) modal.footer.append(continuous);
   modal.footer.append(submit);
 
@@ -228,12 +229,13 @@ export function openRecordEditor(context, initial = {}, { draft = false } = {}) 
     errors.scrollIntoView?.({ block: 'nearest' });
   }
 
-  // ---- 閉じるときの下書きへの退避（F019）: 新規で、開いたとき（続けて登録の直後）から入力が変わり、パルかメモが入っているときだけ ----
+  // ---- 閉じるときの下書きへの退避（F019）: 新規で、開いたとき（続けて登録の直後）から入力が変わり、パルかメモが入っているときだけ。
+  // 「＋ 下書きに追加」のモーダル（draft で draftId なし）も同じ（Esc・閉じるで入力を黙って捨てない） ----
   let baseline = '';
   const snapshot = () => JSON.stringify(value());
   const markBaseline = () => { baseline = snapshot(); };
   function evacuable() {
-    if (original || draft || !context.drafts) return false;
+    if (original || draftId || !context.drafts) return false;
     const input = value();
     return snapshot() !== baseline && Boolean(input.parent1Id || input.parent2Id || input.childId || input.memo.trim());
   }

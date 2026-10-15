@@ -118,7 +118,7 @@ test('登録画面: Esc は候補を先に閉じ、次の Esc・×・キャン�
   await modal.dialog.querySelector('.icon-button').dispatch('click');
   assert.equal(modal.dialog.open, false);
   modal = openRecordEditor(context);
-  await buttonNamed(modal.footer, 'キャンセル').dispatch('click');
+  await buttonNamed(modal.footer, '閉じる').dispatch('click');
   assert.equal(modal.dialog.open, false);
 });
 
@@ -177,7 +177,7 @@ test('登録画面: 未選択から始まり、登録者とメモを常時表示
   const { context, calls } = await setup(t);
   const modal = openRecordEditor(context);
   assert.deepEqual(modal.body.querySelectorAll('.picker-trigger').map((node) => node.textContent), Array(3).fill('パルを選択'));
-  assert.deepEqual(modal.footer.children.map((node) => node.textContent), ['キャンセル', '続けて登録', '登録']);
+  assert.deepEqual(modal.footer.children.map((node) => node.textContent), ['閉じる', '続けて登録', '登録']);
   assert.equal(modal.body.querySelector('details'), null);
   assert.equal(modal.body.querySelector('summary'), null);
   const form = modal.body.querySelector('form');
@@ -483,7 +483,7 @@ const toastNamed = (body, text) => body.querySelectorAll('.toast').find((node) =
 for (const [how, close] of [
   ['×', (modal) => modal.dialog.querySelector('.dialog-close').dispatch('click')],
   ['Esc', (modal) => modal.dialog.dispatch('cancel')],
-  ['キャンセル', (modal) => buttonNamed(modal.footer, 'キャンセル').dispatch('click')],
+  ['閉じる', (modal) => buttonNamed(modal.footer, '閉じる').dispatch('click')],
 ]) {
   test(`登録画面: 新規の入力があるまま ${how} で閉じたら下書きに残し（性別も）、トーストの「破棄」で消す`, async (t) => {
     const app = await withDrafts(t);
@@ -503,14 +503,11 @@ for (const [how, close] of [
   });
 }
 
-test('登録画面: 編集・下書き版・初期値のまま・続けて登録の直後（親1 だけ残る）は、閉じても下書きに残さない', async (t) => {
+test('登録画面: 編集・初期値のまま・続けて登録の直後（親1 だけ残る）は、閉じても下書きに残さない（編集は「キャンセル」、新規は「閉じる」）', async (t) => {
   const app = await withDrafts(t);
   const edit = openRecordEditor(app.context, { ...initial, id: '編集中' });
   edit.body.querySelector('textarea').value = '書き換えた';
   await buttonNamed(edit.footer, 'キャンセル').dispatch('click');
-  const draftVersion = openRecordEditor(app.context, {}, { draft: true });
-  draftVersion.body.querySelector('textarea').value = '下書き版';
-  await buttonNamed(draftVersion.footer, 'キャンセル').dispatch('click');
   const prefilled = openRecordEditor(app.context, { parent1Id: 'SheepBall' });
   await prefilled.dialog.dispatch('cancel');
   assert.equal(prefilled.dialog.open, false);
@@ -518,9 +515,27 @@ test('登録画面: 編集・下書き版・初期値のまま・続けて登録
   for (const [index, query] of ['モコロン', 'フラリーナ', 'セレムーン'].entries()) await selectPal(continuous, index, query);
   await buttonNamed(continuous.footer, '続けて登録').dispatch('click');
   assert.match(continuous.body.querySelectorAll('.picker-trigger')[0].textContent, /モコロン/);
-  await buttonNamed(continuous.footer, 'キャンセル').dispatch('click');
+  await buttonNamed(continuous.footer, '閉じる').dispatch('click');
   assert.equal(continuous.dialog.open, false);
   assert.deepEqual(app.context.drafts.list(), []);
+});
+
+test('登録画面: 「＋ 下書きに追加」のモーダル（下書き版）も、入力があるまま Esc・閉じるで閉じたら下書きに残す（黙って捨てない）。下書きの編集は残さない', async (t) => {
+  const app = await withDrafts(t);
+  const draftVersion = openRecordEditor(app.context, {}, { draft: true });
+  assert.deepEqual(draftVersion.footer.children.map((node) => node.textContent), ['閉じる', '続けて下書きに保存', '下書きに保存']);
+  await selectPal(draftVersion, 0, 'モコロン');
+  draftVersion.body.querySelector('textarea').value = '下書き版';
+  await draftVersion.dialog.dispatch('cancel');
+  assert.equal(draftVersion.dialog.open, false);
+  const [saved] = app.context.drafts.list();
+  assert.deepEqual([saved.parent1Id, saved.memo], ['SheepBall', '下書き版']);
+  assert.ok(toastNamed(app.body, '下書きに残しました'));
+  // 下書きの編集は「キャンセル」で、変更を捨てる
+  const editing = openRecordEditor(app.context, saved, { draft: true });
+  editing.body.querySelector('textarea').value = '書き換えた';
+  await buttonNamed(editing.footer, 'キャンセル').dispatch('click');
+  assert.deepEqual(app.context.drafts.list().map((draft) => draft.memo), ['下書き版']);
 });
 
 test('登録画面: 下書きに残せないとき（端末に保存できない）はフォームを残して理由を出し、止められずに閉じたときは「開き直す」を出す', async (t) => {

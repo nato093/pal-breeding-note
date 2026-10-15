@@ -82,8 +82,10 @@ export async function registerDrafts(context, ids) {
   if (ids.length === 1) {
     if (registered) toast('配合を登録しました');
     else if (failed) toast(`配合を登録できませんでした。${drafts.status(ids[0]).error}`, { kind: 'error' });
-  } else if (registered || kept) {
+  } else if (registered) {
     toast(`${registered} 件を登録しました${kept ? `。${kept} 件は下書きに残っています` : ''}`);
+  } else if (kept) {
+    toast(`登録できませんでした。${kept} 件は理由を付けて下書きに残っています`, { kind: 'error' });
   }
   // サーバに断られたときは、他の人の登録を取り込むため最新を取り直す。
   if (failed) {
@@ -107,6 +109,12 @@ function draftEquation(draft) {
  * 変えない（前は行の下に 1 行足して、すべて登録で未選択の行が多いと画面が 340px 伸びた）。{ element, update(draft, status) } を返す（syncList の行）。
  * 行が消えたときのフォーカスの移し先は「編集」（data-focus。同じ「登録」「削除」へ移すと、Enter の長押しで次の行まで続けて押してしまう）
  */
+// 読み上げの名前に使う式の文（「モコロン＋フラリーナ → 未選択」）
+const draftText = (draft) => {
+  const name = (id) => (id && palsById.get(id)?.ja) || '未選択';
+  return `${name(draft.parent1Id)}＋${name(draft.parent2Id)} → ${name(draft.childId)}`;
+};
+
 function draftRow(context, draft, onRemove) {
   let current = draft;
   let shown = null;
@@ -117,11 +125,11 @@ function draftRow(context, draft, onRemove) {
   // 押した行はすぐ消えて次の行が詰まるため、ダブルクリックの 2 回目（detail が 2 以上）は次の行に当てない。
   const singleClick = (action) => (event) => (event?.detail > 1 ? undefined : action());
   const register = button('登録', singleClick(() => registerDrafts(context, [current.id])), 'button primary small');
-  register.setAttribute('aria-label', 'この下書きを登録');
   const edit = actionIcon('編集', 'edit', () => context.register(current, { draft: true }));
   edit.setAttribute('data-focus', 'edit');
+  const remove = actionIcon('削除', 'remove', singleClick(() => onRemove(current.id)), 'danger-text');
   const actions = el('div', 'card-actions draft-actions');
-  actions.append(register, edit, actionIcon('削除', 'remove', singleClick(() => onRemove(current.id)), 'danger-text'));
+  actions.append(register, edit, remove);
   const registrant = el('span', 'draft-registrant');
   const memo = el('span', 'draft-memo');
   const message = el('span', 'draft-message');
@@ -130,12 +138,21 @@ function draftRow(context, draft, onRemove) {
   row.append(equationSlot, meta, actions);
   return {
     element: row,
+    edit,
     update(next, status) {
       if (shown?.draft === next && shown.status === status) return;
       const palsChanged = !shown || [...DRAFT_PALS, 'parent1Gender', 'parent2Gender'].some((field) => shown.draft[field] !== next[field]);
       shown = { draft: next, status };
       current = next;
-      if (palsChanged) equationSlot.replaceChildren(draftEquation(next));
+      if (palsChanged) {
+        equationSlot.replaceChildren(draftEquation(next));
+        // 操作の読み上げの名前に、どの下書きかを入れる（行が並んでも「登録」「編集」「削除」だけにならない）
+        const text = draftText(next);
+        row.setAttribute('aria-label', `下書き: ${text}`);
+        register.setAttribute('aria-label', `下書き（${text}）を登録`);
+        edit.setAttribute('aria-label', `下書き（${text}）を編集`);
+        remove.setAttribute('aria-label', `下書き（${text}）を削除`);
+      }
       registrant.textContent = next.registrant || '登録者未指定';
       memo.textContent = next.memo;
       memo.title = next.memo;
@@ -169,11 +186,23 @@ export function draftsBand(context, { open = false, onToggle = () => {} } = {}) 
   const registerAll = button('すべて登録', async () => {
     bulkRunning = true;
     update();
-    try { await registerDrafts(context, visible().map((draft) => draft.id)); } finally {
+    let result = null;
+    try { result = await registerDrafts(context, visible().map((draft) => draft.id)); } finally {
       bulkRunning = false;
       update();
     }
+    // 残った下書きの理由は行に出るので、閉じていれば開き、最初に理由の出た行の「編集」へフォーカスを移す
+    if (!result?.kept || destroyed) return;
+    if (!isOpen) {
+      isOpen = true;
+      onToggle(true);
+      update();
+    }
+    const kept = [...list.children].find((node) => node.querySelector('.draft-error'));
+    editOf.get(kept)?.focus();
   }, 'button primary small');
+  // 行の要素 → その行の「編集」（すべて登録で残った行へフォーカスを移す）
+  const editOf = new WeakMap();
   const add = button('＋ 下書きに追加', () => context.register({}, { draft: true }), 'button secondary small drafts-band-add');
   const head = el('div', 'drafts-band-head');
   const headActions = el('div', 'drafts-band-actions');
@@ -226,9 +255,12 @@ export function draftsBand(context, { open = false, onToggle = () => {} } = {}) 
     toggle.setAttribute('aria-expanded', String(isOpen));
     element.classList.toggle('is-open', isOpen);
     body.hidden = !isOpen;
-    // 押せない理由: 一括登録の途中は「登録しています」、下書きがなければ「下書きがありません」、記録の読み込み前は「読み込んでいます」
-    const bulkReason = bulkRunning ? '登録しています' : !items.length ? '下書きがありません' : '登録済みの配合を読み込んでいます';
-    setDisabled(registerAll, bulkRunning || !items.length || !store.state.env, bulkReason);
+    // 押せない理由: 一括登録の途中は「登録しています」、下書きがなければ「下書きがありません」、どれも未選択の枠があれば
+    // 「編集で親1・親2・子を選ぶと登録できます」、記録の読み込み前は「読み込んでいます」
+    const complete = items.some((draft) => DRAFT_PALS.every((field) => draft[field]));
+    const bulkReason = bulkRunning ? '登録しています' : !items.length ? '下書きがありません'
+      : !complete ? 'どの下書きにも未選択の枠があります。「編集」で親1・親2・子を選ぶと登録できます' : '登録済みの配合を読み込んでいます';
+    setDisabled(registerAll, bulkRunning || !items.length || !complete || !store.state.env, bulkReason);
     setDisabled(removeAllButton, bulkRunning || !items.length, bulkRunning ? '登録しています' : '下書きがありません');
     // 閉じている間も行は作っておく（開いたときに組み立て直さない。数は多くない）。同じ下書きの行は使い回し、送信の状態（status）の
     // 変化も update で伝える
@@ -237,6 +269,7 @@ export function draftsBand(context, { open = false, onToggle = () => {} } = {}) 
       create: (draft) => {
         const row = draftRow(context, draft, removeOne);
         row.update(draft, drafts.status(draft.id));
+        editOf.set(row.element, row.edit);
         return { element: row.element, update: (next) => row.update(next, drafts.status(next.id)) };
       },
       empty: () => el('p', 'drafts-band-empty', '下書きはありません。「＋ 下書きに追加」から作れます。'),

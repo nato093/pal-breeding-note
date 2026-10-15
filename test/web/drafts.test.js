@@ -12,7 +12,8 @@ import { parseHash, buildHash } from '../../web/js/router.js';
 
 const complete = { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen' };
 const buttonNamed = (node, text) => descendants(node).find((child) => child.tagName === 'button' && child.textContent === text);
-const iconNamed = (node, label) => node.querySelector(`button[aria-label="${label}"]`);
+// 行の操作の読み上げの名前は「下書き（モコロン＋… → …）を削除」なので、アイコンのボタンは title で探す
+const iconNamed = (node, label) => node.querySelectorAll('button').find((child) => child.title === label);
 const openDialogs = () => document.body.querySelectorAll('dialog').filter((dialog) => dialog.open);
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const pals = (draft) => ({ parent1Id: draft.parent1Id, parent2Id: draft.parent2Id, childId: draft.childId });
@@ -157,7 +158,9 @@ test('下書き: 行は読み取り専用の式（未選択の枠は「未選択
   assert.match(view.element.textContent, /下書きはありません/);
   assert.equal(buttonNamed(view.element, 'すべて削除').title, '下書きがありません');
   app.drafts.add({ parent1Id: 'SheepBall' });
-  assert.deepEqual([buttonNamed(view.element, 'すべて登録').disabled, buttonNamed(view.element, 'すべて登録').title], [false, '']);
+  // どの下書きにも未選択の枠があれば、「すべて登録」は理由つきで押せない
+  assert.deepEqual([buttonNamed(view.element, 'すべて登録').disabled, buttonNamed(view.element, 'すべて登録').title],
+    [true, 'どの下書きにも未選択の枠があります。「編集」で親1・親2・子を選ぶと登録できます']);
   const [row] = rows(view);
   assert.deepEqual(names(row), ['モコロン', '未選択', '未選択']);
   // 行の中でパルを選ぶ欄はない
@@ -183,6 +186,10 @@ test('下書き: 行は読み取り専用の式（未選択の枠は「未選択
   assert.deepEqual(names(row), ['モコロン', 'フラリーナ', 'セレムーン']);
   assert.equal(register.disabled, false);
   assert.equal(register.title, '');
+  assert.equal(buttonNamed(view.element, 'すべて登録').disabled, false);
+  // 行の操作の読み上げの名前に下書きの式を入れる
+  assert.equal(register.getAttribute('aria-label'), '下書き（モコロン＋フラリーナ → セレムーン）を登録');
+  assert.equal(iconNamed(row, '削除').getAttribute('aria-label'), '下書き（モコロン＋フラリーナ → セレムーン）を削除');
   assert.deepEqual(pals(app.drafts.list()[0]), complete);
   assert.equal(countText(view), '下書き 1 件（この端末だけ）');
   assert.equal(app.calls.length, 0);
@@ -303,6 +310,24 @@ test('下書き: すべて登録は問題のない行だけ登録し、未選択
   assert.equal(app.store.state.records.length, 3);
   assert.match(app.body.textContent, /2 件を登録しました。4 件は下書きに残っています/);
   assert.equal(buttonNamed(view.element, 'すべて登録').disabled, false);
+});
+
+test('下書き: 帯を閉じたまま「すべて登録」で残った下書きがあれば、帯を開いて最初に理由の出た行の「編集」へフォーカスを移す', async (t) => {
+  const app = await setup(t, { records: [complete] });
+  const duplicate = app.drafts.add({ ...complete });
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  const toggles = [];
+  const view = mount(t, app, { open: false, onToggle: (open) => toggles.push(open) });
+  assert.equal(view.element.querySelector('.drafts-band-body').hidden, true);
+  await buttonNamed(view.element, 'すべて登録').dispatch('click');
+  await flush();
+  assert.deepEqual(toggles, [true]);
+  assert.equal(view.element.querySelector('.drafts-band-body').hidden, false);
+  const [first] = rows(view);
+  assert.equal(message(first).textContent, '同じ配合がすでに登録されています。');
+  assert.equal(document.activeElement, iconNamed(first, '編集'));
+  assert.deepEqual(app.drafts.list().map((draft) => draft.id).slice(0, 1), [duplicate.id]);
+  assert.match(app.body.textContent, /登録できませんでした。2 件は理由を付けて下書きに残っています/);
 });
 
 test('下書き: 確認の間にログアウトしたら、残りの下書きを送らない', async (t) => {

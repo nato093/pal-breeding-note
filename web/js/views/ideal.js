@@ -343,7 +343,7 @@ export function idealView(context, route) {
   const saveSlot = el('div', 'ideal-save-slot');
   saveSlot.hidden = !ideals;
   // 目標がないときは見えないまま場所を残す（選んだときに右が動かない）。保存済みは押せない印（aria-disabled）にし、フォーカスは残す
-  const saveButton = button('☆ 目標として保存', () => {
+  const saveButton = button('☆ 目標に保存', () => {
     if (!to || saveButton.getAttribute('aria-disabled') === 'true') return;
     if (saveBoard.isOpen()) saveBoard.close();
     else saveBoard.open();
@@ -364,7 +364,7 @@ export function idealView(context, route) {
     },
   });
   saveBoard.element.setAttribute('role', 'dialog');
-  saveBoard.element.setAttribute('aria-label', '目標として保存');
+  saveBoard.element.setAttribute('aria-label', '目標に保存');
   const nameField = el('label', 'field');
   nameField.append(el('span', 'field-label', '名前'), nameInput);
   const saveActions = el('div', 'ideal-save-actions');
@@ -378,7 +378,7 @@ export function idealView(context, route) {
   function renderSave() {
     if (!ideals) return;
     const registered = Boolean(to) && ideals.has(goalConditions());
-    const text = registered ? '★ 保存済み' : '☆ 目標として保存';
+    const text = registered ? '★ 目標に保存済み' : '☆ 目標に保存';
     if (saveButton.textContent !== text) saveButton.textContent = text;
     saveButton.classList.toggle('is-placeholder', !to);
     // 目標がないときは押せない（見えないまま場所を残す）。保存済みは押せない印（aria-disabled）でフォーカスを残す。
@@ -621,7 +621,7 @@ export function idealView(context, route) {
     const ordered = [...rows.filter((item) => item.status.done), ...rows.filter((item) => !item.status.done)];
     syncList(goalsList, ordered, {
       key: (item) => item.goal.id, create: goalRow, fallbackFocus: goalsClose,
-      empty: () => el('li', 'muted ideal-goal-empty', '目標はまだありません。条件を選んで「目標として保存」を押すか、パル詳細の「目標に登録」から足すと、完成や配合の登録をベルで知らせます。'),
+      empty: () => el('li', 'muted ideal-goal-empty', '目標はまだありません。条件を選んで「☆ 目標に保存」を押すか、パル詳細の「☆ 目標に保存」から足すと、完成や配合の登録をベルで知らせます。'),
     });
   }
 

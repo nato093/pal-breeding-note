@@ -131,7 +131,7 @@ export function inheritanceView(context, route) {
     if (href === hintHref) return;
     hintHref = href;
     hintSlot.hidden = !href;
-    hintSlot.replaceChildren(...(href ? [setupHint({ text: '所持パルを読み込むと、パッシブを持つ個体から探せます。', action: { label: '設定を開く', href } })] : []));
+    hintSlot.replaceChildren(...(href ? [setupHint({ text: '所持パルを読み込むと、パッシブを持つ個体から探せます。', action: { label: 'セーブ連携を開く', href } })] : []));
   }
 
   // 開始のチップ: 候補があれば「すべて」（開始を選ばない）と候補（1 段目はパル、2 段目は「最短 N 回 · n 体 · 持ち主」）。
@@ -260,7 +260,7 @@ export function inheritanceView(context, route) {
       }
       if (!entry.male && !entry.female) {
         node.classList.add('unowned');
-        node.append(text(`相手親の${name}: タマゴ等のみ（親にできる個体なし）`));
+        node.append(text(`相手親の${name}: タマゴ等だけ（親にできる個体なし）`));
       } else {
         node.append(text(`相手親の${name}: `), genderMark('M', { inline: true }), text(`${entry.male} `), genderMark('F', { inline: true }), text(String(entry.female)));
         if (passives.length) node.append(text(`（うちパッシブ一致 ${matching} 体）`));

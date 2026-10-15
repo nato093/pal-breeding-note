@@ -711,6 +711,35 @@ test('画面: ショートカット N で登録を開く（配合を探すで選
   assert.equal(press().prevented, false);
 });
 
+test('画面: ショートカット N は登録のボタンに案内（title・aria-keyshortcuts）があり、開いた帯などでは止めず候補を開いた部品だけで止める。パル詳細ではそのパルを子に開く', async (t) => {
+  const { documentEvents, changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
+  const keydown = documentEvents.get('keydown');
+  const press = () => {
+    const event = { key: 'n', isComposing: false, repeat: false, ctrlKey: false, altKey: false, metaKey: false, prevented: false, preventDefault() { this.prevented = true; } };
+    keydown(event);
+    return event;
+  };
+  const register = byClass('find-register');
+  assert.deepEqual([register.title, register.getAttribute('aria-keyshortcuts')], ['キーボードの N でも開けます', 'N']);
+  const openDialog = () => find((node) => node.tagName === 'dialog' && node.open);
+  // 候補を開いている部品（aria-haspopup で aria-expanded=true）では開かない
+  const popup = { tagName: 'BUTTON', getAttribute: (name) => ({ 'aria-expanded': 'true', 'aria-haspopup': 'listbox' })[name] ?? null };
+  document.activeElement = popup;
+  assert.equal(press().prevented, false);
+  // 開いた帯・details など（aria-haspopup のない aria-expanded=true）では止めない
+  document.activeElement = { tagName: 'BUTTON', getAttribute: (name) => (name === 'aria-expanded' ? 'true' : null) };
+  assert.equal(press().prevented, true);
+  await openDialog().querySelectorAll('button').find((node) => node.textContent === '閉じる').dispatch('click');
+  assert.equal(openDialog(), undefined);
+  // パル詳細: 「この子の配合を登録」と同じく、そのパルを子にして開く
+  changeHash('#/pal/MoonQueen');
+  document.activeElement = document.body;
+  const childButton = find((node) => node.tagName === 'button' && node.textContent === 'この子の配合を登録');
+  assert.equal(childButton.getAttribute('aria-keyshortcuts'), 'N');
+  assert.equal(press().prevented, true);
+  assert.match(openDialog().querySelectorAll('.picker-trigger')[2].textContent, /セレムーン/);
+});
+
 test('画面: 初めての端末では更新内容のお知らせを既読から始めて数字を出さず、別のタブで既読が変われば点を出し、開いても既読にしない', async (t) => {
   // どのお知らせよりも 7 日以上後の時刻（直近 7 日のお知らせは未読のまま。G-22）
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2099-01-01T00:00:00.000Z') });
@@ -744,7 +773,7 @@ test('画面: 初めての端末では更新内容のお知らせを既読から
   assert.equal(byText('通知一覧'), undefined);
 });
 
-test('画面: パル詳細の「☆ 目標に登録」で種族だけの目標にし、作れるようになったらベルで「配合が登録されました」と知らせ、目標の行に配合の数を出す', async (t) => {
+test('画面: パル詳細の「☆ 目標に保存」で種族だけの目標にし、作れるようになったらベルで「配合が登録されました」と知らせ、目標の行に配合の数を出す', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   let second = 0;
   // 同じミリ秒の応答で判定が止まらないよう、サーバ時刻を 1 秒ずつ進める。
@@ -762,9 +791,9 @@ test('画面: パル詳細の「☆ 目標に登録」で種族だけの目標�
   const target = pals.find((pal) => pal.active && !made.has(pal.id));
   changeHash(`#/pal/${target.id}`);
   const toggle = byClass('goal-toggle');
-  assert.equal(toggle.textContent, '目標に登録');
+  assert.equal(toggle.textContent, '目標に保存');
   await toggle.dispatch('click');
-  assert.equal(toggle.textContent, '目標に登録済み');
+  assert.equal(toggle.textContent, '目標に保存済み');
   const [goal] = JSON.parse(values.get('pal-note.ideals.test.架空データ'));
   assert.deepEqual([goal.palId, goal.passives, goal.targets], [target.id, [], { hp: 0, shot: 0, defense: 0 }]);
   // 観測は別のキー（前の版のタブが書き換えない）
@@ -798,7 +827,7 @@ test('画面: パル詳細の「☆ 目標に登録」で種族だけの目標�
   assert.equal(row.querySelector('.ideal-goal-records').href, `#/search?c=${target.id}`);
 });
 
-test('画面: 配合を探すで子だけを選んで 0 件のとき、子を変えると文と「目標に登録」が新しい子に変わる（前の子を登録しない）', async (t) => {
+test('画面: 配合を探すで子だけを選んで 0 件のとき、子を変えると文と「目標に保存」が新しい子に変わる（前の子を登録しない）', async (t) => {
   const { values, changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const made = new Set(JSON.parse(values.get('pal-note.cache.test')).records.map((record) => record.childId));
   const [first, second] = pals.filter((pal) => pal.active && !made.has(pal.id));
@@ -812,7 +841,7 @@ test('画面: 配合を探すで子だけを選んで 0 件のとき、子を変
   assert.deepEqual(goals.map((goal) => goal.palId), [second.id]);
   // ダブルクリックの 2 回目は捨てる（登録してすぐ外さない）
   await main.querySelector('.goal-toggle').dispatch('click', { detail: 2 });
-  assert.equal(main.querySelector('.goal-toggle').textContent, '目標に登録済み');
+  assert.equal(main.querySelector('.goal-toggle').textContent, '目標に保存済み');
 });
 
 test('画面: 旧ウィッシュリストのデータがあれば起動したときに目標へ移し、旧キーを消す。もう一度起動しても増えない', async (t) => {
@@ -1431,9 +1460,9 @@ test('画面: 同じ URL のエントリどうし（理想個体の「呼び出�
     await hp().dispatch('change');
   };
   const first = history.state.palEntry;
-  // HP 50 の条件を目標として保存してから、HP 70 にする
+  // HP 50 の条件を目標に保存してから、HP 70 にする
   await setHp('50');
-  await byText('☆ 目標として保存').dispatch('click');
+  await byText('☆ 目標に保存').dispatch('click');
   await byText('保存').dispatch('click');
   await setHp('70');
   // 見出しの「目標（1）」で目標のダイアログを開く
@@ -1648,13 +1677,14 @@ test('画面（autoreg-visibility）: 自動の読み込みが止まっている
   assert.equal(JSON.parse(values.get('pal-note.owned.bridge')).enabled, true);
 });
 
-test('画面（settings）: 整合性の警告が 1 件以上なら設定のタブに数のバッジと読み上げの文、行き先は警告のカード（#/settings?open=warnings）', async (t) => {
+test('画面（settings）: 整合性の警告が 1 件以上なら設定のタブに数のバッジと読み上げの文、行き先は警告のカード（#/settings?open=warnings。同じ警告では 1 回だけ）', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
+  let warnings = [{ code: 'UNKNOWN_PAL', rowNumber: 3 }];
   const api = async (request) => {
     const response = await development(request);
-    // 全件の応答（snapshot の action は全件をそのまま、ほかの操作は snapshot の中に返す）に警告を 1 件入れる
-    if (Array.isArray(response.warnings)) response.warnings = [{ code: 'UNKNOWN_PAL', rowNumber: 3 }];
-    if (response.snapshot) response.snapshot.warnings = [{ code: 'UNKNOWN_PAL', rowNumber: 3 }];
+    // 全件の応答（snapshot の action は全件をそのまま、ほかの操作は snapshot の中に返す）に警告を入れる
+    if (Array.isArray(response.warnings)) response.warnings = warnings;
+    if (response.snapshot) response.snapshot.warnings = warnings;
     return response;
   };
   const { changeHash } = await boot(t, { initial: signedIn, api, hash: '#/search' });
@@ -1674,4 +1704,12 @@ test('画面（settings）: 整合性の警告が 1 件以上なら設定のタ�
   // 見出しへフォーカスを移すのは描いた後（次の回）
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(document.activeElement, card.querySelector('h3'));
+  // 見た警告のあいだは、設定のタブは覚えた行き先へ（毎回警告のカードへ戻さない）。警告が変わったらまた警告のカードへ
+  changeHash('#/search');
+  assert.equal(tab.href, '#/settings');
+  warnings = [{ code: 'UNKNOWN_PAL', rowNumber: 3 }, { code: 'UNKNOWN_PAL', rowNumber: 4 }];
+  await byClass('sync-status').dispatch('click');
+  for (let i = 0; i < 5; i++) await flush();
+  assert.equal(badge.textContent, '2');
+  assert.equal(tab.href, '#/settings?open=warnings');
 });

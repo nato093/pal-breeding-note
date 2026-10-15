@@ -83,7 +83,7 @@ async function pickPassive(view, id) {
 const radioGroup = (view, label) => view.element.querySelectorAll('[role="radiogroup"]').find((node) => node.getAttribute('aria-label') === label);
 const chooseRadio = (view, label, value) => radioGroup(view, label).querySelector(`[data-value="${value}"]`).dispatch('click');
 const chosen = (view, label) => radioGroup(view, label).querySelector('[aria-checked="true"]')?.getAttribute('data-value');
-// 「☆ 目標として保存」のボタンと、保存の板の名前の欄（板は開いている間だけ画面にある）
+// 「☆ 目標に保存」のボタンと、保存の板の名前の欄（板は開いている間だけ画面にある）
 const saveButton = (view) => view.element.querySelector('.ideal-save');
 const nameInput = (view) => view.element.querySelectorAll('input').find((node) => node.getAttribute('aria-label') === '目標の名前');
 // 保存の板を開いて保存する（name を渡せば名前を変える）
@@ -297,7 +297,7 @@ test('理想個体画面: 個体値の目標はチェックつきの入力。チ
     parseHash('#/ideal?to=SheepBall'));
   assert.equal(cardText(cards(zero)[0]), unchecked);
   zero.destroy();
-  // 目標として保存すると保存は 0（条件なし）のまま、保存のボタンの title と目標のダイアログの要約は「HP —」
+  // 目標に保存すると保存は 0（条件なし）のまま、保存のボタンの title と目標のダイアログの要約は「HP —」
   assert.match(saveButton(view).title, /^HP —・攻撃 100 以上・防御 100 以上/);
   saveAsGoal(view);
   assert.deepEqual(ctx.ideals.list()[0].targets, { hp: 0, shot: 100, defense: 100 });
@@ -389,7 +389,7 @@ function fakeIdeals({ scope = 'test.仲間', add } = {}) {
   };
 }
 
-test('理想個体画面: 目標のパルを ♂ と ♀ で持っていないときは、次の一手に「配合を探すで親を探す」と「☆ 目標に登録」（押すと種族だけの目標になり「目標に登録済み」。前は「ウィッシュリストに追加」）', async (t) => {
+test('理想個体画面: 目標のパルを ♂ と ♀ で持っていないときは、次の一手に「配合を探すで親を探す」と「☆ 目標に保存」（押すと種族だけの目標になり「目標に保存済み」。前は「ウィッシュリストに追加」）', async (t) => {
   install(t);
   const ideals = fakeIdeals();
   const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), ideals };
@@ -402,18 +402,18 @@ test('理想個体画面: 目標のパルを ♂ と ♀ で持っていない�
   assert.equal(reverse.textContent, '配合を探すで親を探す');
   assert.equal(reverse.href, '#/search?c=SheepBall');
   const add = emptyState.querySelector('.goal-toggle');
-  assert.equal(add.textContent, '目標に登録');
+  assert.equal(add.textContent, '目標に保存');
   assert.equal(add.getAttribute('aria-pressed'), 'false');
   await add.dispatch('click');
   // 種族だけの目標（パッシブなし・個体値の条件なし）
   assert.deepEqual(ideals.goals.map((goal) => [goal.palId, goal.passives, goal.mode, goal.targets]), [['SheepBall', [], 'include', { hp: 0, shot: 0, defense: 0 }]]);
-  assert.equal(add.textContent, '目標に登録済み');
+  assert.equal(add.textContent, '目標に保存済み');
   assert.equal(add.getAttribute('aria-pressed'), 'true');
-  assert.ok(document.body.querySelectorAll('.toast').some((node) => node.textContent.startsWith('モコロンを目標に登録しました')));
+  assert.ok(document.body.querySelectorAll('.toast').some((node) => node.textContent.startsWith('モコロンを目標に保存しました')));
   // もう一度押すと外す（トーストに「元に戻す」）
   await add.dispatch('click');
   assert.deepEqual(ideals.goals, []);
-  assert.equal(add.textContent, '目標に登録');
+  assert.equal(add.textContent, '目標に保存');
   view.destroy();
   // ログインしていない（scope が空）ときは出さない
   const guest = idealView({ ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), ideals: fakeIdeals({ scope: '' }) }, parseHash('#/ideal?to=SheepBall'));
@@ -422,7 +422,7 @@ test('理想個体画面: 目標のパルを ♂ と ♀ で持っていない�
   guest.destroy();
 });
 
-test('理想個体画面: 「☆ 目標に登録」で登録できなかったとき、ID の変更中なら「ID の変更が終わってから登録してください」と出す', async (t) => {
+test('理想個体画面: 「☆ 目標に保存」で登録できなかったとき、ID の変更中なら「ID の変更が終わってから保存してください」と出す', async (t) => {
   const { body } = install(t);
   const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), ideals: fakeIdeals({ add: () => null }) };
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
@@ -431,11 +431,11 @@ test('理想個体画面: 「☆ 目標に登録」で登録できなかった�
   const toasts = () => body.querySelectorAll('.toast').map((node) => node.textContent);
   ctx.store.state.renaming = true;
   await add.dispatch('click');
-  assert.deepEqual(toasts(), ['ID の変更が終わってから登録してください']);
+  assert.deepEqual(toasts(), ['ID の変更が終わってから保存してください']);
   ctx.store.state.renaming = false;
   await add.dispatch('click');
-  assert.deepEqual(toasts(), ['ID の変更が終わってから登録してください', 'ログインしてから登録してください']);
-  assert.equal(add.textContent, '目標に登録');
+  assert.deepEqual(toasts(), ['ID の変更が終わってから保存してください', 'ログインしてから保存してください']);
+  assert.equal(add.textContent, '目標に保存');
   view.destroy();
 });
 
@@ -688,7 +688,7 @@ function withIdeals(ctx, owned, storage = new Map()) {
 }
 const byLabel = (view, label) => view.element.querySelectorAll('button').find((node) => node.textContent === label);
 
-test('理想個体画面: 「☆ 目標として保存」の板で名前を付けて保存し（Enter）、「目標（N）」のダイアログに完成の状態を出す', (t) => {
+test('理想個体画面: 「☆ 目標に保存」の板で名前を付けて保存し（Enter）、「目標（N）」のダイアログに完成の状態を出す', (t) => {
   const { body } = install(t);
   const owned = fakeOwned([
     palworldPal('m1', 'SheepBall', 'Male', ['Rare'], full),
@@ -698,7 +698,7 @@ test('理想個体画面: 「☆ 目標として保存」の板で名前を付�
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
   body.append(view.element);
   const save = saveButton(view);
-  assert.equal(save.textContent, '☆ 目標として保存');
+  assert.equal(save.textContent, '☆ 目標に保存');
   assert.equal(save.getAttribute('aria-disabled'), 'false');
   // title は保存される条件の要約（I-20）
   assert.equal(save.title, 'HP 100 以上・攻撃 100 以上・防御 100 以上 · 欲しいものを全部持つ（他も可） · ケーキ・野菜ケーキ');
@@ -721,7 +721,7 @@ test('理想個体画面: 「☆ 目標として保存」の板で名前を付�
   // 板は閉じてボタンへフォーカスを戻す。同じ条件はもう保存できない（押せない印。フォーカスは残す）
   assert.equal(nameInput(view), undefined);
   assert.equal(document.activeElement, save);
-  assert.equal(save.textContent, '★ 保存済み');
+  assert.equal(save.textContent, '★ 目標に保存済み');
   assert.equal(save.getAttribute('aria-disabled'), 'true');
   // 押せない理由を先に、保存した条件の要約を次の行に（setDisabled の title）
   assert.equal(save.title, '同じ条件の目標があります\nHP 100 以上・攻撃 100 以上・防御 100 以上 · 欲しいものを全部持つ（他も可） · ケーキ・野菜ケーキ');
@@ -736,11 +736,11 @@ test('理想個体画面: 「☆ 目標として保存」の板で名前を付�
   const attack = input(view, '攻撃の目標（以上）');
   attack.value = '90';
   attack.dispatch('input');
-  assert.equal(save.textContent, '☆ 目標として保存');
+  assert.equal(save.textContent, '☆ 目標に保存');
   assert.equal(save.getAttribute('aria-disabled'), 'false');
   attack.value = '100';
   attack.dispatch('input');
-  assert.equal(save.textContent, '★ 保存済み');
+  assert.equal(save.textContent, '★ 目標に保存済み');
   // アルファの条件はない
   assert.ok(!view.element.querySelectorAll('[role="radio"]').some((node) => node.getAttribute('data-value') === 'alpha'));
   view.destroy();
@@ -872,7 +872,7 @@ test('理想個体画面: 一覧や通知から開くと（g）、登録した�
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
   assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['only', 'talent']);
   assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare']);
-  assert.equal(saveButton(view).textContent, '★ 保存済み');
+  assert.equal(saveButton(view).textContent, '★ 目標に保存済み');
   assert.equal(saveButton(view).getAttribute('aria-disabled'), 'true');
   // 目標のダイアログの「呼び出す」は g つきのリンク
   assert.equal(openGoals(view).querySelector('.ideal-goal').querySelectorAll('a').find((node) => node.textContent === '呼び出す').href, `#/ideal?to=SheepBall&p=Rare&g=${goal.id}`);
@@ -938,7 +938,7 @@ test('理想個体画面: 同じ画面のまま g つきの URL が来ると、�
   assert.deepEqual([value('HPの目標（以上）'), value('攻撃の目標（以上）'), value('防御の目標（以上）')], ['', '100', '90']);
   assert.deepEqual(['HPを条件にする', '攻撃を条件にする', '防御を条件にする'].map((label) => input(view, label).checked), [false, true, true]);
   assert.deepEqual([chosen(view, 'パッシブの条件'), chosen(view, 'ケーキ')], ['only', 'talent']);
-  assert.equal(saveButton(view).textContent, '★ 保存済み');
+  assert.equal(saveButton(view).textContent, '★ 目標に保存済み');
   // ここから作る遷移先の URL に g を残さない
   await pickPassive(view, 'Legend');
   assert.deepEqual(ctx.navigations, ['#/ideal?to=SheepBall&p=Rare%2CLegend']);
@@ -1083,7 +1083,7 @@ test('理想個体画面: 目標を外すとダイアログの行が消えて空
   remove.dispatch('click');
   assert.equal(ctx.ideals.list().length, 0);
   assert.equal(dialog.querySelector('.ideal-goal-empty').textContent,
-    '目標はまだありません。条件を選んで「目標として保存」を押すか、パル詳細の「目標に登録」から足すと、完成や配合の登録をベルで知らせます。');
+    '目標はまだありません。条件を選んで「☆ 目標に保存」を押すか、パル詳細の「☆ 目標に保存」から足すと、完成や配合の登録をベルで知らせます。');
   view.destroy();
 });
 
@@ -2426,7 +2426,7 @@ test('理想個体画面: 保存の板の「保存」をマウスで押すと保
   await submit.dispatch('click');
   assert.deepEqual(ctx.ideals.list().map((goal) => goal.name), ['マウスで保存']);
   assert.equal(nameInput(view), undefined);
-  assert.equal(saveButton(view).textContent, '★ 保存済み');
+  assert.equal(saveButton(view).textContent, '★ 目標に保存済み');
   view.destroy();
 });
 

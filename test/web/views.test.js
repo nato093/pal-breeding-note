@@ -741,7 +741,7 @@ test('配合を探す: 所持パルのデータがあれば、カードの親に
   const none = context();
   none.owned = ownedStore(null);
   const plain = searchView(none, parseHash('#/search'));
-  assert.equal(plain.element.querySelector('.owned-count'), null);
+  assert.equal(plain.element.querySelector('.owned-tally'), null);
   assert.equal(plain.element.querySelector('.find-owned').hidden, true);
   assert.equal(none.owned.loads, 1);
   plain.destroy();
@@ -752,18 +752,18 @@ test('配合を探す: 所持パルのデータがあれば、カードの親に
     ownedPal('c', 'MoonQueen', 'F'), ownedPal('d', 'MoonQueen', 'M', { place: 'global' }),
   ]);
   const view = searchView(app, parseHash('#/search'));
-  const badges = () => view.element.querySelector('.breeding-card').querySelectorAll('.owned-count').map((node) => [node.className, node.textContent, node.href ?? '']);
-  // 親の印は「♂0 ♀1」（性別の記号は色だけの genderMark）。タマゴ等だけなら「タマゴ等のみ」、子は「所持 N」
+  const badges = () => view.element.querySelector('.breeding-card').querySelectorAll('.owned-tally').map((node) => [node.className, node.textContent, node.href ?? '']);
+  // 親の印は「♂0 ♀1」（性別の記号は色だけの genderMark）。タマゴ等だけなら「タマゴ等だけ」、子は「所持 N」
   assert.deepEqual(badges(), [
-    ['owned-count', '♂0♀1', '#/owned?pal=FlowerDoll'],
-    ['owned-count is-blocked', 'タマゴ等のみ', '#/owned?pal=SheepBall'],
-    ['owned-count is-child', '所持 2', '#/owned?pal=MoonQueen'],
+    ['owned-tally', '♂0♀1', '#/owned?pal=FlowerDoll'],
+    ['owned-tally is-blocked', 'タマゴ等だけ', '#/owned?pal=SheepBall'],
+    ['owned-tally is-child', '所持 2', '#/owned?pal=MoonQueen'],
   ]);
   assert.match(view.element.querySelector('.is-blocked').title, /うちタマゴ 1・グローバルパルボックス 0・性別不明 0 は親にできません/);
   assert.equal(view.element.querySelector('.find-owned').hidden, false);
   // データが変わったら描き直す（所持していなければ「未所持」・子は何も出さない）
   app.owned.set([]);
-  assert.deepEqual(badges().map(([className, text]) => [className, text]), [['owned-count is-none', '未所持'], ['owned-count is-none', '未所持']]);
+  assert.deepEqual(badges().map(([className, text]) => [className, text]), [['owned-tally is-none', '未所持'], ['owned-tally is-none', '未所持']]);
   view.destroy();
 });
 
@@ -879,7 +879,7 @@ test('設定（この端末のデータ）: 件数を出し、読み込むと形
   app.notifications = { readList: () => ['release:a'], unread: () => [{ id: 'wishlist:test:SheepBall:x' }], markRead: (ids) => calls.push(['read', ids]), subscribe };
   const view = settingsView(app);
   const card = view.element.querySelector('.settings-device');
-  assert.equal(card.querySelector('.settings-device-counts').textContent, '下書き 0 · 目標 0 · 既読 1 · 自動登録の記録 0');
+  assert.equal(card.querySelector('.settings-device-counts').textContent, '下書き 0 · 目標 0 · 通知の既読 1 · 自動登録の記録 0');
   const input = card.querySelector('input');
   assert.equal(input.accept, 'application/json,.json');
   const file = (data) => ({ size: 100, text: async () => JSON.stringify(data) });
@@ -900,13 +900,13 @@ test('設定（この端末のデータ）: 件数を出し、読み込むと形
   const reading = input.dispatch('change');
   await new Promise((resolve) => setTimeout(resolve, 0));
   const dialog = document.body.querySelectorAll('dialog').find((node) => node.open);
-  assert.match(dialog.textContent, /下書き 1・目標 1・既読 1 件を取り込みます。今のデータは消さずに足します。/);
+  assert.match(dialog.textContent, /下書き 1・目標 1・通知の既読 1 件を取り込みます。今のデータは消さずに足します。/);
   await dialog.querySelectorAll('button').find((node) => node.textContent === '取り込む').dispatch('click');
   await reading;
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [['drafts', 1], ['goals', 1], ['read', ['wishlist:test:SheepBall:x']]]);
   // 断りのトーストは警告の列に出るので、ふつうのトーストは列の中で探す
-  assert.ok(toasts().includes('取り込みました: 下書き 1・目標 1・既読 1 件'), toasts().join(' / '));
+  assert.ok(toasts().includes('取り込みました: 下書き 1・目標 1・通知の既読 1 件'), toasts().join(' / '));
   view.destroy();
 });
 
@@ -943,6 +943,6 @@ test('設定（この端末のデータ）: 自動登録の記録を既読より
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [['notices', 3], 'unread', ['read', ['auto-breed:test:anomaly:f1:e1']], ['map', 'uid-2', '仲間', world], 'self']);
   const toasts = document.body.querySelectorAll('.toast-message').map((node) => node.textContent);
-  assert.ok(toasts.includes('取り込みました: 自動登録の記録 1・既読 1・登録者の対応 1 件（自動登録の記録 2 件は重複・上限で取り込みませんでした）'), toasts.join(' / '));
+  assert.ok(toasts.includes('取り込みました: 自動登録の記録 1・通知の既読 1・プレイヤーの対応 1 件（自動登録の記録 2 件は重複・上限で取り込みませんでした）'), toasts.join(' / '));
   view.destroy();
 });

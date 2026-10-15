@@ -113,6 +113,6 @@ test('端末のデータ: 併せ方は今のものを優先し、目標は重複
   assert.equal(obs.species.PinkCat, undefined);
   // 確認の文
   const { data } = parseDeviceData(JSON.stringify(exported()), { env: 'test', userId: '自分' });
-  assert.equal(importSummary(data), '下書き 1・目標 1・既読 2・自動登録の記録 1・登録者の対応 1 件を取り込みます。今のデータは消さずに足します。');
+  assert.equal(importSummary(data), '下書き 1・目標 1・通知の既読 2・自動登録の記録 1・プレイヤーの対応 1 件を取り込みます。今のデータは消さずに足します。');
   assert.equal(importSummary({ drafts: [], goals: [], notificationsRead: [], autoBreedingNotices: [], playerMappings: {} }), '');
 });
