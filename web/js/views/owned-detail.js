@@ -10,6 +10,37 @@ import { keywordTerms, keywordNotes, eggName, isMutantEgg } from '../core/owned.
 import { buildHash } from '../router.js';
 import { fillTalentCell, fillWhereCell } from './owned.js';
 
+// 魂の強化の並び（save-extras。F070。段階の数。0 は出さない）
+const SOUL_PARTS = [['hp', 'HP'], ['attack', '攻撃'], ['defense', '防御'], ['craft', '作業速度']];
+// 入手した日時（「2026/10/15 21:52」。年は今年でも付ける＝古い個体と見分ける）
+function ownedDate(value) {
+  const time = new Date(value);
+  if (!value || !Number.isFinite(time.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${time.getFullYear()}/${pad(time.getMonth() + 1)}/${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`;
+}
+
+/**
+ * 魂の強化と状態の節の中身（save-extras）。魂の強化（0 でないものだけ。「HP +10 · 攻撃 +10」）・病気（種類）・空腹（種類）・SAN。
+ * 魂の強化も状態も分からない（共有のデータ・読む前のセーブ）・タマゴなら null（節を出さない）
+ */
+export function soulAndCondition(pal) {
+  if (pal.egg || (!pal.soul && !pal.condition)) return null;
+  const list = el('dl', 'owned-detail-facts');
+  const add = (term, detail, className = '') => list.append(el('dt', '', term), el('dd', className, detail));
+  if (pal.soul) {
+    const parts = SOUL_PARTS.filter(([key]) => pal.soul[key] > 0).map(([key, name]) => `${name} +${pal.soul[key]}`);
+    add('魂の強化', parts.length ? parts.join(' · ') : 'なし');
+  }
+  if (pal.condition) {
+    const { sick, hunger, sanity } = pal.condition;
+    // 病気・空腹の種類はゲームの内部名（日本語の表を取り込んでいないので、そのまま括弧に添える）
+    add('状態', [sick ? `病気（${sick}）` : '', hunger ? `空腹（${hunger}）` : ''].filter(Boolean).join(' · ') || '病気・空腹なし', sick || hunger ? 'is-warning' : '');
+    if (sanity !== null) add('SAN', String(Math.round(sanity)));
+  }
+  return list;
+}
+
 // 節（見出しは h3。ドロワーの見出しが h2）
 function section(title, className, ...children) {
   const box = el('section', `owned-detail-section ${className}`);
@@ -86,6 +117,8 @@ export function ownedDetail(context, instanceId, { terms, query = '', setTitle }
       pal.egg ? ['badge-egg', eggName(pal.eggItemId) || 'タマゴ'] : null, isMutantEgg(pal) ? ['badge-mutant', '突然変異'] : null,
       pal.farm ? ['badge-farm', pal.farm.role === 'egg' ? '配合牧場のタマゴ' : '配合牧場'] : null,
       pal.lucky ? ['badge-lucky', 'ラッキー'] : null, pal.alpha ? ['badge-alpha', 'アルファ'] : null,
+      // 病気・空腹（save-extras。行は拠点・手持ちだけ、詳細はどこの個体でも）
+      pal.condition?.sick ? ['badge-sick', '病気'] : null, pal.condition?.hunger ? ['badge-hungry', '空腹'] : null,
     ].filter(Boolean);
     if (badges.length) {
       const line = el('p', 'owned-badges owned-detail-badges');
@@ -132,6 +165,8 @@ export function ownedDetail(context, instanceId, { terms, query = '', setTitle }
     const where = el('div', 'owned-where owned-detail-where');
     fillWhereCell(where, pal);
     const placeText = el('p', 'owned-detail-place', pal.placeLabel);
+    // 入手した日時（save-extras。入手の新しい順の並べ替えと同じ値。持ち主のない個体・タマゴ・古いデータにはない）
+    const acquired = pal.ownedAt ? el('p', 'owned-detail-acquired', `入手 ${ownedDate(pal.ownedAt)}`) : null;
 
     const parts = [head];
     // キーワードに一致した理由の全文（所持パルで入れていた語。行では 1 行に切っている）
@@ -147,8 +182,11 @@ export function ownedDetail(context, instanceId, { terms, query = '', setTitle }
       parts.push(section(`キーワード「${words.join(' ')}」に一致`, 'is-hits', list));
     }
     parts.push(section('個体値', 'is-talent', talent), section('パッシブ', 'is-passives', passiveBody),
-      section('パートナースキル', 'is-partner', partner), section('アクティブスキル', 'is-actives', activeBody),
-      section('場所', 'is-where', where, placeText));
+      section('パートナースキル', 'is-partner', partner), section('アクティブスキル', 'is-actives', activeBody));
+    // 魂の強化と状態（ホストの画面だけ。共有しない。save-extras）
+    const facts = soulAndCondition(pal);
+    if (facts) parts.push(section('魂の強化と状態', 'is-condition', facts));
+    parts.push(section('場所', 'is-where', where, placeText, ...(acquired ? [acquired] : [])));
     // その種族で次にすること（パルのマスターにある種族だけ。タマゴは親にできないので、親の検索は出さない）
     if (master) {
       const actions = el('div', 'owned-detail-actions');

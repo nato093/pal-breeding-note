@@ -414,7 +414,8 @@ test('palworld: synthetic world → snapshot', async () => {
 
   const snap = buildSnapshot({ level, players: [player], dps: [{ playerUid: P1, data: dps }], meta });
   assert.deepEqual(snap.world, { name: 'テスト', hostName: 'Alice', savedAt: '1970-01-01T00:00:01.000Z', inGameDay: 3 });
-  assert.deepEqual(snap.players, [{ uid: P1, name: 'Alice', level: 10 }]);
+  // GameTimeSaveData のないセーブでは、プレイ中かは分からない（null。save-extras）
+  assert.deepEqual(snap.players, [{ uid: P1, name: 'Alice', level: 10, online: null }]);
   assert.deepEqual(snap.guilds, [{ id: GUILD, name: 'ギルド', baseIds: [BASE2, BASE1], playerUids: [P1] }]);
   assert.deepEqual(snap.bases.map((b) => [b.id, b.number, b.containerId, b.position.x]), [[BASE2, 1, id(15), 200], [BASE1, 2, C_BASE, 100]]);
   const byChar = Object.fromEntries(snap.pals.map((p) => [p.characterId, p]));
@@ -423,6 +424,8 @@ test('palworld: synthetic world → snapshot', async () => {
     passives: ['Rare', 'Legend'], skills: ['AirCanon', 'Unique_NightFox_Thunder', 'PowerShot'],
     talent: { hp: 50, shot: 0, defense: 0 }, isRare: true, ownerUid: P1, lastOwnerUid: P1,
     location: { kind: 'party', playerUid: P1, baseId: '', containerId: C_PARTY, slotIndex: 2, mapObjectId: '', itemId: '', position: null },
+    // save-extras の項目は、セーブに書かれていなければ既定（入手時刻なし・魂の強化 0・病気なし・空腹なし・SAN 100）
+    ownedAt: '', soul: { hp: 0, attack: 0, defense: 0, craft: 0 }, condition: { sick: '', hunger: '', sanity: 100 },
   });
   assert.equal(byChar.SheepBall.location.kind, 'base');
   assert.equal(byChar.SheepBall.location.baseId, BASE1);

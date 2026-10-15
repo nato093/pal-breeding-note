@@ -195,7 +195,8 @@ test('所持パル共有: 配合牧場のタマゴ（短い鍵 s・eggs・n）�
 
 test('所持パル共有: タマゴのアイテム ID（eggItemId 列）を残して返す。列のない古いシートでは書かずに空で返し、setup をやり直すと列を足す', () => {
   const eggAt = OWNED_FIELDS.indexOf('eggItemId');
-  assert.equal(eggAt, OWNED_FIELDS.length - 1);
+  // eggItemId の後に ownedAt（save-extras）
+  assert.equal(eggAt, OWNED_FIELDS.length - 2);
   const env = fixture();
   env.call('ownedUpload', upload(WORLD_A, [row('e1', { egg: '1', eggItemId: 'PalEgg_Dark_03' })]));
   assert.equal(env.call('owned', { worldId: WORLD_A }).rows[0][eggAt], 'PalEgg_Dark_03');
@@ -213,4 +214,48 @@ test('所持パル共有: タマゴのアイテム ID（eggItemId 列）を残�
   assert.equal(sheet.data[0][sheet.data[0].length - 1], 'eggItemId');
   old.call('ownedUpload', upload(WORLD_A, [row('e3', { eggItemId: 'PalEgg_Fire_01' })], '2026-10-05T12:00:00.000Z'));
   assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[eggAt]]), [['e3', 'PalEgg_Fire_01']]);
+});
+
+test('所持パル共有: 入手時刻（ownedAt 列）とゲーム内の日数（ワールドの inGameDay 列）を残して返す。列のない古いシートでは書かずに読み、setup をやり直すと列を足す（save-extras）', () => {
+  const ownedAt = OWNED_FIELDS.indexOf('ownedAt');
+  assert.equal(ownedAt, OWNED_FIELDS.length - 1);
+  const time = '2026-10-15T12:52:16.570Z';
+  const players = [{ uid: '00000000-0000-0000-0000-000000000001', name: 'Dave', level: 52, online: true }, { uid: '00000000-0000-0000-0000-000000000002', name: 'Frank', online: false }];
+  const env = fixture();
+  const stored = env.call('ownedUpload', upload(WORLD_A, [row('p1', { ownedAt: time })], '2026-10-05T10:00:00.000Z', {
+    world: { name: 'World9', hostName: 'Dave', inGameDay: 123 }, players,
+  }));
+  assert.equal(stored.world.inGameDay, 123);
+  const world = env.call('ownedWorlds').worlds[0];
+  // Lv とプレイ中は players の JSON の中（列は増えない）、日数はワールドの行の列
+  assert.deepEqual([world.inGameDay, world.players], [123, players]);
+  const back = env.call('owned', { worldId: WORLD_A });
+  assert.deepEqual([back.world.inGameDay, back.rows[0][ownedAt]], [123, time]);
+  // 日数を送らない画面（前の版）・壊れた値は空のまま（null）
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T11:00:00.000Z', { world: { name: 'World9', hostName: 'Dave', inGameDay: 'x' } }));
+  assert.equal(env.call('ownedWorlds').worlds[0].inGameDay, null);
+
+  // 列を足す前のシート（ownedAt・inGameDay の列がない）。共有は止まらず、新しい値は書かずに空で返す
+  const old = fixture();
+  const pals = old.pals();
+  const palAt = pals.data[0].indexOf('ownedAt');
+  for (const line of pals.data) line.splice(palAt, 1);
+  const worlds = old.spreadsheet.getSheetByName('OwnedWorlds_test');
+  const dayAt = worlds.data[0].indexOf('inGameDay');
+  for (const line of worlds.data) line.splice(dayAt, 1);
+  const before = old.call('ownedUpload', upload(WORLD_A, [row('p1', { ownedAt: time })], '2026-10-05T10:00:00.000Z', {
+    world: { name: 'World9', hostName: 'Dave', inGameDay: 123 }, players,
+  }));
+  assert.deepEqual([before.stored, before.world.inGameDay], [true, null]);
+  assert.equal(old.call('ownedWorlds').worlds[0].inGameDay, null);
+  assert.equal(old.call('owned', { worldId: WORLD_A }).rows[0][ownedAt], '');
+  // ownedAt を知らない前の版の画面（eggItemId まで）からの共有も受け付ける
+  const legacy = old.call('ownedUpload', upload(WORLD_A, [row('p2').slice(0, ownedAt)], '2026-10-05T11:00:00.000Z', { columns: OWNED_FIELDS.slice(0, ownedAt) }));
+  assert.equal(legacy.stored, true);
+  old.gas.setup();
+  assert.equal(pals.data[0][pals.data[0].length - 1], 'ownedAt');
+  assert.equal(worlds.data[0][worlds.data[0].length - 1], 'inGameDay');
+  old.call('ownedUpload', upload(WORLD_A, [row('p3', { ownedAt: time })], '2026-10-05T12:00:00.000Z', { world: { name: 'World9', hostName: 'Dave', inGameDay: 124 } }));
+  assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[ownedAt]]), [['p3', time]]);
+  assert.equal(old.call('ownedWorlds').worlds[0].inGameDay, 124);
 });

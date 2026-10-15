@@ -8,7 +8,7 @@ import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
 import { icon } from '../ui/icons.js';
-import { ownedNotices, noticeList, grantWithReport } from '../ui/owned-status.js';
+import { ownedNotices, noticeList, grantWithReport, onlineUids } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { farmBoard } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
@@ -25,6 +25,8 @@ import {
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
+import { userIdKey } from '../core/user.js';
+import { seenTime } from '../owned-seen.js';
 import { ELEMENTS } from '../../data/pals.js';
 
 function option(value, label) {
@@ -210,14 +212,23 @@ function baseSignature(pal) {
   if (signature === undefined) {
     signature = [pal.palId, pal.known, pal.name, pal.human?.icon ?? '', pal.level, pal.rank, pal.stars,
       pal.passives.join(','), pal.talent.hp, pal.talent.shot, pal.talent.defense, pal.holder, pal.place, pal.placeLabel, boxText(pal.box), pal.nickname,
-      pal.gender, pal.egg, pal.lucky, pal.alpha, pal.lastOwner, pal.eggItemId ?? '', pal.farm?.role ?? '', isMutantEgg(pal)].join('\u0001');
+      pal.gender, pal.egg, pal.lucky, pal.alpha, pal.lastOwner, pal.eggItemId ?? '', pal.farm?.role ?? '', isMutantEgg(pal), conditionBadges(pal).join(',')].join('\u0001');
     baseSignatures.set(pal, signature);
   }
   return signature;
 }
 const notesSignature = (notes) => notes.map((note) => `${note.label}:${note.name}:${note.desc}`).join('|');
-/** 行に出す値の署名（一致の理由 notes と印 marks を含む）。同じなら行を書き換えない（理想個体の描き直しの判定も使う） */
-export const rowSignature = (pal, notes = [], marks = []) => `${baseSignature(pal)}\u0002${notesSignature(notes)}\u0002${marks.join('\u0001')}`;
+/** 行に出す値の署名（一致の理由 notes と印 marks、NEW の印 isNew を含む）。同じなら行を書き換えない（理想個体の描き直しの判定も使う） */
+export const rowSignature = (pal, notes = [], marks = [], isNew = false) => `${baseSignature(pal)}\u0002${notesSignature(notes)}\u0002${marks.join('\u0001')}\u0002${isNew ? 'new' : ''}`;
+
+/**
+ * 行の名前の下に出す状態の印（save-extras。F070）: 拠点・手持ちの個体の「病気」「空腹」だけ（行を太らせない。ある個体だけ。魂の強化と SAN は
+ * 個体の詳細のドロワー）。パルボックス・保管庫の個体は作業しないので出さない
+ */
+export function conditionBadges(pal) {
+  if (!pal?.condition || !['base', 'party'].includes(pal.place)) return [];
+  return [pal.condition.sick ? '病気' : '', pal.condition.hunger ? '空腹' : ''].filter(Boolean);
+}
 
 // ---- 所持パルの 1 行（所持パルの一覧・理想個体の組のカード）。列は [パル][Lv・★][パッシブ][個体値 4 セル][所持者・場所]（CSS の --owned-cols） ----
 // 個体値のセル（列見出しの HP・攻・防・計と同じ並び）。名前は読み上げの文に使う
@@ -272,6 +283,8 @@ function palCellBadges(pal, badges) {
   if (pal.farm) fixed.push(['owned-badge badge-farm', pal.farm.role === 'egg' ? '配合牧場のタマゴ' : '配合牧場']);
   if (pal.lucky) fixed.push(['owned-badge badge-lucky', 'ラッキー']);
   if (pal.alpha) fixed.push(['owned-badge badge-alpha', 'アルファ']);
+  // 拠点・手持ちの病気・空腹（save-extras。種類は個体の詳細のドロワー）
+  for (const text of conditionBadges(pal)) fixed.push([`owned-badge ${text === '病気' ? 'badge-sick' : 'badge-hungry'}`, text]);
   for (const text of badges) fixed.push(['owned-badge badge-mark', text]);
   if (!fixed.length) return null;
   const line = el('span', 'owned-badges');
@@ -467,11 +480,12 @@ export function fillWhereCell(cell, pal) {
 }
 
 /**
- * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, hints }。
+ * 所持パルの 1 行の部品。options: { notes, highlight, marks, badges, hints, isNew, detail }。
  * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値が目標に届いているかを見せる
  * （{ wanted, targets }）、marks は目標の印（行の下の段 div.owned-band に MARK_SLOTS 個までと「+N」。D25）、badges は名前の下のバッジの
  * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。
- * 省くと行が持つ）。行の操作のボタンはない（D29）。detail（作るときだけ見る）は個体の詳細を開ける行で、Lv・★のセルをボタンにする
+ * 省くと行が持つ）。isNew は入手の NEW（save-extras。行に is-new と読み上げの「（新しく入手）」）。行の操作のボタンはない（D29）。
+ * detail（作るときだけ見る）は個体の詳細を開ける行で、Lv・★のセルをボタンにする
  *（押す・Enter で右のドロワーに個体の詳細。要素を増やさない。開くのは一覧の委譲のリスナー。owned-detail）。行には data-instance に個体 ID。
  * 下の段は印か一致の理由があるときだけ作る（行の高さは一覧の has-band が決める。全部の行が同じ高さ）。
  * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）。書き換えたセルにフォーカスがあったら、同じ役目の部品
@@ -522,14 +536,17 @@ export function ownedRowItem(pal, options) {
   const item = {
     element,
     get pal() { return current; },
-    update(next, { notes = [], highlight, marks = [], badges = [], hints } = {}) {
+    update(next, { notes = [], highlight, marks = [], badges = [], hints, isNew = false } = {}) {
       current = next;
       // 書き換えるセルにフォーカスがあったら、書き換えた後に同じ役目の部品（data-focus）へ戻す
       const focused = focusMark(element);
       let changed = false;
-      changed = write('label', `${next.id}\u0001${next.name}\u0001${next.nickname}`, () => {
-        element.setAttribute('aria-label', `${next.name}${next.nickname ? `（${next.nickname}）` : ''}`);
+      // NEW（前に所持パルを見たときより後に入手した個体。save-extras）は要素を足さず、行のクラス（CSS の ::before で絵の左上に「NEW」）と
+      // 読み上げの名前に入れる（行の要素の数の上限〔test:perf〕を変えない）
+      changed = write('label', `${next.id}\u0001${next.name}\u0001${next.nickname}\u0001${isNew}`, () => {
+        element.setAttribute('aria-label', `${next.name}${next.nickname ? `（${next.nickname}）` : ''}${isNew ? '（新しく入手）' : ''}`);
         element.setAttribute('data-instance', next.id);
+        element.classList.toggle('is-new', isNew);
       }) || changed;
       changed = write('tile', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender,
         next.egg ? eggIconFile(next.eggItemId, { mutant: isMutantEgg(next) }) : ''].join('\u0002'), () => {
@@ -538,7 +555,7 @@ export function ownedRowItem(pal, options) {
         tileNode?.remove();
         tileNode = tile;
       }) || changed;
-      changed = write('badges', [next.nickname, next.egg, next.eggItemId ?? '', isMutantEgg(next), next.farm?.role ?? '', next.lucky, next.alpha, badges.join('\u0001')].join('\u0002'), () => {
+      changed = write('badges', [next.nickname, next.egg, next.eggItemId ?? '', isMutantEgg(next), next.farm?.role ?? '', next.lucky, next.alpha, conditionBadges(next).join(','), badges.join('\u0001')].join('\u0002'), () => {
         const line = palCellBadges(next, badges);
         if (line) cells.pal.insertBefore(line, badgeLine);
         badgeLine?.remove();
@@ -1213,7 +1230,8 @@ export function ownedView(context, route) {
   let shownSelf = null;
   function renderHolders(state) {
     // 所持者の選択肢（理想個体と同じ名前。views/shared.js）
-    const choices = holderChoices(state.owned, context.ideals);
+    // いまプレイ中の人には「（プレイ中）」（保存が新しいときだけ。save-extras）
+    const choices = holderChoices(state.owned, context.ideals, { online: onlineUids(state) });
     holderOptions = choices;
     shownSelf = selfKey();
     renderWhenIdle(holderSelect.element, () => {
@@ -1472,6 +1490,39 @@ export function ownedView(context, route) {
     talents.flush();
   }
 
+  // ---- 入手の NEW（save-extras。O-26・F053）: 前に所持パルの画面で見ていたデータのセーブの時刻（web/js/owned-seen.js。ワールドごと）より後に
+  // 入手した個体に印。基準はこの画面を開いて、そのワールドのデータが届いたときに 1 回だけ読み、開いている間は変えない（読み直しで届いた
+  // 新しい個体にも NEW が付く）。初めて開いた（保存がない）ときは NEW を付けず、そのときのデータの時刻を保存する。この画面を離れるとき・
+  // タブが裏に回ったとき・別のワールドに替えたときに、見ていたデータのセーブの時刻を保存する（次に開いたときの基準） ----
+  const seenStore = context.ownedSeen;
+  // 今の基準（key は環境・ID・ワールド。since は時刻の文字列で、'' は NEW を付けない）と、見ているデータ
+  let newSince = { key: '', since: '' };
+  let viewed = null;
+  const isNewPal = (pal) => Boolean(newSince.since) && Boolean(pal.ownedAt) && pal.ownedAt > newSince.since && !pal.heading;
+  function saveSeen() {
+    if (viewed) seenStore?.write(viewed.env, viewed.userId, viewed.worldId, viewed.at);
+  }
+  function trackNew(state) {
+    const env = context.store?.state?.env ?? '';
+    const userId = context.store?.state?.userId ?? '';
+    const worldId = state.meta?.worldId ?? '';
+    const at = state.owned && state.meta?.source ? seenTime(state.meta.saveUpdatedAt) : '';
+    if (!seenStore || !env || !userId || !worldId || !at) return;
+    const key = `${env}\u0001${userIdKey(userId)}\u0001${worldId}`;
+    if (newSince.key !== key) {
+      // 別のワールド（・ログイン）に替わったら、前に見ていたワールドの時刻を保存してから新しい基準を読む
+      if (viewed && viewed.key !== key) saveSeen();
+      const stored = seenStore.read(env, userId, worldId);
+      newSince = { key, since: stored ?? '' };
+      if (!stored) seenStore.write(env, userId, worldId, at);
+    }
+    viewed = { key, env, userId, worldId, at };
+  }
+  // タブが裏に回ったら（ゲームに戻る・ページを閉じる前にも来る）、見ていたデータの時刻を保存する（この画面の NEW はそのまま）
+  globalThis.document?.addEventListener?.('visibilitychange', () => {
+    if (globalThis.document?.visibilityState === 'hidden') saveSeen();
+  }, { signal: inputs.signal });
+
   // ---- 一覧（行は個体の ID で使い回す。中身が同じ行は触らない） ----
   let terms = [];
   let termsKey = '';
@@ -1502,7 +1553,7 @@ export function ownedView(context, route) {
   const rowOptionsOf = (pal) => {
     const marks = shownMarks?.get(pal.id) ?? [];
     // 一致した理由には、キーワードで一緒に探している目標の印も入れる（filterOwned の extraTexts と同じ文字）
-    return { notes: terms.length ? keywordNotes(pal, terms, marks) : [], marks };
+    return { notes: terms.length ? keywordNotes(pal, terms, marks) : [], marks, isNew: isNewPal(pal) };
   };
   // 一覧の 1 行（ownedRowItem を、区切った書き換えに乗せる）。作ったばかりの行と、先頭から決まった数（FILL_NOW）の行はすぐ書き換え、
   // 残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。中身は変わったセルだけを書き換える
@@ -1543,28 +1594,30 @@ export function ownedView(context, route) {
     let last = pal;
     let lastTerms = termsKey;
     let lastMarks = marksStamp;
+    let lastNew = newSince.since;
     const first = rowOptionsOf(pal);
     // ドロワーがあれば Lv・★のセルを個体の詳細を開くボタンにする（owned-detail）
     const row = ownedRowItem(pal, { ...first, detail: Boolean(context.drawer) });
     markOpened(row.element, pal.id);
-    let signature = rowSignature(pal, first.notes, first.marks);
+    let signature = rowSignature(pal, first.notes, first.marks, first.isNew);
     const item = {
       element: row.element,
       // 今のキーワード・印で next の中身にする（同じなら何もしない）
       fill(next) {
         markOpened(row.element, next.id);
         const options = rowOptionsOf(next);
-        const nextSignature = rowSignature(next, options.notes, options.marks);
+        const nextSignature = rowSignature(next, options.notes, options.marks, options.isNew);
         if (nextSignature === signature) return;
         row.update(next, options);
         signature = nextSignature;
       },
       update(next) {
-        // 区切って足すときは同じ個体で何度も呼ばれるので、個体・キーワード・印が同じなら何もしない
-        if (next === last && termsKey === lastTerms && marksStamp === lastMarks) return;
+        // 区切って足すときは同じ個体で何度も呼ばれるので、個体・キーワード・印・NEW の基準が同じなら何もしない
+        if (next === last && termsKey === lastTerms && marksStamp === lastMarks && newSince.since === lastNew) return;
         last = next;
         lastTerms = termsKey;
         lastMarks = marksStamp;
+        lastNew = newSince.since;
         if (fillBudget <= 0) { deferred.set(item, next); return; }
         fillBudget--;
         deferred.delete(item);
@@ -1753,6 +1806,7 @@ export function ownedView(context, route) {
     if (state.owned === renderedOwned && (state.owned || state.ready === renderedReady)) return;
     renderedOwned = state.owned;
     renderedReady = state.ready;
+    trackNew(state);
     renderFilters(state);
     // 候補を開いたままでも、所持数だけ描き直す（閉じない）
     picker.update();
@@ -1773,6 +1827,7 @@ export function ownedView(context, route) {
   const stopSelfChoice = context.self?.subscribe?.(selfChanged) ?? (() => {});
   renderedOwned = owned.state.owned;
   renderedReady = owned.state.ready;
+  trackNew(owned.state);
   renderSummary(owned.state);
   renderFilters(owned.state);
   renderResults();
@@ -1797,6 +1852,8 @@ export function ownedView(context, route) {
     flushInputs,
     destroy() {
       destroyed = true;
+      // 見ていたデータのセーブの時刻を、次に開いたときの NEW の基準にする（save-extras）
+      saveSeen();
       stopRefreshing();
       stopSelf();
       stopSelfChoice();

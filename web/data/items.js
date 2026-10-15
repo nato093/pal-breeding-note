@@ -58,3 +58,12 @@ export const EGG_NAMES = {
   "PalEgg_WorldTree_04": "禍々しいデカタマゴ",
   "PalEgg_WorldTree_05": "禍々しいキョダイタマゴ",
 };
+
+// ケーキのアイテム ID（配合牧場の入れ物のケーキ）→ 日本語名（同じ表から生成。save-extras）
+export const CAKE_NAMES = {
+  "Cake": "ケーキ",
+  "Cake02": "キノコケーキ",
+  "Cake03": "野菜ケーキ",
+  "Cake04": "豪華野菜ケーキ",
+  "Cake05": "スペシャルケーキ",
+};

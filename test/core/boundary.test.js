@@ -124,7 +124,8 @@ test('配合の記録: ユーザーと警告と全件の整え直し', () => {
 
 const sharedWorld = (overrides = {}) => ({
   worldId: WORLD, worldName: 'World9', hostName: 'Alice', saveUpdatedAt: '2026-10-05T10:00:00.000Z', uploadedAt: '2026-10-05T10:01:00.000Z', uploadedBy: 'ホスト',
-  palCount: 3, players: [{ uid: 'u1', name: 'Alice' }], bases: [{ id: 'b1', label: '拠点 1' }], farms: [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'] }],
+  palCount: 3, players: [{ uid: 'u1', name: 'Alice', level: 52, online: true }], bases: [{ id: 'b1', label: '拠点 1' }], farms: [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'] }],
+  inGameDay: 123,
   ...overrides,
 });
 
@@ -144,6 +145,14 @@ test('所持パルの共有: 正しいワールドの行はそのまま、worldI
   assert.equal(cleanOwnedWorlds([sharedWorld({ farms: undefined })])[0].farms, null);
   assert.equal(cleanOwnedWorlds([sharedWorld({ farms: 'F1' })])[0].farms, null);
   assert.deepEqual(cleanOwnedWorlds([sharedWorld({ farms: [] })])[0].farms, []);
+  // save-extras: ゲーム内の日数（後から足した列）と、プレイヤーの Lv・プレイ中（players の JSON の中）。古い共有（ない）・壊れた値は
+  // 日数が null、Lv・プレイ中は鍵ごと付けない（画面は「分からない」）
+  for (const day of [undefined, null, 0, -3, 1.5, '12', 2000000]) assert.equal(cleanOwnedWorlds([sharedWorld({ inGameDay: day })])[0].inGameDay, null);
+  const players = cleanOwnedWorlds([sharedWorld({ players: [
+    { uid: 'u1', name: 'Alice' }, { uid: 'u2', name: 'Bob', level: '40', online: 'yes' }, { uid: 'u3', name: 'Carol', level: 0, online: false },
+    { uid: 'u4', name: 'Dave', level: 1000, online: null }, { uid: 'u5', name: 'Erin', level: 12.5, online: true },
+  ] })])[0].players;
+  assert.deepEqual(players, [{ uid: 'u1', name: 'Alice' }, { uid: 'u2', name: 'Bob' }, { uid: 'u3', name: 'Carol', online: false }, { uid: 'u4', name: 'Dave' }, { uid: 'u5', name: 'Erin', online: true }]);
   assert.equal(cleanOwnedWorlds(Array.from({ length: 250 }, (_, i) => sharedWorld({ worldId: i.toString(16).toUpperCase().padStart(32, '0') }))).length, 200);
   assert.deepEqual(cleanOwnedWorlds('worlds'), []);
 });

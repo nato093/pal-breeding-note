@@ -1,6 +1,7 @@
 import { ApiError } from './api.js';
 import { userIdKey, validateUserId } from './core/user.js';
 import { mergeObservations } from './core/goal-observations.js';
+import { mergeOwnedSeen } from './owned-seen.js';
 
 // サーバで実行されなかったことが確かなエラー。記録を消して、名前を入力し直せるようにする。
 const NOT_EXECUTED = new Set(['VALIDATION', 'USER_EXISTS', 'USER_NOT_FOUND', 'AUTH']);
@@ -75,12 +76,15 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     if (!entries.some(([, userId]) => isOld(userId))) continue;
     ok = writeJson(storage, key, Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId]))) && ok;
   }
-  // オブジェクトの形のキー（下書きの親の性別〔drafts.js〕・目標の観測〔ideals.js の goalsObs〕）。移し先と合わせ、同じ id は移す元を優先する
+  // オブジェクトの形のキー（下書きの親の性別〔drafts.js〕・目標の観測〔ideals.js の goalsObs〕・所持パルの NEW の基準〔owned-seen.js〕）。
+  // 移し先と合わせ、同じ id は移す元を優先する（NEW の基準は同じワールドの新しい方）
   const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
   const objectKeys = [
     { prefix: `${namespace}.draftGenders.${env}.`, merge: (source, target) => ({ ...(isPlain(target) ? target : {}), ...source }) },
     // 観測は種族ごとに併せ、移行の記録は和（core/goal-observations.js の mergeObservations）
     { prefix: `${namespace}.goalsObs.${env}.`, merge: (source, target) => mergeObservations(source, target) },
+    // 所持パルの NEW の基準（ワールド ID → 時刻。save-extras）
+    { prefix: `${namespace}.owned.seenAt.${env}.`, merge: (source, target) => mergeOwnedSeen(source, target) },
   ];
   for (const { prefix, merge } of objectKeys) {
     const from = `${prefix}${oldKey}`;

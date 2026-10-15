@@ -1944,16 +1944,17 @@ test('所持パル画面: 「すべて解除」と 0 件のときの「条件を
 test('所持パル画面: 古い保存の条件（タマゴ・グローバルのチェック、所持者の拠点・グローバル、場所の 1 つ）と古い URL を読み替える（migrateFilter）', (t) => {
   installDom(t);
   const pick = (filter) => ({ holder: filter.holder, places: filter.places, bases: 'bases' in filter });
-  const all = ['party', 'palbox', 'base', 'dps', 'global', 'egg', 'unknown'];
-  assert.deepEqual(DEFAULT_PLACES, ['party', 'palbox', 'base', 'dps', 'egg', 'unknown']);
+  // 観賞用ケージ（display）は save-extras で足した場所（拠点の次）
+  const all = ['party', 'palbox', 'base', 'display', 'dps', 'global', 'egg', 'unknown'];
+  assert.deepEqual(DEFAULT_PLACES, ['party', 'palbox', 'base', 'display', 'dps', 'egg', 'unknown']);
   assert.deepEqual(migrateFilter({}).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ place: 'egg' }).places, ['egg']);
   assert.deepEqual(migrateFilter({ place: '' }).places, DEFAULT_PLACES);
-  assert.deepEqual(migrateFilter({ eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.deepEqual(migrateFilter({ eggs: false }).places, ['party', 'palbox', 'base', 'display', 'dps', 'unknown']);
   assert.deepEqual(migrateFilter({ globals: true }).places, all);
   // 矛盾した古い組み合わせ（場所「タマゴ」でタマゴを隠す・場所「グローバル」でグローバルを出さない）は 0 件にせず、
   // 場所を選んでいない既定（タマゴ・グローバルの表示はそのまま）に戻す（B14。前は places が [] で 0 件だった）
-  assert.deepEqual(migrateFilter({ place: 'egg', eggs: false }).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.deepEqual(migrateFilter({ place: 'egg', eggs: false }).places, ['party', 'palbox', 'base', 'display', 'dps', 'unknown']);
   assert.deepEqual(migrateFilter({ place: 'global', globals: false }).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ place: 'global' }).places, DEFAULT_PLACES);
   assert.deepEqual(migrateFilter({ place: 'global', globals: true }).places, ['global']);
@@ -2082,7 +2083,7 @@ test('所持パル画面: 列見出しは一覧の前の別の要素（toolbar�
   // 同じ意味は同じ言い方（列見出しは「〈名前〉で並べ替え（〈向き〉）」、選択は「〈名前〉が〈向き〉」。A9）
   assert.equal(headButton(view, 'passives').getAttribute('aria-label'), 'パッシブのランクで並べ替え（高い順）');
   assert.equal(headButton(view, 'place').getAttribute('aria-label'), '所持者・場所で並べ替え（ボックス順）');
-  assert.deepEqual(sortOf(view).children.map((node) => node.textContent), ['図鑑番号順', 'パッシブのランクが高い順', 'レベルが高い順', 'パル濃縮（★）が多い順',
+  assert.deepEqual(sortOf(view).children.map((node) => node.textContent), ['図鑑番号順', '入手の新しい順', 'パッシブのランクが高い順', 'レベルが高い順', 'パル濃縮（★）が多い順',
     '個体値の合計が高い順', '個体値の合計が低い順', 'HP の個体値が高い順', '攻撃の個体値が高い順', '防御の個体値が高い順', 'ボックス順']);
   await headButton(view, 'hp').dispatch('click');
   assert.deepEqual(hpOrder(view), [90, 50, 10]);

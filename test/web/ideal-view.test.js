@@ -225,11 +225,11 @@ test('理想個体画面: 所持の状況は目標と同じ種族の親の候補
   assert.equal(holding.textContent, '所持 ♂1 ♀2');
   // 数と同じ集まりになるよう、タマゴとグローバルパルボックスを除いた場所も渡す（D27。前は場所を渡さず、開いた先にタマゴの e1 も出た）。
   // 所持者（既定の自分）も渡す
-  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&holder=mine&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
-  assert.deepEqual(filterFromParams(parseHash(holding.getAttribute('href')).params).places, ['party', 'palbox', 'base', 'dps', 'unknown']);
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&holder=mine&place=party%2Cpalbox%2Cbase%2Cdisplay%2Cdps%2Cunknown');
+  assert.deepEqual(filterFromParams(parseHash(holding.getAttribute('href')).params).places, ['party', 'palbox', 'base', 'display', 'dps', 'unknown']);
   await pickPassive(view, 'Rare');
   assert.equal(holding.textContent, '所持 ♂1 ♀2 · 全部持つ ♂0 ♀2');
-  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare&holder=mine&place=party%2Cpalbox%2Cbase%2Cdps%2Cunknown');
+  assert.equal(holding.getAttribute('href'), '#/owned?pal=SheepBall&p=Rare&holder=mine&place=party%2Cpalbox%2Cbase%2Cdisplay%2Cdps%2Cunknown');
   // 「すべて」のときは所持者を渡さない（所持パルの URL では、所持者がなければ「すべて」）
   const holder = holderOf(view);
   holder.value = '';
@@ -833,7 +833,7 @@ test('理想個体画面: 目標のダイアログから外す・元に戻す・
   // 未完成の行には近い個体との差（ツッパニャンは同じ種族の自分の個体がいないので「未所持」）、完成済みの状態は所持パルへのリンク
   assert.equal(again.querySelectorAll('.ideal-goal')[0].querySelector('.ideal-goal-gap').textContent, '未所持');
   const found = again.querySelectorAll('.ideal-goal')[1].querySelector('.ideal-goal-found');
-  assert.equal(found.href, '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdps%2Cglobal%2Cunknown');
+  assert.equal(found.href, '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdisplay%2Cdps%2Cglobal%2Cunknown');
   assert.match(found.textContent, /^完成済み: /);
   // リンクの名前に行き先を入れる（見た目は状態のピル）
   assert.equal(found.getAttribute('aria-label'), `${found.textContent}（所持パルで見る）`);

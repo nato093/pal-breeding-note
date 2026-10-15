@@ -372,7 +372,11 @@ export function createOwnedStore({
     try {
       const response = await server.request('ownedUpload', {
         userId: server.userId?.() ?? '', worldId: local.world.id,
-        world: { name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '' },
+        // ゲーム内の日数（save-extras）は GAS の最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）
+        world: {
+          name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '',
+          ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
+        },
         saveUpdatedAt: local.world.updatedAt || local.importedAt, ...payload,
       });
       const others = state.shared.worlds.filter((world) => world.worldId !== response.world.worldId);

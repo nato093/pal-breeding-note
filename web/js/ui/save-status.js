@@ -2,7 +2,7 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary } from './owned-status.js';
+import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -46,7 +46,8 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
       : result('none', { time: 'セーブ未連携' }, 'セーブのファイルが登録されていません');
   }
   const world = meta.worldName ? `「${meta.worldName}」` : `ワールド ${String(meta.worldId ?? '').slice(0, 8)}`;
-  const lines = [worldName(meta), ...timeLines(state)];
+  // ゲーム内の日数・プレイ中・Lv（save-extras）も、押す前の説明（title）に出す
+  const lines = [worldName(meta), ...timeLines(state), ...presenceItems(state, { now: () => now }).map(([term, detail]) => `${term}: ${detail}`)];
   if (meta.source === 'local') {
     const stale = Boolean(auto.enabled) && olderThan(meta.importedAt, STALE_LOCAL_MS, now);
     if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんは 1 分ごとに読み直します）`);
@@ -134,6 +135,8 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? state.meta.palCount ?? 0} 体` : '（データなし）'}` : 'なし']);
       const lines = timeLines(state);
       if (lines.length) items.push(['更新', lines.join('\n')]);
+      // ゲーム内の日数・プレイ中の仲間（保存か共有の時刻つき）・Lv（save-extras。F006）
+      items.push(...presenceItems(state, { now }));
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);
       details.replaceChildren(...items.flatMap(([term, detail]) => [el('dt', '', term), el('dd', '', detail)]));
       const found = problems(state, now());

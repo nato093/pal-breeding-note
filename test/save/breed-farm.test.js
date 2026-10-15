@@ -118,6 +118,8 @@ test('配合牧場: 割り当てられた親 2 体（性別・預けた人）と
       { localId: id(130), characterId: 'GuardianDog', itemId: 'PalEgg_Earth_01' },
       { localId: id(131), characterId: 'GuardianDog', itemId: 'PalEgg_Earth_01' },
     ],
+    // 入れ物（ModuleMap の ItemContainer）のない牧場はケーキが分からない（save-extras）
+    cakes: null,
   });
   assert.doesNotThrow(() => structuredClone(farm));
 });

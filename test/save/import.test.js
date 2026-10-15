@@ -83,7 +83,8 @@ test('セーブの読み込み: ワールド一式からスナップショット
     { path: 'WorldOption.sav', bytes: new Uint8Array(4) },
   ], { onProgress: (message) => progress.push(message) });
   assert.equal(progress[0], 'Level.sav を読み込み中…');
-  assert.deepEqual(snapshot.players, [{ uid: P1, name: 'アリス', level: 1 }]);
+  // ギルドのないセーブでは、プレイ中かは分からない（null。save-extras）
+  assert.deepEqual(snapshot.players, [{ uid: P1, name: 'アリス', level: 1, online: null }]);
   assert.deepEqual(snapshot.pals.map((p) => [p.characterId, p.location.kind, p.location.playerUid, p.passives]), [
     ['SheepBall', 'palbox', P1, ['CraftSpeed_up2']],
   ]);
