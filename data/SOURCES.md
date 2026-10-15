@@ -13,8 +13,11 @@
 | パッシブの内部名・日本語名・英名・ランク・効果の説明（`data/passives.csv`・`web/data/passives.js`） | PalCalc の同じ `db.json`（`npm run build:passives` = `scripts/import-passives.mjs`） | 同上。日本語名はゲーム本体の `DT_SkillNameText_Common` と一致することを確認（2026-10-05、名前のある 488 件） |
 | アクティブスキル・パートナースキルの日本語名と説明文（`web/data/skills.js`） | ゲーム本体の `DT_SkillNameText_Common`・`DT_SkillDescText_Common`・`DT_PalFirstActivatedInfoText` ほか（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-10 に取り出し） | © Pocketpair, Inc. |
 | タマゴの日本語名（`web/data/items.js`。所持パルのタマゴの行・配合牧場のカード） | ゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_PalEgg_*`（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-15 に取り出し） | © Pocketpair, Inc. |
+| 作業適性（`web/data/work.js`。パル詳細の「作業適性」の行・所持パルのキーワード「採掘3」） | ゲーム本体の `DT_PalMonsterParameter_Common` の `WorkSuitability_*`（Lv）と `DT_UI_Common_Text_Common` の `COMMON_WORK_SUITABILITY_*`（作業の名前）。型の情報のない表なので、列の並びは実行ファイルの反射データから取る（`npm run extract:work` = `scripts/extract-work.mjs`・`scripts/game-tables.mjs`。v1.0.5 で 2026-10-15 に取り出し） | © Pocketpair, Inc. |
 
 > 変更記録（2026-10-15）: ユーザーの確認を得て、タマゴの日本語名の表（`web/data/items.js`）の行を足した（UI 改善フェーズ 3 の farm-board）。影響: 配信物にゲーム由来の文字列の表が 1 つ増える（画像は増えない）。配合に関する情報（INV-2）は含まない。
+
+> 変更記録（2026-10-15）: ユーザーの決定（UI 改善フェーズ 4 の game-assets）により、作業適性の行を足した。理由: パル詳細と所持パルのキーワードで作業適性を使うため。文書の案（palworld-helper の CSV から `pals.js` に取り込む）ではなく、ゲーム本体の表から別の生成ファイル `web/data/work.js` に取り出した（取り込み元をゲーム本体にそろえ、`pals.js` の項目の許可リストを変えないため）。影響: 配信物にゲーム由来の表が 1 つ増える（約 18KB）。同じ表にある配合の値（`CombiRank` など）は書き出さない（下の「取り込まないもの」。`test/import.test.js` が値の形を確かめる）。
 
 ## セーブの読み込みに使うコード
 
@@ -27,7 +30,7 @@
 
 ## 取り込まないもの（INV-2）
 
-パルとパッシブのマスターには、配合に関する情報を持たせない。`BreedingPower` などの配合計算に使える値や、パッシブの遺伝の確率（`RandomInheritanceWeight` など）は取り込まない。
+パルとパッシブのマスターには、配合に関する情報を持たせない。`BreedingPower` などの配合計算に使える値や、パッシブの遺伝の確率（`RandomInheritanceWeight` など）は取り込まない。作業適性（`web/data/work.js`）を取り出すゲーム本体の表（`DT_PalMonsterParameter_Common`）にある配合の値（`CombiRank`・`MaleProbability` など）も取り込まない（取り出しは `WorkSuitability_*` の列だけを残す）。
 このアプリで「既知の配合」とみなし、画面に表示・検索するのは、利用者が登録したレコードだけ。
 
 ### 作らない機能
@@ -93,6 +96,18 @@
 - 撤回するときは `.github/workflows/pages.yml` から画像の取得を外して再配信し、残っている Actions の成果物を削除する。全パルが SVG アバターに切り替わる。
 - 例外: パッシブの表示に使う画像（ランクの矢印 6 枚と背景の三角模様 1 枚、`web/img/passive/`）は、配信時に取得できないためコミットする。ゲーム本体の `Pal-Windows.pak` の `Pal/Content/Pal/Texture/UI/Main_Menu/` から `npm run extract:passive-icons` で取り出したもの（対応は `scripts/extract-passive-icons.mjs` の `PASSIVE_TEXTURES`、v1.0.5 で確認、2026-10-05）。撤回するときは `web/img/passive/` を消す（パッシブ名の表示は残る）。
 - 例外: 人間のキャラクターのアイコン（154 枚、`web/img/humans/`）と日本語名（`web/data/humans.js`）も、ゲーム本体から `npm run extract:humans` で取り出してコミットする。表は `DT_PalCharacterIconDataTable_Common`（アイコン）・`DT_PalHumanParameter_Common`（名前の ID）・`DT_HumanNameText_Common`（名前。ゲームの元の言語が日本語）。撤回するときは `web/img/humans/` を消し、`web/data/humans.js` を空の配列（`export default [];`）にする（キャラクター ID の表示に戻る）。
+- 例外: UI のアイコン（44 枚、`web/img/{element,work,item,ui}/`。属性・作業適性・タマゴ・ケーキ・配合牧場・性別の記号と、後の implants で使うインプラント・パルリバーサー）も、ゲーム本体の `Pal-Windows.pak` から `npm run extract:ui-icons` で取り出し、表示の 2 倍の大きさに縮めてコミットする（対応は `scripts/extract-ui-icons.mjs` の `UI_ICONS`。v1.0.5 で確認、2026-10-15）。取り出す前に `--list <接頭辞>` で実在と形式を確かめる。撤回するときは `web/img/{element,work,item,ui}/` の 4 つのフォルダを消す（属性は文字のチップ、性別は文字の ♂♀ の丸い印、ほかはアイコンなしの文字の表示に戻る）。
+  - 新しく足す画像（この 4 つのフォルダ）は合計 200KB まで（2026-10-15 は 44 枚・約 88KB。取り出しのスクリプトは超えたら止まり、`test/static/extract-ui-icons.test.js` も確かめる）。
+
+| 置き場所 | 中身 | テクスチャ（`Pal/Content/` の下） | 元の形式・大きさ → 書き出し |
+|---|---|---|---|
+| `element/〈属性〉.png`（9） | 属性（ひし形の地つき） | `Pal/Texture/UI/InGame/T_Icon_element_s_00`〜`08`（00 無・01 炎・02 水・03 雷・04 草・05 闇・06 竜・07 地・08 氷。ゲームの `WBP_PalElementIcon` の IconMap で確かめた対応。列挙の順とは違う） | DXT5 48×48 → 40 |
+| `work/〈作業の鍵〉.png`（12） | 作業適性 | `Pal/Texture/UI/InGame/T_icon_palwork_00`〜`12`（`WBP_IconPalWork` の IconMap。09 の原油抽出は使うパルがいないので取り出さない） | DXT5 64×64 → 32 |
+| `item/egg-〈種類〉.png`（12） | タマゴ（無属性 Normal・Dark・Dragon・Earth・Electricity・Fire・Ice・Leaf・Water・WorldTree・突然変異 MutationPal・中身不明 Unknown） | `Others/InventoryItemIcon/Texture/T_itemicon_Material_PalEgg`（無属性）・`…_PalEgg_〈種類〉_01`・`…_PalEgg_MutationPal`・`…_PalEgg_Unknown`（大きいタマゴも同じアイコン） | DXT5 256 → 40 |
+| `item/cake-〈アイテム ID〉.png`（5） | ケーキ（Cake・Cake02〜05） | 同じ所の `T_itemicon_Food_Cake`・`T_itemicon_food_Cake02`〜`05` | DXT5 256 → 40 |
+| `item/PalPassiveSkillChange.png`・`…_Consumable.png`・`item/PalGenderReverse.png` | インプラント 2・パルリバーサー（implants で使う） | 同じ所の `T_itemicon_Material_PalPassiveSkillChange`（`_Consumable`）・`T_itemicon_Material_PalGenderReverse` | DXT5 256 → 48 |
+| `ui/breed-farm.png` | 配合牧場 | `Pal/Texture/BuildObject/PNG/T_icon_buildObject_BreedFarm` | DXT5 256 → 40 |
+| `ui/gender-M.png`・`ui/gender-F.png` | 性別の記号（形だけ使い、色は CSS のトークン） | `Pal/Texture/UI/Main_Menu/T_Icon_PanGender_Male`・`_Female` | B8G8R8A8 34×34 → 32 |
 
 ### 置き場所ごとの画像の作り方
 
@@ -102,11 +117,13 @@
 | 左のナビのアイコン・操作のボタン（編集・削除・ベル）・閉じるなどの記号 | 手描きの SVG（`web/js/ui/icons.js`。24px の格子・線 2・色は文字色〔currentColor〕） |
 | 空の状態の絵 | 新しく描かない。そのタブのナビのアイコン |
 | 図鑑の未登録の影 | パル画像（実物の webp）に CSS の filter |
-| 属性・作業適性・ケーキ・タマゴ・牧場・性別 | ゲームの実物を取り出せたら使う。それまでは今の文字の表示（手描きで似せた絵は作らない） |
-| 性別（今の表示） | 文字の ♂♀ と色のトークン（`--gender-male`・`--gender-female`。`web/css/app.css`） |
+| 属性・作業適性・ケーキ・タマゴ・牧場・性別 | ゲームの実物（上の例外の UI のアイコン。`web/js/ui/pal-icon.js` の `gameIcon`・`elementIcon` など）。読めないときは文字の表示（手描きで似せた絵は作らない） |
+| 性別 | 丸い印はゲームの記号の形（`mask-image`）を色のトークン（`--gender-male`・`--gender-female`。`web/css/app.css`）で塗る。文の中の印（`.gender-inline`）と、画像が読めないときは文字の ♂♀ |
 | パル画像・パッシブの画像・人間のアイコン・代わりのアバター | 今のまま（上の節のとおり） |
 
 Codex の画像生成で作った画像は、配信する画像には使わない（ゲームの実物と並べると絵柄が浮き、ライトとダークで色も変えられないため）。
+
+> 変更記録（2026-10-15）: ユーザーの決定（UI 改善フェーズ 4 の game-assets）により、UI のアイコン 44 枚（属性 9・作業適性 12・タマゴ 12・ケーキ 5・配合牧場 1・性別 2・インプラント 2・パルリバーサー 1）を例外に足し、合計の上限（200KB）の 1 行と、置き場所ごとの表の「属性・作業適性…」「性別」の行を実物に直した。理由: 文字や色で代用していた記号を、ゲームと同じ見た目にするため（後の implants の画像も同じ道具で一度に取り出した）。影響: 配信物とリポジトリに約 88KB の画像が増える。撤回は 4 つのフォルダを消すだけで、画面は前の文字の表示に戻る。
 
 > 変更記録（2026-10-14）: UI 改善（visual-parts）で、アイコンを `web/js/ui/icons.js` に集め、ファビコンをダークに対応させたのに合わせて「置き場所ごとの画像の作り方」の表と、生成画像を配信物に使わない決まりを足した。理由: 画像の置き場所ごとの作り方が決まっておらず、ゲームの実物・手描きの SVG・生成画像のどれを使うかが、検討のたびに候補に上がっていたため。影響: 規則そのもの（取り込むもの・取り込まないもの・例外の範囲）は変えていない。配信物に生成画像が入らないことを決まりにした。
 

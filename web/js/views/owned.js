@@ -1,5 +1,5 @@
 import { el, field, empty, loadingState, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight, setDisabled } from '../ui/dom.js';
-import { palTile, palIcon, humanIcon, palsById, genderMark } from '../ui/pal-icon.js';
+import { palTile, palIcon, humanIcon, palsById, genderMark, gameIcon, eggIcon, eggIconFile } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { hint } from '../ui/hint.js';
@@ -232,9 +232,13 @@ const PASSIVE_SLOTS = 4;
 // パル（絵と名前・性別）。名前のリンクは data-focus="pal"（行の中を書き換えても、同じ部品へフォーカスを戻す目印）
 function palCellTile(pal) {
   if (pal.known) {
-    const tile = palTile(pal.palId, { gender: pal.gender, genderFirst: true });
+    // 名前の右に属性のアイコン（game-assets）。要素を足さず CSS の背景で描く（行の要素の数の上限を変えない。ui/pal-icon.js の palTile）
+    const tile = palTile(pal.palId, { gender: pal.gender, genderFirst: true, elements: 'css' });
     // リンク（パルのマスターにある種族）のときだけ。ブラウザの tagName は大文字
     if (tile.tagName?.toLowerCase() === 'a') tile.setAttribute('data-focus', 'pal');
+    // タマゴは種族の絵の右下に、タマゴの種類（突然変異は突然変異のタマゴ）のアイコン。分からなければ出さない（名前の下の文字のバッジは残す）
+    const egg = pal.egg ? eggIcon(pal.eggItemId, { mutant: isMutantEgg(pal) }) : null;
+    if (egg) tile.children[0]?.append(egg);
     return tile;
   }
   // 人間のキャラクターなど、パルのマスターにないもの。ゲームから取り出した名前とアイコンがあれば出す
@@ -271,7 +275,12 @@ function palCellBadges(pal, badges) {
   for (const text of badges) fixed.push(['owned-badge badge-mark', text]);
   if (!fixed.length) return null;
   const line = el('span', 'owned-badges');
-  line.append(...fixed.map(([className, text]) => el('span', className, text)));
+  line.append(...fixed.map(([className, text]) => {
+    const node = el('span', className, text);
+    // 配合牧場の印は文字の左にゲームの配合牧場のアイコン（game-assets。読めなければ文字だけ）
+    if (className.includes('badge-farm')) node.insertBefore(gameIcon('ui/breed-farm.png', { size: 14, className: 'farm-icon' }), node.firstChild ?? null);
+    return node;
+  }));
   line.title = fixed.map(([, text]) => text).join('\n');
   return line;
 }
@@ -522,7 +531,8 @@ export function ownedRowItem(pal, options) {
         element.setAttribute('aria-label', `${next.name}${next.nickname ? `（${next.nickname}）` : ''}`);
         element.setAttribute('data-instance', next.id);
       }) || changed;
-      changed = write('tile', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender].join('\u0002'), () => {
+      changed = write('tile', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender,
+        next.egg ? eggIconFile(next.eggItemId, { mutant: isMutantEgg(next) }) : ''].join('\u0002'), () => {
         const tile = palCellTile(next);
         cells.pal.insertBefore(tile, tileNode ?? cells.pal.children[0] ?? null);
         tileNode?.remove();
@@ -1031,6 +1041,9 @@ export function ownedView(context, route) {
   farmBand.hidden = true;
   const farmHead = el('div', 'farm-band-head');
   const farmToggle = button('', () => setFarmsOpen(!farmsOpen), 'farm-band-toggle');
+  // 見出しは ▶ の後にゲームの配合牧場のアイコン（game-assets。読めなければ文字だけ）と文字
+  const farmToggleText = el('span', 'farm-band-text');
+  farmToggle.append(gameIcon('ui/breed-farm.png', { size: 20, className: 'farm-icon' }), farmToggleText);
   const farmBody = el('div', 'farm-band-body');
   farmBody.id = `farm-band-${Math.random().toString(36).slice(2, 10)}`;
   farmBody.hidden = true;
@@ -1059,7 +1072,7 @@ export function ownedView(context, route) {
     }
     const eggs = data.farmsCounted === false ? null : farms.reduce((sum, farm) => sum + farm.eggCount, 0);
     const text = `配合牧場（${farms.length} か所${eggs === null ? '' : ` · タマゴ ${eggs} 個`}）`;
-    if (farmToggle.textContent !== text) farmToggle.textContent = text;
+    if (farmToggleText.textContent !== text) farmToggleText.textContent = text;
     farmToggle.setAttribute('aria-expanded', String(farmsOpen));
     farmBody.hidden = !farmsOpen;
     if (farmsOpen && !board) {

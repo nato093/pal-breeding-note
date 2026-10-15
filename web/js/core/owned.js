@@ -9,6 +9,7 @@ import { ELEMENTS } from '../../data/pals.js';
 import passiveList from '../../data/passives.js';
 import { ACTIVE_SKILLS, PARTNER_SKILLS, ACTIVE_SKILL_DESCS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
 import { EGG_NAMES } from '../../data/items.js';
+import palWork, { WORKS } from '../../data/work.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
 const PREFIXES = ['BOSS_', 'GYM_', 'RAID_', 'PREDATOR_'];
@@ -116,13 +117,43 @@ export function playerName(players, uid) {
 
 const GENDERS = { Male: 'M', Female: 'F' };
 
-// 種類で決まる項目（キーワードで探す）。マスターにないもの（人間など）は空
+const NO_WORK = Object.freeze({});
+
+// 種類で決まる項目（キーワードで探す）。マスターにないもの（人間など）は空。work は作業適性（{ 作業の鍵: Lv }。web/data/work.js の
+// 種族の値をそのまま指す。共有の個体も種族から引くので、共有の列は要らない。game-assets）
 function speciesInfo(pal) {
   return {
     en: pal?.en ?? '', elements: (pal?.el ?? []).map((element) => ELEMENTS[element] ?? element),
     partnerSkill: PARTNER_SKILLS[pal?.id] ?? '', partnerSkillDesc: PARTNER_SKILL_DESCS[pal?.id] ?? '',
+    work: palWork[pal?.id] ?? NO_WORK,
   };
 }
+
+/**
+ * 作業適性の名前と Lv の並び（WORKS の順。Lv 1 以上だけ）。パル詳細・キーワードの一致の理由が使う
+ * @param {Record<string, number> | undefined} work
+ * @returns {{ key: string, name: string, level: number }[]}
+ */
+export function workEntries(work) {
+  if (!work) return [];
+  return Object.keys(WORKS).filter((key) => Number.isInteger(work[key]) && work[key] > 0).map((key) => ({ key, name: WORKS[key].ja, level: work[key] }));
+}
+
+// 作業の名前（そろえた文字）→ 作業の鍵。キーワードの「採掘3」（名前の直後の数字は Lv の下限）を読む
+const WORK_BY_NAME = new Map(Object.entries(WORKS).map(([key, { ja }]) => [normalizeQuery(ja), key]));
+const workTermCache = new Map();
+/** 語（そろえた後）が「作業の名前＋数字」なら { key, level }、ほかは null */
+function workTerm(term) {
+  if (!workTermCache.has(term)) {
+    // 数字は何桁でも Lv の下限（「採掘100」は当たる個体なし。文字の部分一致には戻さない）
+    const match = /^(.+?)(\d+)$/.exec(term);
+    const key = match ? WORK_BY_NAME.get(match[1]) : undefined;
+    if (workTermCache.size >= 1000) workTermCache.clear();
+    workTermCache.set(term, key ? { key, level: Math.max(1, Number(match[2])) } : null);
+  }
+  return workTermCache.get(term);
+}
+const workMatches = (pal, { key, level }) => (pal.work?.[key] ?? 0) >= level;
 
 // セーブとゲームの表で、ID の大文字小文字が違うものがある（セーブの Railbolt と名前の表の RailBolt）
 const byLowerId = (object) => new Map(Object.entries(object).map(([id, text]) => [id.toLowerCase(), text]));
@@ -325,6 +356,8 @@ function keywordFields(pal) {
     name: [pal.name, pal.en, pal.characterId],
     nickname: [pal.nickname],
     elements: pal.elements ?? [],
+    // 作業適性の名前（「採掘」。Lv は一致の理由に出す。「採掘3」の Lv の比べ方は matchesKeywords）
+    work: workEntries(pal.work).map((entry) => entry.name),
     partnerSkill: [pal.partnerSkill],
     partnerSkillDesc: [pal.partnerSkillDesc],
     skills: pal.skillNames ?? [],
@@ -390,12 +423,17 @@ export function keywordTerms(query) {
 }
 
 /**
- * 語がすべて、いずれかの項目に含まれるか。extra は個体の固定の文字ではない、画面が足す文字（目標の印など。keywordCache には入れない）
+ * 語がすべて、いずれかの項目に含まれるか。extra は個体の固定の文字ではない、画面が足す文字（目標の印など。keywordCache には入れない）。
+ * 作業の名前の直後に数字の語（「採掘3」）は、その作業の Lv が数字以上の個体だけに当たる（文字の部分一致では見ない。game-assets）
  */
 export function matchesKeywords(pal, terms, extra) {
   const texts = keywordTexts(pal);
   // 足す文字は、個体の文字で見つからなかった語のときだけ、1 つずつそろえて見る（印の多い個体で、入力のたびに配列を作らない）
-  return terms.every((term) => texts.some((entry) => entry.text.includes(term)) || (extra?.length > 0 && extra.some((text) => normalizedText(text).includes(term))));
+  return terms.every((term) => {
+    const work = workTerm(term);
+    if (work) return workMatches(pal, work);
+    return texts.some((entry) => entry.text.includes(term)) || (extra?.length > 0 && extra.some((text) => normalizedText(text).includes(term)));
+  });
 }
 
 // 一致した理由の項目（行に出す見出し・名前の項目・説明の項目）。1 つの語の中ではこの順に並べる（行の左から右の順に近い並び）。
@@ -404,6 +442,8 @@ const NOTE_SPECS = [
   { label: 'パル名', field: 'name' },
   { label: 'ニックネーム', field: 'nickname' },
   { label: '属性', field: 'elements' },
+  // 名前に Lv を付けて出す（「作業適性：採掘 Lv3」）
+  { label: '作業適性', field: 'work', withLevel: true },
   { label: '性別', field: 'gender' },
   { label: '特徴', field: 'status' },
   { label: 'パッシブ', field: 'passives', descField: 'passiveDescs' },
@@ -439,7 +479,21 @@ export function keywordNotes(pal, terms, extra) {
     } else if (desc && !found.desc) found.desc = desc;
   };
   let fields = null;
+  let works = null;
+  const workText = (index) => {
+    works ??= workEntries(pal.work);
+    return works[index] ? `${works[index].name} Lv${works[index].level}` : '';
+  };
   for (const term of terms) {
+    // 「採掘3」は作業適性の Lv で当たった（その作業を Lv つきで出す）
+    const work = workTerm(term);
+    if (work) {
+      if (!workMatches(pal, work)) continue;
+      works ??= workEntries(pal.work);
+      const index = works.findIndex((entry) => entry.key === work.key);
+      if (index >= 0) add('作業適性', workText(index), '');
+      continue;
+    }
     let hit = null;
     for (const entry of entries) {
       if (!entry.text.includes(term)) continue;
@@ -448,7 +502,7 @@ export function keywordNotes(pal, terms, extra) {
     }
     if (hit) {
       fields ??= keywordFields(pal);
-      for (const { label, field, descField } of NOTE_SPECS) {
+      for (const { label, field, descField, withLevel } of NOTE_SPECS) {
         const names = fields[field];
         const descs = descField ? fields[descField] : null;
         for (let index = 0; index < names.length; index++) {
@@ -457,7 +511,7 @@ export function keywordNotes(pal, terms, extra) {
           if (!name || !(byDesc || hit.has(`${field}:${index}`))) continue;
           // 拠点の個体は所持者の欄にも拠点の名前が入る（場所と同じ値）。場所として 1 回だけ出す
           if (field === 'holder' && name === fields.place[0]) continue;
-          add(label, String(name), byDesc ? descs[index] : '');
+          add(label, withLevel ? workText(index) : String(name), byDesc ? descs[index] : '');
         }
       }
     }

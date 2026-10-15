@@ -109,10 +109,12 @@ export function openPak(file) {
     }
     return Buffer.concat(parts);
   }
-  return { get, has: (name) => paths.has(name), close: () => fs.closeSync(fd) };
+  // list: pak の中のパスのうち、prefix で始まるもの（名前の順）。取り出す前に実在を確かめる（game-assets の extract-ui-icons.mjs --list）
+  const list = (prefix = '') => [...paths.keys()].filter((name) => name.startsWith(prefix)).sort();
+  return { get, has: (name) => paths.has(name), list, close: () => fs.closeSync(fd) };
 }
 
-// ---- テクスチャ（DXT1 / DXT5）→ RGBA ----
+// ---- テクスチャ（DXT1 / DXT5 / B8G8R8A8）→ RGBA ----
 
 const c565 = (c) => [((c >> 11) & 31) * 255 / 31 | 0, ((c >> 5) & 63) * 255 / 63 | 0, (c & 31) * 255 / 31 | 0];
 
@@ -157,21 +159,44 @@ function decodeDxt(data, width, height, format) {
   return out;
 }
 
+// 圧縮していない B8G8R8A8（1 画素 4 バイトの B・G・R・A の並び）→ RGBA。並びを入れ替えるだけ（性別の記号 T_Icon_PanGender_*。game-assets）
+function decodeBgra(data, width, height) {
+  const out = Buffer.alloc(width * height * 4);
+  for (let o = 0; o < out.length; o += 4) {
+    out[o] = data[o + 2]; out[o + 1] = data[o + 1]; out[o + 2] = data[o]; out[o + 3] = data[o + 3];
+  }
+  return out;
+}
+
+// 対応する形式と、最初の mip のバイト数・復号
+const TEXTURE_FORMATS = {
+  PF_DXT1: { bytes: (w, h) => Math.ceil(w / 4) * Math.ceil(h / 4) * 8, decode: (data, w, h) => decodeDxt(data, w, h, 'PF_DXT1') },
+  PF_DXT5: { bytes: (w, h) => Math.ceil(w / 4) * Math.ceil(h / 4) * 16, decode: (data, w, h) => decodeDxt(data, w, h, 'PF_DXT5') },
+  PF_B8G8R8A8: { bytes: (w, h) => w * h * 4, decode: decodeBgra },
+};
+
+/** テクスチャの幅・高さ・形式（PF_…）だけを読む（復号しない。一覧の確かめ用）。テクスチャでなければ null */
+export function textureInfo(uexp) {
+  const at = uexp.indexOf(Buffer.from('PF_'));
+  if (at < 16) return null;
+  return { width: uexp.readInt32LE(at - 16), height: uexp.readInt32LE(at - 12), format: uexp.toString('latin1', at, uexp.indexOf(0, at)) };
+}
+
 /** bulk: 大きい mip を別ファイル（.ubulk）に置くテクスチャの、その中身。最初の mip が uexp になければ bulk の先頭から読む。 */
 export function readTexture(uexp, bulk = null) {
+  const info = textureInfo(uexp);
+  if (!info) throw new Error('テクスチャの形式が見つかりません');
+  const { width, height, format } = info;
+  const spec = TEXTURE_FORMATS[format];
+  if (!spec) throw new Error(`未対応のテクスチャ形式: ${format}`);
   const at = uexp.indexOf(Buffer.from('PF_'));
-  if (at < 16) throw new Error('テクスチャの形式が見つかりません');
-  const width = uexp.readInt32LE(at - 16);
-  const height = uexp.readInt32LE(at - 12);
-  const format = uexp.toString('latin1', at, uexp.indexOf(0, at));
-  if (!['PF_DXT1', 'PF_DXT5'].includes(format)) throw new Error(`未対応のテクスチャ形式: ${format}`);
-  const size = Math.ceil(width / 4) * Math.ceil(height / 4) * (format === 'PF_DXT5' ? 16 : 8);
+  const size = spec.bytes(width, height);
   const marker = Buffer.alloc(8);
   marker.writeUInt32LE(size, 0);
   marker.writeUInt32LE(size, 4);
   const k = uexp.indexOf(marker, at);
-  if (k >= 0 && k + 16 + size <= uexp.length) return { width, height, format, rgba: decodeDxt(uexp.subarray(k + 16, k + 16 + size), width, height, format) };
-  if (bulk && bulk.length >= size) return { width, height, format, rgba: decodeDxt(bulk.subarray(0, size), width, height, format) };
+  if (k >= 0 && k + 16 + size <= uexp.length) return { width, height, format, rgba: spec.decode(uexp.subarray(k + 16, k + 16 + size), width, height) };
+  if (bulk && bulk.length >= size) return { width, height, format, rgba: spec.decode(bulk.subarray(0, size), width, height) };
   throw new Error('最初の mip のデータが見つかりません');
 }
 

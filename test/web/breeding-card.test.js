@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom } from '../helpers/dom.js';
+import { installDom, descendants } from '../helpers/dom.js';
 import { breedingCard } from '../../web/js/ui/breeding-card.js';
-import { genderMark, palTile } from '../../web/js/ui/pal-icon.js';
+import { genderMark, palTile, palIcon, palsById, elementIcon, eggIcon, eggIconFile, gameIcon } from '../../web/js/ui/pal-icon.js';
 
 const record = { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
   registrant: '仲間', memo: '記録のメモ', confirmCount: 8, updatedAt: '2026-10-04T00:00:00Z' };
@@ -107,4 +107,63 @@ test('genderMark: 性別の印は文字の ♂♀ のまま（色の丸い地は
   assert.deepEqual([mark.className, mark.textContent, mark.getAttribute('aria-label')], ['gender gender-F', '♀', 'メス']);
   assert.equal(tile.querySelectorAll('.gender').length, 1);
   assert.equal(palTile('SheepBall').querySelector('.gender'), null);
+});
+
+// game-assets: 属性のアイコンは palTile の elements のオプトインだけ。配合カードなど既定の表示は変えない
+test('palTile: 既定では属性のアイコンを出さず（配合カードも同じ）、elements: true なら名前の右に属性のアイコン（alt・title は「炎属性」）', (t) => {
+  installDom(t);
+  const plain = palTile('JetDragon');
+  assert.equal(plain.querySelectorAll('img').filter((node) => node.className.includes('element-icon')).length, 0);
+  assert.equal(plain.querySelector('.pal-name-line'), null);
+  const card = breedingCard(record, { onEdit() {}, onDelete() {} });
+  assert.equal(card.querySelectorAll('img').filter((node) => node.className.includes('element-icon')).length, 0);
+  // src は web/img/element/ の画像、大きさは 16px で決める（配置を揺らさない）
+  const tile = palTile('IceDeer', { elements: true, clickable: false });
+  const icons = tile.querySelector('.pal-name-line').children.slice(1);
+  assert.deepEqual(icons.map((node) => [node.tagName, node.alt, node.title, node.width, node.height, node.loading]), [
+    ['img', '氷属性', '氷属性', 16, 16, 'lazy'],
+  ]);
+  assert.match(icons[0].src, /\/img\/element\/Ice\.png$/);
+  // 性別つき（所持パルの行）は ♂♀ → 名前 → 属性（2 属性なら 2 つ。マスターの並び）
+  const owned = palTile('BluePlatypus_Fire', { gender: 'M', genderFirst: true, elements: true });
+  assert.deepEqual(owned.querySelector('.pal-name-line').children.map((node) => node.textContent || node.alt), ['♂', 'モモノスケ', '水属性', '炎属性']);
+  // 'css' は要素を足さず、名前の行（性別がなければ名前の strong）のクラス（CSS の ::after の背景）で描く（所持パルの 2,000 行の要素の数を変えない）
+  const cssTile = palTile('BluePlatypus_Fire', { gender: 'M', genderFirst: true, elements: 'css' });
+  const css = cssTile.querySelector('.pal-name-line');
+  assert.deepEqual([css.className, css.children.length], ['pal-name-line has-elements el1-Water el2-Fire', 2]);
+  assert.equal(descendants(cssTile).length, descendants(palTile('BluePlatypus_Fire', { gender: 'M', genderFirst: true })).length);
+  const genderless = palTile('SheepBall', { elements: 'css' });
+  assert.equal(genderless.querySelector('.pal-name-line'), null);
+  assert.equal(genderless.querySelector('strong').className, 'has-elements el1-Neutral');
+  assert.equal(descendants(genderless).length, descendants(palTile('SheepBall')).length);
+});
+
+test('ゲームのアイコン: 読めなければ 1 回だけ文字の表示に戻す（属性は文字のチップ、タマゴ・配合牧場などは外す）', async (t) => {
+  installDom(t);
+  const host = document.createElement('span');
+  const icon = elementIcon('Fire');
+  host.append(icon);
+  await icon.dispatch('error');
+  assert.deepEqual(host.children.map((node) => [node.tagName, node.className, node.textContent]), [['span', 'element-chip element-Fire', '炎']]);
+  const egg = gameIcon('item/egg-Fire.png');
+  host.replaceChildren(egg);
+  await egg.dispatch('error');
+  assert.equal(host.children.length, 0);
+  // タマゴの種類: アイテム ID の PalEgg_〈種類〉（大文字小文字は問わない・大きいタマゴも同じ）、突然変異は突然変異のタマゴ、分からなければなし
+  assert.equal(eggIconFile('PalEgg_Fire_05'), 'item/egg-Fire.png');
+  assert.equal(eggIconFile('paleGG_worldtree_01'), 'item/egg-WorldTree.png');
+  assert.equal(eggIconFile('PalEgg_Normal_01'), 'item/egg-Normal.png');
+  assert.equal(eggIconFile('PalEgg_Fire_01', { mutant: true }), 'item/egg-MutationPal.png');
+  assert.equal(eggIconFile('PalEgg_MutationPal_03'), 'item/egg-MutationPal.png');
+  assert.equal(eggIconFile(''), '');
+  assert.equal(eggIconFile('PalEgg_Space_01'), '');
+  assert.equal(eggIcon(undefined), null);
+  assert.equal(eggIcon('PalEgg_Dark_02').alt, '');
+  // パルの絵が読めないときは絵だけをアバターに替え、右下に重ねたタマゴのアイコンは残す
+  const picture = palIcon(palsById.get('SheepBall'));
+  const overlay = eggIcon('PalEgg_Fire_01');
+  picture.append(overlay);
+  await picture.children[0].dispatch('error');
+  assert.deepEqual(picture.children.map((node) => node.tagName), ['svg', 'img']);
+  assert.equal(picture.children[1], overlay);
 });

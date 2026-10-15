@@ -2,7 +2,7 @@
 // 所持パルの帯（views/owned.js）と右のドロワーで同じものを使う。出すのはセーブの実物（親・タマゴの中身）と登録済みの配合の件数だけ（INV-2）。
 // 牧場の親から子を求めて出さない（「→ 子」を書かない）。交換推奨は理想個体の画面にあるので出さない
 import { el, button, link, syncList, clearList, statusChip } from './dom.js';
-import { palsById, palIcon, genderMark } from './pal-icon.js';
+import { palsById, palIcon, genderMark, gameIcon, eggIcon } from './pal-icon.js';
 import { passiveChip } from './passive-picker.js';
 import { farmNames } from '../core/ideal-farms.js';
 import { findByPair } from '../core/index.js';
@@ -107,7 +107,12 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
       const item = el('li', `farm-egg${egg.mutant ? ' is-mutant' : ''}`);
       const pal = byId.get(egg.id);
       const label = `${master?.ja ?? '中身の分からない'}のタマゴ${pal?.eggItemId && eggName(pal.eggItemId) ? `（${eggName(pal.eggItemId)}）` : ''}${egg.mutant ? '・突然変異' : ''}`;
-      const icon = master ? palIcon(master) : el('span', 'pal-icon farm-egg-unknown', '?');
+      // 中身の種族の絵の右下にタマゴの種類のアイコン。中身の分からないタマゴは、ゲームの「？」のタマゴ（読めなければ文字の ?。game-assets）
+      const icon = master ? palIcon(master) : el('span', 'pal-icon farm-egg-unknown');
+      if (master) {
+        const mark = eggIcon(pal?.eggItemId, { mutant: egg.mutant, size: 14 });
+        if (mark) icon.append(mark);
+      } else icon.append(gameIcon('item/egg-Unknown.png', { size: 24, fallback: () => el('span', '', '?') }));
       if (pal) {
         const open = button('', null, 'farm-egg-open');
         open.append(icon);

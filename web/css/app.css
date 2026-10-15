@@ -818,6 +818,51 @@ img, svg { max-width: 100%; }
 .element-Dragon { --element: var(--Dragon); }
 .element-chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .element-chip { color: #fff; background: var(--element-chip, var(--element, var(--Neutral))); padding: 2px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+/* ゲームから取り出した小さなアイコン（ui/pal-icon.js の gameIcon。web/img/{element,work,item,ui}/。game-assets）。大きさは img の width・height。
+   属性の並び（パル詳細のヒーロー・解説の板・個体の詳細）はアイコン 20px と名前。読めなければ前の文字のチップ（.element-chip）に戻る */
+.game-icon { flex: none; object-fit: contain; }
+.element-item { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; line-height: 20px; }
+.element-item .element-icon { width: 20px; height: 20px; }
+/* パルのタイルの名前の右の属性のアイコン（palTile の elements。パル選択の候補・所持パルの行）。16px（候補・行の字の高さに合わせる） */
+.pal-name-line .element-icon { width: 16px; height: 16px; }
+.pal-name-line .element-icon + .element-icon { margin-left: -3px; }
+.pal-name-line .element-chip { padding: 0 6px; font-size: 11px; line-height: 16px; }
+.pal-name-line > strong { min-width: 0; }
+/* 所持パルの行（palTile の elements: 'css'）: 要素を足さず、名前の行（なければ名前）の ::after に属性のアイコンを背景で描く（2,000 行の要素の
+   数を増やさない）。9 つの画像が全部読めたとき（html.game-elements。ui/pal-icon.js）だけ。2 属性なら 2 つを 3px 重ねて並べる */
+.el1-Neutral { --el1: url('../img/element/Neutral.png'); }
+.el1-Fire { --el1: url('../img/element/Fire.png'); }
+.el1-Water { --el1: url('../img/element/Water.png'); }
+.el1-Grass { --el1: url('../img/element/Grass.png'); }
+.el1-Electric { --el1: url('../img/element/Electric.png'); }
+.el1-Ice { --el1: url('../img/element/Ice.png'); }
+.el1-Ground { --el1: url('../img/element/Ground.png'); }
+.el1-Dark { --el1: url('../img/element/Dark.png'); }
+.el1-Dragon { --el1: url('../img/element/Dragon.png'); }
+.el2-Neutral { --el2: url('../img/element/Neutral.png'); }
+.el2-Fire { --el2: url('../img/element/Fire.png'); }
+.el2-Water { --el2: url('../img/element/Water.png'); }
+.el2-Grass { --el2: url('../img/element/Grass.png'); }
+.el2-Electric { --el2: url('../img/element/Electric.png'); }
+.el2-Ice { --el2: url('../img/element/Ice.png'); }
+.el2-Ground { --el2: url('../img/element/Ground.png'); }
+.el2-Dark { --el2: url('../img/element/Dark.png'); }
+.el2-Dragon { --el2: url('../img/element/Dragon.png'); }
+.game-elements .has-elements::after {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  background: var(--el1) 0 0 / 16px 16px no-repeat;
+}
+/* 性別のない個体は名前の行がないので、名前（strong）の後ろに描く */
+.game-elements strong.has-elements::after { margin-left: 5px; }
+.game-elements .has-elements:is(.el2-Neutral, .el2-Fire, .el2-Water, .el2-Grass, .el2-Electric, .el2-Ice, .el2-Ground, .el2-Dark, .el2-Dragon)::after {
+  width: 29px;
+  background: var(--el1) 0 0 / 16px 16px no-repeat, var(--el2) 13px 0 / 16px 16px no-repeat;
+}
 .pal-tile { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 64px; color: var(--md-sys-color-on-surface); }
 a.pal-tile:hover { color: var(--md-sys-color-primary); text-decoration: none; }
 .pal-label { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.45; overflow-wrap: anywhere; }
@@ -840,6 +885,20 @@ a.pal-tile:hover { color: var(--md-sys-color-primary); text-decoration: none; }
 }
 .gender-M:not(.gender-inline) { background: var(--gender-male); }
 .gender-F:not(.gender-inline) { background: var(--gender-female); }
+/* ゲームの性別の記号（web/img/ui/gender-*.png。Main_Menu の平らな記号。game-assets）。画像が読めたときだけ（html.game-gender。ui/pal-icon.js）、
+   丸い地と文字の ♂♀ を隠し、記号の形（mask-image）を今の性別の色で塗る。文字・role・aria-label は残す（読み上げとテスト）。画像を消すと丸い地の文字に戻る */
+.game-gender .gender:not(.gender-inline) {
+  border-radius: 0;
+  color: transparent;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 16px 16px;
+  mask-size: 16px 16px;
+}
+.game-gender .gender-M:not(.gender-inline) { -webkit-mask-image: url('../img/ui/gender-M.png'); mask-image: url('../img/ui/gender-M.png'); }
+.game-gender .gender-F:not(.gender-inline) { -webkit-mask-image: url('../img/ui/gender-F.png'); mask-image: url('../img/ui/gender-F.png'); }
 .card-stack { display: grid; }
 .breeding-card {
   display: grid;
@@ -1223,6 +1282,13 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-partner-more > summary::after { content: ' もっと見る'; color: var(--md-sys-color-primary); font-weight: 700; }
 .pal-partner-more[open] > summary .pal-partner-short { display: none; }
 .pal-partner-more[open] > summary::after { content: '閉じる'; }
+/* 作業適性の行（views/pal-detail.js の workLine。game-assets）: 見出しの下に、作業のアイコン 16px・名前・Lv を折り返して並べる */
+.pal-work { display: grid; gap: 2px; }
+.pal-work-label { font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+.pal-work-list { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.pal-work-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.pal-work-item .work-icon { width: 16px; height: 16px; }
+.pal-work-level { font-weight: 700; font-variant-numeric: tabular-nums; }
 .pal-owned-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; }
 .pal-owned-label { font-weight: 700; }
 .pal-owned-none, .pal-owned-sep { color: var(--md-sys-color-on-surface-variant); }
@@ -1299,6 +1365,8 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 }
 .farm-band-toggle::before { content: ''; width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 7px; border-color: transparent transparent transparent currentColor; }
 .farm-band-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+/* 見出しの文字の左のゲームの配合牧場のアイコン（game-assets） */
+.farm-band-toggle .farm-icon { width: 20px; height: 20px; margin-right: -2px; }
 .farm-band-toggle:hover { background: var(--state-hover); }
 .farm-band-body { padding: 0 12px 12px; }
 .farm-board-note { margin: 0 0 8px; font-size: 13px; color: var(--md-sys-color-warning); }
@@ -1338,6 +1406,10 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .farm-egg .pal-icon { width: 30px; height: 30px; border-radius: 50%; background: var(--md-sys-color-surface-container-high); }
 .farm-egg.is-mutant .pal-icon { box-shadow: 0 0 0 2px var(--md-sys-color-warning); }
 .farm-egg-unknown { display: inline-grid; place-items: center; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.farm-egg-unknown .game-icon { width: 22px; height: 22px; }
+/* 中身の絵の右下のタマゴの種類のアイコン（game-assets） */
+.farm-egg .pal-icon { position: relative; }
+.farm-egg .egg-icon { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; }
 .farm-egg-open { display: block; padding: 0; border: 0; border-radius: 50%; background: transparent; }
 .farm-egg-open:hover .pal-icon { background: var(--state-hover); }
 .farm-records { font-size: 12px; font-weight: 700; }
@@ -1987,6 +2059,12 @@ button.route-partner-chip:hover { background: var(--state-hover); }
 }
 /* ニックネームと印は長いと縮めて省略する（全部はバッジの行の title） */
 .owned-badges .badge-nickname, .owned-badges .badge-mark { flex: 0 1 auto; min-width: 2em; overflow: hidden; text-overflow: ellipsis; }
+/* 配合牧場の印の左のゲームの配合牧場のアイコン（game-assets）。バッジの高さ 14px の中に収める */
+.badge-farm { display: inline-flex; align-items: center; gap: 2px; padding-left: 3px; }
+.badge-farm .farm-icon { width: 14px; height: 14px; }
+/* タマゴの行の種族の絵の右下に、タマゴの種類のアイコン（game-assets）。絵の 36px の枠の中に重ね、行の高さを変えない */
+.owned-pal .pal-icon { position: relative; }
+.owned-pal .egg-icon { position: absolute; right: -3px; bottom: -2px; width: 18px; height: 18px; filter: drop-shadow(0 0 1px var(--md-sys-color-surface)); }
 /* 行の下の段（D25）: 目標の印を 4 つまで横に並べ、5 つ目からは「+N」（押すと板に残り）。その後ろにキーワードに一致した理由の 1 行。
    印は長いと縮めて省略し（全文はそれぞれの title）、理由の場所を少し残す */
 .owned-band { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 4px; min-width: 0; height: var(--owned-band-h); overflow: hidden; white-space: nowrap; }
@@ -2518,6 +2596,8 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
   white-space: nowrap;
 }
 .segmented-option:first-child { border-left-width: 1px; border-radius: 8px 0 0 8px; }
+/* 理想個体のケーキの押しボタンの左のゲームのケーキのアイコン（views/ideal.js の CAKE_ICONS。game-assets）。ボタンの高さを変えない */
+.segmented-option .cake-icon { width: 18px; height: 18px; margin: -2px 3px -2px -2px; vertical-align: middle; }
 .segmented-option:last-child { border-radius: 0 8px 8px 0; }
 .segmented-option:hover:not([aria-checked="true"]) { background: var(--state-hover); }
 .segmented-option[aria-checked="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
@@ -2853,6 +2933,9 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-goal-empty { padding: 12px 0; }
 /* 名前の欄: 名前・「パルだけ」のタグ（種族だけの目標）と、下の行に配合の登録の数（押すと配合を探す）・所持の数（goals-merge） */
 .ideal-goal-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+/* 目標の名前の右の属性のアイコン（game-assets）。名前とアイコン、アイコンどうしは詰める */
+.ideal-goal-name > strong + .element-icon { margin-left: -4px; }
+.ideal-goal-name > .element-icon + .element-icon { margin-left: -7px; }
 .ideal-goal-facts { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
 .ideal-goal-records { font-weight: 700; white-space: nowrap; }
 .dialog-header > .device-only-chip { margin-right: auto; }

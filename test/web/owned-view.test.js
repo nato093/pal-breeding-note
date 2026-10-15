@@ -265,6 +265,8 @@ test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
   const line = view.element.querySelectorAll('.owned-row')[0].querySelector('.pal-name-line');
   assert.deepEqual(line.children.map((node) => node.textContent), ['♀', 'モコロン']);
+  // 名前の右の属性のアイコンは要素を足さず、名前の行のクラス（CSS の ::after の背景）で描く（game-assets。モコロンは無属性。行の要素の数を増やさない）
+  assert.equal(line.className, 'pal-name-line has-elements el1-Neutral');
   const rows = () => view.element.querySelectorAll('.owned-row').length;
   const stars = view.element.querySelectorAll('select').find((node) => node.children.some((child) => child.textContent === '★1 以上'));
   stars.value = '2';

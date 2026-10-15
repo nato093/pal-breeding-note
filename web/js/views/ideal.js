@@ -7,7 +7,7 @@ import { createPopover } from '../ui/popover.js';
 import { hint } from '../ui/hint.js';
 import { openDialog } from '../ui/dialog.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { palsById, palTile, palIcon, genderMark } from '../ui/pal-icon.js';
+import { palsById, palTile, palIcon, genderMark, elementIcon, gameIcon } from '../ui/pal-icon.js';
 import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/passive-picker.js';
 import { talentInput } from '../ui/talent-input.js';
 import { actionIcon } from '../ui/breeding-card.js';
@@ -38,6 +38,8 @@ const TALENT_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
 // 条件のパネルの押しボタンの短いラベル（長い説明は core/ideal.js の PASSIVE_MODES・CAKES の文を title に出す）
 const MODE_LABELS = { include: '全部持つ', only: 'だけ' };
 const CAKE_LABELS = { none: 'なし', talent: 'キノコ等', special: 'スペシャル' };
+// ケーキの押しボタンのアイコン（web/img/item/ の下。core/ideal.js の CAKES の鍵 → ゲームのケーキのアイテム ID）
+const CAKE_ICONS = { none: 'cake-Cake', talent: 'cake-Cake02', special: 'cake-Cake05' };
 const shortChoices = (choices, labels) => choices.map(([key, text]) => [key, labels[key] ?? text, text]);
 
 const targetValue = (value) => intIn(value, { min: 0, max: 100, fallback: 100 });
@@ -335,6 +337,12 @@ export function idealView(context, route) {
     onChange: (value) => { conditions.mode = value; renderResults(); } });
   const cakeChoice = segmented({ label: 'ケーキ', choices: shortChoices(CAKES, CAKE_LABELS), value: conditions.cake,
     onChange: (value) => { conditions.cake = value; renderResults(); } });
+  // ケーキの押しボタンの左にゲームのケーキのアイコン（なし＝ケーキ・キノコ等＝キノコケーキ・スペシャル＝スペシャルケーキ。game-assets）。
+  // 文字は残す。読めなければアイコンだけ外す
+  for (const [value, file] of Object.entries(CAKE_ICONS)) {
+    const radio = cakeChoice.element.querySelector(`[data-value="${value}"]`);
+    radio?.insertBefore(gameIcon(`item/${file}.png`, { size: 18, className: 'cake-icon' }), radio.firstChild ?? null);
+  }
   // 同じ画面のまま登録した理想個体を呼び出したとき（g）・戻る・進むで条件を入れ直したとき、入れた条件を入力欄にも出す
   function showConditions() {
     talent.update(conditions.targets);
@@ -544,6 +552,8 @@ export function idealView(context, route) {
     const title = el('div', 'ideal-goal-title');
     const nameCell = el('div', 'ideal-goal-name');
     nameCell.append(el('strong', '', goal.name));
+    // 名前の右に属性のアイコン（game-assets）
+    for (const element of palsById.get(goal.palId)?.el ?? []) nameCell.append(elementIcon(element));
     if (isSpeciesGoal(goal)) nameCell.append(statusChip('パルだけ', 'info', 'ideal-goal-tag'));
     // 配合の登録（画面のデータの登録済みの数。押すと配合を探すでその子）と、所持パルがあれば所持の数（親になれる数）
     const records = link('', buildHash('search', { c: goal.palId }), 'ideal-goal-records');
