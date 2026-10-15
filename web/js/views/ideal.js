@@ -585,8 +585,13 @@ export function idealView(context, route) {
       // 完成済みは状態のピルをリンクの中へ（押すと所持パル）。それ以外はふつうのピル
       if (item.status.done && state.parentElement !== found) { found.append(state); stateCell.insertBefore(found, gap); }
       if (!item.status.done && state.parentElement === found) { stateCell.insertBefore(state, found); found.remove(); }
+      // リンクの名前に行き先を入れる（見た目は状態のピル）
+      if (item.status.done) found.setAttribute('aria-label', `${item.status.text}（所持パルで見る）`);
+      // 差は項目ごとに折らない（「·」の所でだけ折る）
       const gapText = item.status.gap ?? '';
-      if (gap.textContent !== gapText) gap.textContent = gapText;
+      if (gap.textContent !== gapText) {
+        gap.replaceChildren(...gapText.split(' · ').filter(Boolean).flatMap((part, i) => [...(i ? [el('span', 'ideal-goal-gap-sep', ' · ')] : []), el('span', 'ideal-goal-gap-part', part)]));
+      }
       gap.hidden = !gapText;
     };
     update({ status, facts });
@@ -643,7 +648,7 @@ export function idealView(context, route) {
     // 完成の数（表示しているワールドで完成済みの目標。レールの「完成 n」と同じ数え方）。自分のプレイヤー・所持パルが分からない（未確認）ときは出さない
     const doneWorld = ownedWorldId(owned?.state?.meta?.worldId);
     const mine = ideals.mine();
-    const doneCount = doneWorld && mine ? goals.filter((goal) => goal.worlds?.[doneWorld]?.complete).length : null;
+    const doneCount = doneWorld && mine && goals.length ? goals.filter((goal) => goal.worlds?.[doneWorld]?.complete).length : null;
     const count = `目標（${goals.length}${doneCount === null ? '' : ` · 完成 ${doneCount}`}）${ideals.saveFailed ? '!' : ''}`;
     if (goalsButton.textContent !== count) goalsButton.textContent = count;
     goalsButton.title = ideals.saveFailed ? 'この端末に保存できませんでした' : '';

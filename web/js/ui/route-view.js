@@ -68,6 +68,7 @@ function chain(route, annotate, progress) {
         node.append(done);
       } else if (next) {
         node.classList.add('route-step-next');
+        node.setAttribute('aria-current', 'step');
         next = false;
       }
     }

@@ -27,12 +27,16 @@ test('牧場の共有: cleanOwnedFarms は短い鍵（s・eggs・n・of）を確
     { id: 'F1', baseId: 'B', parents: ['a', 'b'], n: 3, eggs: [{ id: 'e1', p: 'SheepBall', m: 1, x: 'y' }, { id: 'e2', p: 'bad id!', m: true }, { p: 'SheepBall' }, 'egg'], extra: 1 },
     { id: 'F2', baseId: 'B', parents: [], s: 'u', n: 70, of: 0 },
     { id: 'F3', baseId: 'B', parents: ['a'], s: 'x', n: 1.5, of: 5 },
+    // 決まりを守らない送り主（読めない牧場に親を付けた）
+    { id: 'F6', baseId: 'B', parents: ['a', 'b'], s: 'u', n: 0 },
     { id: 'F4', parents: ['a', 'b', 'c'] },
     { id: 'F5', baseId: 'B', parents: ['c'] },
   ]), [
     { id: 'F1', baseId: 'B', parents: ['a', 'b'], eggs: [{ id: 'e1', p: 'SheepBall', m: 1 }, { id: 'e2' }], n: 3 },
-    { id: 'F2', baseId: 'B', parents: [], s: 'u' },
+    // 読めない牧場の親は、どの個体にも当たらない仮の親 2 つ（古い画面が s を捨てても空き牧場に数えない）
+    { id: 'F2', baseId: 'B', parents: ['?1', '?2'], s: 'u' },
     { id: 'F3', baseId: 'B', parents: ['a'], of: 5 },
+    { id: 'F6', baseId: 'B', parents: ['?1', '?2'], s: 'u', n: 0 },
     { id: 'F5', baseId: 'B', parents: ['c'] },
   ]);
   // 中身は 1 牧場 20 個まで

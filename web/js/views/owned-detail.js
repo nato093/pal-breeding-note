@@ -157,9 +157,9 @@ export function ownedDetail(context, instanceId, { terms, query = '', setTitle }
       species.setAttribute('aria-label', `${master.ja}のパル詳細`);
       species.setAttribute('data-focus-key', 'owned-detail:species');
       actions.append(species);
-      if (!pal.egg) actions.append(actionLink('親にして配合を探す', buildHash('search', { p1: master.id }), 'search'));
-      actions.append(actionLink('逆引き（この種族が産まれる配合）', buildHash('search', { c: master.id }), 'search'),
-        actionLink('この種族を目標に継承ルート', buildHash('route', { to: master.id }), 'route'));
+      if (!pal.egg) actions.append(actionLink(`${master.ja}を親に使う配合`, buildHash('search', { p1: master.id }), 'search'));
+      actions.append(actionLink(`${master.ja}が産まれる配合`, buildHash('search', { c: master.id }), 'search'),
+        actionLink(`${master.ja}への継承ルート`, buildHash('route', { to: master.id }), 'route'));
       parts.push(actions);
     }
     replace(...parts);

@@ -174,7 +174,8 @@ test('所持パル共有: 配合牧場のタマゴ（短い鍵 s・eggs・n）�
     { id: 'F2', baseId: 'b1', parents: [], s: 'u', n: 1 },
   ];
   env.call('ownedUpload', upload(WORLD_A, [row('p1'), row('p2')], '2026-10-05T10:00:00.000Z', { farms }));
-  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.farms, farms);
+  // 読めない牧場の親は、GAS でも仮の親 2 つにして残す（古い画面が s を捨てても空き牧場に数えない）
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.farms, [farms[0], { ...farms[1], parents: ['?1', '?2'] }]);
   const id = (prefix, i) => `${prefix}${i}`.padEnd(40, 'x');
   const big = Array.from({ length: 200 }, (_, i) => ({
     id: id('F', i), baseId: id('B', i), parents: [id('P', i), id('Q', i)], n: 20,

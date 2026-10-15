@@ -112,6 +112,22 @@ test('配合牧場ボード: 開いたまま記録を足して索引が変わる
   board.destroy();
 });
 
+test('配合牧場ボード: タマゴの数の分からない古い形の共有から新しい形に替わったら、「タマゴの情報なし」を描き直す', (t) => {
+  installDom(t);
+  const old = data();
+  old.farmsCounted = false;
+  for (const farm of old.farms) Object.assign(farm, { eggs: null, eggCount: 0 });
+  const app = context(old);
+  const board = farmBoard(app);
+  assert.match(byClass(board.element, 'farm-card')[1].textContent, /タマゴの情報なし/);
+  const next = data();
+  for (const farm of next.farms) Object.assign(farm, { eggs: null, eggCount: 0 });
+  app.owned.state.owned = next;
+  app.owned.emit();
+  assert.doesNotMatch(byClass(board.element, 'farm-card')[1].textContent, /タマゴの情報なし/);
+  board.destroy();
+});
+
 test('配合牧場ボード: その組の登録済みの配合の件数へのリンクだけを出し、子の名前・「→」の式は出さない（INV-2）。牧場の情報がなければ案内', (t) => {
   installDom(t);
   const records = [{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen', parent1Gender: '', parent2Gender: '', registrant: 'A', memo: '', updatedAt: '2026-10-01T00:00:00Z' }];

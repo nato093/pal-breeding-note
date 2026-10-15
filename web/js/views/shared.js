@@ -195,7 +195,7 @@ export function palDataNotes(index, ownedData) {
   for (const id of has) {
     const mine = owned.badges?.get(id);
     const records = counts.get(id) ?? 0;
-    badges.set(id, mine ? `${mine}${records ? ` · 登録 ${records}` : ''}` : `登録 ${records} 件`);
+    badges.set(id, mine ? `${mine}${records ? ` · 登録 ${records} 件` : ''}` : `登録 ${records} 件`);
   }
   notes = { badges, groups: { has, label: 'データあり', rest: 'その他' } };
   inner.set(ownedKey, notes);

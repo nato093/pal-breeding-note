@@ -26,10 +26,13 @@ test('INV-2: マスターの取り込み元に配合データ（breeding.json �
 // INV-2 の例外: 配合表は自動登録の照合にだけ使う。画面（表示・検索）から読めないよう、読み込む場所を限る
 test('INV-2: 配合表を読むのは自動登録だけ', () => {
   const files = fs.readdirSync('web/js', { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => path.join('web/js', f).replaceAll('\\', '/'));
-  const importing = (pattern) => files.filter((file) => pattern.test(fs.readFileSync(file, 'utf8'))).sort();
-  assert.deepEqual(importing(/(from |import\()'[^']*data\/breeding\.js'/), ['web/js/auto-register.js']);
-  assert.deepEqual(importing(/from '\.\/(core\/)?breeding\.js'/), ['web/js/auto-register.js', 'web/js/core/auto-breeding.js']);
-  assert.deepEqual(importing(/auto-breeding\.js'/), ['web/js/auto-register.js', 'web/js/views/owned-settings.js']);
+  // ' " ` のどれでも・どこからの相対でも、解決した後のパスで数える（importsIn）。解決できない動的 import でも配合表を読まない
+  const imports = new Map(files.map((file) => [file, importsIn(fs.readFileSync(file, 'utf8'), file)]));
+  const importing = (target) => files.filter((file) => imports.get(file).includes(target)).sort();
+  assert.deepEqual(importing('web/data/breeding.js'), ['web/js/auto-register.js']);
+  assert.deepEqual(importing('web/js/core/breeding.js'), ['web/js/auto-register.js', 'web/js/core/auto-breeding.js']);
+  assert.deepEqual(importing('web/js/core/auto-breeding.js'), ['web/js/auto-register.js', 'web/js/views/owned-settings.js']);
+  for (const [file, specs] of imports) for (const spec of specs.filter((item) => item.includes('${'))) assert.doesNotMatch(spec, /breed/, file);
   // 設定画面が使うのは、プレイヤーと登録者の対応づけ（配合表は使わない）
   assert.match(fs.readFileSync('web/js/views/owned-settings.js', 'utf8'), /import \{ mappedUser \} from '\.\.\/core\/auto-breeding\.js'/);
 });

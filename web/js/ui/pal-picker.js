@@ -36,7 +36,7 @@ const checkMark = () => icon('check', { className: 'picker-check' });
  *（検索語が空か、矢印で行を選んでいるとき。文字を打っている間は検索欄の中のカーソルを動かす）
  */
 // triggerLabel: トリガーの読み上げの名前を固定する（ヘッダーのパル検索のように、選んだらすぐ空に戻す欄。省くと「ラベル: 選んでいるパル」）
-export function palPicker({ label, value = '', onChange, popupHost, placeholder: initialPlaceholder = 'パルを選択', describe, triggerLabel = '' }) {
+export function palPicker({ label, value = '', onChange, popupHost, placeholder: initialPlaceholder = 'パルを選択', describe, triggerLabel = '', searchLabel = '' }) {
   let selected = value;
   let placeholder = initialPlaceholder;
   let annotate = describe;
@@ -55,7 +55,7 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder:
   // スペースと Enter はボタンの既定（押すと開く）のまま
   trigger.addEventListener('keydown', (event) => {
     if (popover.isOpen() || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-    const typed = typeof event.key === 'string' && event.key.length === 1 && event.key !== ' ' ? event.key : '';
+    const typed = typeof event.key === 'string' && event.key.length === 1 && event.key !== ' ' && event.key !== '/' ? event.key : '';
     if (!typed && event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
     open({ query: typed });
@@ -95,7 +95,7 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder:
     const input = el('input', 'picker-search');
     input.type = 'search';
     input.placeholder = '名前・英名・番号で探す';
-    input.setAttribute('aria-label', `${label}を検索`);
+    input.setAttribute('aria-label', searchLabel || `${label}を検索`);
     input.setAttribute('role', 'combobox');
     input.setAttribute('aria-autocomplete', 'list');
     input.setAttribute('aria-controls', listId);

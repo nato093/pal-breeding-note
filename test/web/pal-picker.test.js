@@ -363,7 +363,8 @@ test('パル選択: 候補を開いたまま setValue で値が変わったら�
 
 test('パル選択: 閉じたトリガーで文字を打つと開いて検索欄に入れ、↓↑ でも開く（スペース・修飾キー・変換中は既定のまま）', async (t) => {
   const { picker, trigger } = mountPicker(t);
-  for (const extra of [{ key: ' ' }, { key: 'a', ctrlKey: true }, { key: 'a', isComposing: true }, { key: 'Enter' }]) {
+  // 「/」はヘッダーのパル検索のショートカットなので、検索欄に入れない（0 件になっていた）
+  for (const extra of [{ key: ' ' }, { key: 'a', ctrlKey: true }, { key: 'a', isComposing: true }, { key: 'Enter' }, { key: '/' }]) {
     const result = await trigger.dispatch('keydown', extra);
     assert.equal(result.defaultPrevented, false, JSON.stringify(extra));
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');

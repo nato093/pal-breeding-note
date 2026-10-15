@@ -163,7 +163,7 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
   }
 
   // カードの中身の署名（同じなら作り直さない。親・タマゴ〔中身とタマゴの名前〕・個体の値・その組の登録の件数で変わる）
-  const cardKey = ({ farm, name }, byId) => JSON.stringify([farm.id, name, farm.status, farm.parents.map((id) => {
+  const cardKey = ({ farm, name }, byId, counted) => JSON.stringify([counted, farm.id, name, farm.status, farm.parents.map((id) => {
     const pal = byId.get(id);
     return pal ? [pal.id, pal.gender, pal.level, pal.passives, pal.talent, pal.lastOwner, pal.nickname] : id;
   }), farm.eggs, farm.eggs?.map((egg) => byId.get(egg.id)?.eggItemId ?? ''), farm.eggCount, recordsOf(farm, byId)?.count ?? null]);
@@ -191,7 +191,7 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     const byId = new Map(data.pals.map((pal) => [pal.id, pal]));
     const list = orderedFarms(farms, data.bases);
     syncList(cards, list, {
-      key: (item) => cardKey(item, byId),
+      key: (item) => cardKey(item, byId, data.farmsCounted !== false),
       create: (item) => ({ element: cardOf(item, data, byId) }),
       empty: () => el('p', 'farm-board-empty', '配合牧場はまだありません。'),
     });

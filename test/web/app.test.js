@@ -739,7 +739,7 @@ test('画面: ショートカット「/」でヘッダーのパル検索を開�
   assert.equal(press().prevented, true);
   assert.equal(trigger.getAttribute('aria-expanded'), 'true');
   // 候補は浮かせて body に置く。名前で絞って ↓ → Enter で選ぶと、ドロワーで開き、検索は空に戻る
-  const input = find((node) => node.tagName === 'input' && node.getAttribute('aria-label') === 'パルを探すを検索');
+  const input = find((node) => node.tagName === 'input' && node.getAttribute('aria-label') === 'パルを名前・英名・番号で探す');
   assert.ok(input);
   input.value = 'セレムーン';
   await input.dispatch('input');
@@ -1099,6 +1099,46 @@ test('画面: パルのタイルを押すと右のドロワーで開き、本文
   await clickLink(navTab('継承ルート'));
   go(navTab('継承ルート').href);
   assert.equal(drawer.hidden, true);
+});
+
+test('画面: ドロワーを開いたまま本文にフォーカスを移しても Esc で閉じる（入力欄では閉じない）。開いたまま検索語を打ったエントリは、× で前のエントリへ戻らない印になる', async (t) => {
+  const development = createDevelopmentApi();
+  await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
+  await development({ action: 'create', passcode: '入力', opId: crypto.randomUUID(), record: {
+    id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
+    parent1Gender: '', parent2Gender: '', registrant: '架空データ', memo: '',
+  } });
+  const { documentEvents } = await boot(t, { initial: signedIn, api: development, hash: '#/search', pushState: true });
+  for (let i = 0; i < 20 && !find(isCard); i++) await flush();
+  const tile = find((node) => node.tagName === 'a' && node.className.split(' ').includes('pal-tile') && node.href === '#/pal/MoonQueen');
+  await clickLink(tile.children[1]);
+  const drawer = byClass('side-drawer');
+  assert.equal(drawer.hidden, false);
+  assert.equal(history.state.drawer.pushed, true);
+  // 検索語を打つ（履歴は置き換え）。ドロワーを積んだときの URL ではなくなるので、× で戻らない印にする
+  const keyword = find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）');
+  keyword.value = 'セレ';
+  await keyword.dispatch('input');
+  await keyword.dispatch('change');
+  assert.equal(location.hash, `#/search?q=${encodeURIComponent('セレ')}`);
+  assert.equal(drawer.hidden, false);
+  assert.equal(history.state.drawer.pushed, false);
+  const keydown = documentEvents.get('keydown');
+  const escape = () => {
+    const event = { key: 'Escape', isComposing: false, repeat: false, ctrlKey: false, altKey: false, metaKey: false, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+    keydown(event);
+    return event;
+  };
+  // 入力欄にフォーカスがある間の Esc（欄を空にする既定の動き）では閉じない
+  keyword.focus();
+  assert.equal(escape().defaultPrevented, false);
+  assert.equal(drawer.hidden, false);
+  // 本文（body）にフォーカスがあれば閉じる
+  document.activeElement = document.body;
+  assert.equal(escape().defaultPrevented, true);
+  assert.equal(drawer.hidden, true);
+  assert.equal(history.state.drawer, undefined);
+  assert.equal(location.hash, `#/search?q=${encodeURIComponent('セレ')}`);
 });
 
 test('画面: 戻る・進むでは、そのときの履歴のエントリの条件と位置に戻し、別の利用者・別のワールドのエントリは使わない', async (t) => {

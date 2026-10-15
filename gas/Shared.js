@@ -91,6 +91,9 @@ const OWNED_FARMS_MAX_CHARS = 45000;
 const OWNED_FARM_EGGS_MAX = 20;
 // 1 牧場のタマゴの数の上限（セーブの解析が読む数。web/js/save/palworld.js の MAX_FARM_EGGS）
 const OWNED_FARM_EGG_COUNT_MAX = 64;
+// 読めない牧場（s: 'u'）の親の代わり（個体 ID は英数字と - なので、どの個体にも当たらない）。古い画面は s を捨てるので、親を空にすると
+// 空き牧場として「空いた牧場に置くなら」を勧めてしまう。2 体の親がいる牧場として扱わせ、どの個体とも組にならないようにする
+const OWNED_FARM_UNREADABLE_PARENTS = ['?1', '?2'];
 
 /** 突然変異のタマゴのアイテム ID か（PalEgg_MutationPal_*。親と関係ない子が入る） */
 function isMutationEggItem(itemId) {
@@ -109,7 +112,10 @@ function cleanOwnedFarms(value) {
     const parents = Array.isArray(farm.parents) ? farm.parents.filter((parent) => typeof parent === 'string').map((parent) => ownedText(parent, 40)).filter(Boolean) : [];
     if (!id || parents.length > 2) continue;
     const clean = { id, baseId: ownedText(farm.baseId, 40), parents };
-    if (farm.s === 'u') clean.s = 'u';
+    if (farm.s === 'u') {
+      clean.s = 'u';
+      clean.parents = [...OWNED_FARM_UNREADABLE_PARENTS];
+    }
     if (Array.isArray(farm.eggs)) {
       const eggs = [];
       for (const egg of farm.eggs.slice(0, OWNED_FARM_EGGS_MAX)) {

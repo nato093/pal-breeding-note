@@ -3162,6 +3162,7 @@ test('継承ルート（route-progress）: 段に「牧場に配置中」「タ�
   // 段の子（キツネビ）を運ぶパッシブつきで（タマゴでなく）持っていないので、最初の段が次の段
   const step = view.element.querySelector('.route-breeding-card');
   assert.ok(step.className.split(' ').includes('route-step-next'));
+  assert.equal(step.getAttribute('aria-current'), 'step');
   assert.equal(step.querySelector('.route-step-done'), null);
   // 相手親のチップ（文はそのまま）を押すとドロワー
   const chip = note.querySelector('.route-partner-chip');
@@ -3226,6 +3227,8 @@ test('所持パル画面（種族の見出し）: 図鑑順のときだけ種族
   const sheep = heads()[0];
   assert.match(sheep.querySelector('.owned-species-facts').textContent, /^1 体 · ♂0 ♀1 · 最高 Lv 12$/);
   assert.deepEqual(sheep.querySelectorAll('a').map((node) => node.href), ['#/ideal?to=SheepBall', '#/route?to=SheepBall', '#/search?c=SheepBall']);
+  // 行き先のリンクの名前には種族の名前を入れる（見えている文を含む）
+  assert.deepEqual(sheep.querySelectorAll('a').map((node) => node.getAttribute('aria-label')), ['モコロンの理想個体', 'モコロンへの継承ルート', 'モコロンが産まれる配合']);
   const toggle = sheep.querySelector('.owned-species-toggle');
   assert.equal(toggle.getAttribute('aria-expanded'), 'true');
   const rowsOf = (palId) => view.element.querySelectorAll('.owned-row').filter((row) => row.getAttribute('data-instance') === 'a').length;

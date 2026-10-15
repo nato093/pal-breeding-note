@@ -835,6 +835,8 @@ test('理想個体画面: 目標のダイアログから外す・元に戻す・
   const found = again.querySelectorAll('.ideal-goal')[1].querySelector('.ideal-goal-found');
   assert.equal(found.href, '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdps%2Cglobal%2Cunknown');
   assert.match(found.textContent, /^完成済み: /);
+  // リンクの名前に行き先を入れる（見た目は状態のピル）
+  assert.equal(found.getAttribute('aria-label'), `${found.textContent}（所持パルで見る）`);
   assert.ok(again.querySelectorAll('.ideal-goal-status').every((node) => node.className.split(' ').includes('status-chip')));
   view.destroy();
 });
