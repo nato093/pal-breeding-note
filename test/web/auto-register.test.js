@@ -288,6 +288,8 @@ test('自動登録: 対応が未設定のプレイヤーの配合は通知だけ
   assert.equal(t.creates.length, 0);
   // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする（router.js の settingsHash）
   assert.deepEqual(t.auto.notices().map((n) => [n.title, n.href]), [['プレイヤーの対応が未設定です', '#/settings?world=W1&open=registrant']]);
+  // 呼び名は設定の欄と同じ「プレイヤーの対応」（roles。C-04）
+  assert.equal(t.auto.notices()[0].body, 'Frankの配合を登録できません。設定の「プレイヤーの対応」で選んでください。');
   t.auto.setMapping(P2, '仲間');
   await t.auto.idle();
   assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
@@ -518,6 +520,7 @@ test('自動登録: 前の版が保存した通知の「表は X」は、読み�
     ['自動登録を保留した配合', 'モコロン×オオタチウオ：登録済みの配合（子 ツッパニャン・タマコッコ）と食い違うため、保留しました'],
     // 形が分からない古い文は、本文を出さず題名だけにする
     ['自動登録しなかったタマゴ', ''],
+    // 前の版が保存した本文はそのまま（新しく出す通知は「設定の「プレイヤーの対応」で選んでください。」）
     ['プレイヤーの対応が未設定です', 'Frankの配合を登録できません。設定で登録者を選んでください。'],
   ]);
   assert.equal(notices[1].href, '#/list');

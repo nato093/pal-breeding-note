@@ -4,6 +4,7 @@
 import { el, button, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 import { isObject, int } from '../core/boundary.js';
+import { userIdKey } from '../core/user.js';
 
 // 許可切れの案内（autoreg-visibility。ヘッダーのセーブ連携・所持パルの案内・設定の状態の 3 か所で permissionNotice の同じ文を出す）。
 // Chrome は「今回のみ」で許可したファイルの読む許可を、タブがしばらく裏にあると外すことがある（何分で外れるかは実機で確かめていない）
@@ -22,6 +23,63 @@ export function permissionNotice(state, { now = Date.now } = {}) {
   const since = auto.stoppedAt
     ? `${formatShortTime(auto.stoppedAt, now(), '')} から読めていません。この間に拾ったタマゴは自動登録されていない場合があります` : '';
   return { text: PERMISSION_TEXT, hint: PERMISSION_HINT, since };
+}
+
+// ---- 役割ごとの案内（roles。X-05・X-06・X-07） ----
+// ホストの 1 行（設定のホストのワールドの行の自動登録のチェックの下・ヘッダーのセーブ連携）
+export const HOST_SUMMARY = 'このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。';
+// 共有が古いとみなす経過（ホストの画面が閉じている目安）
+export const SHARED_STALE_MS = 10 * 60 * 1000;
+
+/** 経過時間の短い言い方（「たった今」「3 分前」「2 時間前」「4 日前」） */
+export function timeAgo(value, now = Date.now()) {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return '';
+  const minutes = Math.floor(Math.max(0, now - time) / 60000);
+  if (minutes < 1) return 'たった今';
+  if (minutes < 60) return `${minutes} 分前`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours} 時間前` : `${Math.floor(hours / 24)} 日前`;
+}
+
+/** 参加しているワールドの自動登録の説明（設定の参加のワールドの行と、参加者の 1 行。参加者に「自動登録は動きません」と言わない。X-06） */
+export function guestAutoText(host = 'ホスト') {
+  return `この PC では読み込みません。配合牧場の自動登録は ${host} の画面が行います（${host} が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。`;
+}
+
+/**
+ * 役割ごとの 1 行。ホスト・参加者（role 'guest'）・未連携で共有を見ている人。共有を見ていない未連携の人は null
+ *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
+ * いなければ hint に 1 行（X-07。一致したときは出さない）
+ * @returns {null | { text: string, kind: 'info' | 'warning', hint: string }}
+ */
+export function roleSummary(state, { userId = '', now = Date.now } = {}) {
+  if (!state) return null;
+  if (state.role === 'host') return { text: HOST_SUMMARY, kind: 'info', hint: '' };
+  const meta = state.meta ?? {};
+  const shared = meta.source === 'shared';
+  const host = meta.uploadedBy || meta.hostName || 'ホスト';
+  const sharedAt = meta.sharedAt || meta.saveUpdatedAt || '';
+  const ago = shared ? timeAgo(sharedAt, now()) : '';
+  const stale = shared && Number.isFinite(Date.parse(sharedAt)) && now() - Date.parse(sharedAt) > SHARED_STALE_MS;
+  const hint = shared ? nameMismatch(state.owned?.players ?? [], userId) : '';
+  if (state.role === 'guest') {
+    const base = guestAutoText(host);
+    if (!shared) return { text: base, kind: 'info', hint: '' };
+    return stale
+      ? { text: `${base}最後の共有は ${ago}です。${host} の画面が閉じていると、配合牧場の自動登録も止まります。`, kind: 'warning', hint }
+      : { text: `${base.replace(/。$/, '')} · 最後の共有 ${ago}`, kind: 'info', hint };
+  }
+  if (!shared) return null;
+  return { text: `${host} が共有した所持パルを表示しています · 最後の共有 ${ago}`, kind: stale ? 'warning' : 'info', hint };
+}
+
+// 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人がいないときの 1 行
+function nameMismatch(players, userId) {
+  if (!userId || !players.length || players.some((player) => player.name && userIdKey(player.name) === userIdKey(userId))) return '';
+  const names = [...new Set(players.map((player) => player.name).filter(Boolean))];
+  const shown = names.length > 5 ? `${names.slice(0, 5).join('・')} ほか` : names.join('・');
+  return `このワールドに「${userId}」という名前のプレイヤーがいません（${shown}）。あなたが親 2 体を預けた配合は、ホストに設定の「プレイヤーの対応」で ${userId} を選んでもらうまで登録されません（「このワールドでの自分」を選んでも、ホストの対応は変わりません）。`;
 }
 
 /**
@@ -75,7 +133,7 @@ const UNREGISTERED_TEXT = 'セーブのファイルが登録されていませ�
  * grant＝読む許可・register＝ワールドの登録のモーダル・settings＝設定のセーブ連携〔読んでいるワールドの行〕へ・editWorld＝読んでいるワールドの
  * 編集のモーダル・unknownPlace＝場所の分からないパル）
  */
-export function ownedNotices(state) {
+export function ownedNotices(state, { userId = '', now = Date.now } = {}) {
   const notices = [];
   if (!state.ready) return notices;
   const auto = state.auto ?? {};
@@ -92,8 +150,12 @@ export function ownedNotices(state) {
   } else if (auto.status === 'error') {
     notices.push({ text: auto.error || 'セーブを読めませんでした', kind: 'warning', action: 'settings' });
   }
-  // 参加者は、データがないときだけ（どこから取ったかはヘッダーのセーブ連携の状態に出る）
+  // 参加者: データがなければ共有を待つ 1 行、あれば役割の 1 行（自動登録はホストの画面が行うこと・最後の共有。roles）と、名前が合わないときの 2 行目
   if (state.role === 'guest' && !hasData) notices.push({ text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
+  if (state.role === 'guest' && hasData) {
+    const summary = roleSummary(state, { userId, now });
+    if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}) });
+  }
   if (state.error) notices.push({ text: `セーブを読み込めませんでした: ${state.error}`, kind: 'warning' });
   const upload = state.upload ?? {};
   if (uploadText[upload.status] && upload.status !== 'done') {

@@ -1015,14 +1015,14 @@ test('画面: 別のタブで「このワールドでの自分」を選んだら
   await untilShared();
   await byClass('ideal-goals-button').dispatch('click');
   const status = () => byClass('ideal-goal-status').textContent;
-  assert.equal(status(), '未確認（このワールドでの自分が未設定）');
+  assert.equal(status(), '未確認');
   assert.equal(byClass('ideal-goal-action').href, `#/settings?world=${WORLD_A}&open=self`);
   const before = Number(byClass('notification-badge').textContent);
   const key = `pal-note.ideals.self.test.架空データ.${WORLD_A}`;
   values.set(key, PLAYER);
   events.get('storage')({ key });
   assert.match(status(), /^完成済み: アリス/);
-  assert.equal(byClass('ideal-goal-action').hidden, true);
+  assert.equal(byClass('ideal-goals-reason').hidden, true);
   // 選んだ時点で完成していたものは知らせない
   assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].completedAt, '');
   assert.equal(Number(byClass('notification-badge').textContent), before);
@@ -1062,7 +1062,7 @@ test('画面: 別のタブで「登録者の対応」を変えたら（storage �
   await untilShared();
   await byClass('ideal-goals-button').dispatch('click');
   const status = () => byClass('ideal-goal-status').textContent;
-  assert.equal(status(), '未確認（このワールドでの自分が未設定）');
+  assert.equal(status(), '未確認');
   assert.equal(selectHaving('mine'), undefined);
   const before = Number(byClass('notification-badge').textContent);
   // 関係のないキー・別の環境の対応表では何もしない
@@ -1070,7 +1070,7 @@ test('画面: 別のタブで「登録者の対応」を変えたら（storage �
     values.set(key, JSON.stringify({ [PLAYER]: '架空データ' }));
     events.get('storage')({ key });
   }
-  assert.equal(status(), '未確認（このワールドでの自分が未設定）');
+  assert.equal(status(), '未確認');
   // 別のタブの設定で、アリスの登録者をログイン中の ID（架空データ）にした
   const key = `pal-note.autoBreeding.players.test.${WORLD_A}`;
   values.set(key, JSON.stringify({ [PLAYER]: '架空データ' }));

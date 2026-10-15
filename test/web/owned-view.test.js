@@ -801,23 +801,38 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   await card.element.querySelectorAll('button').find((node) => node.textContent === '＋ ワールドを登録').dispatch('click');
   const dialog = body.querySelector('.world-dialog');
   assert.ok(dialog.open);
-  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '保存');
+  // 新しい登録の確定は「登録して連携」で、何が始まるかを左に添える（C-29）
+  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '登録して連携');
   assert.equal(save.disabled, true);
+  assert.equal(dialog.querySelector('.owned-dialog-note').textContent, '登録すると、読み込み・所持パルの共有・配合の自動登録（ホストのとき）を始めます');
+  // ① の上に、エクスプローラーで開く場所と［コピー］（C-23）
+  assert.match(dialog.querySelector('.owned-path-hint').textContent, /エクスプローラーのアドレス欄に %LOCALAPPDATA%\\Pal\\Saved\\SaveGames を貼ると開けます/);
   const path = dialog.querySelector('.owned-path');
+  const status = () => dialog.querySelector('.owned-path-status');
+  assert.equal(status().textContent, '');
+  // 形の違うパスは赤字で直し方、読み取れたら ID の頭（C-24）
+  path.value = '%LOCALAPPDATA%\\Pal\\Saved\\SaveGames\\7656';
+  await path.dispatch('input');
+  assert.match(status().textContent, /まで含めて貼ってください$/);
+  assert.match(status().className, /todo/);
   path.value = WORLD_PATH;
   await path.dispatch('input');
-  // ドロップするファイルを並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082）
-  const labels = () => dialog.querySelector('.owned-draft').children.map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', ''));
-  assert.deepEqual(labels(), ['— Level.sav', '— LevelMeta.sav', '— LocalData.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
+  assert.equal(status().textContent, '✓ Steam 7656 ／ ワールド ABCD…');
+  assert.match(status().className, /ok/);
+  // ドロップするファイルを 2 組（全員／ホストの PC だけ）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストの PC だけ']);
+  const labels = () => dialog.querySelectorAll('.owned-draft-items').flatMap((list) => list.children)
+    .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', ''));
+  assert.deepEqual(labels(), ['— LocalData.sav', '— Level.sav', '— LevelMeta.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
   assert.deepEqual(dialog.querySelectorAll('.owned-draft-path').map((node) => node.textContent), [
-    '…\\SaveGames\\7656\\ABCD…\\Level.sav', '…\\SaveGames\\7656\\ABCD…\\LevelMeta.sav', '…\\SaveGames\\7656\\ABCD…\\LocalData.sav',
+    '…\\SaveGames\\7656\\ABCD…\\LocalData.sav', '…\\SaveGames\\7656\\ABCD…\\Level.sav', '…\\SaveGames\\7656\\ABCD…\\LevelMeta.sav',
     '…\\SaveGames\\7656\\ABCD…\\Players\\', '…\\SaveGames\\7656\\GlobalPalStorage.sav',
   ]);
   await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav') });
   await tick();
   await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('LocalData.sav', '00000000000000000000000000000001.sav') });
   await tick();
-  assert.deepEqual(labels().slice(0, 4), ['✓ Level.sav', '✓ LevelMeta.sav', '✓ LocalData.sav', '✓ Players\\ の中のファイル全部（1 件）']);
+  assert.deepEqual(labels().slice(0, 4), ['✓ LocalData.sav', '✓ Level.sav', '✓ LevelMeta.sav', '✓ Players\\ の中のファイル全部（1 件）']);
   // ドロップするたびに読んで確かめる（「確認する」は押さない）
   assert.deepEqual(calls.at(-1), ['preview', 'ABCDEF0123456789ABCDEF0123456789', '7656', ['Level.sav', 'LevelMeta.sav', 'LocalData.sav', 'Players/00000000000000000000000000000001.sav']]);
   assert.match(dialog.querySelector('.owned-dialog-result').textContent, /「World9」（ホスト Dave） · 12 体/);
@@ -839,7 +854,10 @@ test('設定画面: 登録したワールドの「編集」は、パスを入れ
   assert.match(dialog.querySelector('.owned-draft').textContent, /✓ Level\.sav/);
   // 登録・編集のモーダルには、保存とキャンセルだけを置く（削除は一覧の行から）
   // 閉じる「×」は文字ではなく SVG のアイコン（名前は aria-label「閉じる」）
-  assert.deepEqual(dialog.querySelectorAll('button').map((node) => node.textContent || node.getAttribute('aria-label')), ['閉じる', 'キャンセル', '保存']);
+  // （ほかは ① の場所の［コピー］だけ）
+  assert.deepEqual(dialog.querySelectorAll('button').map((node) => node.textContent || node.getAttribute('aria-label')), ['閉じる', 'コピー', 'キャンセル', '保存']);
+  // 編集は登録済みのワールドなので「登録済み」と出す
+  assert.match(dialog.querySelector('.owned-path-status').textContent, /登録済みのワールドです/);
   assert.equal(dialog.querySelector('.icon-button').querySelector('svg').getAttribute('class'), 'close-icon');
   card.destroy();
 });
@@ -879,16 +897,25 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   await toggle.dispatch('change');
   // チェックを外すと、行の状態もすぐ変わる
   assert.match(host.querySelector('.owned-world-state').textContent, /配合の自動登録: オフ/);
-  const select = box.querySelector('.owned-breeding-player').querySelector('select');
-  assert.match(box.querySelector('.owned-breeding-player').textContent, /^Alice/);
+  // ホストの行のチェックの下に、ページを閉じている間は止まることの 1 行（roles）
+  assert.match(box.querySelector('.owned-role-note').textContent, /このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。/);
+  // プレイヤーの対応はワールドの行の外の独立した欄（「使うワールド」の下。roles。C-03）
+  assert.equal(box.querySelector('.owned-breeding-player'), null);
+  const players = card.element.querySelector('.owned-players');
+  assert.equal(players.hidden, false);
+  assert.equal(players.querySelector('h3').textContent, 'プレイヤーの対応（セーブのプレイヤー → ノートの名前）');
+  const select = players.querySelector('.owned-breeding-player').querySelector('select');
+  assert.match(players.querySelector('.owned-breeding-player').textContent, /^Alice/);
+  assert.equal(select.getAttribute('aria-label'), 'Aliceのノートの名前');
   // 手で選んでいなければ、同じ名前のユーザーを使うことを出す
   assert.equal(select.value, '');
   assert.equal(select.querySelectorAll('option')[0].textContent, 'Alice（同じ名前）');
   select.value = '仲間';
   await select.dispatch('change');
   assert.deepEqual(calls, [['enabled', false, 'W'], ['mapping', P1, '仲間', 'W']]);
-  // 参加しているだけのワールドでは、自動登録が動かないことだけを出す
-  assert.match(guest.querySelector('.owned-breeding').textContent, /参加しているワールドなので、自動登録は動きません/);
+  // 参加しているだけのワールドでは、自動登録はホストの画面が行うこと（「自動登録は動きません」とは言わない。X-06）
+  assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います/);
+  assert.doesNotMatch(card.element.textContent, /自動登録は動きません/);
   assert.ok(!guest.querySelector('.owned-toggle'));
   // 描き直しても、開いた行は開いたまま
   owned.state.auto.worlds[0].playedAt = '2026-10-06T00:00:00.000Z';
@@ -915,11 +942,11 @@ test('設定画面（autoreg-visibility）: ワールドの行の登録者の上
   const ctx = { ...context(owned), autoRegister };
   ctx.store.state.users = ['Alice', '仲間'];
   const card = ownedSettingsCard(ctx, { win: DROP_WIN });
-  const box = card.element.querySelector('.owned-breeding');
+  // 登録待ちはプレイヤーの対応の欄の中、選択より上（roles で欄ごと移した）
+  const box = card.element.querySelector('.owned-players');
   const pending = box.querySelector('.owned-pending');
   assert.equal(pending.hidden, false);
   assert.equal(pending.querySelector('.owned-pending-head').textContent, '登録待ち 3 件（登録者未設定 2・登録済みと違う 1）');
-  // 登録者の選択（.owned-breeding-players）より上
   const order = box.children.map((node) => node.className);
   assert.ok(order.indexOf('owned-pending') < order.indexOf('owned-breeding-players'));
   const row = pending.querySelector('.owned-pending-item');
@@ -1000,7 +1027,7 @@ async function openRegister(t, owned) {
   await card.element.querySelectorAll('button').find((node) => node.textContent === '＋ ワールドを登録').dispatch('click');
   const dialog = body.querySelector('.world-dialog');
   const path = dialog.querySelector('.owned-path');
-  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '保存');
+  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '登録して連携');
   return { card, dialog, path, save };
 }
 const deferred = () => {
@@ -2716,7 +2743,7 @@ test('設定画面（行き先）: 自動登録の「対応が未設定」から
   document.body.append(view.element);
   await tick();
   assert.equal(view.element.querySelector('.owned-world-details').open, true);
-  assert.equal(document.activeElement.getAttribute('aria-label'), 'Frankの登録者');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Frankのノートの名前');
   // 登録者の対応を変えたら、自分の決め方も変わるので判定し直す（このワールドでの自分の自動の名前も描き直す）
   document.activeElement.value = 'Alice';
   await document.activeElement.dispatch('change');
@@ -2799,7 +2826,7 @@ test('設定画面（行き先の意図）: ID とセーブの名前が違うホ
   // 自動登録の「プレイヤーの対応が未設定です」: そのワールドの行を開いて、未設定の登録者へ（自分も決まっていないが、自分へは移らない）
   let view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
   assert.equal(view.element.querySelector('.owned-world-details').open, true);
-  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceの登録者');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceのノートの名前');
   closeSettings(view);
   // 理想個体の「設定で選ぶ」: このワールドでの自分（行は開かない）
   view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=self`);
@@ -2890,7 +2917,7 @@ test('設定画面（行き先）: 設定を開いたまま行き先が来ても
   assert.equal(second.open, true);
   assert.equal(csv.disabled, true);
   assert.equal(csv.getAttribute('aria-busy'), 'true');
-  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceの登録者');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceのノートの名前');
   // 読み直し（同じ内容）でも作り直さない
   owned.emit();
   assert.deepEqual(view.element.querySelectorAll('.owned-registered-item'), items);
@@ -2909,7 +2936,7 @@ test('設定画面（登録者）: 対応を変えても行を作り直さず（
   const view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
   const items = view.element.querySelectorAll('.owned-registered-item');
   const select = document.activeElement;
-  assert.equal(select.getAttribute('aria-label'), 'Aliceの登録者');
+  assert.equal(select.getAttribute('aria-label'), 'Aliceのノートの名前');
   assert.equal(selfSelectOf(view.element).children[0].textContent, '未設定（自分の個体を判定しません）');
   select.value = '仲間';
   await select.dispatch('change');
@@ -2920,7 +2947,7 @@ test('設定画面（登録者）: 対応を変えても行を作り直さず（
   // 別のタブで対応を変えた（app.js が storage イベントで self.changed を呼ぶ）: 登録者の選択も合わせる
   mapping = { [P2]: '仲間' };
   app.self.changed();
-  const frank = view.element.querySelectorAll('select').find((node) => node.getAttribute('aria-label') === 'Frankの登録者');
+  const frank = view.element.querySelectorAll('select').find((node) => node.getAttribute('aria-label') === 'Frankのノートの名前');
   assert.equal(frank.value, '仲間');
   assert.equal(selfSelectOf(view.element).children[0].textContent, '自動（Frank）');
   closeSettings(view);
@@ -2998,7 +3025,7 @@ test('設定画面: 「このワールドでの自分」の説明は選択の説
   assert.deepEqual(names, ['Bob（00000000）', 'Bob（ABCD1234）', '不明なプレイヤー（1A2B3C4D）']);
   const rows = card.element.querySelectorAll('.owned-breeding-player');
   assert.deepEqual(rows.map((row) => row.children[0].textContent), names);
-  assert.deepEqual(rows.map((row) => row.children[1].getAttribute('aria-label')), names.map((name) => `${name}の登録者`));
+  assert.deepEqual(rows.map((row) => row.children[1].getAttribute('aria-label')), names.map((name) => `${name}のノートの名前`));
   card.destroy();
 });
 
@@ -3031,4 +3058,23 @@ test('継承ルート: 「N 通り」の中は相手親を持っている配合�
   assert.deepEqual(partners, ['クレメーオ', 'ツッパニャン']);
   assert.equal(view.element.querySelector('.route-owned-badge').textContent, '相手親 1/1 段で所持');
   view.destroy();
+});
+
+test('ワールドの登録（roles）: 背景のクリックでは閉じず、ダイアログのどこに落としても受け取り、LocalData.sav だけで参加と判定したらホストの組を薄くする', async (t) => {
+  const owned = fakeOwned();
+  owned.previewRegistration = async (input) => ({ ...input, kind: 'guest', role: 'guest', name: '', hostName: '', palCount: 0, replaced: [] });
+  const { dialog, path, save: register } = await openRegister(t, owned);
+  // 背景（ダイアログ自身）のクリックでは閉じない（C-26）
+  await dialog.dispatch('click', { target: dialog });
+  assert.equal(dialog.open, true);
+  path.value = WORLD_PATH;
+  await path.dispatch('input');
+  // 枠の外（ダイアログ）に落としても受け取る
+  await dialog.dispatch('drop', { target: dialog, dataTransfer: dropped('LocalData.sav'), preventDefault() {} });
+  await tick();
+  await tick();
+  const [, host] = dialog.querySelectorAll('.owned-draft-group');
+  assert.match(host.className, /is-dim/);
+  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストの PC だけ（参加として登録できます）');
+  assert.equal(register.disabled, false);
 });

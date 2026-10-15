@@ -43,7 +43,10 @@ test('案内: 自動の読み込みがオフでも、所持パルを表示でき
   // 参加している側でデータがないとき（「参加しているワールドのため…」は出さない。取得元は上のバーのセーブ連携の表示に出る）
   const guest = ownedNotices(ownedState({ role: 'guest', data: null, owned: null, meta: null }));
   assert.deepEqual(guest.map((notice) => notice.text), ['ホストがまだこのワールドの所持パルを共有していません。']);
-  assert.deepEqual(ownedNotices(ownedState({ role: 'guest', meta: { ...ownedState().meta, source: 'shared' } })), []);
+  // データのある参加者は、自動登録はホストの画面が行うことの 1 行（roles）
+  const guestShared = ownedNotices(ownedState({ role: 'guest', meta: { ...ownedState().meta, source: 'shared' } }));
+  assert.equal(guestShared.length, 1);
+  assert.match(guestShared[0].text, /^この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います/);
   // 自動の読み込みを使っているのに登録がない（empty）ときも、同じ案内とボタン
   const empty = ownedNotices(ownedState({ auto: { enabled: true, status: 'empty', worlds: [], worldId: '', error: 'セーブのファイルが登録されていません' } }));
   assert.deepEqual(empty, [{ text: 'セーブのファイルが登録されていません。', kind: 'warning', action: 'register' }]);
@@ -110,4 +113,41 @@ test('許可切れの案内（autoreg-visibility）: grantWithReport は許可�
   assert.deepEqual(shown(), [PERMISSION_DENIED, PERMISSION_DENIED]);
   await grantWithReport({ grantAndRefresh: () => Promise.reject(new Error('読めませんでした')) });
   assert.deepEqual(shown().at(-1), '読めませんでした');
+});
+
+test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で warning）・共有を見ている人。共有を見ていない未連携は null', async () => {
+  const { roleSummary, HOST_SUMMARY, timeAgo, ownedNotices } = await import('../../web/js/ui/owned-status.js');
+  const now = () => Date.parse('2026-10-15T12:00:00.000Z');
+  const minutesAgo = (minutes) => new Date(now() - minutes * 60000).toISOString();
+  const shared = (role, minutes, players = [{ uid: 'u1', name: 'Alice' }, { uid: 'u2', name: '仲間' }]) => ({
+    ready: true, role, auto: { enabled: role === 'guest', status: 'ready', worlds: [] },
+    meta: { source: 'shared', worldId: 'W', worldName: 'テスト', hostName: 'Host', uploadedBy: 'Alice', sharedAt: minutesAgo(minutes), saveUpdatedAt: minutesAgo(minutes + 1) },
+    owned: { players, pals: [] },
+  });
+  assert.deepEqual(roleSummary({ role: 'host', meta: { source: 'local' } }, { now }), { text: HOST_SUMMARY, kind: 'info', hint: '' });
+  const guest = roleSummary(shared('guest', 3), { userId: '仲間', now });
+  assert.deepEqual([guest.kind, guest.hint], ['info', '']);
+  assert.equal(guest.text, 'この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います（Alice が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前');
+  // 参加者に「自動登録は動きません」「設定タブの『登録者の対応』」と言わない
+  assert.doesNotMatch(guest.text, /動きません|設定タブ|登録者の対応/);
+  // 10 分を超えたら warning と、ホストの画面が閉じていると止まること
+  const stale = roleSummary(shared('guest', 11), { userId: '仲間', now });
+  assert.equal(stale.kind, 'warning');
+  assert.match(stale.text, /最後の共有は 11 分前です。Alice の画面が閉じていると、配合牧場の自動登録も止まります。$/);
+  assert.equal(roleSummary(shared('guest', 10), { userId: '仲間', now }).kind, 'info');
+  // 共有を見ているだけの人
+  assert.equal(roleSummary(shared('', 125), { userId: '仲間', now }).text, 'Alice が共有した所持パルを表示しています · 最後の共有 2 時間前');
+  assert.equal(roleSummary({ ready: true, role: '', meta: null }, { now }), null);
+  // 名前が合わないとき（大文字小文字・全半角は userIdKey でそろえる）だけ 2 行目
+  const mismatch = roleSummary(shared('guest', 3, [{ uid: 'u1', name: 'Alice' }, { uid: 'u3', name: 'ぼぶ' }]), { userId: 'Bob', now });
+  assert.equal(mismatch.hint, 'このワールドに「Bob」という名前のプレイヤーがいません（Alice・ぼぶ）。あなたが親 2 体を預けた配合は、ホストに設定の「プレイヤーの対応」で Bob を選んでもらうまで登録されません（「このワールドでの自分」を選んでも、ホストの対応は変わりません）。');
+  assert.equal(roleSummary(shared('guest', 3, [{ uid: 'u1', name: 'ＢＯＢ' }]), { userId: 'bob', now }).hint, '');
+  assert.equal(roleSummary(shared('guest', 3, []), { userId: 'Bob', now }).hint, '');
+  assert.deepEqual([timeAgo(minutesAgo(0), now()), timeAgo(minutesAgo(59), now()), timeAgo(minutesAgo(60 * 49), now())], ['たった今', '59 分前', '2 日前']);
+  // 所持パルの案内: データのある参加者は役割の 1 行（データがなければ共有を待つ 1 行）。「セーブのファイルが登録されていません」は出さない
+  const notices = ownedNotices(shared('guest', 3, [{ uid: 'u1', name: 'Alice' }]), { userId: 'Bob', now });
+  assert.equal(notices.length, 1);
+  assert.match(notices[0].text, /配合牧場の自動登録は Alice の画面が行います/);
+  assert.match(notices[0].hint, /「Bob」という名前のプレイヤーがいません/);
+  assert.doesNotMatch(JSON.stringify(notices), /登録されていません。|動きません/);
 });
