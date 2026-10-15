@@ -1489,7 +1489,7 @@ a.pal-tile.paldex-cell:hover { border-color: var(--md-sys-color-outline); backgr
 .badge-farm { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .ideal-hatch { margin: 0 0 10px; font-size: 13px; }
 .ideal-route-cross { display: inline-block; margin: 0 0 10px; font-size: 13px; font-weight: 700; }
-.ideal-carry.is-none { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-carry.is-none { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .ideal-hatch-link { font-weight: 700; }
 .ideal-farms-all { margin-top: 8px; }
 /* 継承ルートの進み具合と横断の導線（views/route.js・ui/route-view.js。route-progress） */
@@ -2707,6 +2707,9 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 /* 固定パネル（理想個体・所持パル）の押しボタンは左右の余白を詰める。所持パルのパネルの 2 段目の 2 行目に、1100px で 30px の余りを作る
    （「全部持つ」が文字の幅の違うフォントでも折り返さず、パネルが伸びないように。前は 6px。D27）。2 つのパネルで同じ見た目にする */
 :is(.ideal-panel, .owned-panel, .find-bar) .segmented-option { padding-left: 8px; padding-right: 8px; }
+/* 理想個体のケーキの「なし」は絵を出さない（文と食い違うため。フェーズ 4 の終わりのレビューの操作性 10）。アイコンの幅（18px − 2px ＋ 3px）を
+   左右の余白に分けて、押しボタンの幅を前と同じにする（パネルの高さ・ほかの押しボタンの位置を変えない） */
+.ideal-panel .segmented-option.cake-plain { padding-left: 17.5px; padding-right: 17.5px; }
 /* 押しボタンの小さな印（ui/segmented.js の badge。理想個体のケーキの「最速」。D30）。ボタンの右上の角に重ね、ボタンの幅と高さ・
    パネルの高さを変えない（上端は上の行との間 5px の中に置き、上の行の所持者の欄の枠に重ねない。下端は押しボタンの文字の上に収める）。押すのはボタン（印は押せない） */
 .segmented-badge {
@@ -2847,6 +2850,8 @@ button.ideal-farm-cell:hover { background: color-mix(in srgb, var(--md-sys-color
 .ideal-farm-cell-state { flex: none; padding: 0 6px; border-radius: 4px; font-weight: 700; line-height: 1.6; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
 .ideal-farm-cell.keep .ideal-farm-cell-state { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); }
 .ideal-farm-cell.swap .ideal-farm-cell-state { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+/* ケーキ切れの牧場の印（状態の右。交換推奨の判定は変えずに添える。フェーズ 4 の終わりのレビューの操作性 4）。色は状態のチップの warning */
+.ideal-farm-cell-cake { flex: none; padding: 0 6px; border-radius: 4px; font-weight: 700; line-height: 1.6; background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
 .ideal-farm-more {
   flex: none;
   border: 0;
@@ -2912,6 +2917,8 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-farm-status.keep { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); }
 .ideal-farm-status.swap { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 .ideal-farm-reason { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+/* ケーキ切れは判定のチップのすぐ横（フェーズ 4 の終わりのレビューの操作性 4） */
+.ideal-farm-main > .ideal-farm-cake-out { flex: none; margin-left: -6px; }
 .ideal-farm .ideal-warning { font-size: 12px; }
 .ideal-farm-swap { justify-self: start; border-collapse: separate; border-spacing: 2px; font-size: 12px; }
 .ideal-farm-swap th { padding: 0 6px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); text-align: left; }
@@ -2971,7 +2978,6 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-same-reason { font-weight: 400; }
 .ideal-notes { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .ideal-warning { color: var(--warning); }
-.ideal-missing { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 /* パル手術台の案内（implants）: 足りないパッシブごとの 1 行（[チップ]: パル手術台で付けられます（[アイコン]〈アイテム名〉） · 在庫）と、
    手術で付ける分を除いた計画へのリンク、URL の s があるときの帯（左に primary の線。結果の上） */
 .ideal-surgery-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; font-size: 13px; }
@@ -2980,24 +2986,77 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-surgery-icon { flex: none; width: 16px; height: 16px; margin: 0 2px 0 1px; }
 .ideal-surgery-stock { margin-left: 4px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .ideal-surgery-plan { display: inline-block; margin: 0 0 10px; font-size: 13px; font-weight: 700; }
+/* 足りないパッシブの行（フェーズ 4 の終わりのレビューの操作性 6）: 左に [チップ]: 手術台で付けられるか（アイテム・在庫）、右に運ぶ継承ルートのボタンか
+   「所持パルから運べません」。狭いと左の文が折り返し、ボタンは右に残る */
+.ideal-missing-list { gap: 4px; }
+.ideal-missing-item { gap: 4px 12px; }
+/* 左の文は残りの幅で折り返し（基準の幅 0。狭すぎないよう 12em まで）、右のボタン・文はその行の右端に残す */
+.ideal-missing-text { flex: 1 1 0; min-width: 12em; }
+.ideal-missing-text > .passive-chip { margin-right: 1px; vertical-align: middle; }
+.ideal-missing-text > .ideal-surgery-icon { vertical-align: -3px; }
+.ideal-missing-item > .ideal-carry { flex: none; margin-left: auto; }
 .ideal-surgery-band { margin: 4px 0 10px; padding: 8px 14px; border-left: 3px solid var(--md-sys-color-primary); border-radius: 0 12px 12px 0; background: var(--md-sys-color-surface-container-low); }
 .ideal-surgery-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 4px; font-size: 13px; font-weight: 700; }
 .ideal-surgery-back { margin-left: auto; font-size: 13px; font-weight: 700; }
 .ideal-surgery-band .ideal-surgery-list { margin: 0; }
-/* パルリバーサーの案内（implants・D17）: 孵化させると完成するタマゴの下・牧場の帯の上。手術台の帯と同じ形（左に primary の線）。
-   左の欄に [アイコン][1 行目の文][· 在庫] と 3 体まで・「ほか n 体」（文の欄の中で折り返す）、右に「パルリバーサーを使わずに作る」。
-   個体の呼び名は押すと右のドロワーで個体の詳細（文字のボタン。title に個体値とパッシブ） */
-.ideal-reverser {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 6px 16px;
-  margin: 0 0 10px;
-  padding: 8px 14px;
-  border-left: 3px solid var(--md-sys-color-primary);
-  border-radius: 0 12px 12px 0;
-  background: var(--md-sys-color-surface-container-low);
+/* パルリバーサーの案内（implants・D17。フェーズ 4 の終わりのレビューの性能 1・2）: 計画を描いた後に求めるので、結果の流れには置かず、
+   ケーキの行（.ideal-cake-line）の所持の状況の左に小さな印（.ideal-reverser-slot）を出し、押すと板（.ideal-reverser）を開く。
+   印は行の空きに入れる（基準の幅 0 で折り返させず、文字の幅まで伸び、足りなければ省略記号で縮む）ので、出入りでパネルの高さも結果の位置も
+   変わらない。ケーキの押しボタンの右（区切り線の後）に置き、所持の状況は余白（auto）で右端のまま */
+.ideal-cake-line { position: relative; }
+.ideal-reverser-slot { flex: 1 1 0; min-width: 0; max-width: max-content; margin-right: 8px; }
+.ideal-reverser-toggle {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--result-bar);
+  color: var(--md-sys-color-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
 }
+.ideal-reverser-toggle:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 8%, var(--result-bar)); }
+/* 開閉の印（▾。開くと上向き。「まとめて ▾」と同じ形） */
+.ideal-reverser-toggle::after {
+  content: '';
+  position: absolute;
+  right: 9px;
+  top: calc(50% - 4px);
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+.ideal-reverser-toggle[aria-expanded="true"]::after { transform: rotate(225deg); top: calc(50% - 1px); }
+.ideal-reverser-toggle .ideal-reverser-icon { vertical-align: -3px; }
+/* 板: ケーキの行の下に、行の右端でそろえて開く（幅は 620px まで）。左に primary の線（手術台の帯と同じ形）。
+   上に [アイコン][1 行目の文][· 在庫] と 3 行まで・「ほか n 件」、下の右に「パルリバーサーを使わずに作る」。
+   個体の呼び名は押すと右のドロワーで個体の詳細（文字のボタン。title に個体値とパッシブ） */
+.picker-popover.ideal-reverser {
+  top: calc(100% + 4px);
+  left: auto;
+  right: 0;
+  width: min(620px, 100%);
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--md-sys-color-primary);
+}
+.picker-popover.ideal-reverser:focus { outline: none; }
+.picker-popover.ideal-reverser:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+.ideal-reverser-skip { justify-self: end; }
 .ideal-reverser-head { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
 .ideal-reverser-icon { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
 .ideal-reverser-note, .ideal-reverser-stock { font-size: 12px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
@@ -3016,7 +3075,9 @@ button.ideal-reverser-pal:hover { text-decoration: underline; }
 .ideal-goal-list { list-style: none; margin: 0; padding: 0; display: grid; }
 .ideal-goal {
   display: grid;
-  grid-template-columns: minmax(250px, 1.6fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(80px, .8fr) auto auto;
+  /* 状態の欄は、折らないピル（「手術で完成できる」など）の幅より狭くしない。条件の要約の欄を少し詰めて、状態の差の行を広げる
+     （920px で状態の欄が 約 100px になり、ピルが語の途中で折れ、差の行が 5 行になった。フェーズ 4 の終わりのレビューの操作性 7） */
+  grid-template-columns: minmax(250px, 1.6fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(min-content, 1.1fr) auto auto;
   align-items: center;
   gap: 6px 12px;
   padding: 8px 0;
@@ -3030,7 +3091,8 @@ button.ideal-reverser-pal:hover { text-decoration: underline; }
 .ideal-goal.done { background: var(--md-sys-color-surface-container); }
 .ideal-goal-found { text-decoration: none; }
 .ideal-goal-found:hover .ideal-goal-status { text-decoration: underline; }
-.ideal-goal-gap { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+/* 差の行は 12px なので、文字色を on-surface-variant より 1 段濃くする（ライトのダイアログの地で 4.41:1 → 4.5:1 以上。操作性 8） */
+.ideal-goal-gap { font-size: 12px; color: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 70%, var(--md-sys-color-on-surface)); }
 /* 差の 1 項目（「HP あと 15」）の途中では折らず、「·」の所で折る */
 .ideal-goal-gap-part { white-space: nowrap; }
 /* 所持パルの図鑑順の種族の見出し（views/owned.js の speciesHead。F068）。高さは 40px に固定 */
@@ -3069,14 +3131,17 @@ button.ideal-reverser-pal:hover { text-decoration: underline; }
 .ideal-goal-summary { min-width: 0; }
 /* 状態のチップ。「完成済み: Alice · パルボックス 2 ページ・1 行 2 列」のように長いことがあるので、列の幅で折り返す */
 .ideal-goal-status { white-space: normal; overflow-wrap: anywhere; word-break: keep-all; }
+/* 完成済みのほかのピル（未完成・手術で完成できる・未確認）は短いので折らない（語の途中で折れていた。操作性 7） */
+.ideal-goal-status:not(.is-ready) { white-space: nowrap; }
 /* 状態と、未確認のときの「設定で選ぶ」（状態の下） */
 .ideal-goal-state { display: grid; justify-items: start; gap: 4px; min-width: 0; }
 .ideal-goal-empty { padding: 12px 0; }
 /* 名前の欄: 名前・「パルだけ」のタグ（種族だけの目標）と、下の行に配合の登録の数（押すと配合を探す）・所持の数（goals-merge） */
 .ideal-goal-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
-/* 目標の名前の右の属性のアイコン（game-assets）。名前とアイコン、アイコンどうしは詰める */
-.ideal-goal-name > strong + .element-icon { margin-left: -4px; }
-.ideal-goal-name > .element-icon + .element-icon { margin-left: -7px; }
+/* 目標の名前の前の属性のアイコン（game-assets）。名前と同じ strong の中の行の頭に置く（長い名前が折り返してもアイコンだけが次の行に
+   残らない。操作性 7）。アイコンどうしは詰める */
+.ideal-goal-name-text .element-icon { margin-right: 2px; vertical-align: -3px; }
+.ideal-goal-name-text .element-icon + .element-icon { margin-left: -5px; }
 .ideal-goal-facts { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
 .ideal-goal-records { font-weight: 700; white-space: nowrap; }
 .dialog-header > .device-only-chip { margin-right: auto; }

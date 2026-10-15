@@ -241,7 +241,7 @@ test('性能: パルリバーサーの案内（D17）は、同じ種族の ♂10
     const result = genderFlipHints({ pals, index, target: 'X', ...input }, before);
     const elapsed = performance.now() - start;
     const run = first ?? await sliced(genderFlipSteps({ pals, index, target: 'X', ...input }, before));
-    console.log(`パルリバーサーの案内・${label}: ${elapsed.toFixed(2)} ms（案内 ${result.hints.length} 体＋ほか ${result.more} 体・今の 1 番 ${before === null ? 'なし' : before.toFixed(1)}）、`
+    console.log(`パルリバーサーの案内・${label}: ${elapsed.toFixed(2)} ms（案内 ${result.hints.length} 行＋ほか ${result.more} 行・今の 1 番 ${before === null ? 'なし' : before.toFixed(1)}）、`
       + `区切って ${run.slices.length} 回・最大 ${run.max.toFixed(2)} ms・合計 ${run.total.toFixed(0)} ms`);
     assert.ok(elapsed < 2000, `${label}が 2 秒を超えました: ${elapsed.toFixed(2)} ms`);
     assert.ok(run.max <= 50, `${label}の 1 回の区切りが 50ms を超えました: ${run.max.toFixed(2)} ms`);
