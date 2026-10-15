@@ -574,6 +574,58 @@ export function speciesGenderCounts(pals) {
   return map;
 }
 
+/**
+ * 配合の親にできる個体か。タマゴ・グローバルパルボックスの個体・マスター外（人間など）は親にしない。
+ * 遺伝の仕組み（core/ideal.js の isParentCandidate）と同じ規則。INV-2 の読み込みの制限で core/ideal.js は理想個体の画面からしか
+ * 読めないので、配合を探す・継承ルート・登録の画面のためにここにも持つ（テストで同じ結果になることを確かめる）
+ */
+export const canBeParent = (pal) => Boolean(pal?.palId) && !pal.egg && pal.place !== 'global';
+
+/**
+ * 種族（パル ID）ごとの所持数（配合を探す・継承ルート・登録の画面に重ねる共通の集計。所持パルのデータが変わったときに 1 回だけ作る）。
+ * total・eggs・globals は全個体（タマゴ・グローバルパルボックスの数）、male・female・unknown は親にできる個体（canBeParent）の性別ごとの数。
+ * マスター外（人間など）は数えない
+ * @returns {Map<string, { total: number, eggs: number, globals: number, male: number, female: number, unknown: number }>}
+ */
+export function ownedCounts(pals) {
+  const map = new Map();
+  for (const pal of pals ?? []) {
+    if (!pal?.palId) continue;
+    let entry = map.get(pal.palId);
+    if (!entry) map.set(pal.palId, entry = { total: 0, eggs: 0, globals: 0, male: 0, female: 0, unknown: 0 });
+    entry.total++;
+    if (pal.egg) entry.eggs++;
+    else if (pal.place === 'global') entry.globals++;
+    if (!canBeParent(pal)) continue;
+    if (pal.gender === 'M') entry.male++;
+    else if (pal.gender === 'F') entry.female++;
+    else entry.unknown++;
+  }
+  return map;
+}
+
+/** 親にできる ♂・♀ の数（ownedCounts の 1 件。なければ 0） */
+const parentsOf = (counts, palId) => counts?.get(palId) ?? { male: 0, female: 0 };
+
+/**
+ * 記録の両親を今の所持で組めるか（別々の個体の ♂ と ♀。親にできる個体だけ）。同じ種族どうしは ♂ と ♀ が 1 体ずつ。
+ * 違う種族は、記録に親の性別があればその向きだけ（親1 が ♂ か親2 が ♀ なら「親1 ♂・親2 ♀」）、空欄なら 2 つの向きのどちらか。
+ * 両親が同じ性別の記録（不正）は組めない
+ */
+export function canPairRecord(counts, record) {
+  const one = parentsOf(counts, record.parent1Id);
+  const two = parentsOf(counts, record.parent2Id);
+  const g1 = record.parent1Gender ?? '';
+  const g2 = record.parent2Gender ?? '';
+  if (g1 && g1 === g2) return false;
+  if (record.parent1Id === record.parent2Id) return one.male > 0 && one.female > 0;
+  const oneMale = one.male > 0 && two.female > 0;
+  const oneFemale = one.female > 0 && two.male > 0;
+  if (g1 === 'M' || g2 === 'F') return oneMale;
+  if (g1 === 'F' || g2 === 'M') return oneFemale;
+  return oneMale || oneFemale;
+}
+
 /** データにあるパッシブ（多い順）。 */
 export function passiveCounts(pals) {
   const counts = new Map();
@@ -634,7 +686,7 @@ export function rowsToCsv(rows) {
 }
 
 /**
- * 継承ルートの開始候補: 指定のパッシブをすべて持つ所持パルの種類ごとに、登録済みの配合で目標までの最短経路を調べる。
+ * 継承ルートの開始候補: 指定のパッシブをすべて持つ所持パル（親にできる個体）の種類ごとに、登録済みの配合で目標までの最短経路を調べる。
  * 経路の探索は shortestRoute（登録済みの配合だけを使う）に任せる。
  * @param {{ graph: Map, pals: object[], to: string, passives: string[], shortestRoute: Function }} input
  * @returns {{ palId: string, carriers: object[], route: object|null, length: number }[]} 近い順（たどり着けないものは除く）
@@ -642,7 +694,8 @@ export function rowsToCsv(rows) {
 export function ownedRouteStarts({ graph, pals, to, passives, shortestRoute }) {
   const candidates = [];
   for (const [palId, list] of ownedBySpecies(pals)) {
-    const carriers = list.filter((pal) => hasPassives(pal, passives));
+    // 運び手は親にできる個体だけ（タマゴ・グローバルパルボックスの個体は外す。R-15。理想個体と同じ規則）
+    const carriers = list.filter((pal) => canBeParent(pal) && hasPassives(pal, passives));
     if (!carriers.length) continue;
     if (palId === to) { candidates.push({ palId, carriers, route: null, length: 0 }); continue; }
     if (!graph.has(palId)) continue;
@@ -656,9 +709,9 @@ export function ownedRouteStarts({ graph, pals, to, passives, shortestRoute }) {
     || (a.palId < b.palId ? -1 : a.palId > b.palId ? 1 : 0));
 }
 
-/** 相手親の所持数（タマゴは除く）と、そのうち指定のパッシブをすべて持つ数。 */
+/** 相手親の所持数（親にできる個体だけ。タマゴ・グローバルパルボックスの個体は数えない）と、そのうち指定のパッシブをすべて持つ数。 */
 export function partnerOwnership(bySpecies, palId, passives) {
-  const list = (bySpecies.get(palId) ?? []).filter((pal) => !pal.egg);
+  const list = (bySpecies.get(palId) ?? []).filter(canBeParent);
   return { total: list.length, matching: passives.length ? list.filter((pal) => hasPassives(pal, passives)).length : 0 };
 }
 

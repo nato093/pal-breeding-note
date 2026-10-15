@@ -775,9 +775,9 @@ a.pal-tile:hover { color: var(--md-sys-color-primary); text-decoration: none; }
 .breeding-card:has(.card-meta):not(:has(.card-actions)) { grid-template-columns: minmax(0, 1fr) 140px; }
 .breeding-equation { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 18px minmax(0, 1fr); align-items: center; gap: 4px; }
 .breeding-equation:has(> .pal-tile:nth-child(3):last-child) { grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); }
-.breeding-equation > .pal-tile { min-height: 36px; gap: 7px; font-size: 13px; }
+.breeding-equation > .pal-tile, .breeding-equation > .equation-slot > .pal-tile { min-height: 36px; gap: 7px; font-size: 13px; }
 .breeding-equation .pal-icon { width: 34px; height: 34px; }
-.breeding-equation > .pal-tile:last-child { color: var(--md-sys-color-tertiary); }
+.breeding-equation > .pal-tile:last-child, .breeding-equation > .equation-slot:last-child > .pal-tile { color: var(--md-sys-color-tertiary); }
 /* 配合の式の「＋」は文字の色（on-surface-variant。白に 5.02・背景に 4.64。前は outline で背景に 1.79） */
 .equation-symbol { color: var(--md-sys-color-on-surface-variant); font-size: 14px; text-align: center; line-height: 1; }
 .equation-symbol.arrow { color: var(--md-sys-color-tertiary); }
@@ -1739,6 +1739,12 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .route-carrier { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; }
 .route-carrier-where { color: var(--muted); }
 .route-owned-note { grid-column: 2; font-size: 12px; color: var(--md-sys-color-tertiary); }
+/* 相手親の注記の「所持パルで見る」と、経路の見出しの右の「相手親 n/m 段で所持」（owned-overlay） */
+.route-owned-link { margin-left: 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.route-card-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 15px; }
+.route-card-head > h2 { margin-bottom: 0; }
+.route-owned-badge { font-size: 12px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
+.route-owned-badge.is-all { color: var(--md-sys-color-tertiary); }
 .route-owned-note.unowned { color: var(--muted); }
 /* 枠の中は1列なので、2列目指定のままだと暗黙の列ができて注記が右へずれる */
 .route-options > .route-owned-note { grid-column: auto; display: block; padding-bottom: 6px; }
@@ -1785,6 +1791,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   font-weight: 700;
 }
 .find-new[aria-disabled="true"] { cursor: default; }
+/* 所持の切り替え（所持パルのデータがあるときだけ。見た目は場所のチップ .place-chip と同じ） */
+.find-toggles { display: inline-flex; align-items: center; gap: 4px; }
+.find-bar .find-toggle { min-height: 28px; padding: 2px 9px; }
 /* 子ごとの要約のチップ（親を 1 体だけ選んで結果が多いとき）。1 行に並べ、はみ出したら横スクロール */
 .find-child-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: thin; }
 .find-child-chips[hidden] { display: none; }
@@ -1839,6 +1848,26 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .breeding-card.is-compact .card-meta > .status-chip { margin-right: 6px; }
 .breeding-card.is-compact .card-memo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; grid-row: auto; font-size: 11px; }
 .find-results > .find-group-heading + .breeding-card, .find-results.is-grouped > .breeding-card { border-bottom-style: dashed; }
+/* 所持の印（owned-overlay。ui/owned-badge.js の ownedBadge。クラスは所持パルの行の .owned-badge と別の .owned-count）: パルの絵の下、名前の左端にそろえて 1 行。親は「♂n ♀m」、子は「所持 N」、未所持は薄い字 */
+.equation-slot { display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; }
+.owned-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  align-self: flex-start;
+  margin-left: 41px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--md-sys-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+a.owned-count:hover { color: var(--md-sys-color-primary); text-decoration: underline; }
+.owned-count .gender-inline { font-size: 11px; }
+.owned-count-num { margin-right: 5px; }
+.owned-count-num:last-child { margin-right: 0; }
+.owned-count.is-none, .owned-count.is-blocked { color: var(--muted); }
+.owned-count.is-child { color: var(--md-sys-color-tertiary); font-weight: 700; }
 /* 表示中に増えた配合を一瞬だけ淡く光らせる（V-25。動きは上の prefers-reduced-motion: no-preference のブロックで付ける） */
 @keyframes find-new-row {
   from { background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent); }

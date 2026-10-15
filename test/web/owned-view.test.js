@@ -539,7 +539,12 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルか
 
   const routeView = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
   assert.match(routeView.element.textContent, /最短 1 回の配合/);
-  assert.equal(routeView.element.querySelector('.route-owned-note').textContent, '相手親のツッパニャン: 所持 2 体（うちパッシブ一致 0 体）');
+  // 相手親は親にできる個体（タマゴ・グローバルパルボックスを除く）の ♂♀ の数と、所持パルで見るリンク（owned-overlay）
+  const note = routeView.element.querySelector('.route-owned-note');
+  assert.equal(note.textContent, '相手親のツッパニャン: ♂1 ♀0（うちパッシブ一致 0 体）所持パルで見る');
+  assert.equal(note.querySelector('a').href, '#/owned?pal=PinkCat');
+  // 経路の見出しの右に、相手親を持っている段の数
+  assert.equal(routeView.element.querySelector('.route-owned-badge').textContent, '相手親 1/1 段で所持');
   assert.match(routeView.element.querySelector('.route-owned-box').textContent, /職人気質/);
   routeView.destroy();
 });
@@ -2799,4 +2804,35 @@ test('設定画面: 「このワールドでの自分」の説明は選択の説
   assert.deepEqual(rows.map((row) => row.children[0].textContent), names);
   assert.deepEqual(rows.map((row) => row.children[1].getAttribute('aria-label')), names.map((name) => `${name}の登録者`));
   card.destroy();
+});
+
+test('継承ルート: 「N 通り」の中は相手親を持っている配合を先に（同じ側は図鑑順のまま）。相手親はタマゴ・グローバルパルボックスを数えず、見出しに持っている段の数', (t) => {
+  installDom(t);
+  // 運ぶモコロン（♀・職人気質）と、相手親の候補: ツッパニャン（No.2）はグローバルパルボックスだけ、クレメーオは ♂ を持っている
+  const data = {
+    version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' },
+    snapshot: {
+      version: 1, world: { name: 'テスト', hostName: 'Alice' }, players: [{ uid: P1, name: 'Alice', level: 50 }], bases: [], stats: {},
+      pals: [
+        { instanceId: 'a', characterId: 'SheepBall', gender: 'Female', level: 12, rank: 1, passives: ['CraftSpeed_up2'], talent: {}, location: { kind: 'palbox', playerUid: P1, slotIndex: 0 } },
+        { instanceId: 'b', characterId: 'PinkCat', gender: 'Male', level: 3, rank: 1, passives: [], talent: {}, location: { kind: 'global', playerUid: '' } },
+        { instanceId: 'c', characterId: 'CatMage', gender: 'Male', level: 3, rank: 1, passives: [], talent: {}, location: { kind: 'party', playerUid: P1 } },
+      ],
+    },
+  };
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+    { id: 'r2', parent1Id: 'SheepBall', parent2Id: 'CatMage', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const view = inheritanceView(context(fakeOwned(data), records), parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  const notes = view.element.querySelectorAll('.route-owned-note').map((node) => node.textContent);
+  assert.deepEqual(notes, [
+    '相手親のクレメーオ: ♂1 ♀0（うちパッシブ一致 0 体）所持パルで見る',
+    '相手親のツッパニャン: タマゴ等のみ（親にできる個体なし）所持パルで見る',
+  ]);
+  // 式の並びも同じ順（相手親を持っているクレメーオが先）
+  const partners = view.element.querySelectorAll('.breeding-equation').map((node) => node.querySelectorAll('strong')[1].textContent);
+  assert.deepEqual(partners, ['クレメーオ', 'ツッパニャン']);
+  assert.equal(view.element.querySelector('.route-owned-badge').textContent, '相手親 1/1 段で所持');
+  view.destroy();
 });

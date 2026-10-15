@@ -3,9 +3,11 @@ import { palPicker } from '../ui/pal-picker.js';
 import { palIcon, palsById } from '../ui/pal-icon.js';
 import { searchSelect } from '../ui/search-select.js';
 import { breedingCard } from '../ui/breeding-card.js';
+import { ownedBadge, ownedBadgeText } from '../ui/owned-badge.js';
 import { withTransition } from '../ui/motion.js';
 import { queryTerms } from '../core/kana.js';
 import { userIdKey } from '../core/user.js';
+import { ownedCounts, canPairRecord } from '../core/owned.js';
 import {
   RECORD_SORTS, RECORD_SORT_DEFAULT, recordSort, searchBase, byRegistrant, registrantCounts, groupRecords, childCounts, pairNote,
 } from '../core/record-search.js';
@@ -23,14 +25,16 @@ const byValue = (name) => `by:${name}`;
 
 /**
  * 配合を探す（D1。前の配合検索・逆引き・一覧を 1 画面に）。条件帯（sticky）[親1][親2][子][キーワード] と [登録者][並べ替え] … [件数]。
- * URL: p1・p2・c（パル ID）、by（登録者の ID）、noreg=1（登録者未指定）、sort（既定の updated は書かない）、q（キーワード）。
- * 何も選ばなければ全件（既定は更新日の新しい順。D6）。引くのは登録済みの記録だけ（INV-2。core/record-search.js）
+ * URL: p1・p2・c（パル ID）、by（登録者の ID）、noreg=1（登録者未指定）、sort（既定の updated は書かない）、q（キーワード）、
+ * ownedfirst=1（両親を所持している組を上へ）・make=1（今の所持で作れる。どちらも所持パルのデータがあるときだけ効く）。
+ * 何も選ばなければ全件（既定は更新日の新しい順。D6）。引くのは登録済みの記録だけ（INV-2。core/record-search.js）。
+ * 所持パルのデータがあれば、カードの親に「♂n ♀m／未所持」、子に「所持 N」を重ねる（owned-overlay。core/owned.js の ownedCounts）
  */
 export function searchView(context, route) {
   const element = el('section', 'view find-view');
   element.append(viewHeading(tabLabel('search')));
   let current = route;
-  const cond = { p1: '', p2: '', c: '', by: '', noreg: false, sort: RECORD_SORT_DEFAULT, q: '' };
+  const cond = { p1: '', p2: '', c: '', by: '', noreg: false, sort: RECORD_SORT_DEFAULT, q: '', ownedFirst: false, make: false };
   // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）
   function readRoute(next) {
     current = next;
@@ -41,6 +45,8 @@ export function searchView(context, route) {
     cond.noreg = !cond.by && next.params.get('noreg') === '1';
     cond.sort = recordSort(next.params.get('sort'));
     cond.q = next.params.get('q') ?? '';
+    cond.ownedFirst = next.params.get('ownedfirst') === '1';
+    cond.make = next.params.get('make') === '1';
   }
   readRoute(route);
   // 今の URL の条件を changes で変えたハッシュ（ほかのパラメータは残す。空の値は消す）
@@ -90,10 +96,28 @@ export function searchView(context, route) {
   const newButton = button('', () => chooseSort(RECORD_SORT_DEFAULT), 'chip-button find-new');
   newButton.hidden = true;
   count.append(countText, countNote, newButton);
+  // 所持の切り替え（所持パルのデータがあるときだけ出す。押しボタン aria-pressed）: 両親を所持している組を上へ（F014・S-16）・
+  // 今の所持で作れる（両親を組めて、子をまだ持っていない記録だけ。D-44）
+  const toggle = (text, key, title) => {
+    // 見た目は所持パルの場所のチップと同じ「押して切り替えるチップ」（オンは地の色と ✓）
+    const node = button(text, () => changeRoute(context, hashWith({ [key]: current.params.get(key) === '1' ? '' : '1' })), 'place-chip find-toggle');
+    node.title = title;
+    node.setAttribute('aria-pressed', 'false');
+    return node;
+  };
+  const ownedFirstToggle = toggle('両親を持つ組を上へ', 'ownedfirst', '今の所持パルで両親を ♂ と ♀ で組める配合を、並びの中で先に出します');
+  const makeToggle = toggle('今の所持で作れる', 'make', '今の所持パルで両親を ♂ と ♀ で組めて、子をまだ持っていない配合だけを出します');
+  const toggles = el('div', 'find-toggles');
+  toggles.setAttribute('role', 'group');
+  toggles.setAttribute('aria-label', '所持');
+  toggles.append(ownedFirstToggle, makeToggle);
+  const ownedItem = panelItem('所持', toggles, { hidden: true, className: 'find-owned' });
+  ownedItem.hidden = true;
   const panelSub = el('div', 'find-bar-sub');
   panelSub.append(panelLine(
     panelItem('登録者', registrant.element, { hidden: true, className: 'find-registrant' }),
     panelItem('並べ替え', sort, { tag: 'label', hidden: true, className: 'find-sort' }),
+    ownedItem,
   ), count);
   const panel = el('section', 'find-bar');
   panel.setAttribute('aria-label', '配合の条件');
@@ -131,11 +155,12 @@ export function searchView(context, route) {
   const typed = onTextInput(keyword, (value) => {
     changeRoute(context, hashWith({ q: value.trim() ? value : '' }), { replace: true });
   }, { delay: context.inputDelay ?? 150, signal: inputs.signal });
-  // 「条件をすべて解除」: 親・子・登録者・キーワードを外す（並べ替えは残す）。押したボタンは消えるので、フォーカスはキーワードへ
+  // 「条件をすべて解除」: 親・子・登録者・キーワード・今の所持で作れるを外す（並べ替えと「両親を持つ組を上へ」は残す）。
+  // 押したボタンは消えるので、フォーカスはキーワードへ
   function clearAll() {
     typed.cancel();
     keyword.value = '';
-    changeRoute(context, hashWith({ p1: '', p2: '', c: '', by: '', noreg: '', q: '' }));
+    changeRoute(context, hashWith({ p1: '', p2: '', c: '', by: '', noreg: '', q: '', make: '' }));
     keyword.focus();
   }
 
@@ -172,6 +197,22 @@ export function searchView(context, route) {
     return Date.parse(record.createdAt) > since;
   }
 
+  // ---- 所持パル（データが変わったときだけ数え直す。所持パルのデータが無ければ何も重ねない） ----
+  const owned = context.owned;
+  let countsFor = null;
+  let counts = null;
+  function ownedNow() {
+    const data = owned?.state?.owned ?? null;
+    if (data !== countsFor) {
+      countsFor = data;
+      counts = Array.isArray(data?.pals) ? ownedCounts(data.pals) : null;
+    }
+    return counts;
+  }
+  const badgeOf = (palId, role) => ownedBadge(counts, palId, { role });
+  // カードの key に入れる所持の印の文（所持の数が変わったカードだけ作り直す）
+  const ownedSig = (record) => (counts ? [record.parent1Id, record.parent2Id].map((id) => ownedBadgeText(counts, id)).join(',') + `>${ownedBadgeText(counts, record.childId, 'child')}` : '');
+
   // ---- 描画 ----
   let shownRows = 0;
   // 表示中に増えた配合（記録の ID）を一瞬光らせる（V-25）。最初の描画と条件の変更では光らせない
@@ -183,6 +224,7 @@ export function searchView(context, route) {
     if (item.heading) return { element: groupHeading(item) };
     const card = breedingCard(item.record, context, {
       focusParent: item.focusParent ?? '', leftParent: item.leftParent ?? '', omitChild: item.omitChild, compact: true, isNew: item.isNew,
+      annotate: counts ? badgeOf : null,
     });
     if (flash && shownIds && !shownIds.has(item.record.id)) card.classList.add('is-new');
     return { element: card };
@@ -196,7 +238,7 @@ export function searchView(context, route) {
     node.append(el('span', 'find-group-name', pal ? `No.${pal.label} ${pal.ja}` : palId), el('span', 'find-group-count', `${total} 件`));
     return node;
   }
-  const rowKey = (item) => (item.heading ? `${headingKey(item.palId)}:${item.count}` : cardKey(item));
+  const rowKey = (item) => (item.heading ? `${headingKey(item.palId)}:${item.count}` : `${cardKey(item)}|${item.owned ?? ''}`);
 
   function update(state) {
     if (destroyed) return;
@@ -209,10 +251,14 @@ export function searchView(context, route) {
       return;
     }
     readSeen(state);
+    const ownedCount = ownedNow();
+    renderToggles(ownedCount);
     const terms = queryTerms(cond.q);
     const filter = { p1: cond.p1, p2: cond.p2, c: cond.c, terms };
     const base = searchBase(state.index, state.records, filter, palsById);
-    const records = byRegistrant(base, { by: cond.by, noRegistrant: cond.noreg });
+    let records = byRegistrant(base, { by: cond.by, noRegistrant: cond.noreg });
+    // 今の所持で作れる: 両親を ♂ と ♀ で組めて、子をまだ持っていない記録だけ
+    if (ownedCount && cond.make) records = records.filter((record) => canPairRecord(ownedCount, record) && !ownedCount.get(record.childId)?.total);
     renderRegistrants(base, state);
     renderChildChips(state, terms);
     const me = state.userId ? userIdKey(state.userId) : '';
@@ -220,15 +266,22 @@ export function searchView(context, route) {
     showCount({ total: records.length, note: cond.p1 && cond.p2 ? pairNote(records) : '', newCount });
     const single = cond.p1 && cond.p2 ? '' : cond.p1 || cond.p2;
     const groups = groupRecords(records, cond.sort, state.index.palOrder, palsById, { focusParent: single });
+    // 両親を所持している組を上へ: 群の中で、組める記録を安定に先へ（同じ側の中は今の並びのまま）
+    if (ownedCount && cond.ownedFirst) {
+      for (const group of groups) {
+        const pairable = group.records.filter((record) => canPairRecord(ownedCount, record));
+        if (pairable.length && pairable.length < group.records.length) group.records = [...pairable, ...group.records.filter((record) => !canPairRecord(ownedCount, record))];
+      }
+    }
     const byParent = cond.sort.startsWith('parent');
     const items = [];
     for (const group of groups) {
       if (group.palId) items.push({ heading: true, palId: group.palId, count: group.records.length });
       for (const record of group.records) {
-        const isNewRecord = isNew(record, me);
-        if (!group.palId) items.push({ record, leftParent: cond.p1 || (record.parent1Id === cond.p2 ? record.parent2Id : record.parent1Id), isNew: isNewRecord });
-        else if (byParent) items.push({ record, focusParent: group.palId, isNew: isNewRecord });
-        else items.push({ record, leftParent: cond.p1 || cond.p2 || '', omitChild: true, isNew: isNewRecord });
+        const extra = { isNew: isNew(record, me), owned: ownedSig(record) };
+        if (!group.palId) items.push({ record, leftParent: cond.p1 || (record.parent1Id === cond.p2 ? record.parent2Id : record.parent1Id), ...extra });
+        else if (byParent) items.push({ record, focusParent: group.palId, ...extra });
+        else items.push({ record, leftParent: cond.p1 || cond.p2 || '', omitChild: true, ...extra });
       }
     }
     const condKey = JSON.stringify(cond);
@@ -239,6 +292,13 @@ export function searchView(context, route) {
     shownCond = condKey;
     shownIds = new Set(records.map((record) => record.id));
     shownRows = records.length;
+  }
+
+  // 所持の切り替えは、所持パルのデータがあるときだけ出す（URL の値は残す）
+  function renderToggles(ownedCount) {
+    ownedItem.hidden = !ownedCount;
+    ownedFirstToggle.setAttribute('aria-pressed', String(cond.ownedFirst));
+    makeToggle.setAttribute('aria-pressed', String(cond.make));
   }
 
   function showCount(info) {
@@ -311,6 +371,9 @@ export function searchView(context, route) {
     // 登録者・キーワードを外せば結果がある（または条件がそれだけ）なら、条件を外す案内
     const palOnly = hasPal() ? searchBase(state.index, state.records, { p1: cond.p1, p2: cond.p2, c: cond.c }, palsById) : state.records;
     if (hasFilter() && palOnly.length) return empty('条件に合う登録はありません。', button('条件をすべて解除', clearAll, 'button secondary'), { icon: 'search' });
+    if (counts && cond.make && palOnly.length) {
+      return empty('今の所持パルで作れる配合はありません。', button('「今の所持で作れる」を外す', () => changeRoute(context, hashWith({ make: '' })), 'button secondary'), { icon: 'search' });
+    }
     if (cond.p1 && cond.p2) {
       return empty('この組み合わせはまだ登録されていません。', register('この組み合わせを登録', () => ({ parent1Id: cond.p1, parent2Id: cond.p2, ...(cond.c ? { childId: cond.c } : {}) })));
     }
@@ -323,6 +386,14 @@ export function searchView(context, route) {
   }
 
   const view = watchView(context.store, element, update, pickers);
+  // 所持パルのデータが変わったら描き直す（読み込みの状態だけの変化では描き直さない）。開いたときに読み込む
+  let lastOwned = owned?.state?.owned ?? null;
+  const unsubscribeOwned = owned?.subscribe?.((ownedState) => {
+    if (ownedState.owned === lastOwned) return;
+    lastOwned = ownedState.owned;
+    update(context.store.state);
+  }) ?? (() => {});
+  owned?.load?.().catch(() => {});
   return {
     ...view,
     applyRoute(next, { reason } = {}) {
@@ -340,6 +411,7 @@ export function searchView(context, route) {
     destroy() {
       destroyed = true;
       inputs.abort();
+      unsubscribeOwned();
       stopTracking();
       registrant.destroy();
       // 新着の基準を、今の取得の時刻（なければ今）に進める

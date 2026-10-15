@@ -36,13 +36,24 @@ function chain(route, annotate) {
   return wrapper;
 }
 
-export function routeView(routes, { annotate } = {}) {
+/**
+ * 経路のカードを並べる。annotate(step, option) は配合ごとの注記、badge(route) は見出しの右に置く要素（相手親の所持の段の数など。
+ * どちらも任意。返さなければ何も足さない）
+ */
+export function routeView(routes, { annotate, badge } = {}) {
   const wrapper = el('div', 'route-results');
   routes.forEach((route, index) => {
     const node = el('section', 'route-card');
     // 画面の h1 の次の見出し（h2。大きさは CSS の .route-card h2 で前の h3 と同じ 15px）
-    node.append(el('h2', '', index === 0
-      ? `最短 ${route.length} 回の配合` : `候補 ${index + 1} · ${route.length} 回の配合`), chain(route, annotate));
+    const heading = el('h2', '', index === 0
+      ? `最短 ${route.length} 回の配合` : `候補 ${index + 1} · ${route.length} 回の配合`);
+    const extra = badge ? badge(route) : null;
+    if (extra) {
+      const head = el('div', 'route-card-head');
+      head.append(heading, extra);
+      node.append(head);
+    } else node.append(heading);
+    node.append(chain(route, annotate));
     wrapper.append(node);
   });
   return wrapper;

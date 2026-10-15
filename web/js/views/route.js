@@ -1,10 +1,10 @@
 import { el, button, empty, link, setupHint } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
-import { palTile, palsById } from '../ui/pal-icon.js';
+import { palTile, palsById, genderMark } from '../ui/pal-icon.js';
 import { routeView } from '../ui/route-view.js';
 import { passiveSelector, passiveList } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
-import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, PLACE_LABELS } from '../core/owned.js';
+import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, ownedCounts, canBeParent, PLACE_LABELS } from '../core/owned.js';
 import { buildHash, settingsHash } from '../router.js';
 import { viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, ownedSpeciesNotes, routeDistanceNotes, passivePresets } from './shared.js';
 import { tabLabel } from './tabs.js';
@@ -12,9 +12,9 @@ import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { internalName } from '../core/boundary.js';
 
 function holderSummary(carriers) {
-  // 要約なので、パルボックスのページと位置までは出さない
+  // 要約なので、パルボックスのページと位置までは出さない（開始の候補は親にできる個体だけなので、タマゴの分かれ道はない。R-15）
   const place = (pal) => (pal.place === 'palbox' ? PLACE_LABELS.palbox : pal.placeLabel);
-  const where = (pal) => (pal.egg ? `${pal.holder}（タマゴ）` : pal.holder === place(pal) ? pal.holder : `${pal.holder}・${place(pal)}`);
+  const where = (pal) => (pal.holder === place(pal) ? pal.holder : `${pal.holder}・${place(pal)}`);
   const names = [...new Set(carriers.map(where))];
   return names.length > 2 ? `${names.slice(0, 2).join('、')} ほか` : names.join('、');
 }
@@ -177,10 +177,13 @@ export function inheritanceView(context, route) {
     const box = el('div', 'route-owned-box');
     box.append(el('h2', '', 'パッシブを持つ所持パルから始める'));
     if (!starts.length) {
-      const total = pals.filter((pal) => pal.palId && hasPassives(pal, passives)).length;
-      box.append(el('p', 'muted', total
+      const matching = pals.filter((pal) => pal.palId && hasPassives(pal, passives));
+      const total = matching.filter(canBeParent).length;
+      // 開始の候補は親にできる個体だけ（タマゴ・グローバルパルボックスの個体は外した。R-15）。外した個体があれば添える
+      const skipped = matching.length - total;
+      box.append(el('p', 'muted', `${total
         ? `該当する所持パルは ${total} 体いますが、登録済みの配合では目標にたどり着けません。`
-        : '選んだパッシブをすべて持つ所持パルはいません。'));
+        : '選んだパッシブをすべて持つ所持パルはいません。'}${skipped ? 'タマゴ・グローバルパルボックスの個体は含めていません。' : ''}`));
       ownedSection.append(box);
       return;
     }
@@ -200,16 +203,74 @@ export function inheritanceView(context, route) {
     ownedSection.append(box);
   }
 
-  function annotateFor(pals) {
-    if (!pals) return undefined;
-    const bySpecies = ownedBySpecies(pals);
+  // 所持パルのデータごとに 1 回だけ数える（種族ごとの個体・性別ごとの親にできる数。owned-overlay）
+  let ownedFor = null;
+  let ownedStats = null;
+  function statsOf(pals) {
+    if (ownedFor !== pals) {
+      ownedFor = pals;
+      ownedStats = pals ? { bySpecies: ownedBySpecies(pals), counts: ownedCounts(pals) } : null;
+    }
+    return ownedStats;
+  }
+  // 相手親を組める（親にできる ♂ か ♀ を 1 体以上持っている）か
+  const partnerOwned = (counts, palId) => {
+    const entry = counts.get(palId);
+    return Boolean(entry && (entry.male || entry.female));
+  };
+
+  // 相手親の注記: 「相手親の X: ♂2 ♀1（うちパッシブ一致 M 体）」と「所持パルで見る」。親にできる個体（タマゴ・グローバルパルボックスを除く）で数える
+  function annotateFor(stats) {
+    if (!stats) return undefined;
     return (step, option) => {
-      const { total, matching } = partnerOwnership(bySpecies, option.partner, passives);
+      const { matching } = partnerOwnership(stats.bySpecies, option.partner, passives);
+      const entry = stats.counts.get(option.partner);
       const name = palsById.get(option.partner)?.ja ?? option.partner;
-      const text = total
-        ? `相手親の${name}: 所持 ${total} 体${passives.length ? `（うちパッシブ一致 ${matching} 体）` : ''}`
-        : `相手親の${name}: 未所持`;
-      return el('span', `route-owned-note${total ? '' : ' unowned'}`, text);
+      const node = el('span', 'route-owned-note');
+      if (!entry?.total) {
+        node.classList.add('unowned');
+        node.textContent = `相手親の${name}: 未所持`;
+        return node;
+      }
+      // 文字は span に入れる（テストの偽の DOM は文字列の append を持たない）
+      const text = (value) => el('span', '', value);
+      if (!entry.male && !entry.female) {
+        node.classList.add('unowned');
+        node.append(text(`相手親の${name}: タマゴ等のみ（親にできる個体なし）`));
+      } else {
+        node.append(text(`相手親の${name}: `), genderMark('M', { inline: true }), text(`${entry.male} `), genderMark('F', { inline: true }), text(String(entry.female)));
+        if (passives.length) node.append(text(`（うちパッシブ一致 ${matching} 体）`));
+      }
+      node.append(link('所持パルで見る', buildHash('owned', { pal: option.partner }), 'route-owned-link'));
+      return node;
+    };
+  }
+
+  // 所持パルがあるとき: 「N 通り」の中を、相手親を組める配合 → 組めない配合の順に安定に並べ直し（同じ側の中は今の図鑑順。R-17）、
+  // 同じ回数の経路の中を、相手親を持っていない段の少ない順に安定に並べ直す（R-21）。findRoutes の結果は書き換えず、写しを返す
+  function arrangeRoutes(routes, stats) {
+    if (!stats) return routes;
+    const sorted = routes.map((route, order) => {
+      const steps = route.steps.map((step) => {
+        const owns = step.options.filter((option) => partnerOwned(stats.counts, option.partner));
+        if (!owns.length || owns.length === step.options.length) return step;
+        return { ...step, options: [...owns, ...step.options.filter((option) => !partnerOwned(stats.counts, option.partner))] };
+      });
+      const missing = steps.filter((step) => !step.options.some((option) => partnerOwned(stats.counts, option.partner))).length;
+      return { route: { ...route, steps }, missing, order };
+    });
+    sorted.sort((a, b) => a.route.length - b.route.length || a.missing - b.missing || a.order - b.order);
+    // 長さの順は findRoutes のまま（同じ長さの中だけ動かす）
+    return sorted.map((item) => item.route);
+  }
+  // 経路の見出しの右の「相手親 2/3 段で所持」（その段のどれかの配合の相手親を組めれば所持）
+  function badgeFor(stats) {
+    if (!stats) return undefined;
+    return (route) => {
+      const owned = route.steps.filter((step) => step.options.some((option) => partnerOwned(stats.counts, option.partner))).length;
+      const node = el('span', `route-owned-badge${owned === route.steps.length ? ' is-all' : ''}`, `相手親 ${owned}/${route.steps.length} 段で所持`);
+      node.title = '各段の配合のどれかで、相手親を ♂ か ♀ で 1 体以上持っている段の数（タマゴ・グローバルパルボックスの個体は数えません）';
+      return node;
     };
   }
 
@@ -238,7 +299,8 @@ export function inheritanceView(context, route) {
       results.replaceChildren(empty('登録済みの配合ではたどり着けません。', link('目標の配合を見る', buildHash('search', { c: to }), 'button secondary')));
       return;
     }
-    results.replaceChildren(routeView(routes, { annotate: annotateFor(pals) }));
+    const stats = statsOf(pals);
+    results.replaceChildren(routeView(arrangeRoutes(routes, stats), { annotate: annotateFor(stats), badge: badgeFor(stats) }));
   }
   // 登録した理想個体が変わったら（別のタブを含む）、登録した組み合わせを入れ直す
   const unsubscribeIdeals = context.ideals?.subscribe(() => passive.update({ presets: passivePresets(context.ideals) })) ?? (() => {});
