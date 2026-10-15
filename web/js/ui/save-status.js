@@ -2,7 +2,7 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, roleLabel, timeLines } from './owned-status.js';
+import { dateTime, worldName, roleLabel, timeLines, permissionNotice, grantWithReport } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -35,9 +35,8 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   });
   if (!state.ready) return result('busy', { time: '所持パルを確認中…' }, '保存済みの所持パルを確認しています');
   const auto = state.auto ?? {};
-  if (auto.enabled && auto.status === 'permission') {
-    return result('warn', { time: '許可が必要' }, `${auto.error || 'セーブを読むには許可が必要です。'}（押すと許可を求めます）`, 'grant');
-  }
+  const permission = permissionNotice(state, { now: () => now });
+  if (permission) return result('warn', { time: '許可が必要' }, `${permission.text}（押すと許可を求めます）`, 'grant');
   if (auto.enabled && ['error', 'empty'].includes(auto.status)) return result('warn', { time: 'セーブを読めません' }, auto.error || 'セーブを読めませんでした');
   if (state.upload?.status === 'error') return result('warn', { time: '共有できません' }, `共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !meta?.source) return result('warn', { time: '共有を読めません' }, `共有された所持パルを読めませんでした: ${state.shared.error}`);
@@ -61,11 +60,13 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   return result(stale ? 'stale' : 'ok', { world, time: `共有 ${formatShortTime(sharedAt, now, '不明')}` }, lines.join('\n'));
 }
 
-// ポップオーバーに出す、困っていること（なければ空）
-function problems(state) {
+// ポップオーバーに出す、困っていること（なければ空）。許可切れは permissionNotice の文・止まった時刻・勧め
+function problems(state, now) {
   const items = [];
   const auto = state.auto ?? {};
-  if (auto.enabled && ['permission', 'error', 'empty'].includes(auto.status) && auto.error) items.push(auto.error);
+  const permission = permissionNotice(state, { now: () => now });
+  if (permission) items.push(`${permission.text}。`, ...(permission.since ? [`${permission.since}。`] : []), `${permission.hint}。`);
+  else if (auto.enabled && ['error', 'empty'].includes(auto.status) && auto.error) items.push(auto.error);
   if (state.upload?.status === 'error') items.push(`共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !state.meta?.source) items.push(`共有された所持パルを読めませんでした: ${state.shared.error}`);
   if (state.error) items.push(`セーブを読み込めませんでした: ${state.error}`);
@@ -127,7 +128,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       if (lines.length) items.push(['更新', lines.join('\n')]);
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);
       details.replaceChildren(...items.flatMap(([term, detail]) => [el('dt', '', term), el('dd', '', detail)]));
-      const found = problems(state);
+      const found = problems(state, now());
       issues.replaceChildren(...found.map((item) => el('li', '', item)));
       issues.hidden = !found.length;
       grant.hidden = !(state.auto.enabled && state.auto.status === 'permission');
@@ -140,7 +141,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
   }
 
   function grantPermission() {
-    owned.grantAndRefresh().catch((error) => toast(error.message, { kind: 'error' }));
+    grantWithReport(owned);
   }
 
   function onClick() {

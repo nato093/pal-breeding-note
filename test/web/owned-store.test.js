@@ -159,6 +159,30 @@ test('所持パル: 許可がないときは自動では読まず、許可を求
   assert.equal(reopened.state.uploadReady, true);
 });
 
+test('所持パル（autoreg-visibility）: 許可待ちで止まった時刻は止まったときだけ入れ、続けて止まっている間は変えず、読めたら空にする。文は短い 1 文', async () => {
+  const { store, advance, register } = setup();
+  const files = hostFiles();
+  await register(WORLD_A, files);
+  assert.equal(store.state.auto.stoppedAt, '');
+  for (const handle of Object.values(files)) handle.permission = 'prompt';
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'permission');
+  const stoppedAt = store.state.auto.stoppedAt;
+  assert.equal(stoppedAt, new Date(1_025_000).toISOString());
+  // 文は画面の案内と同じ短い 1 文（直し方は画面の permissionNotice が添える）
+  assert.equal(store.state.auto.error, 'セーブを読む許可が必要です');
+  // 続けて止まっている間（1 分ごとの確認・確認中の checking を挟む）は最初の時刻のまま
+  advance(60000);
+  assert.equal(await store.autoRefresh(), 'permission');
+  assert.equal(store.state.auto.stoppedAt, stoppedAt);
+  // 読めたら空にする
+  for (const handle of Object.values(files)) handle.permission = 'granted';
+  advance(60000);
+  await store.autoRefresh();
+  assert.equal(store.state.auto.status, 'ready');
+  assert.equal(store.state.auto.stoppedAt, '');
+});
+
 test('所持パル: 最後に遊んだワールドを読み、選んだワールドがあればそれを読む', async () => {
   const { store, storage, register } = setup();
   await register(WORLD_A, hostFiles(T0));

@@ -67,11 +67,14 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
     return original(action, payload);
   };
   const toasts = [];
+  // トーストの操作（「見る」）と、押したときの移り先
+  const toastActions = [];
+  const navigations = [];
   let noticed = 0;
   const storage = givenStorage ?? safeStorage(memoryStorage());
   const auto = createAutoRegister({
-    store, owned, storage, namespace: 't', toast: (message) => toasts.push(message), onNotice: () => { noticed++; },
-    loadTable: async () => ({ default: data }),
+    store, owned, storage, namespace: 't', toast: (message, options) => { toasts.push(message); toastActions.push(options); }, onNotice: () => { noticed++; },
+    navigate: (hash) => navigations.push(hash), loadTable: async () => ({ default: data }),
   });
   const run = async () => { auto.evaluate(); await auto.idle(); };
   // 新しく読んだセーブ（牧場にタマゴが現れた）にする
@@ -85,7 +88,7 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
     lay();
   }
   return {
-    store, api, owned, auto, creates, toasts, run, lay, storage,
+    store, api, owned, auto, creates, toasts, toastActions, navigations, run, lay, storage,
     get noticed() { return noticed; },
     original,
     rejectNextCreate() { rejectNextCreate = true; },
@@ -115,6 +118,20 @@ test('自動登録: 牧場のタマゴが配合表どおりなら、親を預け
   t.owned.state.local = { ...t.owned.state.local, importedAt: '2026-10-06T00:01:00.000Z' };
   await t.run();
   assert.equal(t.creates.length, 1);
+});
+
+test('自動登録（autoreg-visibility）: 成功のトーストに「見る」。1 件ならその組、2 件以上なら更新日の新しい順の配合を探す', async () => {
+  const t = await setup();
+  await t.run();
+  assert.equal(t.toastActions[0].actionLabel, '見る');
+  t.toastActions[0].action();
+  assert.deepEqual(t.navigations, ['#/search?p1=SheepBall&p2=SwordCutlassfish']);
+  // 2 件のとき
+  const two = await setup({ farms: [sheepFarm(), dogFarm()] });
+  await two.run();
+  assert.equal(two.toasts.at(-1), '配合を自動登録しました（2件）');
+  two.toastActions.at(-1).action();
+  assert.deepEqual(two.navigations, ['#/search?sort=updated']);
 });
 
 test('自動登録: 同じ種族どうしも登録し、登録済みの組み合わせは送らない', async () => {
@@ -163,8 +180,9 @@ test('自動登録: 新しいふつうのタマゴが配合表と合わないと
   const [notice] = t.auto.notices();
   assert.match(notice.body, /^(ヘルバーン＋モモエール|モモエール＋ヘルバーン) のタマゴ（ヤクモマル）は照合が合わず、自動登録しませんでした$/);
   assert.doesNotMatch(`${notice.title}${notice.body}`, /テラナイト|表は/);
-  // 通知欄の行の画像はセーブで見たタマゴの中身（bell）
+  // 通知欄の行の画像はセーブで見たタマゴの中身（bell）。押すと配合を探すでその親の組（autoreg-visibility。D-03）
   assert.equal(notice.palId, 'GuardianDog');
+  assert.match(notice.href, /^#\/search\?p1=(GhostDragon_Fire&p2=IceNarwhal_Fire|IceNarwhal_Fire&p2=GhostDragon_Fire)$/);
   assert.equal(t.noticed, 1);
   // 同じ通知は重ねない
   await t.run();
@@ -276,6 +294,49 @@ test('自動登録: 対応が未設定のプレイヤーの配合は通知だけ
   assert.deepEqual(t.auto.mapping(), { [P2]: '仲間' });
   // 対応づけたプレイヤーの「未設定」の通知は消え、登録した配合の通知だけが残る
   assert.deepEqual(t.auto.notices().map((n) => n.title), ['配合を自動登録しました']);
+});
+
+test('自動登録（autoreg-visibility）: 登録待ちの候補を、登録者未設定と登録済みと違うに分けて親だけで返し（子は返さない）、破棄できる', async () => {
+  // P2（Frank）の牧場は登録者が未設定。自分の牧場（モコロン＋オオタチウオ）は、同じ組で別の子（ツッパニャン）が登録済み
+  const t = await setup({ farms: [sheepFarm(P2), dogFarm()], records: [{ parent1Id: 'SheepBall', parent2Id: 'SwordCutlassfish', childId: 'PinkCat' }] });
+  await t.run();
+  const summary = t.auto.pendingSummary();
+  assert.equal(summary.unmapped.length, 1);
+  assert.deepEqual([summary.unmapped[0].uid, summary.unmapped[0].name], [P2, 'Frank']);
+  assert.deepEqual(summary.unmapped[0].parents.sort(), ['SheepBall', 'SwordCutlassfish']);
+  // 候補の子（配合表の答え）は結果のどこにも入れない（INV-2）
+  assert.doesNotMatch(JSON.stringify(summary), /GuardianDog|childId/);
+  assert.deepEqual(Object.keys(summary), ['unmapped', 'conflict']);
+  for (const item of [...summary.unmapped, ...summary.conflict]) assert.deepEqual(Object.keys(item).filter((key) => !['uid', 'name', 'parents', 'id'].includes(key)), []);
+  // 別のワールド・ログアウト中は空
+  assert.deepEqual(t.auto.pendingSummary('W2'), { unmapped: [], conflict: [] });
+  // 破棄すると外れ、知らせる
+  let changes = 0;
+  t.auto.subscribe(() => { changes++; });
+  const conflict = summary.conflict[0] ?? null;
+  if (conflict) {
+    assert.equal(t.auto.discardPending(conflict.id), true);
+    assert.equal(t.auto.pendingSummary().conflict.length, 0);
+    assert.equal(changes, 1);
+  }
+  assert.equal(t.auto.discardPending('ない候補'), false);
+});
+
+test('自動登録（autoreg-visibility）: 登録済みと違う候補は「登録済みと違う」に入れ、破棄したら送らない', async () => {
+  const t = await setup({ records: [{ parent1Id: 'SheepBall', parent2Id: 'SwordCutlassfish', childId: 'PinkCat' }] });
+  await t.run();
+  const { conflict, unmapped } = t.auto.pendingSummary();
+  assert.equal(unmapped.length, 0);
+  assert.equal(conflict.length, 1);
+  assert.deepEqual(conflict[0].parents.sort(), ['SheepBall', 'SwordCutlassfish']);
+  assert.match(conflict[0].id, /^p[0-9a-f]{8}$/);
+  assert.doesNotMatch(JSON.stringify(conflict), /GuardianDog/);
+  assert.equal(t.auto.discardPending(conflict[0].id), true);
+  assert.deepEqual(t.auto.pendingSummary(), { unmapped: [], conflict: [] });
+  // 次の読み込みでも、破棄した候補は送らない
+  t.lay();
+  await t.run();
+  assert.equal(t.creates.length, 0);
 });
 
 test('自動登録: 同じ名前のユーザーが後から増えたら、その人で登録する', async () => {

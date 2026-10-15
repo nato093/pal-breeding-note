@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ownedNotices } from '../../web/js/ui/owned-status.js';
+import { installDom } from '../helpers/dom.js';
 
 const SAVED = new Date(2026, 9, 10, 9, 0).toISOString();
 
@@ -77,4 +78,36 @@ test('案内: この PC で読んだセーブに場所の分からないパル�
   }
   // 共有のデータには stats がない（数えない）
   assert.deepEqual(ownedNotices(ownedState({ meta: { ...ownedState().meta, source: 'shared' }, owned: { pals: [], stats: { unknownLocation: 3 } } })), []);
+});
+
+test('許可切れの案内（autoreg-visibility）: permissionNotice は許可待ちのときだけ、短い文・勧め・止まった時刻（あれば）を返し、所持パルの案内も同じ文', async () => {
+  const { permissionNotice, PERMISSION_TEXT, PERMISSION_HINT, ownedNotices } = await import('../../web/js/ui/owned-status.js');
+  const now = () => new Date(2026, 9, 15, 15, 0).getTime();
+  const state = (auto) => ({ ready: true, auto: { enabled: true, worlds: [{ id: 'W' }], error: '', ...auto } });
+  assert.equal(permissionNotice(state({ status: 'ready' }), { now }), null);
+  assert.equal(permissionNotice(state({ status: 'permission', enabled: false }), { now }), null);
+  assert.deepEqual(permissionNotice(state({ status: 'permission' }), { now }), { text: PERMISSION_TEXT, hint: PERMISSION_HINT, since: '' });
+  assert.equal(PERMISSION_TEXT, 'セーブを読む許可が必要です');
+  assert.match(PERMISSION_HINT, /毎回のアクセスを許可/);
+  const stopped = permissionNotice(state({ status: 'permission', stoppedAt: new Date(2026, 9, 15, 14, 32).toISOString() }), { now });
+  assert.equal(stopped.since, '14:32 から読めていません。この間に拾ったタマゴは自動登録されていない場合があります');
+  // 日が違えば日付も
+  assert.match(permissionNotice(state({ status: 'permission', stoppedAt: new Date(2026, 9, 14, 23, 5).toISOString() }), { now }).since, /^10\/14 23:05 から/);
+  // 所持パルの案内: 1 文と止まった時刻、勧めは小さな 2 行目（hint）
+  const [notice] = ownedNotices(state({ status: 'permission', error: '古い長い文', stoppedAt: '' }));
+  assert.deepEqual([notice.text, notice.hint, notice.action], ['セーブを読む許可が必要です。', `${PERMISSION_HINT}。`, 'grant']);
+});
+
+test('許可切れの案内（autoreg-visibility）: grantWithReport は許可されなかったとき（一部でも・読み直しが許可待ちで止まった）に直し方のトーストを出す', async (t) => {
+  installDom(t);
+  const { grantWithReport, PERMISSION_DENIED } = await import('../../web/js/ui/owned-status.js');
+  const shown = () => document.body.querySelectorAll('.toast-message').map((node) => node.textContent);
+  await grantWithReport({ grantAndRefresh: () => Promise.resolve({ granted: 4, total: 4, result: 'imported' }) });
+  assert.deepEqual(shown(), []);
+  await grantWithReport({ grantAndRefresh: () => Promise.resolve({ granted: 1, total: 4, result: 'imported' }) });
+  assert.deepEqual(shown(), [PERMISSION_DENIED]);
+  await grantWithReport({ grantAndRefresh: () => Promise.reject(Object.assign(new Error('セーブを読む許可が必要です'), { code: 'permission' })) });
+  assert.deepEqual(shown(), [PERMISSION_DENIED, PERMISSION_DENIED]);
+  await grantWithReport({ grantAndRefresh: () => Promise.reject(new Error('読めませんでした')) });
+  assert.deepEqual(shown().at(-1), '読めませんでした');
 });

@@ -1602,3 +1602,25 @@ test('画面: 親 2 だけを選んだ配合を探すの行を削除するとき
     await removing;
   }
 });
+
+test('画面（autoreg-visibility）: 題名は「画面名 · パル配合ノート」（パル詳細はパルの名前、ログイン画面は「パル配合ノート」）', async (t) => {
+  const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/settings' });
+  assert.equal(document.title, '設定 · パル配合ノート');
+  changeHash('#/search');
+  assert.equal(document.title, '配合を探す · パル配合ノート');
+  changeHash('#/pal/SheepBall');
+  assert.equal(document.title, 'モコロン · パル配合ノート');
+});
+
+test('画面（autoreg-visibility）: 自動の読み込みが止まっている（登録なし・読めない・許可待ち）と、所持パルのタブに「!」と読み上げの文', async (t) => {
+  // 前の版で連携をオンにしたまま、登録したワールドがない（所持パルを開くと読みに行き、登録なしで止まる）
+  const { values } = await boot(t, { initial: { ...signedIn, 'pal-note.owned.bridge': JSON.stringify({ enabled: true }) }, api: createDevelopmentApi({ seed: '2' }), hash: '#/owned' });
+  for (let i = 0; i < 10; i++) await flush();
+  // タブの文字は「所持パル!」になるので data-view で探す（読み上げは aria-label）
+  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.getAttribute('data-view') === 'owned');
+  const badge = tab.querySelector('.nav-badge');
+  assert.equal(badge.hidden, false);
+  assert.equal(badge.textContent, '!');
+  assert.equal(tab.getAttribute('aria-label'), '所持パル（読み込みが止まっています）');
+  assert.equal(JSON.parse(values.get('pal-note.owned.bridge')).enabled, true);
+});

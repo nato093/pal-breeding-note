@@ -223,3 +223,13 @@ test('ヘッダーのセーブ連携: destroy で購読を全部外す', (t) => 
   part.destroy();
   assert.deepEqual([listeners.owned.size, listeners.store.size, listeners.auto.size], [0, 0, 0]);
 });
+
+test('ヘッダーのセーブ連携（autoreg-visibility）: 許可切れは permissionNotice の短い文・止まった時刻・「毎回のアクセスを許可」の勧めをポップオーバーに出す', async (t) => {
+  const stoppedAt = new Date(NOW - 28 * 60 * 1000).toISOString();
+  const { trigger, part } = setup(t, hostState({ auto: { enabled: true, status: 'permission', worlds: [{ id: 'W1' }], error: '古い長い文', stoppedAt } }));
+  assert.equal(trigger.title, 'セーブを読む許可が必要です（押すと許可を求めます）');
+  // 許可が要るときに押すと許可を求めるので、ポップオーバーは model を直接見る
+  const { saveStatusModel } = await import('../../web/js/ui/save-status.js');
+  assert.equal(saveStatusModel(hostState({ auto: { enabled: true, status: 'permission', worlds: [{ id: 'W1' }], error: '古い長い文', stoppedAt } }), { now: NOW }).text, '許可が必要');
+  part.destroy();
+});
