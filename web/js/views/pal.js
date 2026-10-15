@@ -20,6 +20,9 @@ export function palView(context, route) {
   const actions = el('div', 'pal-hero-actions');
   // 「この子の配合を登録」は、このパルが産まれる配合が 1 件でもあれば控えめ（secondary）、0 件なら primary（F075。描くたびに合わせる）
   const register = button('この子の配合を登録', () => context.register({ childId: pal.id }), 'button primary');
+  // ショートカット N でも同じ初期値で開く（app.js が registerInitial を読む）
+  register.title = 'キーボードの N でも開けます';
+  register.setAttribute('aria-keyshortcuts', 'N');
   // 「☆ 目標に登録」（種族だけの目標。作れるようになったら・完成したらベルで知らせる。goals-merge）
   const goal = goalToggle(context, pal.id);
   actions.append(link('ここから継承ルート', buildHash('route', { from: pal.id }), 'button secondary'),
@@ -39,5 +42,5 @@ export function palView(context, route) {
       empty: () => empty('このパルを親に使う配合はまだ登録されていません。'),
     });
   });
-  return { ...view, destroy() { goal.destroy(); view.destroy(); } };
+  return { ...view, registerInitial: () => ({ childId: pal.id }), destroy() { goal.destroy(); view.destroy(); } };
 }

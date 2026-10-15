@@ -364,7 +364,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const shown = Boolean(autoRegister) && (view.role === 'host' || view.role === 'guest');
     playersSection.hidden = !shown;
     if (!shown) { playersSection.replaceChildren(); return; }
-    const nodes = [el('h3', '', 'プレイヤーの対応（セーブのプレイヤー → ノートの名前）')];
+    const nodes = [el('h3', '', 'プレイヤーの対応（セーブのプレイヤー → ノートの ID）')];
     if (view.role === 'guest') {
       nodes.push(el('p', 'owned-help muted', 'プレイヤーの対応はホストの PC で設定します。自分の個体は「このワールドでの自分」で選べます。'));
       playersSection.replaceChildren(...nodes);
@@ -386,7 +386,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const list = el('div', 'owned-breeding-players');
     for (const player of view.players) {
       const select = el('select');
-      select.setAttribute('aria-label', `${nameOf(player)}のノートの名前`);
+      select.setAttribute('aria-label', `${nameOf(player)}のノートの ID`);
       const sameName = mappedUser(player, { users: view.users });
       select.append(option('', sameName ? `${sameName}（同じ名前）` : '未設定（登録しない）'));
       for (const user of view.users) select.append(option(user, user));

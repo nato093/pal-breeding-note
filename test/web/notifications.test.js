@@ -302,6 +302,49 @@ test('ベル: 種類のチップと「未読だけ」で絞り（開き直して
   assert.deepEqual(notifications.unread().map((item) => item.id), ['release:a']);
 });
 
+test('ベル: 「未読だけ」で最後の行を既読にした後・「すべて既読」の後も、フォーカスを見出しへ移す（body に落とさない）。通知一覧は「未読だけ」へ', async (t) => {
+  const { body } = installDom(t);
+  const items = [{ id: 'release:a', date: '2026-10-05', title: 'お知らせ' }, { id: 'release:b', date: '2026-10-04', title: '前のお知らせ' }];
+  const { notifications } = setup({ sources: [() => items], read: [] });
+  const menu = notificationMenu(notifications);
+  body.append(menu.element);
+  const [trigger] = menu.element.children;
+  await trigger.dispatch('click');
+  const panel = () => menu.element.querySelector('.notification-panel');
+  const heading = panel().querySelector('h2');
+  assert.equal(heading.tabIndex, -1);
+  await panel().querySelectorAll('.notification-chip').find((node) => node.textContent === '未読だけ').dispatch('click');
+  for (let i = 0; i < 2; i++) {
+    const read = panel().querySelector('.notification-read');
+    read.focus();
+    await read.dispatch('click');
+  }
+  assert.equal(panel().querySelector('.empty-state').querySelector('p').textContent, '未読の通知はありません。');
+  assert.equal(document.activeElement, heading);
+  // 「すべて既読」の後（押したボタンは押せなくなる）
+  const more = [...items, { id: 'release:c', date: '2026-10-06', title: '新しいお知らせ' }];
+  items.splice(0, items.length, ...more);
+  notifications.changed?.();
+  menu.close();
+  await trigger.dispatch('click');
+  const allRead = panel().querySelector('.notification-all-read');
+  assert.equal(allRead.disabled, false);
+  allRead.focus();
+  await allRead.dispatch('click');
+  assert.equal(allRead.disabled, true);
+  assert.equal(document.activeElement, panel().querySelector('h2'));
+  menu.close();
+  // 通知一覧（見出しはダイアログの題名）は「未読だけ」へ
+  items.push({ id: 'release:d', date: '2026-10-07', title: 'さらに新しいお知らせ' });
+  notifications.changed?.();
+  const modal = openNotificationList(notifications);
+  const listAllRead = modal.body.querySelector('.notification-all-read');
+  listAllRead.focus();
+  await listAllRead.dispatch('click');
+  assert.equal(document.activeElement, modal.body.querySelector('.notification-unread-only'));
+  modal.close();
+});
+
 test('ベル: 下端の「すべての通知を見る →」でパネルを閉じて通知一覧を開き、同じ種類のチップを引き継ぐ（開いただけでは既読にしない）', async (t) => {
   const { body } = installDom(t);
   const items = linked();

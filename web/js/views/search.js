@@ -41,6 +41,9 @@ export function searchView(context, route) {
   const headingActions = el('div', 'view-heading-actions');
   const contextButton = button('', () => context.register(registerInitial()), 'button secondary small find-register');
   contextButton.hidden = true;
+  // ショートカット N でも同じ初期値で開く（app.js）
+  contextButton.title = 'キーボードの N でも開けます';
+  contextButton.setAttribute('aria-keyshortcuts', 'N');
   headingActions.append(contextButton);
   heading.append(headingActions);
   element.append(heading);
@@ -454,7 +457,7 @@ export function searchView(context, route) {
       if (!context.ideals?.scope?.()) return empty(text, register('この子の配合を登録', () => ({ childId: cond.c })));
       // syncList は同じ文の空の表示を作り直さないので、作った押しボタンは描いた後に出ている方だけ残す（keepEmptyGoal）
       pendingGoal?.destroy();
-      pendingGoal = goalToggle(context, cond.c, { className: 'button primary', label: '目標に登録（作れるようになったら知らせます）' });
+      pendingGoal = goalToggle(context, cond.c, { className: 'button primary', label: '目標に保存（作れるようになったら知らせます）' });
       const actions = el('div', 'empty-actions');
       actions.append(pendingGoal.element, button('この子の配合を登録', () => context.register({ childId: cond.c }), 'button secondary'));
       return empty(text, actions);

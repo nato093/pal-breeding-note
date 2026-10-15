@@ -172,6 +172,9 @@ async function boot() {
   warningBadge.setAttribute('aria-hidden', 'true');
   settingsTab?.append(warningBadge);
   const warningCount = () => (store.state.passcode ? store.state.warnings?.length ?? 0 : 0);
+  // 設定を開いて見た警告（同じ警告のあいだは、設定のタブを警告のカードへ向けない）
+  const warningKey = () => (warningCount() ? JSON.stringify(store.state.warnings) : '');
+  let seenWarnings = '';
   // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。読み込み直しても、同じタブ（sessionStorage）の間は残る
   //（ページを離れるときに保存し、起動したときに戻す。戻る・進むでは、そのときの履歴のエントリの条件と位置に戻す。ui/view-memory.js）。
   const viewStates = new Map();
@@ -194,13 +197,14 @@ async function boot() {
   function setTabHref(view, href) {
     const tab = tabLinks.get(view);
     if (!tab) return;
-    // 整合性の警告があるあいだ、設定のタブは警告のカードへ（覚える行き先は今までどおり）
-    tab.href = view === 'settings' && warningCount() ? buildHash('settings', { open: 'warnings' }) : href;
+    // 整合性の警告があり、まだ設定で見ていなければ、設定のタブは警告のカードへ（覚える行き先は今までどおり）
+    tab.href = view === 'settings' && warningCount() && warningKey() !== seenWarnings ? buildHash('settings', { open: 'warnings' }) : href;
     tabHrefs.set(view, href);
     if (view === 'search') brand.href = href;
   }
   function remember(next) {
     if (!tabLinks.has(next.view)) return;
+    if (next.view === 'settings') seenWarnings = warningKey();
     setTabHref(next.view, buildHash(next.view, next.params, next.id));
     memory.setLastView(store.state.userId, next.view);
   }
@@ -620,7 +624,9 @@ async function boot() {
     if (document.querySelector?.('dialog[open]')) return;
     const active = document.activeElement;
     const tag = String(active?.tagName ?? '').toLowerCase();
-    if (['input', 'select', 'textarea'].includes(tag) || active?.isContentEditable || active?.getAttribute?.('aria-expanded') === 'true') return;
+    // 候補・ポップオーバーを開いている部品（aria-haspopup で開いている）だけ止める（開いた下書きの帯・details などでは止めない）
+    const popupOpen = active?.getAttribute?.('aria-expanded') === 'true' && Boolean(active?.getAttribute?.('aria-haspopup'));
+    if (['input', 'select', 'textarea'].includes(tag) || active?.isContentEditable || popupOpen) return;
     event.preventDefault();
     context.register(currentView?.registerInitial?.() ?? undefined);
   });
@@ -729,11 +735,14 @@ async function boot() {
   renderGoalBadge();
   // 設定のタブの整合性の警告の数（記録を取るたび。文字・hidden・aria-label・行き先だけを書き換える）
   let shownWarnings = -1;
+  let shownWarningKey = '';
   const renderWarningBadge = () => {
     if (!settingsTab) return;
     const count = warningCount();
-    if (count === shownWarnings) return;
+    const key = warningKey();
+    if (count === shownWarnings && key === shownWarningKey) return;
     shownWarnings = count;
+    shownWarningKey = key;
     warningBadge.textContent = count ? String(count > 99 ? '99+' : count) : '';
     warningBadge.hidden = !count;
     if (count) settingsTab.setAttribute('aria-label', `${tabLabel('settings')}（整合性の警告 ${count} 件）`);

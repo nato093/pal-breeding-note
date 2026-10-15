@@ -94,8 +94,17 @@ function notificationBrowser(notifications, filter, { heading = '', limit = Infi
   const head = el('div', 'notification-head');
   const allRead = button('すべて既読', () => {
     const ids = shownRows.flatMap((row) => row.ids).filter((id) => unread.has(id));
-    if (ids.length) notifications.markRead(ids);
+    if (!ids.length) return;
+    const focused = globalThis.document?.activeElement === allRead;
+    notifications.markRead(ids);
+    // 押した「すべて既読」は押せなくなるので、フォーカスを見出し（なければ「未読だけ」）へ移す
+    if (focused && allRead.disabled) fallbackFocus().focus({ preventScroll: true });
   }, 'button quiet small notification-all-read');
+  // 見出し（ベルのパネル）。押せる部品がなくなったときのフォーカスの置き場（tabindex=-1）
+  const headingNode = heading ? el('h2', '', heading) : null;
+  if (headingNode) headingNode.tabIndex = -1;
+  // 「すべて既読」が押せなければ見出し、見出しがなければ（通知一覧）「未読だけ」
+  const fallbackFocus = () => (!allRead.disabled ? allRead : headingNode ?? unreadOnly);
   allRead.setAttribute('data-focus-key', 'notification:all-read');
   const filters = el('div', 'notification-filters');
   const kinds = el('div', 'notification-kinds');
@@ -118,8 +127,8 @@ function notificationBrowser(notifications, filter, { heading = '', limit = Infi
   filters.append(kinds, unreadOnly);
   const body = el('div', 'notification-rows');
   // 見出しがあれば（ベルのパネル）見出しの行の右に、なければ（通知一覧。ダイアログの題名がある）チップの行の右端に「すべて既読」
-  if (heading) {
-    head.append(el('h2', '', heading), allRead);
+  if (headingNode) {
+    head.append(headingNode, allRead);
     element.append(head);
   } else filters.append(allRead);
   element.append(filters, body);
@@ -154,7 +163,7 @@ function notificationBrowser(notifications, filter, { heading = '', limit = Infi
     if (token && !restoreFocus(body, token)) {
       const items = list.children;
       const next = readFrom >= 0 ? items[Math.min(readFrom, items.length - 1)] : null;
-      (next?.querySelector('.notification-read') ?? next?.querySelector('[data-focus-key]') ?? allRead).focus({ preventScroll: true });
+      (next?.querySelector('.notification-read') ?? next?.querySelector('[data-focus-key]') ?? fallbackFocus()).focus({ preventScroll: true });
     }
     readFrom = -1;
   }

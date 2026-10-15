@@ -149,12 +149,12 @@ export function mergeObservationSpecies(current, incoming, palIds) {
   return next;
 }
 
-/** 取り込む前の確認の文（「下書き 3・目標 5・既読 120・自動登録の記録 4・登録者の対応 2 件を取り込みます」） */
+/** 取り込む前の確認の文（「下書き 3・目標 5・通知の既読 120・自動登録の記録 4・プレイヤーの対応 2 件を取り込みます」） */
 export function importSummary(data) {
   const mappings = Object.values(data.playerMappings).reduce((sum, mapping) => sum + Object.keys(mapping).length, 0);
   const parts = [
-    ['下書き', data.drafts.length], ['目標', data.goals.length], ['既読', data.notificationsRead.length],
-    ['自動登録の記録', data.autoBreedingNotices.length], ['登録者の対応', mappings],
+    ['下書き', data.drafts.length], ['目標', data.goals.length], ['通知の既読', data.notificationsRead.length],
+    ['自動登録の記録', data.autoBreedingNotices.length], ['プレイヤーの対応', mappings],
   ].filter(([, count]) => count).map(([label, count]) => `${label} ${count}`);
   return parts.length ? `${parts.join('・')} 件を取り込みます。今のデータは消さずに足します。` : '';
 }

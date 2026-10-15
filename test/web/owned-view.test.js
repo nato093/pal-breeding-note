@@ -668,7 +668,7 @@ test('継承ルート: 所持パルのデータがないときも形は同じで
   assert.equal(view.element.querySelector('.route-hint').hidden, false);
   const hint = view.element.querySelector('.route-hint').querySelector('.setup-hint');
   assert.equal(hint.querySelector('p').textContent, '所持パルを読み込むと、パッシブを持つ個体から探せます。');
-  assert.equal(hint.querySelector('a').textContent, '設定を開く');
+  assert.equal(hint.querySelector('a').textContent, 'セーブ連携を開く');
   assert.equal(hint.querySelector('a').getAttribute('href') ?? hint.querySelector('a').href, '#/settings?open=status');
   assert.doesNotMatch(view.element.textContent, /設定タブ/);
   assert.equal(view.element.querySelector('.empty-state').querySelector('p').textContent, '開始のパルを選んでください。');
@@ -914,10 +914,10 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   assert.equal(box.querySelector('.owned-breeding-player'), null);
   const players = card.element.querySelector('.owned-players');
   assert.equal(players.hidden, false);
-  assert.equal(players.querySelector('h3').textContent, 'プレイヤーの対応（セーブのプレイヤー → ノートの名前）');
+  assert.equal(players.querySelector('h3').textContent, 'プレイヤーの対応（セーブのプレイヤー → ノートの ID）');
   const select = players.querySelector('.owned-breeding-player').querySelector('select');
   assert.match(players.querySelector('.owned-breeding-player').textContent, /^Alice/);
-  assert.equal(select.getAttribute('aria-label'), 'Aliceのノートの名前');
+  assert.equal(select.getAttribute('aria-label'), 'Aliceのノートの ID');
   // 手で選んでいなければ、同じ名前のユーザーを使うことを出す
   assert.equal(select.value, '');
   assert.equal(select.querySelectorAll('option')[0].textContent, 'Alice（同じ名前）');
@@ -2754,7 +2754,7 @@ test('設定画面（行き先）: 自動登録の「対応が未設定」から
   document.body.append(view.element);
   await tick();
   assert.equal(view.element.querySelector('.owned-world-details').open, true);
-  assert.equal(document.activeElement.getAttribute('aria-label'), 'Frankのノートの名前');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Frankのノートの ID');
   // 登録者の対応を変えたら、自分の決め方も変わるので判定し直す（このワールドでの自分の自動の名前も描き直す）
   document.activeElement.value = 'Alice';
   await document.activeElement.dispatch('change');
@@ -2837,7 +2837,7 @@ test('設定画面（行き先の意図）: ID とセーブの名前が違うホ
   // 自動登録の「プレイヤーの対応が未設定です」: そのワールドの行を開いて、未設定の登録者へ（自分も決まっていないが、自分へは移らない）
   let view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
   assert.equal(view.element.querySelector('.owned-world-details').open, true);
-  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceのノートの名前');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceのノートの ID');
   closeSettings(view);
   // 理想個体の「設定で選ぶ」: このワールドでの自分（行は開かない）
   view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=self`);
@@ -2928,7 +2928,7 @@ test('設定画面（行き先）: 設定を開いたまま行き先が来ても
   assert.equal(second.open, true);
   assert.equal(csv.disabled, true);
   assert.equal(csv.getAttribute('aria-busy'), 'true');
-  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceのノートの名前');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Aliceのノートの ID');
   // 読み直し（同じ内容）でも作り直さない
   owned.emit();
   assert.deepEqual(view.element.querySelectorAll('.owned-registered-item'), items);
@@ -2947,7 +2947,7 @@ test('設定画面（登録者）: 対応を変えても行を作り直さず（
   const view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=registrant`);
   const items = view.element.querySelectorAll('.owned-registered-item');
   const select = document.activeElement;
-  assert.equal(select.getAttribute('aria-label'), 'Aliceのノートの名前');
+  assert.equal(select.getAttribute('aria-label'), 'Aliceのノートの ID');
   assert.equal(selfSelectOf(view.element).children[0].textContent, '未設定（自分の個体を判定しません）');
   select.value = '仲間';
   await select.dispatch('change');
@@ -2958,7 +2958,7 @@ test('設定画面（登録者）: 対応を変えても行を作り直さず（
   // 別のタブで対応を変えた（app.js が storage イベントで self.changed を呼ぶ）: 登録者の選択も合わせる
   mapping = { [P2]: '仲間' };
   app.self.changed();
-  const frank = view.element.querySelectorAll('select').find((node) => node.getAttribute('aria-label') === 'Frankのノートの名前');
+  const frank = view.element.querySelectorAll('select').find((node) => node.getAttribute('aria-label') === 'Frankのノートの ID');
   assert.equal(frank.value, '仲間');
   assert.equal(selfSelectOf(view.element).children[0].textContent, '自動（Frank）');
   closeSettings(view);
@@ -3036,7 +3036,7 @@ test('設定画面: 「このワールドでの自分」の説明は選択の説
   assert.deepEqual(names, ['Bob（00000000）', 'Bob（ABCD1234）', '不明なプレイヤー（1A2B3C4D）']);
   const rows = card.element.querySelectorAll('.owned-breeding-player');
   assert.deepEqual(rows.map((row) => row.children[0].textContent), names);
-  assert.deepEqual(rows.map((row) => row.children[1].getAttribute('aria-label')), names.map((name) => `${name}のノートの名前`));
+  assert.deepEqual(rows.map((row) => row.children[1].getAttribute('aria-label')), names.map((name) => `${name}のノートの ID`));
   card.destroy();
 });
 
@@ -3062,7 +3062,7 @@ test('継承ルート: 「N 通り」の中は相手親を持っている配合�
   const notes = view.element.querySelectorAll('.route-owned-note').map((node) => node.textContent);
   assert.deepEqual(notes, [
     '相手親のクレメーオ: ♂1 ♀0（うちパッシブ一致 0 体）所持パルで見る',
-    '相手親のツッパニャン: タマゴ等のみ（親にできる個体なし）所持パルで見る',
+    '相手親のツッパニャン: タマゴ等だけ（親にできる個体なし）所持パルで見る',
   ]);
   // 式の並びも同じ順（相手親を持っているクレメーオが先）
   const partners = view.element.querySelectorAll('.breeding-equation').map((node) => node.querySelectorAll('strong')[1].textContent);
