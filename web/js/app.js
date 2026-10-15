@@ -42,6 +42,7 @@ import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { palView, palDrawer } from './views/pal.js';
 import { ownedDetail } from './views/owned-detail.js';
 import { farmBoard } from './ui/farm-board.js';
+import { speciesOwnedPanel } from './views/species-owned.js';
 import { settingsView, RIGHTS_NOTE } from './views/settings.js';
 import { palDataNotes } from './views/shared.js';
 import { TABS, tabLabel } from './views/tabs.js';
@@ -445,6 +446,8 @@ async function boot() {
     owned: (entry) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '' }),
     // 全部の配合牧場（所持パルの帯の「右に開く」・セーブ連携のパネル・理想個体の配合牧場の詳細から。farm-board）
     farms: () => farmBoard(context, { mode: 'drawer' }),
+    // 1 種族の所持個体（継承ルートの相手親のチップから。params.p は運ぶパッシブ。route-progress）
+    species: (entry) => speciesOwnedPanel(context, entry.id, { passives: (entry.params?.p ?? '').split(',').filter(Boolean).slice(0, 4) }),
   };
   const drawer = createDrawer({ context, render: drawerContents, main, url: () => urlOf(location.hash) });
   context.drawer = drawer;

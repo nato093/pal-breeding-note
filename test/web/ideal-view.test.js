@@ -25,6 +25,10 @@ const basePals = [
   palworldPal('e1', 'SheepBall', 'Female', ['CraftSpeed_up2', 'Rare'], full, { kind: 'egg-ground', playerUid: P1 }),
 ];
 
+// 伝説を運ぶ継承ルート（ツッパニャン → クルリス → モコロン）の登録。ツッパニャン・フラリーナはモコロンの親の候補にならない
+const carryRecord = (id, parent1Id, parent2Id, childId) => ({ id, parent1Id, parent2Id, childId, parent1Gender: '', parent2Gender: '', registrant: '仲間', memo: '', updatedAt: '2026-10-01T00:00:00Z' });
+const carryRecords = [carryRecord('c1', 'PinkCat', 'FlowerDoll', 'ChickenPal'), carryRecord('c2', 'ChickenPal', 'FlowerDoll', 'SheepBall')];
+
 function fakeOwned(list = basePals) {
   const listeners = new Set();
   const snapshot = { version: 1, world: { name: 'テスト', hostName: 'Alice' }, players: [{ uid: P1, name: 'Alice', level: 50 }], bases: [], pals: list, stats: {} };
@@ -345,8 +349,9 @@ test('理想個体画面: 所持パル・目標がないときと、欲しいパ
   const missing = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Legend'));
   assert.equal(missing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning').textContent, '伝説 を持つ親の候補がいません。いまは個体値厳選組だけを出しています。');
   assert.ok(cards(missing).length && cards(missing).every((card) => /個体値厳選組/.test(card.textContent)));
-  const action = missing.element.querySelectorAll('a').find((node) => /伝説を運ぶ継承ルート/.test(node.textContent));
-  assert.equal(action.href, '#/route?to=SheepBall&p=Legend');
+  // 伝説を持つ所持パルがいないので、運べない（リンクにせず文字だけ。R-32）
+  assert.equal(missing.element.querySelectorAll('a').find((node) => /伝説を運ぶ継承ルート/.test(node.textContent)), undefined);
+  assert.equal(missing.element.querySelectorAll('.ideal-carry').find((node) => node.className.split(' ').includes('is-none')).textContent, '伝説: 所持パルから運べません');
   // 組が 1 つもないときは「個体値厳選組だけを出しています」とは言わない（「別に手に入れて」も言わない）
   const nothing = idealView(context(fakeOwned([])), parseHash('#/ideal?to=SheepBall&p=Legend'));
   assert.equal(nothing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning').textContent, '伝説 を持つ親の候補がいません。');
@@ -1051,11 +1056,14 @@ test('理想個体画面: 保存した目標のパッシブの組み合わせを
 
 test('理想個体画面: 配合では作れないパッシブ・「○○を運ぶ経路」のボタンは小さなチップで出す（余計なパッシブの注記は D30 でなくした）', (t) => {
   install(t);
-  const missing = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  // 伝説を持つツッパニャン（ツッパニャン → クルリス → モコロンの登録あり。ツッパニャンはモコロンの親の候補ではない）から運べる
+  const records = carryRecords;
+  const missing = idealView(context(fakeOwned([...basePals, palworldPal('carrier', 'PinkCat', 'Male', ['Legend'])]), records), parseHash('#/ideal?to=SheepBall&p=Legend'));
   const warning = missing.element.querySelector('.ideal-missing-note').querySelector('.ideal-warning');
   assert.match(warning.querySelector('.passive-chip').className, /compact/);
   const action = missing.element.querySelector('.ideal-carry');
-  assert.equal(action.textContent, '伝説を運ぶ継承ルート');
+  assert.equal(action.textContent, '伝説を運ぶ継承ルート（最短 2 回・開始 ツッパニャン）');
+  assert.equal(action.href, '#/route?to=SheepBall&p=Legend');
   assert.match(action.querySelector('.passive-chip').className, /compact/);
   // チップの title と重ならないよう、ボタンには title を付けない
   assert.equal(action.title, undefined);
@@ -2250,10 +2258,11 @@ function bumpLevels(owned) {
 
 test('理想個体画面: 描き直しで帯のセル・詳細の行・空き牧場の番号・カードの札と行の部品・同じ見込みの組の見出し・継承ルートのボタンを作り直しても、フォーカスは同じ役目の部品へ戻す（開いていた札の説明の板は閉じる）', async (t) => {
   const { body } = install(t);
-  const owned = fakeOwned(reviewPals());
+  // 伝説を運ぶ継承ルートのボタンが出るよう、伝説を持つツッパニャン（モコロンの親の候補ではない）と、そこから運べる登録を入れる
+  const owned = fakeOwned([...reviewPals(), palworldPal('carrier', 'PinkCat', 'Male', ['Legend'])]);
   owned.state.owned.bases = [{ id: 'b1', label: '拠点 1' }];
   owned.state.owned.farms = reviewFarms();
-  const view = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  const view = idealView(context(owned, carryRecords, new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
   body.append(view.element);
   const strip = () => view.element.querySelector('.ideal-farm-strip');
   const parts = {
@@ -2716,4 +2725,19 @@ test('理想個体画面: 今の条件を満たすタマゴがあれば「孵化
   const none = idealView(context(fakeOwned(), [], states), parseHash('#/ideal?to=SheepBall&p=Noukin'));
   assert.equal(none.element.querySelector('.ideal-hatch').hidden, true);
   none.destroy();
+});
+
+test('理想個体画面: 欲しいパッシブが 2 つ以上でどれも候補にいるときは「継承ルートで運ぶ →」（目標とパッシブを写したリンク。I-58）。1 つ・足りないものがあるときは出さない', (t) => {
+  install(t);
+  const view = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const cross = view.element.querySelector('.ideal-route-cross');
+  assert.ok(cross);
+  assert.equal(cross.href, `#/route?to=SheepBall&p=${encodeURIComponent('CraftSpeed_up2,Rare')}`);
+  view.destroy();
+  const one = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(one.element.querySelector('.ideal-route-cross'), null);
+  one.destroy();
+  const missing = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare,Legend'));
+  assert.equal(missing.element.querySelector('.ideal-route-cross'), null);
+  missing.destroy();
 });

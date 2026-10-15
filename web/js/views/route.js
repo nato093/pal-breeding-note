@@ -1,8 +1,8 @@
-import { el, button, empty, link, setupHint, syncList, clearList } from '../ui/dom.js';
+import { el, button, empty, link, setupHint, syncList, clearList, statusChip } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palTile, palsById, genderMark } from '../ui/pal-icon.js';
 import { routeView, ROUTE_NOTE } from '../ui/route-view.js';
-import { passiveSelector } from '../ui/passive-picker.js';
+import { passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { findRoutes, shortestRoute } from '../core/route.js';
 import { ownedBySpecies, hasPassives, ownedRouteStarts, partnerOwnership, passiveCounts, ownedCounts, canBeParent, PLACE_LABELS } from '../core/owned.js';
 import { buildHash, settingsHash } from '../router.js';
@@ -11,6 +11,7 @@ import { tabLabel } from './tabs.js';
 import { ownedRowItem } from './owned.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { internalName } from '../core/boundary.js';
+import { farmNames } from '../core/ideal-farms.js';
 
 function holderSummary(carriers) {
   // 要約なので、パルボックスのページと位置までは出さない（開始の候補は親にできる個体だけなので、タマゴの分かれ道はない。R-15）
@@ -103,7 +104,15 @@ export function inheritanceView(context, route) {
   ownedBox.append(ownedHead, ownedRows, ownedMore, ownedEmpty);
   ownedSection.append(ownedBox);
   panel.append(toPicker.element, passiveSlot);
-  element.append(heading, panel, hintSlot, startFilter, results, ownedSection);
+  // 理想個体でこの目標を見る（目標と運びたいパッシブを写した明示のリンク。I-58。自動の写し合いはしない）
+  const crossLink = link('理想個体でこの目標を見る →', buildHash('ideal'), 'route-cross');
+  crossLink.hidden = true;
+  heading.classList.add('route-heading');
+  heading.append(crossLink);
+  // 選んだパッシブをすべて持つ個体がいないとき、パッシブ 1 つずつなら運べるかの行（R-30）
+  const splitSlot = el('div', 'route-split');
+  splitSlot.hidden = true;
+  element.append(heading, panel, hintSlot, startFilter, splitSlot, results, ownedSection);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -230,10 +239,29 @@ export function inheritanceView(context, route) {
   function statsOf(pals) {
     if (ownedFor !== pals) {
       ownedFor = pals;
-      ownedStats = pals ? { bySpecies: ownedBySpecies(pals), counts: ownedCounts(pals) } : null;
+      ownedStats = pals ? { bySpecies: ownedBySpecies(pals), counts: ownedCounts(pals), farms: farmPairsOf(owned?.state?.owned) } : null;
     }
     return ownedStats;
   }
+  // 配合牧場に置いている親の組（種族の組 → 牧場の名前。性別は問わない。R-33）。読めない牧場・牧場の情報がないデータは数えない
+  function farmPairsOf(data) {
+    const farms = Array.isArray(data?.farms) ? data.farms : null;
+    if (!farms) return null;
+    const byId = new Map((data.pals ?? []).map((pal) => [pal.id, pal]));
+    const labels = new Map((data.bases ?? []).map((base) => [base.id, base.label]));
+    const names = farmNames(farms, (baseId) => labels.get(baseId) ?? '');
+    const pairs = new Map();
+    for (const farm of farms) {
+      if (farm.status === 'uncertain' || farm.parents.length !== 2) continue;
+      const species = farm.parents.map((id) => byId.get(id)?.palId).filter(Boolean);
+      if (species.length !== 2) continue;
+      const key = [...species].sort().join('|');
+      if (!pairs.has(key)) pairs.set(key, names.get(farm.id) ?? '拠点の牧場');
+    }
+    return pairs;
+  }
+  // 段の子のタマゴ（選んだパッシブをすべて持つ。牧場の上かどうかは問わない）
+  const eggsOf = (stats, palId) => (stats.bySpecies.get(palId) ?? []).filter((pal) => pal.egg && hasPassives(pal, passives));
   // 相手親を組める（親にできる ♂ か ♀ を 1 体以上持っている）か
   const partnerOwned = (counts, palId) => {
     const entry = counts.get(palId);
@@ -262,12 +290,31 @@ export function inheritanceView(context, route) {
         node.classList.add('unowned');
         node.append(text(`相手親の${name}: タマゴ等だけ（親にできる個体なし）`));
       } else {
-        node.append(text(`相手親の${name}: `), genderMark('M', { inline: true }), text(`${entry.male} `), genderMark('F', { inline: true }), text(String(entry.female)));
-        if (passives.length) node.append(text(`（うちパッシブ一致 ${matching} 体）`));
+        // 押すと相手親の所持個体を右のドロワーで（F032。ドロワーがなければ文字だけ）
+        const chip = context.drawer ? button('', () => context.drawer.open({ kind: 'species', id: option.partner, params: passives.length ? { p: passives.join(',') } : undefined }, { opener: chip }), 'route-partner-chip') : el('span', 'route-partner-chip');
+        chip.append(text(`相手親の${name}: `), genderMark('M', { inline: true }), text(`${entry.male} `), genderMark('F', { inline: true }), text(String(entry.female)));
+        if (passives.length) chip.append(text(`（うちパッシブ一致 ${matching} 体）`));
+        if (context.drawer) chip.title = `${name}の所持個体を右に開く`;
+        node.append(chip);
       }
-      node.append(...recorded, link('所持パルで見る', buildHash('owned', { pal: option.partner }), 'route-owned-link'));
+      node.append(...recorded, link('所持パルで見る', buildHash('owned', { pal: option.partner }), 'route-owned-link'), ...stepBadges(stats, step, option));
       return node;
     };
+  }
+
+  // 段のバッジ（R-33）: 開始の側と相手親の種族の組を配合牧場に置いていれば「牧場に配置中（拠点 1 の牧場 A）」、段の子の種族のタマゴで選んだ
+  // パッシブをすべて持つものがあれば「タマゴあり」（押すと所持パルのタマゴ）。牧場の情報がない（farms: null）・中身を省いた共有のタマゴは出さない
+  function stepBadges(stats, step, option) {
+    const badges = [];
+    const farm = stats.farms?.get([step.from, option.partner].sort().join('|'));
+    if (farm) badges.push(statusChip(`牧場に配置中（${farm}）`, 'info', 'route-farm-badge'));
+    const child = option.record?.childId;
+    if (child && passives.length && eggsOf(stats, child).length) {
+      const egg = link('タマゴあり', buildHash('owned', { pal: child, place: 'egg', p: passives.join(',') }), 'status-chip is-ready route-egg-badge');
+      egg.title = '選んだパッシブをすべて持つこの子のタマゴがあります（孵化させると次の段に使えます）';
+      badges.push(egg);
+    }
+    return badges;
   }
 
   // 所持パルがあるとき: 「N 通り」の中を、相手親を組める配合 → 組めない配合の順に安定に並べ直し（同じ側の中は今の図鑑順。R-17）、
@@ -298,6 +345,38 @@ export function inheritanceView(context, route) {
     };
   }
 
+  // パッシブごとの経路（R-30）: 選んだパッシブ（2 つ以上）をすべて持つ親にできる個体がいず、開始の候補もないとき、パッシブ 1 つずつ
+  // ownedRouteStarts を呼び、「X を運ぶ: 最短 N 回（開始 ○○）」→ そのパッシブだけの継承ルート、運べなければ文字だけ。下に「理想個体で合わせる」。
+  // 別々の経路は 1 本で完成する保証ではないので、「1 つずつなら」とだけ書く。計算は記録・所持パル・条件が変わったときだけ（最大 4 回）
+  let splitKey = null;
+  function renderSplit(state, pals, starts) {
+    const show = Boolean(pals && to && passives.length >= 2 && state.env && !starts.length
+      && !pals.some((pal) => canBeParent(pal) && hasPassives(pal, passives)));
+    splitSlot.hidden = !show;
+    if (!show) { splitKey = null; splitSlot.replaceChildren(); return; }
+    const key = [state.graph, pals, to, passives.join(',')];
+    if (splitKey && key.every((value, index) => value === splitKey[index])) return;
+    splitKey = key;
+    const list = el('ul', 'route-split-list');
+    for (const id of passives) {
+      const name = passivesById.get(id)?.ja ?? id;
+      const [best] = ownedRouteStarts({ graph: state.graph, pals, to, passives: [id], shortestRoute, palOrder: state.index?.palOrder });
+      const item = el('li', '');
+      if (!best) item.append(el('span', 'route-split-none', `${name}: 所持パルから運べません`));
+      else if (!best.length) item.append(el('span', '', `${name}: 目標のパルが持っています`));
+      else item.append(link(`${name}を運ぶ: 最短 ${best.length} 回（開始 ${palsById.get(best.palId)?.ja ?? best.palId}）`, buildHash('route', { to, p: id }), 'route-split-link'));
+      list.append(item);
+    }
+    splitSlot.replaceChildren(el('p', 'route-split-title', '1 つずつなら運べます'), list,
+      link('理想個体で合わせる →', buildHash('ideal', { to, p: passives.join(',') }), 'button secondary small route-split-ideal'));
+  }
+
+  // 段の進み具合（R-34）: 段の子の種族を、選んだパッシブをすべて持つタマゴでない個体で所持していれば ✓。パッシブを選んでいなければ出さない
+  function progressFor(stats) {
+    if (!stats || !passives.length) return undefined;
+    return (step) => (stats.bySpecies.get(step.to) ?? []).some((pal) => !pal.egg && hasPassives(pal, passives));
+  }
+
   function renderResults(state, stats, starts, missing) {
     if (!to || !from) {
       // 開始の候補のチップがあれば、チップが次の手順を案内する
@@ -313,7 +392,7 @@ export function inheritanceView(context, route) {
       return;
     }
     results.replaceChildren(routeView(arrangeRoutes(routes, stats), {
-      annotate: annotateFor(stats), badge: badgeFor(stats), passives: missing ? [] : passives, note: ROUTE_NOTE,
+      annotate: annotateFor(stats), badge: badgeFor(stats), passives: missing ? [] : passives, note: ROUTE_NOTE, progress: progressFor(stats),
     }));
   }
 
@@ -327,6 +406,9 @@ export function inheritanceView(context, route) {
     const ready = Boolean(pals && to && passives.length && state.env);
     const starts = ready ? ownedRouteStarts({ graph: state.graph, pals, to, passives, shortestRoute, palOrder: state.index?.palOrder }) : [];
     renderStartFilter(starts, ready && !starts.length ? startNoteFor(pals) : '');
+    renderSplit(state, pals, ready ? starts : [{}]);
+    crossLink.hidden = !to;
+    if (to) crossLink.href = buildHash('ideal', { to, p: passives.join(',') });
     renderPassives(pals);
     const stats = statsOf(pals);
     renderResults(state, stats, starts, missing);
