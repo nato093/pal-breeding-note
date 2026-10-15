@@ -499,7 +499,7 @@ test('継承ルート: 所持パルの欄にデータ元の 1 行は出さず（
   view.destroy();
 });
 
-test('設定画面: セーブ連携の状態・登録したワールド・使うワールドを出す', async (t) => {
+test('設定画面: セーブ連携の状態（役割のチップ）・登録したワールド・使うワールドを出す（表示中・更新の行はない。編集・削除は summary の外）', async (t) => {
   installDom(t);
   const { settingsView } = await import('../../web/js/views/settings.js');
   const owned = fakeOwned();
@@ -508,15 +508,28 @@ test('設定画面: セーブ連携の状態・登録したワールド・使う
   const view = settingsView(app);
   const card = view.element.querySelector('.owned-settings');
   assert.ok(card);
-  assert.match(card.querySelector('.owned-settings-status').textContent, /この PCホスト.*表示中「テスト」（ホスト Alice）/);
-  // 登録したワールドは一覧にし、編集・削除はそれぞれの行から。登録はモーダルで
-  assert.match(card.querySelector('.owned-registered').textContent, /「テスト」（ホスト Alice） · ホスト · 1 ファイル.*編集削除/);
+  // この PC の役割は状態の行の短いチップ（前の状態の dl〔この PC・表示中・更新〕はない。C-36）
+  assert.equal(card.querySelector('.owned-settings-status'), null);
+  assert.equal(card.querySelector('.owned-role-chip').textContent, 'ホスト');
+  assert.doesNotMatch(card.textContent, /表示中「テスト」/);
+  // 登録したワールドの行は「「テスト」（ホスト Alice） · …に遊んだ」（kind の「ホスト」とファイル数はない。C-43）
+  const item = card.querySelector('.owned-registered-item');
+  const summary = item.querySelector('.owned-world-summary');
+  assert.match(summary.querySelector('.owned-world-label').textContent, /^「テスト」（ホスト Alice） · .+ に遊んだ$/);
+  assert.doesNotMatch(summary.textContent, /ファイル|· ホスト ·/);
+  // summary の中にボタンはなく、編集・削除は details の外（行の右端。C-44）
+  assert.equal(summary.querySelectorAll('button').length, 0);
+  assert.deepEqual(item.children.map((node) => node.className), ['owned-world-details', 'owned-registered-actions']);
+  assert.deepEqual(item.querySelector('.owned-registered-actions').querySelectorAll('button').map((node) => node.textContent), ['編集', '削除']);
   assert.ok(card.querySelectorAll('button').some((node) => node.textContent === '＋ ワールドを登録'));
-  // 所持パルの CSV・共有の削除は、ワールドの行の中（カード全体のボタンはない）
-  assert.ok(card.querySelector('.owned-world-details').querySelector('.owned-world-pals'));
+  // 所持パルの CSV はカードにも行にもない（設定の「書き出し」カード）
+  assert.doesNotMatch(card.textContent, /CSV/);
   // 使うワールドは、登録したワールドから選ぶ（自動 = いま遊んでいるワールド）
   const select = card.querySelector('.owned-world-row').querySelector('select');
   assert.deepEqual(select.querySelectorAll('option').map((node) => node.textContent), ['自動（いま遊んでいるワールド: 「テスト」（ホスト Alice））', '「テスト」（ホスト Alice）']);
+  // 所持パルの CSV は「書き出し」カードから（表示中のワールドのデータがあるので押せる）
+  const ownedCsv = view.element.querySelector('.settings-export').querySelectorAll('button').find((node) => node.textContent === '所持パルの CSV（表示中のワールド）');
+  assert.equal(ownedCsv.disabled, false);
   view.destroy();
 });
 
@@ -793,13 +806,18 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   const path = dialog.querySelector('.owned-path');
   path.value = WORLD_PATH;
   await path.dispatch('input');
-  // ドロップするファイルを並べ、ドロップしたものに印を付ける
-  assert.match(dialog.querySelector('.owned-draft').textContent, /— Level\.sav— LevelMeta\.sav— LocalData\.sav— Players\\ の中のファイル全部— \.\.\\GlobalPalStorage\.sav（任意）/);
+  // ドロップするファイルを並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082）
+  const labels = () => dialog.querySelector('.owned-draft').children.map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', ''));
+  assert.deepEqual(labels(), ['— Level.sav', '— LevelMeta.sav', '— LocalData.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-path').map((node) => node.textContent), [
+    '…\\SaveGames\\7656\\ABCD…\\Level.sav', '…\\SaveGames\\7656\\ABCD…\\LevelMeta.sav', '…\\SaveGames\\7656\\ABCD…\\LocalData.sav',
+    '…\\SaveGames\\7656\\ABCD…\\Players\\', '…\\SaveGames\\7656\\GlobalPalStorage.sav',
+  ]);
   await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav') });
   await tick();
   await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('LocalData.sav', '00000000000000000000000000000001.sav') });
   await tick();
-  assert.match(dialog.querySelector('.owned-draft').textContent, /✓ Level\.sav✓ LevelMeta\.sav✓ LocalData\.sav✓ Players\\ の中のファイル全部（1 件）/);
+  assert.deepEqual(labels().slice(0, 4), ['✓ Level.sav', '✓ LevelMeta.sav', '✓ LocalData.sav', '✓ Players\\ の中のファイル全部（1 件）']);
   // ドロップするたびに読んで確かめる（「確認する」は押さない）
   assert.deepEqual(calls.at(-1), ['preview', 'ABCDEF0123456789ABCDEF0123456789', '7656', ['Level.sav', 'LevelMeta.sav', 'LocalData.sav', 'Players/00000000000000000000000000000001.sav']]);
   assert.match(dialog.querySelector('.owned-dialog-result').textContent, /「World9」（ホスト Dave） · 12 体/);
@@ -1071,28 +1089,26 @@ test('ワールドの登録: ドロップしたファイルを受け取る前に
   assert.match(dialog.querySelector('.owned-draft').textContent, /— Level\.sav/);
 });
 
-test('設定画面: 所持パルの CSV 保存と共有の削除は、ワールドの行の中で、そのワールドについて行う', async (t) => {
+test('設定画面: 共有の削除はワールドの行の中で、そのワールドについて行う（所持パルの CSV は「書き出し」カードへ移した）', async (t) => {
   const { body } = installDom(t);
   const calls = [];
   const owned = fakeOwned();
   owned.state.shared.worlds = [{ worldId: 'W', worldName: 'テスト', hostName: 'Alice', uploadedAt: '2026-10-06T00:00:00.000Z', palCount: 4 }];
   owned.state.auto.worlds.push({ id: 'X', dir: 'X', kind: 'host', name: '別', hostName: '', status: 'ok', role: '', playedAt: '', files: ['Level.sav'] });
-  owned.ownedOf = async (worldId) => { calls.push(['csv', worldId]); return null; };
   owned.deleteShared = async (worldId) => { calls.push(['delete', worldId]); return true; };
   const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
   const [shared, other] = card.element.querySelectorAll('.owned-world-details');
-  const buttonsOf = (row) => row.querySelector('.owned-world-pals').querySelectorAll('button');
-  // 共有したワールドは、CSV と共有の削除
-  assert.deepEqual(buttonsOf(shared).map((node) => node.textContent), ['CSV で保存', '共有した所持パルを削除']);
-  await buttonsOf(shared)[0].dispatch('click');
-  buttonsOf(shared)[1].dispatch('click'); // 確認のダイアログが閉じるまで終わらないので待たない
+  const buttonsOf = (row) => row.querySelector('.owned-world-pals')?.querySelectorAll('button').map((node) => node.textContent) ?? [];
+  // 共有したワールドは共有の削除だけ
+  assert.deepEqual(buttonsOf(shared), ['共有した所持パルを削除']);
+  shared.querySelector('.owned-world-pals').querySelector('button').dispatch('click'); // 確認のダイアログが閉じるまで終わらないので待たない
   await tick();
   body.querySelector('dialog').querySelectorAll('button').find((node) => node.textContent === '削除').dispatch('click');
   await tick();
   await tick();
-  assert.deepEqual(calls, [['csv', 'W'], ['delete', 'W']]);
-  // 読み込んでも共有されてもいないワールドは、CSV を押せず、共有の削除もない
-  assert.deepEqual(buttonsOf(other).map((node) => [node.textContent, node.disabled]), [['CSV で保存', true]]);
+  assert.deepEqual(calls, [['delete', 'W']]);
+  // 共有していないワールドは「所持パル」の欄ごと出さない
+  assert.equal(other.querySelector('.owned-world-pals'), null);
   card.destroy();
 });
 
@@ -2861,10 +2877,10 @@ test('設定画面（行き先）: 設定を開いたまま行き先が来ても
   const view = await openSettings(app, '#/settings');
   const items = view.element.querySelectorAll('.owned-registered-item');
   const [first, second] = view.element.querySelectorAll('.owned-world-details');
-  // ほかのワールドの行を開いておき、行き先のワールドの「CSV で保存」を処理している途中（runButton が aria-busy を付けて押せなくする）
+  // ほかのワールドの行を開いておき、行き先のワールドの「編集」を処理している途中（runButton が aria-busy を付けて押せなくする想定）
   second.open = true;
   await second.dispatch('toggle');
-  const csv = first.querySelectorAll('button').find((node) => node.textContent === 'CSV で保存');
+  const csv = items[0].querySelector('.owned-registered-actions').querySelectorAll('button').find((node) => node.textContent === '編集');
   assert.equal(csv.disabled, false);
   csv.disabled = true;
   csv.setAttribute('aria-busy', 'true');

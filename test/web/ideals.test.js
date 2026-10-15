@@ -472,3 +472,23 @@ test('目標の観測: ログインした環境・ID ごとに前のウィッシ
   app.ideals.reload('pal-note.wishlist.test.仲間');
   assert.deepEqual(app.ideals.list().map((goal) => goal.palId), ['CatMage', 'Alpaca']);
 });
+
+test('理想個体（settings）: importGoals は重複・上限を除いて今の目標の後ろに足し、ワールドの完成は持ち込まず、観測は足した種族だけ併せる', () => {
+  const { ideals, storage } = setup();
+  assert.equal(ideals.add(GOAL), 'added');
+  const imported = [
+    { ...GOAL, id: 'other', name: '同じ条件' },
+    { name: 'ツッパニャン', palId: 'PinkCat', passives: [], mode: 'include', targets: talent(0), cake: 'none', id: 'pink', addedAt: '2026-10-01T00:00:00.000Z',
+      worlds: { [WORLD_A]: { complete: true, completedAt: '2026-10-02T00:00:00.000Z' } } },
+  ];
+  const observations = { version: 1, species: { PinkCat: { craftable: true, readyAt: '2026-10-03T00:00:00.000Z', observedAt: '2026-10-03T00:00:00.000Z', pairs: ['A|B'], found: [] } } };
+  const result = ideals.importGoals(imported, observations);
+  assert.deepEqual(result, { added: 1, skipped: 1, saved: true });
+  assert.deepEqual(ideals.list().map((goal) => goal.id), ['id-1', 'pink']);
+  // ワールドごとの完成は持ち込まない（新しい端末で古い完成を知らせない）
+  assert.deepEqual(ideals.list()[1].worlds, {});
+  assert.deepEqual(ideals.observation('PinkCat').pairs, ['A|B']);
+  assert.ok(JSON.parse(storage.getItem('pal-note.goalsObs.test.仲間')).species.PinkCat);
+  // 同じものをもう一度は足さない
+  assert.deepEqual(ideals.importGoals(imported, observations), { added: 0, skipped: 2, saved: true });
+});

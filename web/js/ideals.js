@@ -3,6 +3,7 @@ import { userIdKey } from './core/user.js';
 import { pairKey } from './core/pair.js';
 import { ownedWorldId } from './core/owned-shared.js';
 import { cleanGoal, parseGoals, goalKey, goalMatches, ownPals, ownPlayerUids, isSpeciesGoal, GOAL_LIMIT } from './core/ideal-goals.js';
+import { mergeGoals, mergeObservationSpecies } from './device-data.js';
 import { parseObservations, firstObservation, observeSpecies, cleanEntry } from './core/goal-observations.js';
 import { migrateWishlist, parseWishes, wishlistKey } from './goals-migration.js';
 import { buildHash } from './router.js';
@@ -303,6 +304,32 @@ export function createIdealStore({
         saveObs(okey, next);
       }
       return 'added';
+    },
+    /**
+     * 書き出したファイルの目標と観測を足す（settings の「この端末のデータ」の読み込み）。goalKey と id で重複を除き、上限（GOAL_LIMIT）まで
+     * 今の目標の後ろに足す（今のものを優先）。足した目標のワールドごとの完成は持ち込まず、表示しているワールドの所持パルで知らせずに判定する
+     *（add と同じ）。観測は足した目標の種族だけ mergeObservation で併せ、どちらにもなければ今の組を覚える。
+     * { added, skipped（重複・上限で入らなかった数）, saved }。ログイン前・名前の変更中は null
+     */
+    importGoals(values, observations = null) {
+      const key = scope();
+      if (!key || store.state.renaming || !Array.isArray(values)) return null;
+      const incoming = values.map((value) => cleanGoal({ ...value, worlds: {} })).filter(Boolean);
+      const existing = latest(key);
+      const { goals, added, skipped } = mergeGoals(existing, incoming);
+      if (!added) return { added: 0, skipped, saved: true };
+      const view = current();
+      const species = view ? bySpecies(view.pals) : null;
+      const next = goals.map((goal, index) => (index < existing.length || !view ? goal : judged(goal, view, species, 'quiet')));
+      save(key, next);
+      const okey = obsScope();
+      if (okey) {
+        const palIds = [...new Set(next.slice(existing.length).map((goal) => goal.palId))];
+        const merged = mergeObservationSpecies(latestObs(okey), observations, palIds);
+        for (const palId of palIds) merged.species[palId] ??= firstObservation(pairsOf(palId), store.state.serverTime);
+        saveObs(okey, merged);
+      }
+      return { added, skipped, saved: !saveFailed && !obsFailed };
     },
     /** 外す。その種族の目標がほかになければ観測も消す（通知も消える）。戻すための { goal, index, observation } を返す */
     remove(id, key = scope()) {

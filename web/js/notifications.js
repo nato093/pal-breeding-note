@@ -179,6 +179,10 @@ export function createNotificationStore({ store, storage, namespace = 'pal-note'
   return {
     scope,
     list,
+    /** 既読の id（この端末の数と、設定の「この端末のデータ」の書き出し） */
+    readList(key = scope()) {
+      return key ? [...readIds(key)] : [];
+    },
     unread(key = scope()) {
       if (!key) return [];
       const read = readIds(key);

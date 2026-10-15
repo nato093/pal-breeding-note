@@ -181,6 +181,25 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
       save(key, [...drafts.slice(0, index), draft, ...drafts.slice(index)]);
       return true;
     },
+    /**
+     * 書き出したファイルの下書きを足す（settings の「この端末のデータ」の読み込み）。id で併せ、今の下書きを優先する（同じ id は足さない）。
+     * 中身は cleanDraft で整え、送信の登録 ID は持ち込まない。{ added, saved }（saved: 保存できたか）。ログイン前・名前の変更中は null
+     */
+    importMany(values, key = scope()) {
+      if (!key || locked() || !Array.isArray(values)) return null;
+      const drafts = latest(key);
+      const ids = new Set(drafts.map((draft) => draft.id));
+      const added = [];
+      for (const value of values) {
+        const draft = cleanDraft({ ...value, recordId: '' });
+        if (!draft || ids.has(draft.id)) continue;
+        ids.add(draft.id);
+        added.push(draft);
+      }
+      if (!added.length) return { added: 0, saved: true };
+      save(key, [...drafts, ...added]);
+      return { added: added.length, saved: !saveFailed };
+    },
     // 消した件数を返す（元に戻すときは removeAll）
     removeMany(ids, key = scope()) {
       return removeAll(ids, key)?.length ?? 0;

@@ -1152,7 +1152,16 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .drafts-band .draft-row > .card-actions { grid-area: actions; }
 .pal-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .section-title { margin-top: 20px; font-size: 16px; }
-.settings-view { max-width: 800px; margin: 0 auto; }
+/* 設定（settings）: ほかのタブと同じ左寄せ（前は 800px で中央寄せ。C-17）。並びは セーブ連携 → アカウント → データ → このアプリについて */
+.settings-group-title { margin: 24px 0 10px; font-size: 17px; }
+.settings-group .settings-card h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 15px; }
+.settings-account-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.settings-account-row .settings-account-id { margin: 0 8px 0 0; font-weight: 700; }
+.settings-rename-note { margin: 6px 0 0; }
+.settings-device-counts { margin: 8px 0 4px; font-size: 13px; font-weight: 700; }
+.settings-about { margin: 28px 0 8px; font-size: 11px; color: var(--muted); }
+.settings-about p { margin: 0 0 2px; }
+.login-rights { margin-top: -12px; font-size: 11px; }
 .settings-card { padding: 18px 20px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin-bottom: 12px; min-width: 0; }
 .settings-card .button { margin: 5px 5px 5px 0; }
 .settings-card p { overflow-wrap: anywhere; }
@@ -1275,9 +1284,10 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .owned-self-note { flex-basis: 100%; margin-top: -6px; font-size: 12px; }
 .owned-worlds-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .owned-worlds-head h3 { font-size: 15px; margin: 0; }
-.owned-registered-actions { display: inline-flex; gap: 4px; }
-/* 登録したワールドの行: 開くと、そのワールドの配合牧場からの自動登録の設定が出る */
-.owned-registered-item:has(> .owned-world-details) { display: block; }
+/* 登録したワールドの行: 開くと、そのワールドの配合牧場からの自動登録の設定が出る。編集・削除は summary の外の右上（C-44） */
+.owned-registered-item:has(> .owned-world-details) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 8px; }
+.owned-registered-actions { display: inline-flex; gap: 4px; align-items: center; min-height: 44px; }
+.owned-world-role { flex: 0 0 auto; }
 .owned-world-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; min-height: 44px; padding: 0 0 0 4px; font-weight: normal; border-radius: 8px; list-style: none; }
 .owned-world-summary::-webkit-details-marker { display: none; }
 /* 開閉できることが閉じた状態でも分かるよう、行の頭に ▸ を出し、開くと下向きにする */
@@ -1293,9 +1303,20 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .world-dialog .owned-drop { min-height: 64px; display: grid; place-items: center; }
 .owned-draft li { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
 .owned-draft li.done { color: var(--md-sys-color-tertiary); }
-.owned-dialog-result { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; }
-/* 確かめた結果がまだないときは、場所を取らない */
-.owned-dialog-result:empty { display: none; }
+/* 確かめた結果は 2 行分の高さを保ち（まだないときも。文の長さで下の部品が上下しない）、長い文は 2 行で切る（全文は title。F082） */
+.owned-dialog-result {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 2lh;
+  margin: 4px 0 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+/* チェックリストの各行の、① に貼ったパスから作った実際のパス */
+.owned-draft-path { display: block; margin-left: 1.6em; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .world-dialog .owned-draft { margin-bottom: 0; }
 .owned-dialog-result.ok { color: var(--md-sys-color-tertiary); }
 .owned-dialog-result.todo { color: var(--warning); }
@@ -2556,9 +2577,6 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
   overflow-wrap: anywhere;
 }
 .owned-notice.notice-warning { background: var(--warning-bg); color: var(--warning); }
-.owned-settings-status { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; margin: 0 0 12px; font-size: 13px; }
-.owned-settings-status dt { color: var(--muted); font-weight: 700; }
-.owned-settings-status dd { margin: 0; overflow-wrap: anywhere; }
 .owned-settings .owned-world { font-weight: normal; }
 .owned-breeding-players { display: grid; gap: 6px; margin-top: 8px; }
 .owned-breeding-player { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 14px; }
@@ -2591,6 +2609,8 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .nav-badge[hidden] { display: none; }
 /* 所持パルのタブの「!」（自動の読み込みが止まっている。autoreg-visibility） */
 .nav-badge.is-warning { min-width: 16px; padding: 1px 4px; background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); text-align: center; }
+/* 設定のタブの整合性の警告の数（ベルの数字と同じ赤。settings） */
+.nav-badge.is-error { min-width: 16px; padding: 1px 4px; background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); text-align: center; }
 .nav-tab[data-view="settings"] { margin-top: auto; }
 /* 菱形は on-primary で描き、明暗どちらでも primary の上で読めるようにする */
 .brand-mark::after {

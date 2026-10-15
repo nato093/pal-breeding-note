@@ -581,6 +581,27 @@ export function createAutoRegister({
       }
       return summary;
     },
+    /**
+     * 書き出したファイルの自動登録の通知を足す（settings の「この端末のデータ」の読み込み）。保存した通知と同じ確かめ方で整え
+     *（配合表の答えを外し、前の版の行き先を直す）、同じ id は足さない。登録できた配合は別のキー（capRegistered）、ほかは既存のキー
+     *（NOTICE_MAX 件）。足した数を返す。ログイン前は 0
+     */
+    importNotices(values) {
+      const { env, userId, passcode } = store.state;
+      if (!passcode || !env || !userId || !Array.isArray(values)) return 0;
+      const cleaned = values.map(cleanSavedNotice).filter(Boolean).map(safeAutoNotice).map(unmappedHref);
+      const beforeRegistered = readRegistered(env, userId);
+      const beforeNotices = readNotices(env, userId);
+      const ids = new Set([...beforeRegistered, ...beforeNotices].map((n) => n.id));
+      const fresh = cleaned.filter((n) => !ids.has(n.id) && ids.add(n.id));
+      const registered = fresh.filter((n) => REGISTERED.test(n.id));
+      const others = fresh.filter((n) => !isSuccess(n));
+      if (registered.length) writeNotices(registeredKey(env, userId), capRegistered([...beforeRegistered, ...registered].sort(newestFirst)));
+      if (others.length) writeNotices(noticeKey(env, userId), [...beforeNotices, ...others].sort(newestFirst).slice(0, NOTICE_MAX));
+      const added = registered.length + others.length;
+      if (added) onNotice();
+      return added;
+    },
     /** 登録待ちの候補を 1 件捨てる（設定の「登録待ち」の「破棄」。id は pendingSummary の id。登録を終えた候補と同じく外し、このタブでは送り直さない）。捨てたら true */
     discardPending(id, worldId = linkedWorld()) {
       const s = store.state;
