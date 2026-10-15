@@ -92,6 +92,17 @@ export function createDrawer({ context, render = {}, main = null, history: brows
   let stack = [];
   let content = null;
   let opener = null;
+  // 開いている中身が変わったときに知らせる先（所持パルの一覧の「開いている行」の印など）
+  const listeners = new Set();
+  let notified = null;
+  const notify = () => {
+    const key = entry ? JSON.stringify(entry) : null;
+    if (key === notified) return;
+    notified = key;
+    for (const listener of [...listeners]) {
+      try { listener(entry ? { ...entry } : null); } catch { /* 知らせる先の失敗でドロワーを止めない。 */ }
+    }
+  };
 
   const historyState = () => (isObject(browserHistory?.state) ? browserHistory.state : {});
   function writeHistory(kind, drawerState) {
@@ -162,6 +173,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     if (body.scrollTop) body.scrollTop = 0;
     element.hidden = false;
     markOpen(true);
+    notify();
   }
   // DOM を閉じる（履歴は触らない）。フォーカスが中にあれば開いた所へ戻す
   function hide() {
@@ -175,6 +187,7 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     markOpen(false);
     if (focused) returnFocus();
     opener = null;
+    notify();
   }
 
   /**
@@ -282,6 +295,11 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     isOpen: () => Boolean(entry),
     /** 開いている中身（テスト・ほかの部品が中身の update を呼ぶ） */
     content: () => content,
+    /** 開いている中身（{ kind, id, params } か null）が変わったら呼ぶ。外す関数を返す */
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     destroy() { hide(); },
   };
 }

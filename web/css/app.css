@@ -1259,6 +1259,59 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-detail.is-drawer .owned-row > .owned-talent { grid-column: 1; grid-row: 3; }
 .pal-detail.is-drawer .owned-row > .owned-where { grid-column: 2; grid-row: 3; }
 .pal-detail.is-drawer .breeding-card { padding-left: 8px; padding-right: 8px; }
+/* 所持パルの行の Lv・★のセルを、個体の詳細を開くボタンにしたもの（views/owned.js の ownedRowItem の detail。owned-detail）。見た目はセルのまま */
+.owned-detail-open {
+  align-items: flex-start;
+  justify-content: flex-start;
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+.owned-detail-open:hover { background: var(--state-hover); }
+/* 押すと個体の詳細を開くセル（パル名のリンク・ボタン・パッシブのチップの外）と、開いている個体の行 */
+/* :has() は行の出し入れのたびに計算し直させるので使わず、入れ物で決める（owned-rows の決まり） */
+:is(.owned-list, .pal-owned-rows) > .owned-row > :is(.owned-talent, .owned-where), .owned-list .virtual-rows > .owned-row > :is(.owned-talent, .owned-where) { cursor: pointer; }
+.owned-row[aria-current="true"] { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); box-shadow: inset 3px 0 0 var(--md-sys-color-primary); }
+/* 所持パルの個体の詳細（views/owned-detail.js。右のドロワーの中身） */
+.owned-detail { display: grid; gap: 14px; }
+.owned-detail-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--element, var(--Neutral)) 22%, var(--md-sys-color-surface-container-low)), var(--md-sys-color-surface-container-low) 72%);
+}
+.owned-detail-hero .pal-icon-large { width: 96px; height: 96px; }
+.owned-detail-names { display: grid; gap: 4px; min-width: 0; }
+.owned-detail-names p { margin: 0; }
+.owned-detail-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 16px; }
+.owned-detail-nickname { font-size: 13px; overflow-wrap: anywhere; }
+.owned-detail-level { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 700; }
+.owned-detail-badges { height: auto; }
+.owned-detail-section { display: grid; gap: 6px; }
+.owned-detail-heading { margin: 0; font-size: 13px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
+.owned-detail-talent { max-width: 240px; }
+.owned-detail-passives, .owned-detail-skills, .owned-detail-hits { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.owned-detail-passive { display: grid; gap: 2px; justify-items: start; }
+.owned-detail-skills li, .owned-detail-hits li { display: grid; gap: 1px; font-size: 13px; }
+.owned-detail-desc { font-size: 12px; line-height: 1.6; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+.owned-detail-skill { display: grid; gap: 2px; font-size: 13px; }
+.owned-detail-skill p { margin: 0; }
+.owned-detail-none { margin: 0; font-size: 13px; }
+.owned-detail-hit-label { font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+.owned-detail-hits { padding: 8px 10px; border-radius: 8px; background: var(--md-sys-color-surface-container); }
+.owned-detail-where { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 2px 10px; text-align: left; }
+.owned-detail-place { margin: 0; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.owned-detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.owned-detail-actions > * { justify-content: center; min-width: 0; }
 /* 式の絵を 28px にして、5 文字の名前まで 1 行に収める（列 約 100px） */
 .pal-detail.is-drawer .breeding-equation > .pal-tile { gap: 5px; }
 .pal-detail.is-drawer .breeding-equation .pal-icon { width: 28px; height: 28px; }
@@ -2075,7 +2128,7 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .start-chips .picker-trigger .dex-label { display: none; }
 .start-chips .picker-clear { right: 28px; background: transparent; }
 .start-chips .picker-clear:hover { background: var(--state-hover); }
-/* 開始の所持個体（経路の下）。行は所持パルの行の部品で、列と見た目は理想個体の組の行と同じ（下の :is(.ideal-pair, .route-owned-rows, .pal-owned-rows)） */
+/* 開始の所持個体（経路の下）。行は所持パルの行の部品で、列と見た目は理想個体の組の行と同じ（下の :is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail)） */
 .route-owned-box { padding: 10px 18px 6px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin: 12px 0 16px; }
 .route-owned-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .route-owned-box h2 { font-size: 15px; line-height: inherit; margin: 0; }
@@ -2590,14 +2643,14 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 /* 組の ♂♀ 行は所持パルの行と同じ列（--owned-cols）と高さ。列見出しがないので、個体値の 4 セルには小さな見出しを付ける */
 /* 組の行は描画を後回しにせず、はみ出しを切らない（.owned-row の contain: strict の paint のまま左の余白 0 だと、パル名のリンクのフォーカスの枠の左が切れる） */
 /* 継承ルートの開始の所持個体の行（.route-owned-rows）も同じ（route-cleanup） */
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) > .owned-row:last-child { border-bottom: 0; }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .owned-row:hover { background: transparent; }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="hp"]::before { content: 'HP'; }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="shot"]::before { content: '攻'; }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="defense"]::before { content: '防'; }
-:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="total"]::before { content: '計'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) > .owned-row:last-child { border-bottom: 0; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .owned-row:hover { background: transparent; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .talent-cell[data-key="hp"]::before { content: 'HP'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .talent-cell[data-key="shot"]::before { content: '攻'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .talent-cell[data-key="defense"]::before { content: '防'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows, .owned-detail) .talent-cell[data-key="total"]::before { content: '計'; }
 /* 組の ♂♀ 行の強調（views/owned.js の ownedRowItem の highlight）。欲しいパッシブは先頭に ✓、それ以外は薄く。
    個体値は目標以上を primary の太字、目標未満は細字（目標までの差〔−N。D23〕は D30 で出さなくした。バーの目標の縦線は残す） */
 .passive-chip.is-extra { opacity: .55; }

@@ -328,7 +328,7 @@ const focusLost = () => {
 
 // レベル（タマゴは「—」。文字はセルに直接）と、パル濃縮の 4 枠（塗りの ★ は文字、輪郭の ☆ は CSS が data-off から出す。
 // SVG にせず要素 1 つ。2,000 行で要素の数を増やさないため）
-function fillLevelCell(cell, pal) {
+export function fillLevelCell(cell, pal) {
   const filled = Math.max(0, Math.min(4, pal.stars));
   const stars = el('span', 'owned-stars', '★'.repeat(filled));
   stars.setAttribute('role', 'img');
@@ -400,8 +400,8 @@ function fillHits(line, notes) {
 
 // 個体値の 4 セル（HP・攻・防・計）。数字と、下のミニバー（--v。計は合計の 1/3）。目標（targets）があれば、目標の縦線（--t）と
 // 目標以上は .met、目標未満は .short。目標までの差（−N。D23）は、2026-10-14 のユーザーのフィードバック（D30）で出さなくした。
-// 読み上げは欄の aria-label にまとめる
-function fillTalentCell(cell, talent, targets) {
+// 読み上げは欄の aria-label にまとめる（個体の詳細のドロワー〔views/owned-detail.js〕も使う）
+export function fillTalentCell(cell, talent, targets) {
   const total = talent.hp + talent.shot + talent.defense;
   const spoken = [];
   cell.replaceChildren(...TALENT_CELLS.map(([key, name]) => {
@@ -429,8 +429,8 @@ function fillTalentCell(cell, talent, targets) {
 }
 
 // 所持者と場所。拠点の個体は拠点の名前と「Alice が預けた」（場所の行は重ねない）。パルボックスは「P2 · 1-6」と 6×5 の小さな図
-//（title に場所の全文）。位置が分からなければ場所の文字
-function fillWhereCell(cell, pal) {
+//（title に場所の全文）。位置が分からなければ場所の文字（個体の詳細のドロワーも使う）
+export function fillWhereCell(cell, pal) {
   if (pal.place === 'base' && pal.holder === pal.placeLabel) {
     cell.replaceChildren(el('strong', '', pal.holder), ...(pal.lastOwner ? [el('small', 'muted', `${pal.lastOwner} が預けた`)] : []));
     cell.title = '';
@@ -458,7 +458,8 @@ function fillWhereCell(cell, pal) {
  * notes は一致した理由（core/owned.js の keywordNotes）、highlight は理想個体の組の親で欲しいパッシブと個体値が目標に届いているかを見せる
  * （{ wanted, targets }）、marks は目標の印（行の下の段 div.owned-band に MARK_SLOTS 個までと「+N」。D25）、badges は名前の下のバッジの
  * 1 行に足す文（理想個体のカードの「別の配合牧場で使用中」）、hints は「+N」の説明の部品を入れる配列（作り直す側が destroy する。
- * 省くと行が持つ）。行の操作のボタンはない（D29）。
+ * 省くと行が持つ）。行の操作のボタンはない（D29）。detail（作るときだけ見る）は個体の詳細を開ける行で、Lv・★のセルをボタンにする
+ *（押す・Enter で右のドロワーに個体の詳細。要素を増やさない。開くのは一覧の委譲のリスナー。owned-detail）。行には data-instance に個体 ID。
  * 下の段は印か一致の理由があるときだけ作る（行の高さは一覧の has-band が決める。全部の行が同じ高さ）。
  * update は変わったセルだけを書き換え、書き換えたら true（同じ値なら何もしない）。書き換えたセルにフォーカスがあったら、同じ役目の部品
  * （data-focus。名前のリンク pal・「+N」passive-more／marks-more）へ戻す
@@ -466,8 +467,11 @@ function fillWhereCell(cell, pal) {
  */
 export function ownedRowItem(pal, options) {
   const element = el('article', 'owned-row');
+  const detail = Boolean(options?.detail);
+  const level = detail ? button('', null, 'owned-level owned-detail-open') : el('div', 'owned-level');
+  if (detail) level.setAttribute('data-focus', 'detail');
   const cells = {
-    pal: el('div', 'owned-pal'), level: el('div', 'owned-level'), passives: el('div', 'owned-passives'),
+    pal: el('div', 'owned-pal'), level, passives: el('div', 'owned-passives'),
     talent: el('div', 'owned-talent'), where: el('div', 'owned-where'),
   };
   cells.talent.setAttribute('role', 'img');
@@ -510,8 +514,9 @@ export function ownedRowItem(pal, options) {
       // 書き換えるセルにフォーカスがあったら、書き換えた後に同じ役目の部品（data-focus）へ戻す
       const focused = focusMark(element);
       let changed = false;
-      changed = write('label', `${next.name}\u0001${next.nickname}`, () => {
+      changed = write('label', `${next.id}\u0001${next.name}\u0001${next.nickname}`, () => {
         element.setAttribute('aria-label', `${next.name}${next.nickname ? `（${next.nickname}）` : ''}`);
+        element.setAttribute('data-instance', next.id);
       }) || changed;
       changed = write('tile', [next.palId, next.known, next.name, next.human?.icon ?? '', next.gender].join('\u0002'), () => {
         const tile = palCellTile(next);
@@ -525,7 +530,13 @@ export function ownedRowItem(pal, options) {
         badgeLine?.remove();
         badgeLine = line;
       }) || changed;
-      changed = write('level', `${next.egg}:${next.level}:${next.stars}`, () => fillLevelCell(cells.level, next)) || changed;
+      changed = write('level', `${next.egg}:${next.level}:${next.stars}:${detail ? `${next.name}:${next.nickname}` : ''}`, () => {
+        fillLevelCell(cells.level, next);
+        if (!detail) return;
+        const name = `${next.name}${next.nickname ? `「${next.nickname}」` : ''}`;
+        cells.level.setAttribute('aria-label', `${name}の詳細（${next.egg ? 'タマゴ' : `Lv ${next.level}`}・パル濃縮 ★${next.stars}）`);
+        cells.level.title = '個体の詳細を右に開く';
+      }) || changed;
       changed = write('passives', `${next.passives.join(',')}\u0002${highlight?.wanted?.join(',') ?? ''}`, () => {
         for (const old of ownHints) old.destroy();
         ownHints = [];
@@ -571,6 +582,43 @@ export function ownedRowItem(pal, options) {
   };
   item.update(pal, options);
   return item;
+}
+
+// 個体の詳細を開くセル（Lv・★のボタン・パッシブ・個体値・場所・下の段）
+const DETAIL_CELLS = ['owned-level', 'owned-passives', 'owned-talent', 'owned-where', 'owned-band'];
+// クリックの対象から行と個体 ID を引く。パル名のリンク・ほかのボタン（「+N」）・パッシブのチップ（押すと解説の板を固定）なら null
+function detailTarget(event, container) {
+  let cell = null;
+  for (let node = event.target; node && node !== container; node = node.parentElement) {
+    const tag = String(node.tagName ?? '').toLowerCase();
+    const classes = String(node.className ?? '').split(' ');
+    if (classes.includes('owned-row')) {
+      const id = node.getAttribute('data-instance');
+      return cell && id ? { row: node, id } : null;
+    }
+    if (classes.includes('owned-detail-open')) cell = node;
+    else if (tag === 'a' || tag === 'button' || node.getAttribute?.('data-passive-id')) return null;
+    if (!cell && DETAIL_CELLS.some((name) => classes.includes(name))) cell = node;
+  }
+  return null;
+}
+
+/**
+ * 所持パルの行の入れ物（一覧・パル詳細の上位 5 体）に、個体の詳細を右のドロワーで開くクリックの委譲のリスナーを 1 つ付ける（owned-detail）。
+ * 行の Lv・★のボタン（キーボードはこれで開く）と、パッシブ・個体値・場所のセル・下の段を押すと開く。文字を選んでいるときは開かない。
+ * query は所持パルで入れているキーワード（一致の理由の全文を出す）。ドロワーがなければ何もしない
+ */
+export function openDetailOnClick(container, drawer, { query = () => '' } = {}) {
+  if (!drawer) return;
+  container.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button > 0) return;
+    if (String(globalThis.getSelection?.()?.toString?.() ?? '')) return;
+    const hit = detailTarget(event, container);
+    if (!hit) return;
+    const words = String(query() ?? '').slice(0, 200);
+    const opener = hit.row.querySelector('.owned-detail-open') ?? hit.row;
+    drawer.open({ kind: 'owned', id: hit.id, ...(words ? { params: { q: words } } : {}) }, { opener });
+  });
 }
 
 /** 所持パルの 1 行の要素（理想個体の組のカード・テストで使う薄い包み）。オプションは ownedRowItem と同じ */
@@ -914,6 +962,25 @@ export function ownedView(context, route) {
   }
   const results = el('div', 'owned-list');
   element.append(summary, panel, head, results);
+  // ---- 個体の詳細（右のドロワー。owned-detail）。行の Lv・★のボタンと、パッシブ・個体値・場所のセル・下の段を押すと開く。リスナーは一覧の
+  // 入れ物に 1 つだけ（行ごとに付けない）。パル名のリンク（パル詳細）・「+N」などのボタン・パッシブのチップ（押すと解説の板を固定）と、
+  // 文字を選んでいるときは開かない。開いている個体の行に aria-current と淡い地 ----
+  const drawer = context.drawer;
+  let openedId = drawer?.current()?.kind === 'owned' ? drawer.current().id : '';
+  function markOpened(row, id) {
+    const on = Boolean(openedId) && id === openedId;
+    if (on) row.setAttribute('aria-current', 'true');
+    else if (row.getAttribute('aria-current')) row.removeAttribute('aria-current');
+  }
+  openDetailOnClick(results, drawer, { query: () => filter.query });
+  const stopDrawer = drawer?.subscribe?.((current) => {
+    const next = current?.kind === 'owned' ? current.id : '';
+    if (next === openedId) return;
+    openedId = next;
+    for (const row of results.querySelectorAll('[aria-current="true"]')) row.removeAttribute('aria-current');
+    if (!openedId) return;
+    for (const row of results.querySelectorAll('.owned-row')) if (row.getAttribute('data-instance') === openedId) row.setAttribute('aria-current', 'true');
+  }) ?? (() => {});
   renderHead();
   const stopTracking = trackHeight(panel, element);
   // 固定の部分（パネルと、貼り付いた列見出し）の下端。自動の更新の後に見ていた行を同じ位置に戻すとき・見えている範囲だけ描くとき・
@@ -1320,12 +1387,15 @@ export function ownedView(context, route) {
     let lastTerms = termsKey;
     let lastMarks = marksStamp;
     const first = rowOptionsOf(pal);
-    const row = ownedRowItem(pal, first);
+    // ドロワーがあれば Lv・★のセルを個体の詳細を開くボタンにする（owned-detail）
+    const row = ownedRowItem(pal, { ...first, detail: Boolean(context.drawer) });
+    markOpened(row.element, pal.id);
     let signature = rowSignature(pal, first.notes, first.marks);
     const item = {
       element: row.element,
       // 今のキーワード・印で next の中身にする（同じなら何もしない）
       fill(next) {
+        markOpened(row.element, next.id);
         const options = rowOptionsOf(next);
         const nextSignature = rowSignature(next, options.notes, options.marks);
         if (nextSignature === signature) return;
@@ -1582,6 +1652,7 @@ export function ownedView(context, route) {
       jobSeq++;
       warmSeq++;
       unsubscribe();
+      stopDrawer();
       picker.destroy();
       passive.destroy();
       leaveVirtual();
