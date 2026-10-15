@@ -3,6 +3,7 @@ import { palsById, palIcon, elementChips } from '../ui/pal-icon.js';
 import { findByChild, findByParent } from '../core/index.js';
 import { buildHash } from '../router.js';
 import { viewHeading, renderCards, watchView, dataPending } from './shared.js';
+import { goalToggle } from '../ui/goal-toggle.js';
 
 export function palView(context, route) {
   const element = el('section', 'view');
@@ -19,13 +20,15 @@ export function palView(context, route) {
   const actions = el('div', 'pal-hero-actions');
   // 「この子の配合を登録」は、このパルが産まれる配合が 1 件でもあれば控えめ（secondary）、0 件なら primary（F075。描くたびに合わせる）
   const register = button('この子の配合を登録', () => context.register({ childId: pal.id }), 'button primary');
+  // 「☆ 目標に登録」（種族だけの目標。作れるようになったら・完成したらベルで知らせる。goals-merge）
+  const goal = goalToggle(context, pal.id);
   actions.append(link('ここから継承ルート', buildHash('route', { from: pal.id }), 'button secondary'),
-    link('ここへの継承ルート', buildHash('route', { to: pal.id }), 'button secondary'), register);
+    link('ここへの継承ルート', buildHash('route', { to: pal.id }), 'button secondary'), goal.element, register);
   const children = el('div', 'card-stack');
   const parents = el('div', 'card-stack');
   element.append(hero, actions, el('h2', 'section-title', 'このパルが産まれる配合'), children,
     el('h2', 'section-title', 'このパルを親に使う配合（相手 → 子）'), parents);
-  return watchView(context.store, element, (state) => {
+  const view = watchView(context.store, element, (state) => {
     if (dataPending(children, state, () => context.store.refresh())) { renderCards(parents, [], context); return; }
     const born = findByChild(state.index, pal.id);
     register.className = born.length ? 'button secondary' : 'button primary';
@@ -36,4 +39,5 @@ export function palView(context, route) {
       empty: () => empty('このパルを親に使う配合はまだ登録されていません。'),
     });
   });
+  return { ...view, destroy() { goal.destroy(); view.destroy(); } };
 }

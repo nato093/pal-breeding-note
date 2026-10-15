@@ -1,12 +1,13 @@
-const views = new Set(['search', 'route', 'owned', 'ideal', 'wishlist', 'pal', 'settings']);
+const views = new Set(['search', 'route', 'owned', 'ideal', 'pal', 'settings']);
 
 // 統合してなくなった画面 → 移った先の画面と足すクエリ（もとの条件のクエリはそのまま渡す）。ブックマーク・保存済みの通知の href の旧 URL を
 // 読み替える。逆引き（#/reverse?c=）と一覧（#/list）は配合を探す（find-merge）、下書き（#/drafts）は下書きの帯を開いた配合を探す
-//（register-entry）。後のテーマが 1 行ずつ足す
+//（register-entry）、ウィッシュリスト（#/wishlist）は目標のダイアログを開いた理想個体（goals-merge）
 const LEGACY = Object.freeze({
   reverse: { view: 'search' },
   list: { view: 'search' },
   drafts: { view: 'search', add: { drafts: '1' } },
+  wishlist: { view: 'ideal', add: { goals: '1' } },
 });
 
 function splitHash(hash) {

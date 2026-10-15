@@ -2,8 +2,7 @@ import { createApi } from './api.js';
 import { createStore, safeStorage } from './store.js';
 import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
-import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
-import { createIdealStore, idealNotificationSource } from './ideals.js';
+import { createIdealStore, idealNotificationSource, goalObservationSource } from './ideals.js';
 import { createSelfStore } from './self-player.js';
 import { createPlanMemory } from './ideal-plan-memory.js';
 import { createSearchSeen } from './search-seen.js';
@@ -35,10 +34,10 @@ import { searchView } from './views/search.js';
 import { inheritanceView } from './views/route.js';
 import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
-import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
-import { TABS } from './views/tabs.js';
+import { TABS, tabLabel } from './views/tabs.js';
+import { ownedWorldId } from './core/owned-shared.js';
 
 // 登録したセーブを読み直す間隔
 const SAVE_POLL_INTERVAL = 60 * 1000;
@@ -68,7 +67,6 @@ async function boot() {
     onUserIdChange: (previous, next, env) => renamer.followServer(previous, next, env),
   });
   const drafts = createDraftStore({ store, storage: browserStorage, namespace });
-  const wishlist = createWishlistStore({ store, storage: browserStorage, namespace });
   // 所持パル（セーブから読み込んだ一覧）はログインと関係なく、このブラウザに保存する。
   const owned = createOwnedStore({
     persist: idbPersist(namespace), settings: safeStorage(browserStorage), namespace,
@@ -107,9 +105,10 @@ async function boot() {
   });
   const notifications = createNotificationStore({
     store, storage: browserStorage, namespace,
-    sources: [releaseNoteSource, wishlistNotificationSource({ store, wishlist }), idealNotificationSource({ store, ideals }), autoRegister.notices],
+    // 目標の種族の配合の登録（前のウィッシュリストの通知。id は同じ形）と、目標の完成
+    sources: [releaseNoteSource, goalObservationSource({ store, ideals }), idealNotificationSource({ store, ideals }), autoRegister.notices],
   });
-  const renamer = createRenamer({ store, drafts, wishlist, ideals, self, notifications, storage: browserStorage, namespace });
+  const renamer = createRenamer({ store, drafts, ideals, self, notifications, storage: browserStorage, namespace });
   renamer.resumeLocal();
   const root = document.getElementById('app');
   const header = el('header', 'app-header');
@@ -145,6 +144,13 @@ async function boot() {
     nav.append(tab);
     tabLinks.set(view, tab);
   }
+  // 理想個体のタブの「完成した目標 n」（表示しているワールドで完成済みの目標の数。0 なら隠す。F004）。文字・hidden・aria-label だけを
+  // 書き換える（画面は描き直さない）
+  const idealTab = tabLinks.get('ideal');
+  const goalBadge = el('span', 'nav-badge');
+  goalBadge.hidden = true;
+  goalBadge.setAttribute('aria-hidden', 'true');
+  idealTab?.append(goalBadge);
   // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。読み込み直しても、同じタブ（sessionStorage）の間は残る
   //（ページを離れるときに保存し、起動したときに戻す。戻る・進むでは、そのときの履歴のエントリの条件と位置に戻す。ui/view-memory.js）。
   const viewStates = new Map();
@@ -305,7 +311,6 @@ async function boot() {
   const context = {
     store,
     drafts,
-    wishlist,
     ideals,
     // このワールドでの自分（設定のセーブ連携で選ぶ。理想個体・所持パルは変わったら描き直す）
     self,
@@ -382,7 +387,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, route: inheritanceView, owned: ownedView, ideal: idealView, wishlist: wishlistView, pal: palView, settings: settingsView };
+  const views = { search: searchView, route: inheritanceView, owned: ownedView, ideal: idealView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     // 見出しは「ログイン」「新規登録」だけ（キャッチコピーはなくした）。説明は新規登録のときだけ
@@ -681,13 +686,26 @@ async function boot() {
     event.preventDefault();
     event.returnValue = true;
   });
-  wishlist.subscribe(notifications.changed);
   ideals.subscribe(notifications.changed);
+  // 理想個体のタブの完成した目標の数（目標・所持パルが変わったとき）
+  const renderGoalBadge = () => {
+    if (!idealTab) return;
+    const worldId = ownedWorldId(owned.state.meta?.worldId);
+    const count = worldId ? ideals.list().filter((goal) => goal.worlds[worldId]?.complete).length : 0;
+    const text = count ? `完成 ${count}` : '';
+    if (goalBadge.textContent !== text) goalBadge.textContent = text;
+    goalBadge.hidden = !count;
+    const label = count ? `${tabLabel('ideal')}（完成した目標 ${count} 件）` : '';
+    if (label) idealTab.setAttribute('aria-label', label);
+    else idealTab.removeAttribute('aria-label');
+  };
+  ideals.subscribe(renderGoalBadge);
+  owned.subscribe(renderGoalBadge);
+  renderGoalBadge();
   owned.subscribe(autoRegister.evaluate);
-  // 別のタブで下書き・ウィッシュリスト・理想個体の登録・このワールドでの自分・登録者の対応・既読を書き換えたら読み直す。
+  // 別のタブで下書き・目標（と観測・前のウィッシュリスト）・このワールドでの自分・登録者の対応・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {
     drafts.reload(event.key);
-    wishlist.reload(event.key);
     ideals.reload(event.key);
     self.reload(event.key);
     // 登録者の対応（自動登録の対応表）は自分のプレイヤーの決め方にも使うので、本人の変化として知らせる（このタブで変えたときと同じく、

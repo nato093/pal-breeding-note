@@ -5,6 +5,7 @@ import { searchSelect } from '../ui/search-select.js';
 import { breedingCard } from '../ui/breeding-card.js';
 import { ownedBadge, ownedBadgeText } from '../ui/owned-badge.js';
 import { draftsBand } from '../ui/drafts-band.js';
+import { goalToggle } from '../ui/goal-toggle.js';
 import { withTransition } from '../ui/motion.js';
 import { queryTerms } from '../core/kana.js';
 import { userIdKey } from '../core/user.js';
@@ -304,6 +305,7 @@ export function searchView(context, route) {
     const condKey = JSON.stringify(cond);
     flash = shownIds !== null && condKey === shownCond;
     syncList(results, items, { key: rowKey, create: createRow, empty: () => emptyNode(state) });
+    keepEmptyGoal();
     results.classList.toggle('is-grouped', groups.some((group) => group.palId));
     flash = false;
     shownCond = condKey;
@@ -413,6 +415,21 @@ export function searchView(context, route) {
   }
 
   // 空の状態（押したときの値は今の条件を読む。syncList は同じ文の空の表示を作り直さない）
+  let emptyGoal = null;
+  let pendingGoal = null;
+  // 空の表示の「目標に登録」: 出ている方を残し、出ていない方（作ったが使われなかった・前の表示）は購読を外す
+  function keepEmptyGoal() {
+    const shown = (toggle) => Boolean(toggle) && results.contains?.(toggle.element);
+    if (pendingGoal && shown(pendingGoal)) {
+      if (emptyGoal !== pendingGoal) emptyGoal?.destroy();
+      emptyGoal = pendingGoal;
+    } else pendingGoal?.destroy();
+    pendingGoal = null;
+    if (emptyGoal && !shown(emptyGoal)) {
+      emptyGoal.destroy();
+      emptyGoal = null;
+    }
+  }
   function emptyNode(state) {
     const register = (label, initial) => button(label, () => context.register(initial()), 'button primary');
     if (!state.records.length) return empty('まだ配合が登録されていません。', register('配合を登録', () => ({})), { icon: 'search' });
@@ -429,7 +446,16 @@ export function searchView(context, route) {
       if (cond.c) return empty('この親からこの子が産まれる配合はまだ登録されていません。', register('この親と子で配合を登録', () => ({ parent1Id: cond.p1 || cond.p2, childId: cond.c })));
       return empty('この親を使う配合はまだ登録されていません。', register('この親で配合を登録', () => ({ parent1Id: cond.p1 || cond.p2 })));
     }
-    if (cond.c) return empty('この子の配合はまだ登録されていません。', register('この子の配合を登録', () => ({ childId: cond.c })));
+    if (cond.c) {
+      // 子だけを選んで 0 件: 「☆ 目標に登録」（作れるようになったら知らせる）を主な操作、「この子の配合を登録」を 2 番目に（goals-merge）
+      if (!context.ideals?.scope?.()) return empty('この子の配合はまだ登録されていません。', register('この子の配合を登録', () => ({ childId: cond.c })));
+      // syncList は同じ文の空の表示を作り直さないので、作った押しボタンは描いた後に出ている方だけ残す（keepEmptyGoal）
+      pendingGoal?.destroy();
+      pendingGoal = goalToggle(context, cond.c, { className: 'button primary', label: '目標に登録（作れるようになったら知らせます）' });
+      const actions = el('div', 'empty-actions');
+      actions.append(pendingGoal.element, button('この子の配合を登録', () => context.register({ childId: cond.c }), 'button secondary'));
+      return empty('この子の配合はまだ登録されていません。', actions);
+    }
     return empty('条件に合う登録はありません。', button('条件をすべて解除', clearAll, 'button secondary'), { icon: 'search' });
   }
 
@@ -463,6 +489,8 @@ export function searchView(context, route) {
       inputs.abort();
       unsubscribeOwned();
       band?.destroy();
+      emptyGoal?.destroy();
+      pendingGoal?.destroy();
       stopTracking();
       registrant.destroy();
       // 新着の基準を、今の取得の時刻（なければ今）に進める

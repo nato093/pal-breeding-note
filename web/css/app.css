@@ -1038,14 +1038,6 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .button.small { min-height: 32px; padding: 4px 12px; border-radius: 100px; font-size: 12px; }
 .heading-actions { display: flex; gap: 8px; }
 .drafts-warning { margin: 8px 0; }
-.wishlist-explanation { color: var(--muted); font-size: 13px; }
-.wishlist-warning { margin: 8px 0; }
-.wishlist { list-style: none; margin: 0; padding: 0; }
-.wishlist-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding: 6px 0; min-width: 0; }
-.wishlist-main { display: flex; flex: 1; align-items: center; gap: 14px; min-width: 0; min-height: 48px; color: var(--ink); }
-a.wishlist-main:hover { text-decoration: none; }
-a.wishlist-main:hover .pal-tile { color: var(--accent); }
-.wishlist-hint { margin-left: auto; color: var(--md-sys-color-primary); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .draft-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 140px auto;
@@ -1133,7 +1125,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     opacity: .6;
     animation: sync-progress 1.2s ease-in-out infinite;
   }
-  .nav-tab, .breeding-card, .owned-row, .wishlist-row, .draft-row, .picker-trigger, .card-action {
+  .nav-tab, .breeding-card, .owned-row, .draft-row, .picker-trigger, .card-action {
     transition: background-color .15s, border-color .15s, box-shadow .15s;
   }
   /* ここから下の細部の動きは、手本を上の進捗バーとし、操作に応えるか状態を伝えるときだけ小さく短く動かす */
@@ -2343,6 +2335,20 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 /* 状態と、未確認のときの「設定で選ぶ」（状態の下） */
 .ideal-goal-state { display: grid; justify-items: start; gap: 4px; min-width: 0; }
 .ideal-goal-empty { padding: 12px 0; }
+/* 名前の欄: 名前・「パルだけ」のタグ（種族だけの目標）と、下の行に配合の登録の数（押すと配合を探す）・所持の数（goals-merge） */
+.ideal-goal-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.ideal-goal-facts { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
+.ideal-goal-records { font-weight: 700; }
+.ideal-goal-holding { color: var(--md-sys-color-on-surface-variant); }
+/* 前のウィッシュリストを移せていないときの 1 行と、読み取り専用の一覧 */
+.ideal-goal-migration { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: var(--warning-bg); color: var(--warning); font-size: 13px; }
+.ideal-goal-migration[hidden] { display: none; }
+.ideal-legacy-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.ideal-legacy-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* 「☆ 目標に登録」（goals-merge）。登録済みは星を塗る */
+.goal-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.goal-toggle-star { width: 18px; height: 18px; }
+.goal-toggle.is-registered .goal-toggle-star path { fill: currentColor; }
 .owned-auto-error { min-height: 1lh; font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 /* エラーがないときも見えないまま 1 行分の場所を残す（確かめるたびに点滅しない） */
 .owned-auto-error.is-empty { visibility: hidden; }
@@ -2496,9 +2502,25 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 #app { padding-left: var(--drawer); min-height: 100dvh; }
 .nav-tab .tab-symbol { display: grid; place-items: center; font-size: 0; line-height: 0; }
 .nav-tab .tab-icon { width: 20px; height: 20px; }
-/* 探す｜記録｜所持｜設定 の 4 グループを、間を空けて区切る（並びは views/tabs.js のタブの順。キーボードと読み上げの順に合わせるため、CSS で並べ替えない）。
-   探す＝配合を探す・継承ルート、記録＝下書き・ウィッシュリスト（逆引き・一覧は find-merge で配合を探すに入った） */
-.nav-tab[data-view="drafts"], .nav-tab[data-view="owned"] { margin-top: 16px; }
+/* 探す｜所持｜設定 の 3 グループを、間を空けて区切る（並びは views/tabs.js のタブの順。キーボードと読み上げの順に合わせるため、CSS で並べ替えない）。
+   探す＝配合を探す・継承ルート、所持＝所持パル・理想個体（逆引き・一覧・下書き・ウィッシュリストはフェーズ 2 で配合を探す・理想個体に入った） */
+.nav-tab[data-view="owned"] { margin-top: 16px; }
+/* 理想個体のタブの「完成 n」（完成した目標の数。0 なら隠す。読み上げはタブの aria-label） */
+.nav-tab { position: relative; }
+.nav-badge {
+  position: absolute;
+  top: 4px;
+  left: calc(50% + 9px);
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 100px;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.nav-badge[hidden] { display: none; }
 .nav-tab[data-view="settings"] { margin-top: auto; }
 /* 菱形は on-primary で描き、明暗どちらでも primary の上で読めるようにする */
 .brand-mark::after {
@@ -2529,20 +2551,19 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .pal-label .dex-label { font-size: 11px; line-height: 1.3; letter-spacing: .02em; }
 /* 一覧は詰めた行を、ひと続きの帯に入れる。空状態だけのときは帯を敷かない（空の箱に見えるため）。
    行の中でプルダウンを開くため帯は切り抜かず（overflow: hidden にしない）、行の hover の背景は最初と最後の行の角を丸めて帯に収める */
-.card-stack, .owned-list, .wishlist, .route-starts { background: var(--md-sys-color-surface-container-low); border-radius: 12px; }
-:is(.card-stack, .owned-list, .wishlist, .route-starts) > :first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
-:is(.card-stack, .owned-list, .wishlist, .route-starts) > :last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
-.card-stack:empty, .owned-list:empty, .wishlist:empty { display: none; }
-.card-stack:has(> :is(.empty-state, .error-state):only-child), .wishlist:has(> .empty-state:only-child) { background: transparent; }
+.card-stack, .owned-list, .route-starts { background: var(--md-sys-color-surface-container-low); border-radius: 12px; }
+:is(.card-stack, .owned-list, .route-starts) > :first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
+:is(.card-stack, .owned-list, .route-starts) > :last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
+.card-stack:empty, .owned-list:empty { display: none; }
+.card-stack:has(> :is(.empty-state, .error-state):only-child) { background: transparent; }
 /* 所持パルの一覧は :has() を使わず、空の表示のときに JS が付ける .is-empty で見る（:has() は行の出し入れのたびに一覧の全体の
    スタイルを計算し直させ、2,000 行でキーワードの入力が 100ms 以上止まったため。owned-rows） */
 .owned-list.is-empty { background: transparent; }
-.breeding-card, .owned-row, .wishlist-row, .draft-row { padding: 4px 16px; gap: 2px 14px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.breeding-card, .owned-row, .draft-row { padding: 4px 16px; gap: 2px 14px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
 .owned-row { padding-top: 5px; padding-bottom: 5px; gap: 0 14px; }
-.breeding-card:last-child, .owned-row:last-child, .wishlist-row:last-child, .draft-row:last-child { border-bottom: 0; }
-.breeding-card:hover, .owned-row:hover, .wishlist-row:hover, .draft-row:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 7%, transparent); }
+.breeding-card:last-child, .owned-row:last-child, .draft-row:last-child { border-bottom: 0; }
+.breeding-card:hover, .owned-row:hover, .draft-row:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 7%, transparent); }
 .card-action.danger-text { color: var(--md-sys-color-error); }
-.wishlist-row .pal-icon { width: 36px; height: 36px; }
 .route-card .card-stack, .route-card .breeding-card { background: transparent; }
 .start-chip .pal-icon, .start-chip .picker-trigger .pal-icon { width: 26px; height: 26px; }
 .settings-card h2 { font-size: 16px; margin-bottom: 8px; }

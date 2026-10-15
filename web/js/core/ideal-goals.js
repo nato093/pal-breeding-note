@@ -84,6 +84,17 @@ export function parseGoals(source) {
 }
 
 /**
+ * 種族だけの目標（パッシブなし・個体値の条件なし〔0〕。画面のタグは「パルだけ」。前のウィッシュリストの 1 件。goals-merge）。
+ * 保存の形は今の目標のまま（cleanGoal に通せる値。id は呼び出し側が付ける）
+ */
+export function speciesGoal(palId, { name = '', addedAt = '' } = {}) {
+  return { palId, name: name || palId, passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', addedAt, worlds: {} };
+}
+
+/** 種族だけの目標か（mode 'only' でパッシブなしは「パッシブを持たない個体」という条件なので含めない） */
+export const isSpeciesGoal = (goal) => goal.passives.length === 0 && goal.mode === 'include' && GOAL_STATS.every((key) => goal.targets[key] === 0);
+
+/**
  * 同じ目標かを比べるための文字列。完成の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標）だけで比べる
  * （ケーキは作り方なので含めない。含めると、同じ完成で通知が重なる）。パッシブの順番は問わない。
  */

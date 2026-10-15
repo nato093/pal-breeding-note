@@ -748,7 +748,7 @@ test('画面: 右上のベルに未読の数を出し、開くと既読にして
   assert.equal(dialog.open, false);
 });
 
-test('画面: ウィッシュリストに追加したパルが作れるようになったらベルで知らせ、通知と一覧から配合を探すへのリンクを出す', async (t) => {
+test('画面: パル詳細の「☆ 目標に登録」で種族だけの目標にし、作れるようになったらベルで「配合が登録されました」と知らせ、目標の行に配合の数を出す', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   let second = 0;
   // 同じミリ秒の応答で判定が止まらないよう、サーバ時刻を 1 秒ずつ進める。
@@ -758,21 +758,21 @@ test('画面: ウィッシュリストに追加したパルが作れるように
     if (response.snapshot) response.snapshot.serverTime = new Date(Date.UTC(2026, 9, 4, 0, 0, ++second)).toISOString();
     return response;
   };
-  const { values, changeHash } = await boot(t, {
-    initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/wishlist',
-  });
-  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.includes('ウィッシュリスト'));
-  assert.equal(tab.getAttribute('aria-current'), 'page');
+  const { values, changeHash } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/search' });
+  // ウィッシュリストのタブはない（タブは 5 本）
+  assert.equal(navTab('ウィッシュリスト'), undefined);
+  assert.equal(descendants(byClass('navigation')).filter((node) => node.className.split(' ').includes('nav-tab')).length, 5);
   const made = new Set(JSON.parse(values.get('pal-note.cache.test')).records.map((record) => record.childId));
   const target = pals.find((pal) => pal.active && !made.has(pal.id));
-  const picker = byClass('wishlist-view').querySelector('.picker');
-  await picker.querySelector('.picker-trigger').dispatch('click');
-  const search = picker.querySelector('input');
-  search.value = target.ja;
-  await search.dispatch('input');
-  await picker.querySelectorAll('[role="option"]').find((option) => option.textContent.includes(target.ja)).dispatch('click');
-  assert.match(byClass('wishlist-row').textContent, /まだ作れません/);
-  assert.deepEqual(JSON.parse(values.get('pal-note.wishlist.test.架空データ')).map((wish) => wish.palId), [target.id]);
+  changeHash(`#/pal/${target.id}`);
+  const toggle = byClass('goal-toggle');
+  assert.equal(toggle.textContent, '目標に登録');
+  await toggle.dispatch('click');
+  assert.equal(toggle.textContent, '目標に登録済み');
+  const [goal] = JSON.parse(values.get('pal-note.ideals.test.架空データ'));
+  assert.deepEqual([goal.palId, goal.passives, goal.targets], [target.id, [], { hp: 0, shot: 0, defense: 0 }]);
+  // 観測は別のキー（前の版のタブが書き換えない）
+  assert.ok(JSON.parse(values.get('pal-note.goalsObs.test.架空データ')).species[target.id]);
   const badge = byClass('notification-badge');
   const unread = Number(badge.textContent);
   // 仲間がほかの端末で登録し、こちらは最新の記録を取り直す。
@@ -780,22 +780,39 @@ test('画面: ウィッシュリストに追加したパルが作れるように
     id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: target.id,
     parent1Gender: '', parent2Gender: '', registrant: '仲間', memo: '',
   } });
-  changeHash('#/settings');
-  await byText('最新に更新').dispatch('click');
+  await byClass('sync-status').dispatch('click');
   await flush();
   assert.equal(badge.textContent, String(unread + 1));
   await byClass('notification-button').dispatch('click');
   const panel = byClass('notification-panel');
   const link = panel.querySelector('.notification-link');
-  assert.equal(link.querySelector('.notification-title').textContent, `${target.ja}が作成可能になりました`);
+  assert.equal(link.querySelector('.notification-title').textContent, `${target.ja}の配合が登録されました`);
+  assert.match(link.textContent, /モコロン＋フラリーナ で作れます|フラリーナ＋モコロン で作れます/);
   assert.equal(link.href, `#/search?c=${target.id}`);
-  // fake DOM はリンクの既定動作（ハッシュの切り替え）を持たないため、閉じることまでを確かめ、遷移は実ブラウザで確かめる。
   await link.dispatch('click');
   assert.equal(byClass('notification-panel'), undefined);
+  // 前のウィッシュリストの URL は、目標のダイアログを開いた理想個体に着く
   changeHash('#/wishlist');
-  const row = byClass('wishlist-row');
-  assert.match(row.textContent, /作成可能/);
-  assert.equal(row.querySelector('a').href, `#/search?c=${target.id}`);
+  assert.equal(location.hash, '#/ideal');
+  const dialog = find((node) => node.tagName === 'dialog' && node.open);
+  assert.equal(dialog.querySelector('h2').textContent, '目標');
+  const row = dialog.querySelector('.ideal-goal');
+  assert.match(row.textContent, /パルだけ/);
+  assert.match(row.querySelector('.ideal-goal-records').textContent, /^配合: 登録済み 1 件/);
+  assert.equal(row.querySelector('.ideal-goal-records').href, `#/search?c=${target.id}`);
+});
+
+test('画面: 旧ウィッシュリストのデータがあれば起動したときに目標へ移し、旧キーを消す。もう一度起動しても増えない', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const initial = { ...signedIn, 'pal-note.wishlist.test.架空データ': JSON.stringify([{ palId: 'SheepBall', addedAt: '2026-10-01T00:00:00Z' }, { palId: 'PinkCat' }]) };
+  const { values } = await boot(t, { initial, api: development, hash: '#/ideal' });
+  await flush();
+  const goals = JSON.parse(values.get('pal-note.ideals.test.架空データ'));
+  assert.deepEqual(goals.map((goal) => [goal.id, goal.palId, goal.name]), [['wish-SheepBall', 'SheepBall', 'モコロン'], ['wish-PinkCat', 'PinkCat', 'ツッパニャン']]);
+  assert.equal(values.has('pal-note.wishlist.test.架空データ'), false);
+  const obs = JSON.parse(values.get('pal-note.goalsObs.test.架空データ'));
+  assert.deepEqual(obs.migration.wishlist.migrated, { SheepBall: 'wish-SheepBall', PinkCat: 'wish-PinkCat' });
+  assert.equal(byClass('ideal-goals-button').textContent, '目標（2）');
 });
 
 test('画面: 設定から ID を変えると、ログイン中の ID・登録者名が新しい ID になり、前の ID のエントリと保存を消す', async (t) => {

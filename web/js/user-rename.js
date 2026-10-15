@@ -1,5 +1,6 @@
 import { ApiError } from './api.js';
 import { userIdKey, validateUserId } from './core/user.js';
+import { mergeObservations } from './core/goal-observations.js';
 
 // サーバで実行されなかったことが確かなエラー。記録を消して、名前を入力し直せるようにする。
 const NOT_EXECUTED = new Set(['VALIDATION', 'USER_EXISTS', 'USER_NOT_FOUND', 'AUTH']);
@@ -74,15 +75,20 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     if (!entries.some(([, userId]) => isOld(userId))) continue;
     ok = writeJson(storage, key, Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId]))) && ok;
   }
-  // オブジェクトの形のキー（下書きの親の性別〔drafts.js〕など。{ [id]: 値 }）。移し先と合わせ、同じ id は移す元を優先する
-  for (const prefix of [`${namespace}.draftGenders.${env}.`]) {
+  // オブジェクトの形のキー（下書きの親の性別〔drafts.js〕・目標の観測〔ideals.js の goalsObs〕）。移し先と合わせ、同じ id は移す元を優先する
+  const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  const objectKeys = [
+    { prefix: `${namespace}.draftGenders.${env}.`, merge: (source, target) => ({ ...(isPlain(target) ? target : {}), ...source }) },
+    // 観測は種族ごとに併せ、移行の記録は和（core/goal-observations.js の mergeObservations）
+    { prefix: `${namespace}.goalsObs.${env}.`, merge: (source, target) => mergeObservations(source, target) },
+  ];
+  for (const { prefix, merge } of objectKeys) {
     const from = `${prefix}${oldKey}`;
     const to = `${prefix}${newKey}`;
     const source = readJson(storage, from);
-    if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+    if (!isPlain(source)) continue;
     if (from === to) continue;
-    const target = readJson(storage, to);
-    const merged = { ...(target && typeof target === 'object' && !Array.isArray(target) ? target : {}), ...source };
+    const merged = merge(source, readJson(storage, to));
     if (!writeJson(storage, to, merged)) {
       ok = false;
       continue;
@@ -131,7 +137,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
  * 自分の名前を変える。サーバでの変更と、この端末のデータの移動をまとめて行う。
  * 途中で止まっても同じ opId でやり直せるよう、終わるまで予定を端末に残す。
  */
-export function createRenamer({ store, drafts, wishlist, ideals, self, notifications, storage, namespace = 'pal-note' }) {
+export function createRenamer({ store, drafts, ideals, self, notifications, storage, namespace = 'pal-note' }) {
   const planKey = `${namespace}.rename`;
 
   function readPlan() {
@@ -143,7 +149,7 @@ export function createRenamer({ store, drafts, wishlist, ideals, self, notificat
     try { storage?.removeItem(planKey); } catch { /* 残っても、次に同じ予定をやり直すだけ。 */ }
   }
   // この端末に書けずに手元にだけ残しているデータ（今の ID の分）があれば、ID を変えると移せずに失われるので始めない
-  const localSaveFailed = () => Boolean(drafts?.saveFailed || wishlist?.saveFailed || ideals?.saveFailed || self?.saveFailed);
+  const localSaveFailed = () => Boolean(drafts?.saveFailed || ideals?.saveFailed || self?.saveFailed);
 
   // 端末内のデータを移し、各ストアのキャッシュを捨てて描き直させる
   function moveLocal(plan) {
@@ -151,7 +157,9 @@ export function createRenamer({ store, drafts, wishlist, ideals, self, notificat
     const keys = (prefix) => [`${prefix}${userIdKey(plan.oldId)}`, `${prefix}${userIdKey(plan.newId)}`];
     for (const key of keys(`${namespace}.drafts.${plan.env}.`)) drafts?.reload(key);
     for (const key of keys(`${namespace}.draftGenders.${plan.env}.`)) drafts?.reload(key);
-    for (const key of keys(`${namespace}.wishlist.${plan.env}.`)) wishlist?.reload(key);
+    // 前のウィッシュリスト（移し終わるまで旧キーも移す）と目標の観測
+    for (const key of keys(`${namespace}.wishlist.${plan.env}.`)) ideals?.reload(key);
+    for (const key of keys(`${namespace}.goalsObs.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.ideals.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.notifications.read.`)) notifications?.reload(key);
     // このワールドでの自分はワールドごとのキーなので、どのキーでも読み直させる。ID の変更では、ここはまだログイン中の ID が前の ID の

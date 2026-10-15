@@ -471,7 +471,8 @@ test('配合を探す: 利用者が並べ替えを変えたら、結果の先頭
 
 test('見出し: 各画面の h1 はタブの名前（views/tabs.js の TABS）。キャッチコピーの見出しは出さない', (t) => {
   installDom(t);
-  assert.deepEqual(TABS.map(([view]) => view), ['search', 'route', 'wishlist', 'owned', 'ideal', 'settings']);
+  assert.deepEqual(TABS.map(([view]) => view), ['search', 'route', 'owned', 'ideal', 'settings']);
+  assert.equal(tabLabel('wishlist'), '');
   assert.equal(tabLabel('drafts'), '');
   assert.equal(tabLabel('search'), '配合を探す');
   assert.equal(tabLabel('route'), '継承ルート');

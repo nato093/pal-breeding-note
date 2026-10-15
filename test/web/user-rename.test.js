@@ -4,7 +4,8 @@ import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, buildRequest } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { createDraftStore } from '../../web/js/drafts.js';
-import { createWishlistStore } from '../../web/js/wishlist.js';
+import { createIdealStore } from '../../web/js/ideals.js';
+import { speciesGoal } from '../../web/js/core/ideal-goals.js';
 import { createNotificationStore } from '../../web/js/notifications.js';
 import { createRenamer, moveUserStorage } from '../../web/js/user-rename.js';
 import { createSelfStore } from '../../web/js/self-player.js';
@@ -40,10 +41,11 @@ async function device(development, userId, { storage = memoryStorage(), signup =
   if (signup) await store.signup(userId, PASSCODE);
   else await store.login(userId, PASSCODE);
   const drafts = createDraftStore({ store, storage });
-  const wishlist = createWishlistStore({ store, storage });
+  // 目標（前のウィッシュリストは goals-merge で目標の「種族だけの目標」になった）
+  const ideals = createIdealStore({ store, owned: null, storage });
   const notifications = createNotificationStore({ store, storage, sources: [] });
-  renamer = createRenamer({ store, drafts, wishlist, notifications, storage });
-  return { store, drafts, wishlist, notifications, renamer, storage, sent, serve: (next) => { serve = next; } };
+  renamer = createRenamer({ store, drafts, ideals, notifications, storage });
+  return { store, drafts, ideals, notifications, renamer, storage, sent, serve: (next) => { serve = next; } };
 }
 
 test('API: rename は opId・userId・newUserId だけを送る', () => {
@@ -131,7 +133,7 @@ test('名前の変更: このワールドでの自分を知らせるのは新し
   const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
   const UID = '00000000-0000-0000-0000-000000000001';
   const self = createSelfStore({ store: me.store, storage: me.storage });
-  const renamer = createRenamer({ store: me.store, drafts: me.drafts, wishlist: me.wishlist, self, notifications: me.notifications, storage: me.storage });
+  const renamer = createRenamer({ store: me.store, drafts: me.drafts, ideals: me.ideals, self, notifications: me.notifications, storage: me.storage });
   assert.equal(self.set(WORLD, UID), true);
   // 知らせを受けたときに読める自分と、ログイン中の ID（理想個体・所持パル・設定は、知らせを受けて自分を読み直して描く）
   const seen = [];
@@ -147,7 +149,7 @@ test('名前の変更: このワールドでの自分をこの端末に保存で
   const me = await device(development, 'Taro');
   const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
   const self = createSelfStore({ store: me.store, storage: me.storage });
-  const renamer = createRenamer({ store: me.store, drafts: me.drafts, wishlist: me.wishlist, self, notifications: me.notifications, storage: me.storage });
+  const renamer = createRenamer({ store: me.store, drafts: me.drafts, ideals: me.ideals, self, notifications: me.notifications, storage: me.storage });
   me.storage.failing.add(`pal-note.ideals.self.test.taro.${WORLD}`);
   assert.equal(self.set(WORLD, '00000000-0000-0000-0000-000000000001'), false);
   assert.equal(self.saveFailed, true);
@@ -169,13 +171,13 @@ test('端末内の移動: 移し先に保存できなければ元を残し、失
   assert.deepEqual(read(storage, 'pal-note.drafts.prod.taro'), [{ id: 'a', registrant: 'Taro' }]);
 });
 
-test('名前の変更: 登録者名・下書き・ウィッシュリストを新しい名前にそろえ、予定の記録を消す', async () => {
+test('名前の変更: 登録者名・下書き・目標を新しい名前にそろえ、予定の記録を消す', async () => {
   const development = createDevelopmentApi();
   const me = await device(development, 'Taro');
   await me.store.mutate('create', { record: { id: crypto.randomUUID(), ...record, registrant: 'Taro' } });
   const draft = me.drafts.add({ parent1Id: 'SheepBall' });
   assert.equal(draft.registrant, 'Taro');
-  assert.equal(me.wishlist.add('SheepBall'), true);
+  assert.equal(me.ideals.add(speciesGoal('SheepBall')), 'added');
   assert.equal(me.drafts.list().length, 1);
   assert.equal(await me.renamer.rename('  Jiro  '), 'Jiro');
   assert.equal(me.store.state.userId, 'Jiro');
@@ -183,7 +185,7 @@ test('名前の変更: 登録者名・下書き・ウィッシュリストを新
   assert.deepEqual(me.store.state.users, ['Jiro']);
   assert.deepEqual(me.store.state.records.map((item) => item.registrant), ['Jiro']);
   assert.deepEqual(me.drafts.list().map((item) => [item.id, item.registrant]), [[draft.id, 'Jiro']]);
-  assert.deepEqual(me.wishlist.list().map((item) => item.palId), ['SheepBall']);
+  assert.deepEqual(me.ideals.list().map((item) => item.palId), ['SheepBall']);
   assert.equal(me.storage.getItem('pal-note.rename'), null);
   assert.equal(me.renamer.pending(), null);
   assert.equal(me.store.state.renaming, false);
@@ -207,7 +209,7 @@ test('名前の変更: 実行中の通信が終わるまで待ち、その間は
   await assert.rejects(me.store.login('Taro', PASSCODE), { code: 'RENAMING' });
   assert.equal(await me.store.refresh(), undefined);
   assert.equal(me.drafts.add(), null);
-  assert.equal(me.wishlist.add('SheepBall'), null);
+  assert.equal(me.ideals.add(speciesGoal('SheepBall')), null);
   release();
   await created;
   assert.equal(await renaming, 'Jiro');
@@ -307,4 +309,16 @@ test('端末内の移動: 下書きの親の性別（オブジェクトの形の
   assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
   assert.deepEqual(read(storage, 'pal-note.draftGenders.prod.jiro'), { a: { parent1Gender: 'M' }, b: { parent1Gender: 'F' }, c: { parent2Gender: 'F' } });
   assert.equal(storage.getItem('pal-note.draftGenders.prod.taro'), null);
+});
+
+test('端末内の移動: 目標の観測（goalsObs）も新しい名前へ移し、移し先にあれば種族ごとに併せ、移行の記録は和にする', () => {
+  const storage = memoryStorage();
+  const entry = (craftable, at) => ({ craftable, readyAt: craftable ? at : '', observedAt: at, pairs: [], found: [] });
+  storage.setItem('pal-note.goalsObs.prod.taro', JSON.stringify({ version: 1, species: { SheepBall: entry(true, '2026-10-05T00:00:00.000Z') }, migration: { wishlist: { migrated: { SheepBall: 'wish-SheepBall' }, pending: [], doneAt: '' } } }));
+  storage.setItem('pal-note.goalsObs.prod.jiro', JSON.stringify({ version: 1, species: { PinkCat: entry(false, '2026-10-01T00:00:00.000Z') }, migration: { wishlist: { migrated: { PinkCat: 'wish-PinkCat' }, pending: [], doneAt: '' } } }));
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
+  const moved = read(storage, 'pal-note.goalsObs.prod.jiro');
+  assert.deepEqual(Object.keys(moved.species).sort(), ['PinkCat', 'SheepBall']);
+  assert.deepEqual(moved.migration.wishlist.migrated, { PinkCat: 'wish-PinkCat', SheepBall: 'wish-SheepBall' });
+  assert.equal(storage.getItem('pal-note.goalsObs.prod.taro'), null);
 });

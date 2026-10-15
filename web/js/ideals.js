@@ -1,7 +1,14 @@
+import pals from '../data/pals.js';
 import { userIdKey } from './core/user.js';
+import { pairKey } from './core/pair.js';
 import { ownedWorldId } from './core/owned-shared.js';
-import { cleanGoal, parseGoals, goalKey, goalMatches, ownPals, ownPlayerUids, GOAL_LIMIT } from './core/ideal-goals.js';
+import { cleanGoal, parseGoals, goalKey, goalMatches, ownPals, ownPlayerUids, isSpeciesGoal, GOAL_LIMIT } from './core/ideal-goals.js';
+import { parseObservations, firstObservation, observeSpecies, cleanEntry } from './core/goal-observations.js';
+import { migrateWishlist, parseWishes, wishlistKey } from './goals-migration.js';
 import { buildHash } from './router.js';
+
+const palsById = new Map(pals.map((pal) => [pal.id, pal]));
+const palName = (id) => palsById.get(id)?.ja ?? '不明なパル';
 
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 
@@ -11,6 +18,9 @@ const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.p
 // 古いデータのままの別のタブで、新しいデータでの判定を巻き戻さないため。
 // 判定するのは自分の個体だけ（identity: ログイン中の ID・ユーザー一覧・セーブのプレイヤーとの対応・このワールドでの自分。
 // core/ideal-goals.js の ownPals）。自分のプレイヤーが分からないときは判定しない。
+// 目標の種族ごとの「配合の登録の観測」（前のウィッシュリストの判定。goals-merge）は、前の版のタブが書き換えない別のキー
+// <namespace>.goalsObs.<env>.<userIdKey> に持つ（core/goal-observations.js）。確定データ（confirmedRecords）で、各種族の observedAt より
+// 新しいサーバ時刻のときだけ進める。前のウィッシュリストは、ログインした環境・ID ごとに 1 回（と旧キーが変わったとき）目標へ移す。
 // そのワールドで初めて判定したときは、完成していても知らせない（登録した時点で完成していたものなど）。
 // 未完成から完成に変わるのを見たときだけ completedAt を付けて知らせ、未完成に戻ったら外す（通知も消える）。
 // 本人（自分のプレイヤー）が変わったとき（設定の「このワールドでの自分」・登録者の対応）は identityChanged で、同じセーブの時刻のまま
@@ -21,12 +31,99 @@ export function createIdealStore({
 }) {
   const listeners = new Set();
   const cache = new Map();
+  const obsCache = new Map();
   let saveFailed = false;
+  let obsFailed = false;
   const emit = () => listeners.forEach((listener) => listener());
 
   function scope() {
     const { env, userId, passcode } = store.state;
     return env && userId && passcode ? `${namespace}.ideals.${env}.${userIdKey(userId)}` : '';
+  }
+  // 観測のキー（目標のキーと同じ環境・ID）
+  function obsScope() {
+    const { env, userId, passcode } = store.state;
+    return env && userId && passcode ? `${namespace}.goalsObs.${env}.${userIdKey(userId)}` : '';
+  }
+  function loadObs(key) {
+    if (!key) return parseObservations(null);
+    if (!obsCache.has(key)) {
+      let source = null;
+      try { source = storage?.getItem(key) ?? null; } catch { /* 読めない端末は観測なしとして扱う。 */ }
+      obsCache.set(key, parseObservations(source));
+    }
+    return obsCache.get(key);
+  }
+  function saveObs(key, value) {
+    obsCache.set(key, value);
+    obsFailed = true;
+    try {
+      storage.setItem(key, JSON.stringify(value));
+      obsFailed = false;
+    } catch { /* 保存の失敗は saveFailed で画面に知らせる。 */ }
+    emit();
+  }
+  // 別のタブの保存を消さないよう、書き換えは保存先の最新の内容に対して行う
+  function latestObs(key) {
+    if (!obsFailed) obsCache.delete(key);
+    return structuredCopy(loadObs(key));
+  }
+  const structuredCopy = (value) => JSON.parse(JSON.stringify(value));
+
+  // 子ごとの、産まれる親の組（確定データから作る。送信待ちを含まない＝失敗する登録で知らせない）
+  let pairSource = null;
+  let pairsByChild = new Map();
+  function confirmedPairs() {
+    const records = store.state.confirmedRecords ?? [];
+    if (records !== pairSource) {
+      pairSource = records;
+      pairsByChild = new Map();
+      for (const record of records) {
+        if (!pairsByChild.has(record.childId)) pairsByChild.set(record.childId, new Set());
+        pairsByChild.get(record.childId).add(pairKey(record.parent1Id, record.parent2Id));
+      }
+    }
+    return pairsByChild;
+  }
+  const pairsOf = (palId) => [...confirmedPairs().get(palId) ?? []];
+
+  // 目標のある種族の観測を進める（キャッシュ・名前の変更中・時刻の読めないデータでは進めない。observedAt より新しいデータのときだけ）
+  function observeRecords() {
+    const key = scope();
+    const okey = obsScope();
+    const { cached, serverTime, renaming } = store.state;
+    const current = Date.parse(serverTime);
+    if (!key || !okey || cached || renaming || !Number.isFinite(current)) return;
+    const species = [...new Set(load(key).map((goal) => goal.palId))];
+    const stale = (obs, palId) => !(Date.parse(obs.species[palId]?.observedAt) >= current);
+    if (!species.some((palId) => stale(loadObs(okey), palId))) return;
+    const next = latestObs(okey);
+    if (!species.some((palId) => stale(next, palId))) return;
+    const time = new Date(now()).toISOString();
+    for (const palId of species) {
+      if (!stale(next, palId)) continue;
+      const entry = next.species[palId];
+      next.species[palId] = entry ? observeSpecies(entry, pairsOf(palId), serverTime, time) : firstObservation(pairsOf(palId), serverTime);
+    }
+    saveObs(okey, next);
+  }
+
+  // ---- 前のウィッシュリストの移行（ログインした環境・ID ごとに 1 回と、旧キーが変わったとき） ----
+  let migratedScope = '';
+  let migration = { status: 'none', migrated: 0, pending: 0 };
+  function migrate(force = false) {
+    const key = scope();
+    if (!key || store.state.renaming || !storage) return;
+    if (!force && migratedScope === key) return;
+    migratedScope = key;
+    const { env, userId } = store.state;
+    migration = migrateWishlist({ storage, namespace, env, userKey: userIdKey(userId), now });
+    if (migration.migrated || migration.status === 'done') {
+      cache.delete(key);
+      obsCache.delete(obsScope());
+    }
+    emit();
+    observeRecords();
   }
 
   function load(key) {
@@ -118,14 +215,34 @@ export function createIdealStore({
     save(key, goals.map((goal) => (stale(goal, view) ? judged(goal, view, byPal, 'notify') : goal)));
   }
 
-  store.subscribe(observe);
+  store.subscribe(() => {
+    migrate();
+    observe();
+    observeRecords();
+  });
   owned?.subscribe(observe);
+  migrate();
   observe();
+  observeRecords();
 
   return {
     scope,
-    get saveFailed() { return saveFailed; },
+    get saveFailed() { return saveFailed || obsFailed; },
     list(key = scope()) { return load(key); },
+    /** 目標の種族の配合の登録の観測（行の「配合」と通知に使う）。なければ null */
+    observation(palId) { return loadObs(obsScope()).species[palId] ?? null; },
+    /** 観測のすべて（通知の元が読む） */
+    observations() { return loadObs(obsScope()); },
+    /** 前のウィッシュリストの移行の結果（{ status, migrated, pending }。status は 'none'・'done'・'partial'・'failed'） */
+    migration() { return migration; },
+    /** 移せていない前のウィッシュリスト（読み取り専用の一覧に出す。移行が partial・failed のときだけ意味がある） */
+    legacyWishes() {
+      const { env, userId } = store.state;
+      if (!scope()) return [];
+      let source = null;
+      try { source = storage?.getItem(wishlistKey(namespace, env, userIdKey(userId))) ?? null; } catch { return []; }
+      return parseWishes(source);
+    },
     mine,
     selfUids,
     /**
@@ -178,29 +295,70 @@ export function createIdealStore({
       const view = current();
       if (view) goal = judged(goal, view, bySpecies(view.pals), 'quiet');
       save(key, [goal, ...goals]);
+      // その種族の観測がなければ、今の組を覚える（登録した時点で作れても知らせない。前のウィッシュリストの追加と同じ）
+      const okey = obsScope();
+      if (okey && !loadObs(okey).species[goal.palId]) {
+        const next = latestObs(okey);
+        next.species[goal.palId] ??= firstObservation(pairsOf(goal.palId), store.state.serverTime);
+        saveObs(okey, next);
+      }
       return 'added';
     },
+    /** 外す。その種族の目標がほかになければ観測も消す（通知も消える）。戻すための { goal, index, observation } を返す */
     remove(id, key = scope()) {
       const goals = latest(key);
       const index = goals.findIndex((goal) => goal.id === id);
       if (index < 0 || store.state.renaming) return null;
-      save(key, goals.filter((goal, at) => at !== index));
-      return { goal: goals[index], index };
+      const goal = goals[index];
+      save(key, goals.filter((item, at) => at !== index));
+      let observation = null;
+      const okey = key === scope() ? obsScope() : '';
+      if (okey && !goals.some((item, at) => at !== index && item.palId === goal.palId)) {
+        const next = latestObs(okey);
+        observation = next.species[goal.palId] ?? null;
+        if (observation) {
+          delete next.species[goal.palId];
+          saveObs(okey, next);
+        }
+      }
+      return { goal, index, observation };
     },
-    // 外した時点の ID・環境に戻し、外している間に届いたデータで判定し直す。名前を変えた後や、同じ条件を登録し直した後は戻さない
-    restore(goal, index, key) {
+    // 外した時点の ID・環境に戻し（観測も戻す）、外している間に届いたデータで判定し直す。名前を変えた後や、同じ条件を登録し直した後は戻さない
+    restore(goal, index, key, observation = null) {
       if (!key || key !== scope() || store.state.renaming) return false;
       const goals = latest(key);
       if (goals.length >= GOAL_LIMIT || goals.some((item) => item.id === goal.id || goalKey(item) === goalKey(goal))) return false;
       save(key, [...goals.slice(0, index), goal, ...goals.slice(index)]);
+      const entry = cleanEntry(observation);
+      const okey = obsScope();
+      if (okey) {
+        const next = latestObs(okey);
+        if (!next.species[goal.palId]) {
+          next.species[goal.palId] = entry ?? firstObservation(pairsOf(goal.palId), store.state.serverTime);
+          saveObs(okey, next);
+        }
+      }
       observe();
+      observeRecords();
       return true;
     },
-    // 別のタブで書き換わったら読み直し、そのタブが古いデータで登録した分も判定する。
+    // 別のタブで書き換わったら読み直し、そのタブが古いデータで登録した分も判定する。観測のキー・前のウィッシュリストのキーにも反応する
     reload(key) {
+      if (typeof key !== 'string') return;
+      if (key.startsWith(`${namespace}.goalsObs.`)) {
+        if (obsCache.delete(key)) emit();
+        observeRecords();
+        return;
+      }
+      if (key.startsWith(`${namespace}.wishlist.`)) {
+        const { env, userId } = store.state;
+        if (scope() && key === wishlistKey(namespace, env, userIdKey(userId))) migrate(true);
+        return;
+      }
       if (!cache.delete(key)) return;
       emit();
       observe();
+      observeRecords();
     },
   };
 }
@@ -217,4 +375,38 @@ export function idealNotificationSource({ store, ideals }) {
       body: `「${goal.name}」の条件を満たす個体が${world.worldName ? `「${world.worldName}」` : ''}の所持パルにいます。`,
       href: buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id }),
     })));
+}
+
+/**
+ * 目標の種族の配合の登録の通知（前のウィッシュリストの通知。goals-merge）。id は前のウィッシュリストと同じ形
+ *（wishlist:<env>:<palId>:<readyAt>・wishlist:<env>:<palId>:<pair>:<at>）なので、既読はそのまま引き継がれる。
+ * 知らせるのは「種族だけの目標」がある種族だけ（観測はすべての目標の種族で持つが、パッシブつきの目標に通知を増やさない）。
+ * 文の親は登録済みの記録の親（配合表は使わない。INV-2）
+ */
+export function goalObservationSource({ store, ideals }) {
+  return () => {
+    const observations = ideals.observations();
+    const targets = new Set(ideals.list().filter(isSpeciesGoal).map((goal) => goal.palId));
+    return [...targets].flatMap((palId) => {
+      const entry = observations.species[palId];
+      if (!entry) return [];
+      const name = palName(palId);
+      const href = buildHash('search', { c: palId });
+      const pairText = (pair) => pair.split('|').map(palName).join('＋');
+      const ready = entry.readyAt ? [{
+        id: `wishlist:${store.state.env}:${palId}:${entry.readyAt}`,
+        date: entry.readyAt,
+        title: `${name}の配合が登録されました`,
+        body: entry.pairs?.length ? `${pairText(entry.pairs[0])} で作れます${entry.pairs.length > 1 ? `（ほか ${entry.pairs.length - 1} 組）` : ''}。` : '配合を探すで確認できます。',
+        href,
+      }] : [];
+      return [...ready, ...entry.found.map(({ pair, at }) => ({
+        id: `wishlist:${store.state.env}:${palId}:${pair}:${at}`,
+        date: at,
+        title: `${name}の配合が増えました`,
+        body: `${pairText(pair)} でも作れます。`,
+        href,
+      }))];
+    });
+  };
 }
