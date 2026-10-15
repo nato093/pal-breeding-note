@@ -22,11 +22,11 @@
 | 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 3 |
 | 1d | 6 | 74 | 6 |
-| 2 | 10 | 119 | 1 |
+| 2 | 10 | 119 | 2 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **22** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **23** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -581,20 +581,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 配合の画面に所持数を重ねる
 
-- 状態: 未着手 ／ ブランチ: `feature/owned-overlay` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/owned-overlay` ／ マージのコミット: （統合ブランチ `integrate/phase-2` へのマージ。下の「次にやること」）
 - 順番: 統合プランの表では goals-merge の後（5 番目）。register-dialog の参照列と goals-merge の目標の行がここで作る集計を使うため、find-merge の直後に移した（phase-2 の「テーマの順番」）
 
-- [ ] `core/owned.js` に `canBeParent`・`ownedCounts`・`canPairRecord` とテスト
-- [ ] `ui/owned-badge.js`（親・子の表示、所持パルへのリンク）
-- [ ] `breedingEquation`／`breedingCard` に `annotate` を足す
-- [ ] 配合を探すで所持パルを購読し、カードに重ねる
-- [ ] 「両親を所持している組を上へ」「今の所持で作れる」の切り替えと URL
-- [ ] 継承ルートの相手親の注記を ♂♀ の数とリンクに
-- [ ] 「N 通り」の中の所持順の並べ替え（安定ソート）
-- [ ] 経路の見出しのバッジと、同じ回数の中の並べ直し
-- [ ] 開始候補の運び手を `canBeParent` で絞り、0 件のときの添え書き
-- [ ] 既存テストの文言の更新（owned-view・owned）
-- [ ] OPERATIONS.md:97 の継承ルートの規則と release-notes
+- [x] `core/owned.js` に `canBeParent`・`ownedCounts`・`canPairRecord` とテスト
+- [x] `ui/owned-badge.js`（親・子の表示、所持パルへのリンク）
+- [x] `breedingEquation`／`breedingCard` に `annotate` を足す
+- [x] 配合を探すで所持パルを購読し、カードに重ねる
+- [x] 「両親を所持している組を上へ」「今の所持で作れる」の切り替えと URL
+- [x] 継承ルートの相手親の注記を ♂♀ の数とリンクに
+- [x] 「N 通り」の中の所持順の並べ替え（安定ソート）
+- [x] 経路の見出しのバッジと、同じ回数の中の並べ直し
+- [x] 開始候補の運び手を `canBeParent` で絞り、0 件のときの添え書き
+- [x] 既存テストの文言の更新（owned-view・owned）
+- [x] OPERATIONS.md:97 の継承ルートの規則と release-notes
 
 ### 23. [register-entry](phase-2-structure.md#register-entry-登録の入口と下書きの帯)（M）
 

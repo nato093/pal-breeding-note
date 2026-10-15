@@ -295,24 +295,44 @@
 - id: `<実装日>-owned-overlay`／title: 「配合に所持数を表示」（9 字）／body: 「配合のカードに親の所持数（♂♀）を出し、両親を所持している組を上へ並べられます。」（40 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モックに所持パルを注入して（フェーズ 0 の注入スクリプト）、配合を探すのカードに「♂n ♀m／未所持」が出る。切り替えで並びと件数が変わる。所持パルがないときは何も出ない。
-- [ ] 継承ルートの相手親の注記が「♂n ♀m」になり、「N 通り」の中で所持している相手親が先に来る。見出しに「相手親 n/m 段で所持」。
-- [ ] 所持パル 2,000 体で、配合を探すの条件を変えても入力が 100ms 以上止まらない（集計が毎回走っていない）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 組めるかは登録済みの記録の両親と所持パルだけで決め、`core/owned.js` は `core/ideal.js` を import しない（`test/import.test.js`）。`canBeParent` と `isParentCandidate` が同じ結果（テスト）。互換 — 継承ルートの数え方の変化を release-notes と `docs/OPERATIONS.md:97` に書いた。確認回数と相手親の除外は戻していない（判断事項 2）。セキュリティ — `test/static/security.test.js` が通る。性能 — 上の 2,000 体の確認。
+- [x] `npm test` が通る。
+- [x] モックに所持パルを注入して（フェーズ 0 の注入スクリプト）、配合を探すのカードに「♂n ♀m／未所持」が出る。切り替えで並びと件数が変わる。所持パルがないときは何も出ない。
+- [x] 継承ルートの相手親の注記が「♂n ♀m」になり、「N 通り」の中で所持している相手親が先に来る。見出しに「相手親 n/m 段で所持」。
+- [x] 所持パル 2,000 体で、配合を探すの条件を変えても入力が 100ms 以上止まらない（集計が毎回走っていない）。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 組めるかは登録済みの記録の両親と所持パルだけで決め、`core/owned.js` は `core/ideal.js` を import しない（`test/import.test.js`）。`canBeParent` と `isParentCandidate` が同じ結果（テスト）。互換 — 継承ルートの数え方の変化を release-notes と `docs/OPERATIONS.md:97` に書いた。確認回数と相手親の除外は戻していない（判断事項 2）。セキュリティ — `test/static/security.test.js` が通る。性能 — 上の 2,000 体の確認。
 
 ### TODO
-- [ ] `core/owned.js` に `canBeParent`・`ownedCounts`・`canPairRecord` とテスト
-- [ ] `ui/owned-badge.js`（親・子の表示、所持パルへのリンク）
-- [ ] `breedingEquation`／`breedingCard` に `annotate` を足す
-- [ ] 配合を探すで所持パルを購読し、カードに重ねる
-- [ ] 「両親を所持している組を上へ」「今の所持で作れる」の切り替えと URL
-- [ ] 継承ルートの相手親の注記を ♂♀ の数とリンクに
-- [ ] 「N 通り」の中の所持順の並べ替え（安定ソート）
-- [ ] 経路の見出しのバッジと、同じ回数の中の並べ直し
-- [ ] 開始候補の運び手を `canBeParent` で絞り、0 件のときの添え書き
-- [ ] 既存テストの文言の更新（owned-view・owned）
-- [ ] OPERATIONS.md:97 の継承ルートの規則と release-notes
+- [x] `core/owned.js` に `canBeParent`・`ownedCounts`・`canPairRecord` とテスト
+- [x] `ui/owned-badge.js`（親・子の表示、所持パルへのリンク）
+- [x] `breedingEquation`／`breedingCard` に `annotate` を足す
+- [x] 配合を探すで所持パルを購読し、カードに重ねる
+- [x] 「両親を所持している組を上へ」「今の所持で作れる」の切り替えと URL
+- [x] 継承ルートの相手親の注記を ♂♀ の数とリンクに
+- [x] 「N 通り」の中の所持順の並べ替え（安定ソート）
+- [x] 経路の見出しのバッジと、同じ回数の中の並べ直し
+- [x] 開始候補の運び手を `canBeParent` で絞り、0 件のときの添え書き
+- [x] 既存テストの文言の更新（owned-view・owned）
+- [x] OPERATIONS.md:97 の継承ルートの規則と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/owned-overlay`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の register-dialog・goals-merge・route-cleanup と、フェーズ 3 の route-progress・pal-detail はこちらを正とする）。
+
+1. **集計（手順 1）**: 文書のとおり core/owned.js に **`canBeParent(pal)`**（`Boolean(pal?.palId) && !pal.egg && pal.place !== 'global'`）・**`ownedCounts(pals) → Map<palId, { total, eggs, globals, male, female, unknown }>`**（total・eggs・globals は全個体、male・female・unknown は親にできる個体）・**`canPairRecord(counts, record)`** を足した。canPairRecord は「両親が同じ性別の記録（不正）は組めない」を同じ種族どうしの判定より先に見る（同じ種族の ♂♂ の記録でも組めない）。test/core/owned.test.js で `core/ideal.js` の `isParentCandidate` と全個体で同じ結果になることを確かめる（テストからは両方を読める）。
+2. **数え方の変更（手順 5。R-15）**: `ownedRouteStarts` の運び手と `partnerOwnership` を canBeParent で数える（前は運び手にタマゴ・グローバルを含め、相手親はグローバルを含めていた）。継承ルートの候補がないときの文は、パッシブを持つ個体のうち親にできない個体があれば「タマゴ・グローバルパルボックスの個体は含めていません。」を添える。`holderSummary` の「（タマゴ）」の分かれ道を消した。**運びたいパッシブの選択欄の数（`passiveCounts`。「所持パルが持っているもの（タマゴを含む）」）は変えていない**（route-cleanup で選択欄の形を変えるときに合わせる）。開始の X の所持個体の一覧（`carrierList`）もタマゴを含めたまま（route-cleanup で `ownedRow` に替える）。
+3. **印（手順 2）**: `web/js/ui/owned-badge.js` の **`ownedBadge(counts, palId, { role })`** と、カードの key に入れる **`ownedBadgeText(counts, palId, role)`**。**クラス名は `.owned-count`**（文書にない決め。所持パルの行の印にすでに `.owned-badge` があるため）。親: `a.owned-count`（`genderMark('M'|'F', { inline: true })` と数の `span.owned-count-num`。0 の性別も出す）、0 体は `span.owned-count.is-none`「未所持」（押せない）、親にできる個体がなければ `a.owned-count.is-blocked`「タマゴ等のみ」。子: 1 体以上のときだけ `a.owned-count.is-child`「所持 N」。title は「所持 N 体（うちタマゴ a・グローバルパルボックス b・性別不明 c は親にできません）」（親にできない個体があるときだけ括弧）。行き先は `#/owned?pal=<ID>`。
+4. **カード（手順 3）**: `breedingEquation(record, { …, annotate })`・`breedingCard(…, { annotate })` の `annotate(palId, role)` が要素を返せば `div.equation-slot` に タイル＋印 を入れる。CSS の `.breeding-equation > .pal-tile` の規則（36px・アイコン 34px・子の色）は `.equation-slot > .pal-tile` にも当てた（当てないとタイルが 64px の既定に戻り、カードが 120px になった）。印は名前の左端（左に 41px）にそろえる。カードの高さは 77px → 92px（8 文字以上の名前は 108px）。
+5. **配合を探す（手順 4）**: 所持パル（`context.owned.state.owned`）の同一性で `ownedCounts` を 1 回だけ作り、カードの item に `owned: ownedSig(record)`（3 体の `ownedBadgeText`）を足して key に入れる（数が変わったカードだけ作り直す）。`owned.subscribe` で `state.owned` が変わったら描き直し、開いたときに `owned.load()`。帯の 2 段目の `panelItem('所持', div.find-toggles)`（`role=group`。所持パルのデータがあるときだけ出す）に **「両親を持つ組を上へ」（`ownedfirst=1`）・「今の所持で作れる」（`make=1`）**（文書の「両親を所持している組を上へ」は帯に入るよう短くした。全文は title）。見た目は所持パルの場所のチップ（`.place-chip`。オンは地の色と ✓）。ownedfirst は `groupRecords` の後に群の中で組める記録を安定に先へ、make は組めて子を持っていない記録だけ。所持パルのデータがないときは URL にあっても効かない。make で 0 件のときは「今の所持パルで作れる配合はありません。」＋「「今の所持で作れる」を外す」。「条件をすべて解除」は make も外す（ownedfirst は並べ替えと同じく残す）。帯の高さは 104.88px のまま（2 段目に入る）。
+6. **継承ルート（手順 5）**: `statsOf(pals)`（`ownedBySpecies` と `ownedCounts` を所持パルのデータごとに 1 回）。注記は `span.route-owned-note` に「相手親の X: ♂n ♀m（うちパッシブ一致 M 体）」と `a.route-owned-link`「所持パルで見る」。未所持は「相手親の X: 未所持」（リンクなし）、親にできる個体がなければ「相手親の X: タマゴ等のみ（親にできる個体なし）」（`.unowned`）。並べ替えは `arrangeRoutes(routes, stats)`（findRoutes の結果は書き換えず写しを返す）: 「N 通り」の中を相手親を組める（親にできる ♂ か ♀ が 1 体以上）配合 → 組めない配合に安定に、経路は同じ長さの中だけ相手親を持っていない段の少ない順に。見出しのバッジは `routeView(routes, { annotate, badge })` の **`badge(route)`**（任意。返した要素を `div.route-card-head` に h2 と並べる。null なら今の形）で「相手親 n/m 段で所持」（全段なら `.is-all`）。
+7. **テスト**: 1,515 → 1,521 件（`npm test` exit 0）。足したもの: owned.test.js（canBeParent と isParentCandidate の突き合わせ・ownedCounts、canPairRecord）、views.test.js（所持の印・データの変化で描き直す・データがないとき何も出さない、切り替えの並びと絞り込みと 0 件の案内）、owned-view.test.js（N 通りの並び・タマゴ等のみ・見出しのバッジ）、route-view.test.js（badge）。書き換えたもの: owned.test.js の開始候補（タマゴの PinkCat を候補にしない・相手親にグローバルを数えない）、owned-view.test.js の相手親の注記の文。
+   - 全体のテストで 2 回、app.test.js の時刻か順番に依存するテスト（「同期状況を押すと…」「タブを切り替えても…」）が 1 回ずつ落ち、単独・ファイル単位で何度流しても通った（直前の find-merge の後にも 1 回）。フェーズの終わりにもう一度確かめる。
+8. **画面（モック・1100×900・所持パル 138 体を注入。`Claude outputs/ui-audit-2026-10/shots/find-merge/`）**: カードに「未所持」「♂3 ♀7」「所持 5」（`10-owned-badges-1100-light.png`）、帯に「所持 [両親を持つ組を上へ][今の所持で作れる]」。モックの配合は乱数で、組める記録がなかったので「今の所持で作れる」は 0 件の案内（`11-…`）。ダーク（`12-…`）。
+9. **性能**: `ownedCounts` は 2,000 体で 0.3ms・20,000 体で 2.6ms（所持パルのデータが変わったときだけ）、`canPairRecord` 5,000 回で 1.2〜1.5ms。条件を変えたときは数え直さない（`countsFor` の同一性）。
+10. **後のテーマへの申し送り**:
+    - register-dialog: 参照列の「所持 ♂n ♀m」は `ownedCounts` と `ownedBadge(counts, palId)`（または数だけなら `counts.get(id)` の male・female）。性別の押しボタンの既定を決めるなら canPairRecord の向きの決め方が使える。
+    - goals-merge: 目標の行の「所持 n 体（親になれる数）」は `ownedCounts` の total と male＋female。
+    - route-cleanup: 開始候補はもう親にできる個体だけ。運びたいパッシブの数（passiveCounts）と開始の X の所持個体の一覧はタマゴを含めたままなので、チップ・ownedRow に替えるときに数え方をそろえる。注記と見出しのバッジは views/route.js の `annotateFor`・`badgeFor`・`arrangeRoutes`。
+    - route-progress（3）: 相手親の「所持パルで見る」はドロワーにするときの入口。
 
 ---
 
