@@ -2803,6 +2803,46 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-goal:last-child { border-bottom: 0; }
 .ideal-goal-title { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
 .ideal-goal-title > .pal-tile { flex: none; }
+/* 目標の行の絵は 36px だけ（名前は目標の名前の 1 回。goals-detail の I-22）。完成済みは下に薄く、状態を押すと所持パル */
+.ideal-goal-title > .pal-icon { flex: none; width: 36px; height: 36px; }
+.ideal-goal.done { opacity: .72; }
+.ideal-goal.done:focus-within, .ideal-goal.done:hover { opacity: 1; }
+.ideal-goal-found { text-decoration: none; }
+.ideal-goal-found:hover .ideal-goal-status { text-decoration: underline; }
+.ideal-goal-gap { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+/* 所持パルの図鑑順の種族の見出し（views/owned.js の speciesHead。F068）。高さは 40px に固定 */
+.owned-species {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px 0 4px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+}
+.owned-species-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.owned-species-toggle::before { content: ''; flex: none; border-style: solid; border-width: 5px 0 5px 7px; border-color: transparent transparent transparent currentColor; transform: rotate(90deg); }
+.owned-species-toggle[aria-expanded="false"]::before { transform: none; }
+.owned-species-toggle:hover { background: var(--state-hover); }
+.owned-species-toggle .pal-icon { width: 24px; height: 24px; }
+.owned-species-name { font-size: 13px; white-space: nowrap; }
+.owned-species-facts { font-size: 12px; color: var(--md-sys-color-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owned-species-links { display: flex; gap: 10px; flex: none; font-size: 12px; }
+.owned-fold-all { flex: none; }
 .ideal-goal-summary { min-width: 0; }
 /* 状態のチップ。「完成済み: Alice · パルボックス 2 ページ・1 行 2 列」のように長いことがあるので、列の幅で折り返す */
 .ideal-goal-status { white-space: normal; overflow-wrap: anywhere; }

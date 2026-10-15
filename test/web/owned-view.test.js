@@ -351,11 +351,13 @@ test('所持パル画面: 人間のキャラクターはゲームの名前とア
   const humans = [{ instanceId: 'h', characterId: 'BOSS_Believer_CrossBow', gender: 'Male', passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1 } }];
   const data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: [...humans, ...many] } };
   const view = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
-  // 先頭の 200 行をすぐ出し、残りは区切って足す（途中で止めず、もっと見るもない）
-  assert.equal(view.element.querySelectorAll('.owned-row').length, 200);
+  // 先頭の 200 行（図鑑順なので種族の見出しの行を含む。goals-detail の F068）をすぐ出し、残りは区切って足す（途中で止めず、もっと見るもない）
+  assert.equal(view.element.querySelectorAll('.owned-row').length + view.element.querySelectorAll('.owned-species').length, 200);
   t.mock.timers.runAll();
   const rows = view.element.querySelectorAll('.owned-row');
   assert.equal(rows.length, 251);
+  // 種族の見出しはモコロンと、パル以外（人間）の 2 つ
+  assert.deepEqual(view.element.querySelectorAll('.owned-species-name').map((node) => node.textContent), ['No.1 モコロン', 'パル以外（人間など）']);
   assert.equal(view.element.querySelectorAll('.load-more').length, 0);
   const human = rows.find((row) => /賞金首 エゴ/.test(row.textContent));
   assert.ok(human);
@@ -1680,7 +1682,7 @@ test('所持パル画面: 絞り込みは sticky のパネル（2 段＋状態�
   assert.ok(panel.querySelector('.owned-status-row').querySelector('.result-note'));
   // 状態の行は [件数][条件のチップ][+n][目標の印][すべて解除][並べ替え]（D31 で「リンクをコピー」は機能ごとなくした）
   assert.deepEqual(panel.querySelector('.owned-status-row').children.map((node) => node.className.split(' ').at(-1)),
-    ['owned-count', 'filter-chips', 'filter-more-slot', 'owned-marks-toggle', 'owned-reset', 'owned-sort-field']);
+    ['owned-count', 'filter-chips', 'filter-more-slot', 'owned-marks-toggle', 'owned-reset', 'owned-fold-all', 'owned-sort-field']);
   assert.doesNotMatch(view.element.textContent, /リンクをコピー/);
   observer.resize(panel, 172.5);
   // 見出しの置き方（D28。理想個体のパネルと同じ部品・同じ決まり）: 1 段目は入力の上の見出しの行（field-head）。パッシブの条件はパッシブの見出しの
@@ -2583,7 +2585,8 @@ test('所持パル画面: 行の高さが切り替わったとき、一覧の先
 test('所持パル画面: 2,000 行を超えて見えている範囲だけ描くときも、行の高さを切り替えたら覚えた高さを捨てて見積もりを変える（D25）', (t) => {
   installDom(t);
   const goals = goalsStore([]);
-  const view = ownedView({ ...memoryApp(fakeOwned(manyData(2100))), ideals: goals.ideals }, parseHash('#/owned'));
+  // 図鑑順以外（種族の見出しの行を混ぜない）で、行の数をそのまま数える
+  const view = ownedView({ ...memoryApp(fakeOwned(manyData(2100))), ideals: goals.ideals }, parseHash('#/owned?sort=level'));
   const list = view.element.querySelector('.owned-list');
   assert.ok(list.className.split(' ').includes('is-virtual'));
   // 上下の余白の合計 = 描いていない行の数 × 見積もり（偽の DOM の行には高さがないので、どの行も見積もりのまま）
@@ -3191,4 +3194,43 @@ test('1 種族の所持個体（species。ドロワーの中身）: 親にでき
   const none = speciesOwnedPanel(context(fakeOwned()), 'Anubis', { passives: ['Rare'] });
   assert.equal(none.element.querySelector('.species-owned-summary').textContent, '所持していません。');
   none.destroy();
+});
+
+test('所持パル画面（種族の見出し）: 図鑑順のときだけ種族の見出し（数・♂♀・タマゴ・最高 Lv と行き先）を混ぜ、畳むと個体の行が消えて viewState に残る。「種族を畳む／開く」', (t) => {
+  installDom(t);
+  const memory = {};
+  const app = { ...context(fakeOwned()), viewState: () => memory, replace: () => {} };
+  const view = ownedView(app, parseHash('#/owned?holder='));
+  const heads = () => view.element.querySelectorAll('.owned-species');
+  assert.ok(heads().length >= 2);
+  assert.equal(heads()[0].querySelector('.owned-species-name').textContent, 'No.1 モコロン');
+  const sheep = heads()[0];
+  assert.match(sheep.querySelector('.owned-species-facts').textContent, /^1 体 · ♂0 ♀1 · 最高 Lv 12$/);
+  assert.deepEqual(sheep.querySelectorAll('a').map((node) => node.href), ['#/ideal?to=SheepBall', '#/route?to=SheepBall', '#/search?c=SheepBall']);
+  const toggle = sheep.querySelector('.owned-species-toggle');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  const rowsOf = (palId) => view.element.querySelectorAll('.owned-row').filter((row) => row.getAttribute('data-instance') === 'a').length;
+  assert.equal(rowsOf('SheepBall'), 1);
+  toggle.dispatch('click');
+  assert.equal(rowsOf('SheepBall'), 0);
+  assert.equal(heads()[0].querySelector('.owned-species-toggle').getAttribute('aria-expanded'), 'false');
+  assert.deepEqual(memory.collapsed, ['SheepBall']);
+  view.destroy();
+  // 作り直しても畳んだまま（タブを替えて戻ったとき）。「種族を開く／畳む」
+  const again = ownedView(app, parseHash('#/owned?holder='));
+  assert.equal(again.element.querySelectorAll('.owned-row').filter((row) => row.getAttribute('data-instance') === 'a').length, 0);
+  const fold = again.element.querySelector('.owned-fold-all');
+  assert.equal(fold.hidden, false);
+  assert.equal(fold.textContent, '種族を畳む');
+  fold.dispatch('click');
+  assert.equal(again.element.querySelectorAll('.owned-row').length, 0);
+  assert.equal(fold.textContent, '種族を開く');
+  fold.dispatch('click');
+  assert.ok(again.element.querySelectorAll('.owned-row').length > 0);
+  again.destroy();
+  // 図鑑順以外では見出しを出さない
+  const byLevel = ownedView(app, parseHash('#/owned?holder=&sort=level'));
+  assert.equal(byLevel.element.querySelectorAll('.owned-species').length, 0);
+  assert.equal(byLevel.element.querySelector('.owned-fold-all').hidden, true);
+  byLevel.destroy();
 });

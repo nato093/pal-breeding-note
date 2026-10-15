@@ -12,7 +12,8 @@ import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/p
 import { talentInput } from '../ui/talent-input.js';
 import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
-import { goalMatches, eggMatches, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
+import { goalMatches, eggMatches, goalNearest, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
+import { goalOwnedHash } from '../ideals.js';
 import { passiveCounts, ownedCounts, ownedRouteStarts } from '../core/owned.js';
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
@@ -191,13 +192,28 @@ function goalSummary(goal) {
  * 一覧での完成の状態（自分の個体で判定する）。所持パルのデータがない・自分のプレイヤーが分からないときは、
  * 完成していないとは言えないので「未確認」にする。理由は行ごとに繰り返さず、目標のダイアログの表の上に 1 回だけ出す（goalsReason。roles。C-06）
  */
-// all は全部の個体（孵化待ちのタマゴを数える。自分の個体のタマゴと、拠点に置かれた持ち主のないタマゴ。farm-board）
+// all は全部の個体（孵化待ちのタマゴを数える。自分の個体のタマゴと、拠点に置かれた持ち主のないタマゴ。farm-board）。
+// 未完成なら gap に、いちばん近い自分の個体との差（「パッシブ 3/4 · 攻撃あと 8」。同じ種族がいなければ「未所持」。goals-detail の I-24）
+const GAP_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
+function goalGap(goal, pals) {
+  const near = goalNearest(goal, pals);
+  if (!near) return '未所持';
+  const parts = [];
+  if (near.passives.total) parts.push(`パッシブ ${near.passives.have}/${near.passives.total}`);
+  const shorts = GOAL_STATS.filter((key) => near.short[key] > 0).map((key) => `${GAP_LABELS[key]}あと ${near.short[key]}`);
+  if (shorts.length) parts.push(...shorts);
+  else if (GOAL_STATS.some((key) => goal.targets[key] > 0)) parts.push('個体値は届いています');
+  if (near.extra) parts.push(`余計なパッシブ ${near.extra}`);
+  return parts.join(' · ');
+}
 function goalStatus(goal, pals, all = null) {
-  if (pals === undefined || pals === null) return { done: false, text: '未確認' };
+  if (pals === undefined || pals === null) return { done: false, text: '未確認', unknown: true };
   const found = goalMatches(goal, pals);
   if (!found.length) {
     const hatching = all ? eggMatches(goal, all, pals).length : 0;
-    return { done: false, text: hatching ? `未完成（孵化待ちに ${hatching} 個）` : '未完成', hatching };
+    // 種族だけの目標は、持っていれば完成なので差は「未所持」だけ
+    const gap = isSpeciesGoal(goal) ? '未所持' : goalGap(goal, pals);
+    return { done: false, text: hatching ? `未完成（孵化待ちに ${hatching} 個）` : '未完成', hatching, gap };
   }
   const [first] = found;
   const where = `${first.holder} · ${first.placeLabel}`;
@@ -536,10 +552,17 @@ export function idealView(context, route) {
     const facts1 = el('div', 'ideal-goal-facts');
     facts1.append(records, holding);
     nameCell.append(facts1);
-    title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), nameCell);
+    // 絵だけ（36px。目標の名前にパル名が入るので、名前を 2 回出さない。I-22）
+    const master = palsById.get(goal.palId);
+    title.append(master ? palIcon(master) : el('span', 'muted', goal.palId), nameCell);
     const state = statusChip('', 'neutral', 'ideal-goal-status');
     const stateCell = el('div', 'ideal-goal-state');
-    stateCell.append(state);
+    // 完成済みは、状態を押すと所持パルでその個体を開く（目標の種族とパッシブ・タマゴ以外の全部の場所。I-25）
+    const found = link('', goalOwnedHash(goal), 'ideal-goal-found');
+    found.title = '所持パルで完成した個体を見る';
+    found.addEventListener('click', () => goalsModal?.close());
+    const gap = el('small', 'ideal-goal-gap');
+    stateCell.append(state, gap);
     const recall = link('呼び出す', goalHash(goal), 'button secondary small');
     // 一覧を合わせ直しても、押した「呼び出す」にフォーカスを戻す（ui/dom.js の syncList・ui/focus.js）
     recall.setAttribute('data-focus-key', `goal:${goal.id}`);
@@ -557,8 +580,14 @@ export function idealView(context, route) {
       if (holding.textContent !== holdText) holding.textContent = holdText;
       holding.hidden = !holdText;
       row.classList.toggle('done', item.status.done);
-      setChipTone(state, item.status.done ? 'ready' : 'neutral');
+      setChipTone(state, item.status.done ? 'ready' : item.status.unknown ? 'warning' : 'neutral');
       if (state.textContent !== item.status.text) state.textContent = item.status.text;
+      // 完成済みは状態のピルをリンクの中へ（押すと所持パル）。それ以外はふつうのピル
+      if (item.status.done && state.parentElement !== found) { found.append(state); stateCell.insertBefore(found, gap); }
+      if (!item.status.done && state.parentElement === found) { stateCell.insertBefore(state, found); found.remove(); }
+      const gapText = item.status.gap ?? '';
+      if (gap.textContent !== gapText) gap.textContent = gapText;
+      gap.hidden = !gapText;
     };
     update({ status, facts });
     return { element: row, update };
@@ -611,10 +640,17 @@ export function idealView(context, route) {
   function renderGoals() {
     if (!ideals) return;
     const goals = ideals.list();
-    const count = `目標（${goals.length}）${ideals.saveFailed ? '!' : ''}`;
+    // 完成の数（表示しているワールドで完成済みの目標。レールの「完成 n」と同じ数え方）。自分のプレイヤー・所持パルが分からない（未確認）ときは出さない
+    const doneWorld = ownedWorldId(owned?.state?.meta?.worldId);
+    const mine = ideals.mine();
+    const doneCount = doneWorld && mine ? goals.filter((goal) => goal.worlds?.[doneWorld]?.complete).length : null;
+    const count = `目標（${goals.length}${doneCount === null ? '' : ` · 完成 ${doneCount}`}）${ideals.saveFailed ? '!' : ''}`;
     if (goalsButton.textContent !== count) goalsButton.textContent = count;
     goalsButton.title = ideals.saveFailed ? 'この端末に保存できませんでした' : '';
     if (!goalsModal) return;
+    const title = goalsModal.dialog.querySelector('h2');
+    const titleText = `目標（${goals.length} 件${doneCount === null ? '' : ` · 完成 ${doneCount}`}）`;
+    if (title && title.textContent !== titleText) title.textContent = titleText;
     goalsWarning.hidden = !ideals.saveFailed;
     const migration = ideals.migration?.() ?? { status: 'none' };
     migrationNote.hidden = !['partial', 'failed'].includes(migration.status);
@@ -638,8 +674,8 @@ export function idealView(context, route) {
       goal, status: goalStatus(goal, pals, owned?.state?.owned?.pals ?? null),
       facts: { records: index ? findByChild(index, goal.palId).length : 0, holding: holdingOf(goal.palId) },
     }));
-    // 完成済みを上に（それぞれ保存の新しい順）
-    const ordered = [...rows.filter((item) => item.status.done), ...rows.filter((item) => !item.status.done)];
+    // 未完成（まだ作るもの）を上に、完成済みは下に薄く（それぞれ保存の新しい順。判断事項 8・I-21）
+    const ordered = [...rows.filter((item) => !item.status.done), ...rows.filter((item) => item.status.done)];
     syncList(goalsList, ordered, {
       key: (item) => item.goal.id, create: goalRow, fallbackFocus: goalsClose,
       empty: () => el('li', 'muted ideal-goal-empty', '目標はまだありません。条件を選んで「☆ 目標に保存」を押すか、パル詳細の「☆ 目標に保存」から足すと、完成や配合の登録をベルで知らせます。'),

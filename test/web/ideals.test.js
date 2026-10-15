@@ -83,7 +83,8 @@ test('理想個体の登録: 登録した時点で完成していても知らせ
   const [notice] = notices();
   assert.equal(notice.title, '理想個体が完成しました');
   assert.equal(notice.body, '「モコロン理想」の条件を満たす個体が「テスト」の所持パルにいます。');
-  assert.equal(notice.href, `#/ideal?to=SheepBall&p=Rare&g=id-1`);
+  // 行き先は完成した個体のいる所持パル（目標の種族とパッシブ・タマゴ以外の全部の場所。id と本文は変えない。goals-detail）
+  assert.equal(notice.href, '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdps%2Cglobal%2Cunknown');
   assert.match(notice.id, new RegExp(`^ideal:test:id-1:${WORLD_A}:`));
 });
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanGoal, parseGoals, goalKey, goalMatches, eggMatches, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
+import { cleanGoal, parseGoals, goalKey, goalMatches, eggMatches, goalNearest, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const talent = (hp = 0, shot = 0, defense = 0) => ({ hp, shot, defense });
@@ -225,4 +225,30 @@ test('孵化待ち（eggMatches）: 目標の条件を満たすタマゴだけ�
   // 完成の判定はタマゴを数えないまま
   assert.deepEqual(goalMatches(goal(), pals).map((item) => item.id), ['done']);
   assert.deepEqual(eggMatches({ ...goal(), palId: '' }, pals), []);
+});
+
+test('近い個体（goalNearest）: 欲しいパッシブの数 → 足りない個体値の合計 → ID の順で選び、目標 0 の能力は不足 0、タマゴは選ばず、同じ種族がいなければ null', () => {
+  const pals = [
+    pal('b', 'X', 'M', ['P1'], talent(100, 92, 100)),
+    pal('a', 'X', 'F', ['P1'], talent(100, 92, 100)),
+    pal('c', 'X', 'M', ['P1', 'P2'], talent(50, 50, 50)),
+    pal('egg', 'X', '', ['P1', 'P2'], talent(100, 100, 100), { egg: true }),
+    pal('y', 'Y', 'M', ['P1', 'P2'], talent(100, 100, 100)),
+  ];
+  // パッシブを 2 つ持つ c が先（個体値の不足は多くても）
+  const near = goalNearest(goal(), pals);
+  assert.equal(near.pal.id, 'c');
+  assert.deepEqual(near.passives, { have: 2, total: 2 });
+  assert.deepEqual(near.short, { hp: 50, shot: 50, defense: 50 });
+  assert.equal(near.extra, 0);
+  // c がいなければ、パッシブの数が同じ a・b のうち不足の少ない方、同じなら ID の小さい a
+  const tie = goalNearest(goal(), pals.filter((item) => item.id !== 'c'));
+  assert.equal(tie.pal.id, 'a');
+  assert.deepEqual(tie.short, { hp: 0, shot: 8, defense: 0 });
+  // 目標 0（条件なし）の能力は不足 0
+  assert.deepEqual(goalNearest(goal({ targets: { hp: 0, shot: 100, defense: 0 } }), [pals[0]]).short, { hp: 0, shot: 8, defense: 0 });
+  // 「欲しいものだけ」の余計なパッシブの数
+  assert.equal(goalNearest(goal({ mode: 'only', passives: ['P1'] }), [pals[2]]).extra, 1);
+  // 同じ種族がいない（タマゴだけ）なら null
+  assert.equal(goalNearest(goal(), [pals[3], pals[4]]), null);
 });

@@ -868,7 +868,8 @@ test('画面: パル詳細の「☆ 目標に保存」で種族だけの目標�
   changeHash('#/wishlist');
   assert.equal(location.hash, '#/ideal');
   const dialog = find((node) => node.tagName === 'dialog' && node.open);
-  assert.equal(dialog.querySelector('h2').textContent, '目標');
+  // 見出しに件数（完成の数は、所持パルのデータがない〔未確認〕ので出さない。goals-detail）
+  assert.equal(dialog.querySelector('h2').textContent, '目標（1 件）');
   const row = dialog.querySelector('.ideal-goal');
   assert.match(row.textContent, /パルだけ/);
   assert.match(row.querySelector('.ideal-goal-records').textContent, /^配合: 登録済み 1 件/);
