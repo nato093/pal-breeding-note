@@ -1588,27 +1588,72 @@
 - パルリバーサーの案内（D17）は機能が別なので 2 件目を足す: id `YYYY-MM-DD-gender-reverse`、title「パルリバーサーで速くなる組」（13 字）、body「性別を変えると完成が1割以上早まる個体を、パルリバーサーの案内として理想個体に出します。」（44 字）。
 
 ### 完了の条件
-- [ ] `npm run extract:implants` で 54 行を取り出し、パッシブ ID がすべて `passives.js` にある。SOURCES.md に出典を書いた。
+- [x] `npm run extract:implants` で 54 行を取り出し、パッシブ ID がすべて `passives.js` にある。SOURCES.md に出典を書いた。
 - [ ] `npm test` が通る（タマゴの場所の判定の回帰を含む）。`npm run test:perf` で計画（`idealPlan`）の値が変わらず、足したパルリバーサーの案内の性能テストが予算内。
 - [ ] 実セーブ（ホストの画面）で、ダイヤモンドボディを欲しいパッシブにすると「パル手術台で付けられます（使い切りインプラント：ダイヤモンドボディ）· 在庫 5（拠点 1 の箱）」が出る。伝説は「手術台では付けられません」。
-- [ ] 「手術で付ける分を除いて計画する」で、帯つきの計画に移り、「手術を含めずに計画する」で戻れる。
+- [x] 「手術で付ける分を除いて計画する」で、帯つきの計画に移り、「手術を含めずに計画する」で戻れる。
 - [ ] 性別を変えると 1 番より 1 割以上早く完成する個体がいる目標で、パルリバーサーの案内が上位 3 体＋「ほか n 体」で出る（完全体作成組がない目標では、完全体作成組ができるときに出る）。「パルリバーサーを使わずに作る」で消え、計画の一覧は変わらない。「非表示にした…を戻す」で戻る（D17）。
-- [ ] 目標の一覧で「手術で完成できる」が出て、ベルは鳴らない。
+- [x] 目標の一覧で「手術で完成できる」が出て、ベルは鳴らない。
 - [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 手術台の表から配合の値を取り込まず、理想個体の配合の候補は今までどおり。計画の既定は配合だけ（判断事項 3）。互換 — `s` のない URL・`items` のない古いスナップショット・参加者では今の表示のまま。セキュリティ — アイテム名は textContent（`test/static/security.test.js`）。性能 — 上の `test:perf` の確認。
 
 ### TODO
-- [ ] `scripts/extract-implants.mjs` で手術台の表を取り出し、`web/data/implants.js` を生成（パッシブ ID の照合）
-- [ ] SOURCES.md に出典と INV-2 の注記
-- [ ] `web/js/core/implants.js`（`implantOf`・`goalNear`）
-- [ ] 在庫の読み取り（拠点の箱・ギルド保管庫・Essential。ワールドの宝箱は除く）と `itemStock`
-- [ ] タマゴの場所の判定の回帰テスト
-- [ ] 理想個体の足りないパッシブに手術台の案内と在庫（文言の変更とテストの更新）
-- [ ] 「手術で付ける分を除いて計画する」のリンク・`s` の検証・帯・目標の保存の扱い
+- [x] `scripts/extract-implants.mjs` で手術台の表を取り出し、`web/data/implants.js` を生成（パッシブ ID の照合）
+- [x] SOURCES.md に出典と INV-2 の注記
+- [x] `web/js/core/implants.js`（`implantOf`・`goalNear`）（→ 数え上げは core/ideal-goals.js の `goalProgress` の `canAdd` と `goalAddable`）
+- [x] 在庫の読み取り（拠点の箱・ギルド保管庫・Essential。ワールドの宝箱は除く）と `itemStock`（→ 所持品は全部の入れ物。`stockText`）
+- [x] タマゴの場所の判定の回帰テスト
+- [x] 理想個体の足りないパッシブに手術台の案内と在庫（文言の変更とテストの更新）（→ 警告の文は route-progress の後の文のまま）
+- [x] 「手術で付ける分を除いて計画する」のリンク・`s` の検証・帯・目標の保存の扱い
 - [ ] パルリバーサーの案内の計算（`core/ideal.js`。新しくできる組だけを見る・総当たりと一致するテスト・性能テスト）
 - [ ] パルリバーサーの案内の表示（上位 3 体＋ほか n 体・「パルリバーサーを使わずに作る」・戻すリンク）と、消した記録の保存（この端末だけ・data-boundary・user-rename）
-- [ ] 継承ルートの手術台の 1 行
-- [ ] 目標の一覧の「手術で完成できる」（ベルは鳴らさない）
-- [ ] 計算のしくみの 1 文（D30 で計算のしくみはなくしたので不要）・OPERATIONS.md:122 の直し・SAVE_FORMAT.md・release-notes
+- [x] 継承ルートの手術台の 1 行
+- [x] 目標の一覧の「手術で完成できる」（ベルは鳴らさない）
+- [x] 計算のしくみの 1 文（D30 で計算のしくみはなくしたので不要）・OPERATIONS.md:122 の直し・SAVE_FORMAT.md・release-notes（→ パルリバーサーの OPERATIONS.md と release-notes の 2 件目は後半）
+
+### 実装の記録（2026-10-16、ブランチ `feature/implants`）
+
+前半（パル手術台の表・在庫・案内。手順 1〜5・7・8・9）の記録。手順 6（パルリバーサーの案内。D17）は後半の担当が同じブランチで入れる（下の 15「後半の担当への申し送り」）。文書の file:line は関数名・文字列で探し直した。細かな UI はユーザーの指示（D27）のとおり聞かずに決めた（下の 9）。ゲーム本体は v1.0.5 を読み取りだけで使った。
+
+1. **ユーザーの決定（2026-10-15。親のセッションで確かめた）**: 手術台の表とアイテム名はゲーム本体から取り出す（`scripts/extract-implants.mjs`・npm の `extract:implants`・生成物 `web/data/implants.js`。data/SOURCES.md に出典の行・INV-2 の 1 文・変更記録）。在庫はホストの画面だけ（共有しない）。消したパルリバーサーの案内の記録はこの端末だけ（後半）。
+2. **手術台の表（手順 1）**: `npm run extract:implants -- "<インストール先>" --game-version=v1.0.5`。`scripts/extract-implants.mjs` の **`buildImplants(rows, itemNames, passiveIds)`**（行 → `{ passiveId, item, itemName, kind }`。アイテムなし → `free`、`PalPassiveSkillChange_Consumable_*` → `consumable`、`PalPassiveSkillChange_*` → `reusable`。パッシブ ID は passives.js の書き方にそろえる。passives.js にないパッシブ・知らない形のアイテム・名前のないアイテム・同じパッシブの 2 行目で**止まる**）と **`implantsModule(list, genderReverseName, { version, date })`**。`readDataTable` の `keep` は `PassiveSkill`・`RequireItemId` だけ（`Price` は読み進めるためだけに読んで捨てる。INV-2）。v1.0.5 で 54 行（アイテム不要 19・インプラント 14・使い切り 21）、パッシブ ID はすべて passives.js にあった。文書と違う形にしたこと: 生成物にパルリバーサーの名前 **`GENDER_REVERSE_NAME`**（「パルリバーサー」。`ITEM_NAME_PalGenderReverse`）も書いた（後半の案内の文に使う。名前がなければ止まる）。ゲームの版は pak から読めないので引数 `--game-version=` で渡し、生成物の先頭のコメントに版と取り出した日（この PC の日付）を書く。
+3. **判定の関数（手順 2）**: `web/js/core/implants.js`（DOM に触れない。import は `../../data/implants.js`・`./ideal-goals.js`・`./boundary.js` だけ。test/import.test.js が固定）: **`implantOf(passiveId)`**（`{ item, itemName, kind }`〔凍結〕| null）・**`canImplant(passiveId)`**・**`implantNeed(passiveId)`**（「使い切りインプラント：神速」「インプラント：脳筋」「インプラント不要」、付けられなければ ''）・**`IMPLANT_KINDS`**（種類の呼び名）・**`goalNear(goal, pals)`**（`{ pal, add }[]`）・**`cleanSurgery(value, wanted)`**（URL の `s` の確かめ。下の 6）。
+   - `goalNear` の数え上げは core/ideal-goals.js に置いた（文書の「goalProgress の索引と合わせる」）: 種族の索引の数え上げ（`scanOf`）を goalProgress と共有し、**`goalProgress(goal, pals, { canAdd })`** は手術で完成できる個体の**いちばん良い 1 体と数** `addable: { pal, add, count } | null` を同じ数え上げで返し、全部の並びは **`goalAddable(goal, pals, canAdd)`**（core/implants.js の goalNear が `canImplant` を渡す。ideal-goals.js は表を知らない）。1 体と数にしたのは、手術で付けられるパッシブだけの目標 100 件 × 同じ種族 20,000 行で全部を並べると 約 0.75 秒止まったため（1 体と数なら 45〜53ms。owned.perf.js に足した）。
+   - 条件は文書のとおり（種族・タマゴでない・個体値の目標・足りないパッシブ 1 個以上がすべて付けられる・「欲しいものだけ」は余計なパッシブ ≤ 足りない数・付けた後の数 ≤ 4〔持っている数＋足りない数−上書きする余計な数。「全部持つ」は余計なものへも上書きできるので、欲しいものが 4 個までならいつも収まる〕）。付けられないパッシブがあれば、それを持つ個体の一覧から引いて数えて確かめる。並びは付ける数の少ない順 → Lv の高い順 → 個体 ID（文書になかったので決めた）。
+4. **在庫の読み取り（手順 3。ホストだけ）**: save-extras の「実装の記録」13 の読み方のとおり。
+   - `parseLevel`: 牧場のケーキと同じスロットのループで、`PalPassiveSkillChange_*`・`PalGenderReverse` を入れ物ごとに数える（`itemCounts`。0 個のスロットは数えない）。**文書と違う形**: 数えた入れ物の持ち主は、タマゴの持ち主（`containerOwners`）の条件を広げずに、**別の `itemOwners`**（`{ mapObjectId, baseCampId }`）に同じ MapObject のループで取った（タマゴの場所の判定は前と同じ入れ物・同じ順で決まることを、コードの形で保証するため）。
+   - `buildSnapshot`: ギルド保管庫・プレイヤーの所持品（`InventoryInfo` の全部の入れ物）・`baseCampId` のある MapObject（拠点の箱 `ItemChest*`・配合牧場 `BreedFarm`・ほかの設備）だけを合わせ、拠点の外の宝箱（`baseCampId` が空）と持ち主の分からない入れ物は数えない。**文書と違う形**: スナップショットの `items` は **`[{ itemId, count, where: 'base'|'guild'|'player', id, object: 'chest'|'farm'|'other'|'' }]`**（文書は `{ [staticId]: { total, places: [{ label, count }] } }`）にし、呼び名は `normalizeOwned` が付ける（拠点の番号・ギルドが複数のときのギルド名・プレイヤー名は画面の側の `baseLabel`・`playerName` で決まるため）。
+   - 画面: `normalizeOwned` の **`items: { 〈アイテム ID〉: { total, places: [{ label, count }] } } | null`**（場所は数の多い順に 3 つまで。在庫を読む前のスナップショットは null。アイテム ID は在庫の形〔`PalPassiveSkillChange_*`・`PalGenderReverse`〕だけを受け、`__proto__` などは捨てる。大文字小文字の違う同じアイテムは合わせ、表の ID は最初に見えた書き方。入れ物の種類は知っている名前の文字列だけ〔ほかは「設備」〕）、`ownedFromShared` は `items: null`。**`itemStock(owned, itemId)`**（大文字小文字は問わない。読んだデータにないアイテムは `{ total: 0, places: [] }`＝在庫なし。null は分からない）と **`stockText(stock, { short })`**（「在庫 5（拠点 1 の箱）」「在庫 7（拠点 1 の箱 5・ギルド保管庫 2）」〔2 か所まで・残りは「ほか」〕「在庫なし」、short は「在庫 5」）は core/owned.js。呼び名は「拠点 1 の箱」「拠点 1 の配合牧場」「拠点 1 の設備」「ギルド保管庫」「Alice の所持品」。**文書の「Alice の重要アイテム」は「所持品」にした**（`Essential` がゲームのどの欄かを確かめていないため、プレイヤーの入れ物は全部「所持品」）。
+   - `check:save` の通常の出力に 1 行「アイテムの在庫（インプラント・パルリバーサー。拠点の外の宝箱は数えない）: 321 個・31 種（うちパルリバーサー 12 個）」（手元のワールド。拠点の箱 288・拠点の設備 8・ギルド保管庫 12・所持品 13）。
+   - タマゴの場所の回帰: 合成のセーブ（test/save/implants-stock.test.js。同じ箱にタマゴとインプラント・拠点の外の宝箱にタマゴとパルリバーサー・所持品にタマゴ）で、在庫のアイテムのないワールドと個体・統計・牧場が同じ。手元のワールド 4 つで、前の版（HEAD の web/js/save を scratchpad に写した）とスナップショットの個体・統計・牧場が同じ（scratchpad の `implants-check/scripts/compare.mjs`）。解析の時間は前の版と交互に 12 回ずつの中央値で 625 → 615 ms（1,558 体）・115 → 114 ms（1,032 体）＝揺れの範囲（docs/SAVE_FORMAT.md の「アイテムの在庫」）。
+5. **理想個体の足りないパッシブ（手順 4）**: `renderMissing` の警告（route-progress の後の文「〈チップ〉 を持つ親の候補がいません。いまは個体値厳選組だけを出しています。」のまま。「別に手に入れてください」は使わない）の下に `ul.ideal-surgery-list`、足りないパッシブごとに `li.ideal-surgery-item`（`surgeryItem(id)`）: 「[チップ]: パル手術台で付けられます（[16px のアイコン]使い切りインプラント：神速） · 在庫 5（拠点 1 の箱）」。アイテムのない行は「（インプラント不要）」（在庫なし）、使い切りでないインプラントは「（インプラント：脳筋。1 個あれば何度でも使えます）」、0 個は「 · 在庫なし」、分からない（参加者・在庫を読む前のデータ）ときは在庫を添えない。手術台の表にないもの（伝説など）は `li.ideal-surgery-item.is-none`「[チップ]: 手術台では付けられません」。運ぶ経路のボタン・`span.ideal-carry.is-none` はその下に今どおり並べる。在庫は描き直しの署名（`displayKey`）に入れた（在庫だけが変わった読み直しでも描き直す）。
+6. **手術分を除いて計画する（手順 5）**: 足りないパッシブのうち手術台で付けられるものがあれば、案内の下に `a.ideal-surgery-plan`「手術で付ける分（神速・勇敢）を除いて計画する →」（`buildHash('ideal', { to, p: 残り, s: [...今の s, ...付けられる分] })`）。**文書の「足りないパッシブ（または欲しいパッシブ全体）」は、足りないパッシブだけにした**（候補が持っているパッシブまで外す案内は、配合で作れるものを手術に回すことになり、毎回出ると D30 で減らした表示が増えるため）。
+   - `readRoute` で `s` を `cleanSurgery`（パッシブ ID の形・手術台で付けられる・`p` と重ならない・重なりなし・`p` と合わせて 4 個まで〔`p` を残す〕）で確かめ、捨てたら `context.replace` で URL を置き換える（`g` の処理より前。置き換えた URL をもう一度読んでも変わらないので繰り返さない）。
+   - 帯 `div.ideal-surgery-band` は**条件のパネルのすぐ下（足りないパッシブの案内の上）**に置いた（文書の「結果の上」。画面の子の並びが 1 つ増えたので test の並びを直した）。中身は「[チップ] はパル手術台で付ける前提で計画しています。」と右端の「手術を含めずに計画する」（`a.ideal-surgery-back`。`s` を `p` の後ろに戻したリンク）、その下に `s` のパッシブごとの案内の行（上の 5 と同じ部品。必要なインプラントと在庫）。`renderResults` の頭で描き、中身が同じなら作り直さない（10 秒ごとの読み直しでフォーカスを落とさない）。`s` がなければ隠す。
+   - 「☆ 目標に保存」は `s` があるとき `setDisabled(saveButton, true, '手術を含めずに計画すると保存できます', { focusable: true })`（押しても板を開かない・保存しない。「保存済み」の判定もしない）。`s` は URL だけで、`IDEAL_MEMORY`（history.state と sessionStorage の条件）・目標の保存（`goalConditions`）には入らない。計画（`idealPlanSteps`）は残りの `p` だけで、`core/ideal.js` は変えていない。
+7. **継承ルートの 1 行（手順 7。X-24）**: views/route.js の `p.route-surgery`（`renderSurgery()`）。**文書の「空のときの文の下と経路の見出しのそば」は、開始の行（候補がないときの文を含む）の下・経路の上の 1 か所の 1 行にした**（2 か所に出すと「1 行だけ」にならないため。どちらの場合もこの位置が両方のそばになる）。文は「神速はパル手術台で付けられます（使い切りインプラント）。運ばずに、できた個体に付けることもできます。」、2 つ以上は「神速（使い切りインプラント）・勇敢（インプラント不要）はパル手術台で付けられます。…」。目標がない・付けられるものがないときは隠す。開始のチップ・探索・個体の一覧は変えていない。
+8. **目標の一覧の「手術で完成できる」（手順 8。X-26）**: views/ideal.js の `goalStatus(goal, pals, all, data)` が `goalProgress(goal, pals, { canAdd: canImplant })` を呼び、完成品がなく `addable` があれば `{ surgery: true, text: '手術で完成できる'（孵化待ちがあれば「（孵化待ちに n 個）」）, gap: surgeryLine(...) }`。ピルは状態チップの info（完成済み ready と未完成 neutral の間）。差の行（`small.ideal-goal-gap`）に「アヌビス♂ Lv3（P4 · 2-5）＋ダイヤモンドボディ（使い切りインプラント・在庫 5） · ほか n 体」（`is-surgery` のクラスで項目の中でも折り返す）。**文書の例「＋神速（使い切りインプラント：神速）」から、アイテムは種類だけ（アイテム名はパッシブ名と重なる）、パルボックスの場所は行と同じ短い形（P4 · 2-5）にした**（状態の欄が狭く、全文だと 6 行に折れたため。1 行の高さ 149 → 119px）。在庫はホストの画面だけ添える。**ベルは鳴らさない**: web/js/ideals.js は変えていない（完成の判定は `goalMatches` のまま。test/web/ideals.test.js に「手術で完成できても完成にせず知らせない。付けた後のセーブで完成したら知らせる」）。
+9. **決めたこと（D27。細かな UI）**: 案内の行は 13px（在庫は 12px の薄い色）、アイコンは 16px（`item/PalPassiveSkillChange.png`・`_Consumable.png`。アイテムのない行は付けない）。計画のリンクは継承ルートの「→」のリンクと同じ太字 13px。帯は左に 3px の primary の線・地 surface-container-low・角丸 12px（右側）、見出しの行は太字 13px で「手術を含めずに計画する」は右端。継承ルートの 1 行は 13px の薄い色（左右 14px）。目標の一覧のピルの色は info。
+10. **release-notes**: 先頭に 1 件 `2026-10-16-operating-table`「手術台で付けられるパッシブ」（13 字）・「足りないパッシブを手術台で付けられるか、必要なインプラントと在庫を理想個体・継承ルート・目標の一覧に出します。」（55 字）・href `#/ideal`（X-24 の継承ルートの 1 行も同じ 1 件）。パルリバーサーの 2 件目（文書の案 `…-gender-reverse`）は後半。
+11. **テスト**: 1,687 → 1,704 件（`npm test` exit 0。レビューの直しの 1 件を含む）。新規 test/core/implants.test.js（6 件: implantOf の 3 種類と付けられないもの・goalNear の条件・「欲しいものだけ」と 4 枠・乱数の個体で素朴な決め方と一致し goalProgress の addable がその先頭と数・cleanSurgery・buildImplants の分け方と止まる場合）、test/save/implants-stock.test.js（3 件: 入れ物ごとの数と数える入れ物・**タマゴの場所の判定が変わらない回帰**・画面の items と itemStock と stockText と古いスナップショット・共有で null・壊れた入れ物の種類・大文字小文字の違うアイテム）、test/import.test.js（1 件: implants.js の形・54 行・パッシブ ID がすべて passives.js にある・数値を含めない・core/implants.js の import・取り出しの keep）、test/web/ideal-view.test.js（5 件: 手術台の案内・付けられないもの・在庫・警告の文・計画のリンク／`s` の帯・計画は p だけ・保存を押せない・同じ画面で外す／不正な `s` の置き換え・4 個まで／`s` だけを変えたときの計画のリンク／目標の一覧の「手術で完成できる」と info の色・ほか n 体）、test/web/owned-view.test.js（1 件: 継承ルートの 1 行）、test/web/ideals.test.js（1 件: ベルが増えない）。期待値を直したもの: ideal-goals.test.js（goalProgress の戻り値に `addable: null`）、ideal-view.test.js（画面の子の並びに `ideal-surgery-band`）、owned-view.test.js（継承ルートの子の並びに `route-surgery`）。`npm run test:perf` 13 件 exit 0（`idealPlan` の値は変わらない。owned.perf.js の目標の一覧の状態を `canAdd` つきにし、手術で付けられるパッシブだけの目標 100 件 × 20,000 行〔のべ 約 168 万体が手術で完成できる〕の形を足した: 45〜53ms・予算 100ms）。
+12. **画面の確認（モック・1100×900・ライトとダーク。`Claude outputs/ui-audit-2026-10/shots/phase-4/`。注入 `im-inject.js`〔se-inject.js の写しに在庫 5 件を足し、アヌビスからダイヤモンドボディ・魔女を外した〕、撮影 `im-shots-tmpl.js`〔ポート 5201〕。撮影 `im01-…`〜`im04-…`）**: アヌビス・伝説＋ダイヤモンドボディ＋魔女＋勇敢で「ダイヤモンドボディ: パル手術台で付けられます（[アイコン]使い切りインプラント：ダイヤモンドボディ） · 在庫 5（拠点 1 の箱）」「魔女: 手術台では付けられません」「手術で付ける分（ダイヤモンドボディ）を除いて計画する →」と運べない 2 つ（`im01`。横のはみ出しなし）。押すと `s=Deffence_up3` の帯（高さ 64px）・「☆ 目標に保存」は押せない（title の理由）・計画は残りのパッシブで 5 組（`im02`）。「手術を含めずに計画する」で `p` に戻り帯が消えた。目標の一覧で「手術で完成できる」（info）と「アヌビス♂ Lv3（P4 · 2-5）＋ダイヤモンドボディ（使い切りインプラント・在庫 5）」、魔女の目標は「未完成 / パッシブ 1/2 · 個体値は届いています」（`im03`）。継承ルートのアヌビス・ダイヤモンドボディ＋魔女で開始の行の下に 1 行（`im04`）。終わった後にブラウザを閉じ、5201 番のサーバーを止めた。
+13. **レビュー（Codex・読み取り専用。メモリの「UI 改善の Codex はフル活用可」に従った）**: コミット `ab88877` の差分に指摘 3 件（すべて中）。すべて直した（`d3f00a7`）。
+    1. **壊れた在庫の入れ物の種類で所持パルの読み込みが止まる**（`object: { toString: 0 }` で `normalizeOwned` が TypeError。`constructor` などは継承した値が呼び名に混ざる）→ `stockOf` は `Object.hasOwn(STOCK_OBJECTS, …)` の文字列だけを引き、ほかは「設備」。
+    2. **同じ画面で `s` だけを変えると、「手術で付ける分を除いて計画する」のリンクに前の `s` が残る**（計画の署名に `s` は入らないので結果を使い回し、`renderMissing` が呼ばれなかった）→ `renderMissing` で描いたときの `s` を覚え、`renderResults` の「同じ計画」の枝で `s` が違えば案内の欄だけを描き直す（計画は計算し直さない）。
+    3. **大文字小文字の違う同じアイテムを合算しない**（`itemStock` は大文字小文字を問わずに引くのに、集計は区別していた）→ 集計を小文字の鍵で合わせる。
+    - ほかに確かめてもらった所（`s` の置き換えの繰り返し・目標と条件の保存への混入・手術で完成できる個体の並びの先頭と `goalAddable` の先頭・タマゴの場所の回帰・拠点の外の宝箱・セキュリティと INV-2）は指摘なし。Codex の環境では `npm test` のうち一時フォルダを作る 6 件が読み取り専用のため `EPERM`（こちらの環境では全件通る）。
+14. **確かめていないこと**:
+    - インプラント（使い切りでないもの）が使ってもなくならないこと（名前に「使い切り」がないことと文書の調査からの判断。ゲームで使って確かめていない）。表の `Price` の意味（金額らしい。書き出していない）。
+    - 手術で余計なパッシブの枠へ上書きできること（`OPERATINGTABLE_Dialog_Confirm` の文からの判断）と、「欲しいものだけ」で余計なパッシブを消すには付ける数だけ上書きが要ること（手術でパッシブを消すだけの操作はない前提）。
+    - 実セーブをブラウザ（ホストの画面）で読んだ表示（許可が要るため。`check:save` と、前の版との比べで代えた）。プレイヤーの `Essential` の入れ物がゲームのどの欄か（「所持品」とした）、拠点の「設備」（`AncientRelicRecycler` など）が何か。
+    - 「パル手術台がまだありません」の判定（文書のとおり最初の版から外した）。
+15. **後半の担当（パルリバーサーの案内。手順 6・D17）への申し送り**:
+    - **在庫**: `import { itemStock, stockText } from '../core/owned.js'` と `import { GENDER_REVERSE_ITEM, GENDER_REVERSE_NAME } from '../../data/implants.js'`（views から。または core/implants.js から再び書き出す）で、`stockText(itemStock(owned?.state?.owned, GENDER_REVERSE_ITEM))` が「在庫 3（ギルド保管庫）」「在庫なし」、分からない（参加者・在庫を読む前のデータ）なら ''（添えない）。手元のセーブではパルリバーサー 12 個（ギルド保管庫だけ）。アイコンは `gameIcon('item/PalGenderReverse.png', { size: 16 })`（ui/pal-icon.js）。
+    - **置き場所**: 文書は「`noPairs` の文と結果の見出しのそば」。今の理想個体の画面の子は `[見出し][条件のパネル][ideal-surgery-band][ideal-missing-note][ideal-hatch][ideal-farm-strip][ideal-farms][ideal-results]`（test/web/ideal-view.test.js の並びのテストが固定）。結果の上の要約の行は D30 でなくしたので「結果の見出し」はない。案内は `paintPlan`（`showPlan` → `drawPlan` の中。計画とそろってから描く）で、**`ideal-hatch` と `ideal-farm-strip` の間か、`ideal-results` の先頭**に置くのがよい（`ideal-missing-note` は足りないパッシブの案内と手術台の案内・継承ルートの導線が入る欄で、`renderMissing` が毎回 `replaceChildren` する。`clearFarms` もこの欄を空にする）。組がないとき（`result.total === 0`）は `noPairs(result)` が `empty(...)` を結果の欄に出すので、その文の下に添えるなら `noPairs` の中で足す。新しい要素を画面の子に足したら、並びのテスト（「条件を sticky のパネルにまとめる」）を直す。
+    - **`renderMissing` の今の形**: `missingBox.replaceChildren()` → 足りないパッシブがなければ（欲しいパッシブ 2 つ以上なら）「継承ルートで運ぶ →」だけ。あれば `p.ideal-warning`（チップと文）→ `ul.ideal-surgery-list`（`surgeryItem(id)`）→ `a.ideal-surgery-plan`（付けられる分があるとき）→ `div.ideal-missing`（運ぶ経路のボタンと `span.ideal-carry.is-none`）。フォーカスを戻す目印は `data-focus-key`（`surgery-plan`・`carry:<id>`・`surgery-back`・`route-cross`）で、`drawPlan` の `captureFocus`／`restoreFocus` が戻す。描き直しの署名は `displayKey`（組・牧場の個体の行・所持者・牧場・足りないパッシブの在庫）で、案内の文がデータ（在庫など）で変わるなら署名に足す。
+    - **計算の入口**: `renderResults` の `cakeInput`（`{ pals: candidates, index, target: to, passives, mode, targets }`）が `idealPlan` と同じ入力。今の 1 番の完全体作成組の `eggs` は計画の結果（`result.pairs` の先頭の `group === 'complete'`）。`s` があるときの `passives` は `s` を除いた `p`（手術で付ける前提の計画）なので、案内も同じ `passives` で計算すれば計画と食い違わない。
+    - **消した記録**: 文書の手順 6 のとおり別のキー `${namespace}.reverserHidden.${env}.${userIdKey}`。ID の変更は web/js/user-rename.js の `lists`（配列の形のキー）に 1 行。目標の見分け方に `s` は入れない（目標は配合で作る条件）。
+    - **テストの手がかり**: test/web/ideal-view.test.js の `fakeOwned(list, extra)` の `extra` でスナップショットに `items`・`bases` を足せる（このテーマで足した。在庫の形は `{ itemId: 'PalGenderReverse', count: 3, where: 'guild', id: 'g1', object: '' }`）。`withIdeals(context(owned), owned)` で目標のストア、`context(...)` は `sliceBudget: Infinity` で計算を同期にする。ideal.test.js の総当たりは `idealPlan` を直接呼ぶ。
+    - **release-notes**: 文書の案の 2 件目（`2026-10-16-gender-reverse`。前半の `2026-10-16-operating-table` より先頭に足す）。docs/OPERATIONS.md の理想個体の節の「パル手術台」の項目の後にパルリバーサーの案内を足す。
 
 ---
 
