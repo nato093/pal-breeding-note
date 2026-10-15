@@ -2,7 +2,6 @@ import { el, button, link, formatTime, runButton } from '../ui/dom.js';
 import { palsById } from '../ui/pal-icon.js';
 import { toast } from '../ui/toast.js';
 import { openRenameDialog, confirmLogout } from '../ui/account-actions.js';
-import { openNotificationList } from '../ui/notifications.js';
 import { toCsv } from '../core/csv.js';
 import { identityKey } from '../core/pair.js';
 import { ownedWorldId } from '../core/owned-shared.js';
@@ -65,12 +64,10 @@ export function settingsView(context, route = parseHash('#/settings')) {
   const warnings = el('section', 'settings-card');
   const warningList = el('div', 'warning-list');
   warnings.append(el('h2', '', '整合性の警告'), warningList);
-  const notices = el('section', 'settings-card');
-  notices.append(el('h2', '', '通知'), el('p', 'muted', '既読になったものも含めて、これまでの通知を確認できます。'),
-    button('通知一覧', () => openNotificationList(context.notifications), 'button secondary'));
   // 所持パルのセーブ連携（所持パルの画面がない環境・テストでは出さない）
   const ownedCard = context.owned ? ownedSettingsCard(context) : null;
-  element.append(connection, ...(ownedCard ? [ownedCard.element] : []), backup, warnings, notices, access);
+  // 通知の履歴はベルの「すべての通知を見る」から開く（bell で「通知」カードをなくした）
+  element.append(connection, ...(ownedCard ? [ownedCard.element] : []), backup, warnings, access);
   // アカウントは、配合の一覧が変わらない操作（名前の変更の完了・再試行）でも変わるので、store が変わるたびに描き直す
   function renderAccount(state) {
     accountId.textContent = `ログイン中の ID: ${state.userId}`;

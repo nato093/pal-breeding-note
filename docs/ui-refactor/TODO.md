@@ -22,11 +22,11 @@
 | 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 3 |
 | 1d | 6 | 74 | 6 |
-| 2 | 10 | 119 | 6 |
+| 2 | 10 | 119 | 7 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **27** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **28** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -671,19 +671,19 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ベルと通知の整理
 
-- 状態: 未着手 ／ ブランチ: `feature/bell` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15。プロジェクトの CLAUDE.md:16 の直しだけ未で、フェーズ 2 の報告で確認を取る） ／ ブランチ: `feature/bell` ／ マージのコミット: （統合ブランチ `integrate/phase-2` へのマージ。下の「次にやること」）
 
-- [ ] `cleanNotification` に palId、`notificationCategory`（kind・worldId・batchId は autoreg-success のまま。テストを先に）
-- [ ] 各通知の元で palId を入れる（食い違いは親1）
-- [ ] 既読の保存先がない端末はお知らせを既読から始める
-- [ ] パネルの頭・チップ・「未読だけ」・行の部品・個別の既読・すべて既読
-- [ ] 「開いたら全部既読」をやめ、「すべての通知を見る →」と一覧のダイアログを同じ部品に
-- [ ] 赤い数字と点・aria-label・揺れ・`unreadCounts`
-- [ ] 設定の「通知」カードを消す
-- [ ] release-notes の本文の直し・ideal-alpha の削除・先頭のコメント・href
-- [ ] プロジェクトの CLAUDE.md:16 と変更記録（拒否されたらユーザーへ）
-- [ ] 未設定の通知の行き先
-- [ ] テストの書き換え（notifications・app・views・auto-register）と release-notes
+- [x] `cleanNotification` に palId、`notificationCategory`（kind・worldId・batchId は autoreg-success のまま。テストを先に）
+- [x] 各通知の元で palId を入れる（食い違いは親1）
+- [x] 既読の保存先がない端末はお知らせを既読から始める
+- [x] パネルの頭・チップ・「未読だけ」・行の部品・個別の既読・すべて既読
+- [x] 「開いたら全部既読」をやめ、「すべての通知を見る →」と一覧のダイアログを同じ部品に
+- [x] 赤い数字と点・aria-label・揺れ・`unreadCounts`
+- [x] 設定の「通知」カードを消す
+- [x] release-notes の本文の直し・ideal-alpha の削除・先頭のコメント・href
+- [ ] プロジェクトの CLAUDE.md:16 と変更記録（拒否されたらユーザーへ）（**未。フェーズ 2 の報告で文案を示して確認を取る**）
+- [x] 未設定の通知の行き先
+- [x] テストの書き換え（notifications・app・views・auto-register）と release-notes
 
 ### 28. [autoreg-visibility](phase-2-structure.md#autoreg-visibility-自動登録の状況を見えるように)（M）
 

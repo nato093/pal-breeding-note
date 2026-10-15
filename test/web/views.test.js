@@ -253,14 +253,15 @@ test('配合を探す: 並べ替えは 5 種（既定は更新日の新しい順
   view.destroy();
 });
 
-test('設定: アカウントを末尾に移し、他の順序とログイン ID を保つ', (t) => {
+test('設定: アカウントを末尾に移し、他の順序とログイン ID を保つ（「通知」カードはない。履歴はベルの「すべての通知を見る」）', (t) => {
   installDom(t);
   const view = settingsView(context());
   const sections = view.element.querySelectorAll('.settings-card');
   assert.deepEqual(sections.map((node) => node.querySelector('h2').textContent), [
-    'データの状態', '記録を書き出す', '整合性の警告', '通知', 'アカウント',
+    'データの状態', '記録を書き出す', '整合性の警告', 'アカウント',
   ]);
-  assert.match(sections[4].textContent, /ログイン中の ID: 仲間.*ログアウト/);
+  assert.match(sections[3].textContent, /ログイン中の ID: 仲間.*ログアウト/);
+  assert.doesNotMatch(view.element.textContent, /通知一覧/);
   view.destroy();
 });
 
