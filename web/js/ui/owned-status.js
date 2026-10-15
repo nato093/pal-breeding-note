@@ -1,8 +1,38 @@
 // 所持パルの状態（連携・共有・更新時刻）の文言と、所持パルのタブの案内の帯。所持パルのタブ・設定・ヘッダーのセーブ連携の状態
 // （ui/save-status.js）で使う。どのワールドの・いつのデータか・読み込み中かは、ヘッダーのセーブ連携の状態だけに出す（2026-10-14 の
 // ユーザーのフィードバック〔D29〕で、所持パル・理想個体・継承ルートの画面に出していたデータ元の 1 行〔ownedSourceLine〕はなくした）
-import { el, button } from './dom.js';
+import { el, button, formatShortTime } from './dom.js';
+import { toast } from './toast.js';
 import { isObject, int } from '../core/boundary.js';
+
+// 許可切れの案内（autoreg-visibility。ヘッダーのセーブ連携・所持パルの案内・設定の状態の 3 か所で permissionNotice の同じ文を出す）。
+// Chrome は「今回のみ」で許可したファイルの読む許可を、タブがしばらく裏にあると外すことがある（何分で外れるかは実機で確かめていない）
+export const PERMISSION_TEXT = 'セーブを読む許可が必要です';
+export const PERMISSION_HINT = 'Chrome の確認で「毎回のアクセスを許可」を選ぶと、ゲーム中（タブが裏）も止まりません';
+export const PERMISSION_DENIED = '許可されませんでした。Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください';
+
+/**
+ * 許可切れの案内。自動の読み込みが許可待ちで止まっていなければ null。
+ * since は止まった時刻（owned.js の state.auto.stoppedAt）があるときだけ「14:32 から読めていません。…」（日が違えば日付も）
+ * @returns {null | { text: string, hint: string, since: string }}
+ */
+export function permissionNotice(state, { now = Date.now } = {}) {
+  const auto = state?.auto ?? {};
+  if (!auto.enabled || auto.status !== 'permission') return null;
+  const since = auto.stoppedAt
+    ? `${formatShortTime(auto.stoppedAt, now(), '')} から読めていません。この間に拾ったタマゴは自動登録されていない場合があります` : '';
+  return { text: PERMISSION_TEXT, hint: PERMISSION_HINT, since };
+}
+
+/**
+ * 「読み込みを許可」のボタンの動き（3 か所で同じ）。クリックの中で、await を挟まずに呼ぶこと（owned.grantAndRefresh が許可を求める）。
+ * 許可されなかった（一部でも。読み直しが許可待ちで止まる）ときは、直し方のトースト。ほかの失敗はそのエラーの文
+ */
+export function grantWithReport(owned) {
+  return owned.grantAndRefresh().then(({ granted, total }) => {
+    if (granted < total) toast(PERMISSION_DENIED, { kind: 'error' });
+  }, (error) => toast(error?.code === 'permission' ? PERMISSION_DENIED : error.message, { kind: 'error' }));
+}
 
 export function dateTime(value) {
   const time = new Date(value);
@@ -54,7 +84,9 @@ export function ownedNotices(state) {
     // 共有された所持パルなどを表示できているときは出さない
     if (!hasData) notices.push({ text: UNREGISTERED_TEXT, kind: 'info', action: 'register' });
   } else if (auto.status === 'permission') {
-    notices.push({ text: auto.error, kind: 'warning', action: 'grant' });
+    // 許可切れは 1 文と止まった時刻、勧め（「毎回のアクセスを許可」）は小さな 2 行目
+    const notice = permissionNotice(state);
+    notices.push({ text: `${notice.text}。${notice.since ? `${notice.since}。` : ''}`, hint: `${notice.hint}。`, kind: 'warning', action: 'grant' });
   } else if (auto.status === 'empty') {
     notices.push({ text: UNREGISTERED_TEXT, kind: 'warning', action: 'register' });
   } else if (auto.status === 'error') {
@@ -98,10 +130,12 @@ export function ownedNotices(state) {
 
 /**
  * 案内を一覧にする。actions に notice.action と同じ名前のボタン（{ label, run }）があれば、案内の中に出す。
+ * notice.hint があれば、文の下に小さな 2 行目（許可切れの勧め）
  */
 export function noticeList(notices, list = el('ul', 'owned-notices'), actions = {}) {
   list.replaceChildren(...notices.map((notice) => {
     const item = el('li', `owned-notice ${notice.kind ? `notice-${notice.kind}` : ''}`.trim(), notice.text);
+    if (notice.hint) item.append(el('small', 'owned-notice-hint', notice.hint));
     const action = actions[notice.action];
     if (action) item.append(button(action.label, action.run, 'button secondary owned-notice-action'));
     return item;

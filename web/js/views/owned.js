@@ -8,7 +8,7 @@ import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
 import { icon } from '../ui/icons.js';
-import { ownedNotices, noticeList } from '../ui/owned-status.js';
+import { ownedNotices, noticeList, grantWithReport } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
 import {
@@ -617,7 +617,7 @@ export function ownedView(context, route) {
   // 読めないエラーは設定のセーブ連携の状態の欄（今すぐ読み込む・許可。router.js の settingsHash の 'status'）へ
   const linkedWorld = () => owned.state.auto?.worlds?.find((world) => world.id === owned.state.linkedWorldId) ?? null;
   const noticeActions = {
-    grant: { label: '読み込みを許可', run: () => owned.grantAndRefresh().catch((error) => toast(error.message, { kind: 'error' })) },
+    grant: { label: '読み込みを許可', run: () => grantWithReport(owned) },
     register: { label: 'ワールドを登録', run: () => openWorldDialog(context) },
     settings: { label: 'セーブ連携を開く', run: () => context.navigate(settingsHash(owned.state.linkedWorldId ?? '', 'status')) },
     editWorld: {

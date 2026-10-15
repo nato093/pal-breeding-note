@@ -8,6 +8,7 @@ import { createPlanMemory } from './ideal-plan-memory.js';
 import { createSearchSeen } from './search-seen.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
+import { createAttention } from './attention.js';
 import { createRenamer } from './user-rename.js';
 import { startRouter, buildHash, parseHash, sameScreen, routeKey, SETTINGS_OPEN } from './router.js';
 import { el, button, link, field, runButton, debounce } from './ui/dom.js';
@@ -27,6 +28,7 @@ import { openRecordEditor } from './ui/record-editor.js';
 import { notificationMenu } from './ui/notifications.js';
 import { updateBanner } from './ui/update-banner.js';
 import { navIcon } from './ui/nav-icons.js';
+import { palsById } from './ui/pal-icon.js';
 import { installRipple } from './ui/ripple.js';
 import { runningVersion, createVersionWatcher, servedVersion, CHECK_INTERVAL } from './version.js';
 import releaseNotes from './release-notes.js';
@@ -81,6 +83,8 @@ async function boot() {
   // 配合牧場からの自動登録（ホストのセーブを読み込んだとき）。合わなかったものは通知に出す。
   const autoRegister = createAutoRegister({
     store, owned, storage: safeStorage(browserStorage), namespace, toast, onNotice: () => notifications.changed(),
+    // 成功のトーストの「見る」（context は後で作るので、押したときに引く）
+    navigate: (hash) => context.navigate(hash),
   });
   // このワールドでの自分（設定で選ぶ。この端末に ID・環境・ワールドごと）
   const self = createSelfStore({ store, storage: browserStorage, namespace });
@@ -108,6 +112,8 @@ async function boot() {
     // 目標の種族の配合の登録（前のウィッシュリストの通知。id は同じ形）と、目標の完成
     sources: [releaseNoteSource, goalObservationSource({ store, ideals }), idealNotificationSource({ store, ideals }), autoRegister.notices],
   });
+  // 題名とファビコン（裏のタブで要確認の未読と読み込みの停止を出す。autoreg-visibility）
+  const attention = createAttention({ document, notifications, owned });
   const renamer = createRenamer({ store, drafts, ideals, self, notifications, storage: browserStorage, namespace });
   renamer.resumeLocal();
   const root = document.getElementById('app');
@@ -151,6 +157,12 @@ async function boot() {
   goalBadge.hidden = true;
   goalBadge.setAttribute('aria-hidden', 'true');
   idealTab?.append(goalBadge);
+  // 所持パルのタブの「!」（自動の読み込みが止まっている〔許可待ち・読めない・登録なし〕とき。警告の色。G-36）。文字・hidden・aria-label だけを書き換える
+  const ownedTab = tabLinks.get('owned');
+  const ownedBadge = el('span', 'nav-badge is-warning');
+  ownedBadge.hidden = true;
+  ownedBadge.setAttribute('aria-hidden', 'true');
+  ownedTab?.append(ownedBadge);
   // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。読み込み直しても、同じタブ（sessionStorage）の間は残る
   //（ページを離れるときに保存し、起動したときに戻す。戻る・進むでは、そのときの履歴のエントリの条件と位置に戻す。ui/view-memory.js）。
   const viewStates = new Map();
@@ -443,6 +455,8 @@ async function boot() {
       if (active) tab.setAttribute('aria-current', 'page');
       else tab.removeAttribute('aria-current');
     }
+    // 題名の画面名（タブの名前。パル詳細はパルの名前。attention.js）
+    attention.setScreen(current.view === 'pal' ? palsById.get(current.id)?.ja ?? '' : tabLabel(current.view));
   }
 
   // 位置: 同じ画面の条件の変更はそのまま、リンクで違う画面へは先頭、タブで違う画面へはその画面を離れたときの位置、
@@ -517,6 +531,7 @@ async function boot() {
     sync.element.hidden = showingLogin;
     sync.update(store.state);
     if (showingLogin) {
+      attention.setScreen('');
       bell.close(); save.close(); account.close(); forget(); loginView();
       shownEntry = '';
       shownHash = '';
@@ -702,6 +717,20 @@ async function boot() {
   ideals.subscribe(renderGoalBadge);
   owned.subscribe(renderGoalBadge);
   renderGoalBadge();
+  // 所持パルのタブの「!」
+  const renderOwnedBadge = () => {
+    if (!ownedTab) return;
+    const auto = owned.state.auto;
+    const stopped = Boolean(auto?.enabled && ['permission', 'error', 'empty'].includes(auto.status));
+    // 隠している間は文字も空（タブの名前の文字に混ざらないように。理想個体のバッジと同じ）
+    const text = stopped ? '!' : '';
+    if (ownedBadge.textContent !== text) ownedBadge.textContent = text;
+    ownedBadge.hidden = !stopped;
+    if (stopped) ownedTab.setAttribute('aria-label', `${tabLabel('owned')}（読み込みが止まっています）`);
+    else ownedTab.removeAttribute('aria-label');
+  };
+  owned.subscribe(renderOwnedBadge);
+  renderOwnedBadge();
   owned.subscribe(autoRegister.evaluate);
   // 別のタブで下書き・目標（と観測・前のウィッシュリスト）・このワールドでの自分・登録者の対応・既読を書き換えたら読み直す。
   window.addEventListener('storage', (event) => {

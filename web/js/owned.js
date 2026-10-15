@@ -192,7 +192,8 @@ export function createOwnedStore({
   const state = {
     ready: false, busy: false, progress: '', error: '',
     // 登録したファイルからの自動の読み込み。worldId が空なら、最後に遊んだワールドを読む
-    auto: { enabled: saved.enabled === true, status: 'off', worlds: [], worldId: WORLD_ID.test(savedWorldId) ? savedWorldId.toUpperCase() : '', error: '' },
+    // stoppedAt: 許可待ちで止まった時刻（ISO。止まったときに 1 回だけ入れ、読めたら空にする。autoreg-visibility）
+    auto: { enabled: saved.enabled === true, status: 'off', worlds: [], worldId: WORLD_ID.test(savedWorldId) ? savedWorldId.toUpperCase() : '', error: '', stoppedAt: '' },
     // この PC での、連携しているワールドの役割（'host' | 'guest' | ''）と ID
     role: '', linkedWorldId: '',
     // 表示するワールド（空なら自動）
@@ -438,6 +439,8 @@ export function createOwnedStore({
   function stop(status, message, auto) {
     state.auto.status = status;
     state.auto.error = message;
+    // 許可待ちで止まった時刻は、止まったときだけ入れる（続けて止まっている間・ほかの理由で止まっている間は上書きしない）
+    if (status === 'permission' && !state.auto.stoppedAt) state.auto.stoppedAt = new Date(now()).toISOString();
     blockUpload();
     if (!auto) throw Object.assign(new Error(message), { code: status });
     return status;
@@ -464,7 +467,8 @@ export function createOwnedStore({
     if (!worlds.length) return stop('empty', 'セーブのファイルが登録されていません', auto);
     // 許可のないワールドがあると、どれを最後に遊んだか分からないので、黙って別のワールドを選ばない
     if (worlds.some((world) => world.status === 'permission')) {
-      return stop('permission', 'セーブを読むには許可が必要です。「読み込みを許可」を押してください（拒否した場合は、Chrome のサイトの設定で許可を戻すか、ファイルを登録し直してください）', auto);
+      // 文はヘッダー・所持パル・設定の案内と同じ短い文（ui/owned-status.js の PERMISSION_TEXT。直し方は画面の permissionNotice が添える）
+      return stop('permission', 'セーブを読む許可が必要です', auto);
     }
     const chosen = state.auto.worldId ? worlds.find((world) => world.id === state.auto.worldId) : null;
     // 選んでいなければ、読めるワールドのうち最後に遊んだもの（読めないワールドがあれば知らせる）
@@ -478,6 +482,7 @@ export function createOwnedStore({
     }
     state.auto.status = 'ready';
     state.auto.error = '';
+    state.auto.stoppedAt = '';
     if (state.auto.worldId && !chosen) state.auto.error = '選んだワールドの登録がないため、最後に遊んだワールドを読みます';
     else if (broken.length) state.auto.error = `${broken.map(worldLabel).join('・')}を読めないため、読めるワールドのうち最後に遊んだワールドを読みます`;
     if (world.role === 'guest') {

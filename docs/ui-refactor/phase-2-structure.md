@@ -1043,23 +1043,46 @@
 - id: `<実装日>-autoreg-visibility`／title: 「自動登録の状況を表示」（10 字）／body: 「裏のタブでは題名とアイコンに件数を出し、許可が切れたら止まった時刻と直し方を出します。」（43 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モックで（許可切れは偽の状態で）: 所持パル・設定・ヘッダーに同じ短い文と「毎回のアクセスを許可」の勧め、止まった時刻が出る。
-- [ ] ブラウザで: タブを裏にして要確認の通知を起こすと題名とファビコンに数が出て、戻ると消える。お知らせだけでは出ない。
-- [ ] 設定のワールドの行に「登録待ち n 件」が出て、子のパルが画面のどこにも出ない。
-- [ ] OPERATIONS.md:83 を直した。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 保留の候補の一覧と通知に子が出ない（`pendingSummary` のテストで固定）。互換 — 保存の形を変えていない。セキュリティ — ファビコンの SVG は定数と整数だけで、CSP を変えていない（`test/static/security.test.js`）。性能 — 題名とファビコンは数か状態が変わったときだけ書き換える。
+- [x] `npm test` が通る。
+- [x] モックで（許可切れは偽の状態で）: 所持パル・設定・ヘッダーに同じ短い文と「毎回のアクセスを許可」の勧め、止まった時刻が出る。
+- [x] ブラウザで: タブを裏にして要確認の通知を起こすと題名とファビコンに数が出て、戻ると消える。お知らせだけでは出ない。
+- [x] 設定のワールドの行に「登録待ち n 件」が出て、子のパルが画面のどこにも出ない。
+- [x] OPERATIONS.md:83 を直した。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 保留の候補の一覧と通知に子が出ない（`pendingSummary` のテストで固定）。互換 — 保存の形を変えていない。セキュリティ — ファビコンの SVG は定数と整数だけで、CSP を変えていない（`test/static/security.test.js`）。性能 — 題名とファビコンは数か状態が変わったときだけ書き換える。
 
 ### TODO
-- [ ] `permissionNotice` を作り、3 か所で使う（テストを先に）
-- [ ] `state.auto.stoppedAt` と短い文
-- [ ] 許可されなかったときのトースト
-- [ ] `attention.js`（題名・ファビコン）とテスト、テストの偽の DOM の拡張
-- [ ] レールの所持パルの「!」
-- [ ] 自動登録のトーストに「見る」
-- [ ] 異常の通知の href
-- [ ] `pendingSummary`・`discardPending` と設定の「登録待ち」の行（子を出さない）
-- [ ] OPERATIONS.md:83 と release-notes
+- [x] `permissionNotice` を作り、3 か所で使う（テストを先に）
+- [x] `state.auto.stoppedAt` と短い文
+- [x] 許可されなかったときのトースト
+- [x] `attention.js`（題名・ファビコン）とテスト、テストの偽の DOM の拡張
+- [x] レールの所持パルの「!」
+- [x] 自動登録のトーストに「見る」
+- [x] 異常の通知の href
+- [x] `pendingSummary`・`discardPending` と設定の「登録待ち」の行（子を出さない）
+- [x] OPERATIONS.md:83 と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/autoreg-visibility`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の settings・roles はこちらを正とする）。
+
+1. **許可切れの案内（手順 1）**: ui/owned-status.js に **`permissionNotice(state, { now })`** → `null | { text, hint, since }` と定数 **`PERMISSION_TEXT`**（「セーブを読む許可が必要です」）・**`PERMISSION_HINT`**・**`PERMISSION_DENIED`**。`since` は `formatShortTime`（同じ日なら「14:32」、違えば「10/14 23:05」）＋「から読めていません。この間に拾ったタマゴは自動登録されていない場合があります」。3 か所:
+   - ヘッダーのセーブ連携（ui/save-status.js）: ボタンの title は「セーブを読む許可が必要です（押すと許可を求めます）」、ポップオーバーの困っていることは文・止まった時刻・勧めの 3 行。
+   - 所持パルの案内（`ownedNotices`）: 文と止まった時刻を 1 文、勧めは **`noticeList` に足した `notice.hint`**（`small.owned-notice-hint` の 2 行目）。
+   - 設定の状態の行: チップ「許可が必要」と「読み込みを許可」のまま、その下の `p.owned-auto-error` に長い文の代わりに止まった時刻と勧め（`.is-hint` で補足の色）。
+2. **止まった時刻（手順 2）**: `state.auto.stoppedAt`（ISO）。`stop('permission')` のときに**まだ空なら**入れる（確認の途中の `checking` を挟んでも上書きしない）。`ready` で空にする。owned.js の許可切れの文は `PERMISSION_TEXT` と同じ短い文。
+3. **許可されなかったとき（手順 3）**: **`grantWithReport(owned)`**（ui/owned-status.js）を 3 か所のボタンで使う。`grantAndRefresh()` が `{ granted < total }` で解決したとき、または許可待ちで止まって `code: 'permission'` で失敗したとき（今の作りでは一部でも許可されないと読み直しが止まって失敗する）に `PERMISSION_DENIED` のトースト。ほかの失敗はそのエラーの文。クリックの中で await を挟まずに `grantAndRefresh` を呼ぶのは前のまま。
+4. **題名とファビコン（手順 4）**: **`web/js/attention.js`** の **`createAttention({ document, notifications, owned, baseTitle })` → `{ setScreen, update, destroy }`** と `faviconSvg(label)`・`badgeLabel(count)`。app.js は通知のストアを作った直後に 1 回作り、`markTabs`（どちらの描き方でも呼ぶ）で `setScreen(タブの名前 / パル詳細はパルの名前)`、ログイン画面で `setScreen('')`。裏のとき: 要確認の未読（`unreadCounts().actionable`）があれば「(3) 」、許可待ちなら「(!) 読み込み停止 · 」（**両方あれば両方**。文書はどちらか一方の書き方だった）。ファビコンの丸は止まっているとき「!」を優先、ほかは 1〜9・「9+」。丸の文字は決まった値の集合（`!`・`1`〜`9`・`9+`）だけを通す。ファビコンの path は web/favicon.svg のライトの色を定数で持つ（ダークの `<style>` は使わない）。`link[rel=icon]` がない document（アプリのテストの偽物）でも題名だけ書き換える。テストの偽の DOM（test/helpers/dom.js）に `head`（`link[rel=icon]`）と `title` を足した（`document.querySelector` は足していない。app.js の `dialog[open]` の判定の動きが変わるため）。
+5. **レールの「!」（手順 5）**: 所持パルのタブに `span.nav-badge.is-warning`。`auto.enabled` で `status` が `permission`・`error`・`empty` のとき「!」とタブの aria-label「所持パル（読み込みが止まっています）」。**隠している間は文字も空**（タブの文字に混ざらないように。理想個体のバッジと同じ）。
+6. **トーストの「見る」（手順 6）**: `createAutoRegister({ navigate })`（app.js は `(hash) => context.navigate(hash)`。context は後で作るので押したときに引く）。1 件ならその組、2 件以上なら `#/search?sort=updated`。
+7. **見送りの通知の行き先（手順 7）**: `anomalyNotice` に `href: buildHash('search', { p1, p2 })`（id は同じ。前に保存した通知には付かない）。
+8. **登録待ち（手順 8）**: auto-register.js に **`pendingSummary(worldId)`** → `{ unmapped: [{ uid, name, parents }], conflict: [{ id, parents }] }` と **`discardPending(id, worldId)`**。**候補の key は子を含む（`親|親>子`）ので返さず、破棄に使う `id` は key の FNV-1a の 16 進（`p` ＋ 8 桁）にした**（文書は `key` を返す書き方だった。INV-2）。登録者が決まって食い違いもない候補（次の判定で登録する）・登録済みと同じ候補・親の性別で子が変わる別の結果（配合表を読み込んだ後だけ判定できる）は数えない。破棄は `finish`（このタブでは送り直さない）と `changed()`。判定の後（`run` の終わり）にも `changed()` で知らせる。設定（views/owned-settings.js）は自動登録の欄のチェックの下・登録者の選択の上に `div.owned-pending`（`renderPending` が中身だけ書き換える。`autoRegister.subscribe` と描き直しのたび）。「登録済みと違う」の行は親 2 体の絵（role=img・aria-label「A＋B」）・「登録を開く」・「破棄」（**確かめのダイアログを挟んだ**。取り消せないため）。
+9. **文書（手順 9）**: docs/OPERATIONS.md の読む許可の項に、裏で外れることがあることと勧め・3 か所の案内・止まった時刻・拒否のトーストを書き、所持パルのタブの「!」・題名とファビコン・トーストの「見る」・見送りの通知の行き先・登録待ちの項を足した（文書の「:83」は今は 110 行目）。
+10. **テスト**: 1,545 → 1,562 件（`npm test` exit 0）。新規 test/web/attention.test.js（表の題名・裏の数とファビコン・お知らせは数えない・「9+」・止まったとき・両方・同じ値なら書かない・destroy・丸の文字の集合・head のない document）、owned-store.test.js（`stoppedAt`）、owned-status.test.js（`permissionNotice`・所持パルの案内の hint・`grantWithReport` のトースト）、owned-view.test.js（所持パルの案内の文、設定の登録待ちの行と破棄・0 件で隠す・子を出さない、設定の許可切れの状態の行）、save-status.test.js（ヘッダーの title）、auto-register.test.js（トーストの「見る」・`pendingSummary` の分け方と子を返さない・`discardPending`・見送りの通知の href）、app.test.js（題名、所持パルのタブの「!」）。
+11. **画面（モック・1100×900）**: 題名「配合を探す · パル配合ノート」→ パル詳細で「モコロン · パル配合ノート」、`visibilityState` を hidden にして `visibilitychange` を起こすと「(1) モコロン · パル配合ノート」とファビコンが data: の SVG（丸の「1」。`57-favicon-badge.png`）、表に戻すと元に戻る。
+    - **確かめていないこと**: モックには登録したワールドがなく許可も扱えないので、許可切れの 3 か所の表示・設定の「登録待ち」の行・所持パルのタブの「!」はブラウザでは確かめていない（テストで確かめた）。本物の Chrome で、タブを裏にして許可が外れるまでの時間も確かめていない。
+12. **後のテーマへの申し送り**:
+    - roles: 登録者の対応を独立した欄に移すときは、`div.owned-pending`（`pendingBoxes`・`renderPending`）も一緒に移す。
+    - settings: 設定の状態の行（`stateRow`・`autoError`）の並びを変えるときも、許可切れは `permissionNotice` を使う。
 
 ---
 

@@ -69,6 +69,13 @@ function cleanSavedNotice(value) {
 }
 
 const isSuccess = (notice) => notice.kind === SUCCESS || REGISTERED.test(notice.id);
+
+// 登録待ちの候補を画面から指す ID（候補の key は子を含むので、そのまま返さない。INV-2）。key の FNV-1a（32 ビット）の 16 進
+function pendingId(key) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) hash = Math.imul(hash ^ key.charCodeAt(i), 0x01000193) >>> 0;
+  return `p${hash.toString(16).padStart(8, '0')}`;
+}
 const newestFirst = (a, b) => Date.parse(b.date) - Date.parse(a.date);
 // まとめの単位（通知欄の groupNotifications と同じく、ワールドと読み込んだ日時）。batchId がなければ 1 件ずつ
 const batchOf = (notice) => `${notice.worldId ?? ''}\n${notice.batchId ?? notice.id}`;
@@ -150,7 +157,7 @@ function isOtherGenderResult(table, record, existing) {
 }
 
 export function createAutoRegister({
-  store, owned, storage, namespace = 'pal-note', toast = () => {}, onNotice = () => {},
+  store, owned, storage, namespace = 'pal-note', toast = () => {}, onNotice = () => {}, navigate = () => {},
   loadTable = () => import('../data/breeding.js'),
 }) {
   const resolveSpecies = createSpeciesResolver(pals);
@@ -198,8 +205,13 @@ export function createAutoRegister({
     return typeof own === 'boolean' ? own : value.enabled !== false;
   };
 
+  // 読み込んだ配合表（登録待ちの集計で、親の性別で子が変わる組み合わせを除くのに使う。まだなければ null）
+  let loadedTable = null;
   function getTable() {
-    tablePromise ??= loadTable().then((module) => decodeBreeding(module.default ?? module)).catch((error) => {
+    tablePromise ??= loadTable().then((module) => {
+      loadedTable = decodeBreeding(module.default ?? module);
+      return loadedTable;
+    }).catch((error) => {
       tablePromise = null;
       throw error;
     });
@@ -352,10 +364,11 @@ export function createAutoRegister({
   // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」。前の版が保存した本文は「×」のまま読み替える＝OLD_ANOMALY・OLD_CONFLICT）
   const pairText = (a, b) => `${palName(a)}＋${palName(b)}`;
   // 表と合わない新しいタマゴ（見たタマゴとして記録し、二度と判定しない）。表の子（m.expected）は出さない
-  // 通知欄の行の画像はセーブで見た新しいタマゴの種族（m.actual）
+  // 通知欄の行の画像はセーブで見た新しいタマゴの種族（m.actual）。押すと配合を探すでその親の組の登録（D-03。id は前と同じ）
   const anomalyNotice = (ctx, m) => ({
     id: `auto-breed:${ctx.env}:anomaly:${m.farmId}:${m.eggLocalId}`, date: ctx.importedAt,
     title: AUTO_NOTICE_TITLES.anomaly, body: anomalyText(pairText(...m.parents), palName(m.actual)), palId: m.actual,
+    href: buildHash('search', { p1: m.parents[0], p2: m.parents[1] }),
   });
   // 登録済みと食い違う候補（対応や登録が変わったら、次の判定でやり直す）。候補の子は表の子
   // （突然変異タマゴならタマゴの中身とも違う）なので出さず、登録済みの子だけを出す。押すと配合を探すでその組の登録を出す
@@ -394,6 +407,8 @@ export function createAutoRegister({
     const players = ctx.snapshot.players ?? [];
     const notices = [];
     let registered = 0;
+    // トーストの「見る」の行き先（1 件ならその組、2 件以上なら更新日の新しい順の配合を探す。成功の通知と同じ）
+    let lastRecord = null;
     for (const candidate of pending) {
       if (failedAt.get(candidate.key) === ctx.importedAt) continue;
       // 1 件ごとに、始めたときと同じ ID・環境・セーブ・設定のままかを確かめる。
@@ -421,6 +436,7 @@ export function createAutoRegister({
         await store.mutate('create', allowDifferentChild ? { record, allowDifferentChild } : { record });
         finish(ctx, candidate.key);
         registered++;
+        lastRecord = record;
         // 確定した登録は、この後で止まっても（セーブ・ログイン・設定が変わった）失わないよう、すぐに始めたときの保存先へ残す
         saveRegistered(ctx, registeredNotice(ctx, record, farmLabel(ctx, candidate)));
         // 別の結果として送ると、サーバは食い違いを調べない。送るまでの間に、性別の並びまで同じ食い違う登録が
@@ -450,7 +466,12 @@ export function createAutoRegister({
     const mapping = mappingOf(ctx.env, ctx.worldId);
     const resolved = new Set(players.filter((p) => mappedUser(p, { mapping, users: store.state.users })).map((p) => unmappedId(ctx, p.uid)));
     if (same(ctx, current())) saveNotices(ctx, notices, resolved);
-    if (registered) toast(`配合を自動登録しました（${registered}件）`);
+    if (registered) {
+      const href = registered === 1 && lastRecord ? buildHash('search', { p1: lastRecord.parent1Id, p2: lastRecord.parent2Id }) : buildHash('search', { sort: 'updated' });
+      toast(`配合を自動登録しました（${registered}件）`, { actionLabel: '見る', action: () => navigate(href) });
+    }
+    // 登録待ちの候補が変わったかもしれない（設定の「登録待ち」の行が読み直す）
+    changed();
   }
 
   // 実行中に呼ばれたら、終わってから 1 回だけやり直す（store の更新は購読者を同期で呼ぶため、送信中にも呼ばれる）
@@ -531,6 +552,45 @@ export function createAutoRegister({
       storage.set(mappingKey(env, worldId), JSON.stringify(next));
       changed();
       evaluate();
+    },
+    /**
+     * 登録されずに残っている候補（設定のワールドの行の「登録待ち」。D-08）。保存した候補を今の判定（登録者の対応・登録済みとの食い違い）で
+     * 分ける。**候補の子（配合表で決めた値）は返さない**（INV-2。親と理由だけ）。登録者が決まって食い違いもない候補（次の判定で登録する）・
+     * 登録済みと同じ候補・親の性別で子が変わる別の結果は数えない
+     * @returns {{ unmapped: { uid: string, name: string, parents: string[] }[], conflict: { id: string, parents: string[] }[] }} id は破棄に渡す（子を含まない）
+     */
+    pendingSummary(worldId = linkedWorld()) {
+      const s = store.state;
+      const summary = { unmapped: [], conflict: [] };
+      if (!s.passcode || !s.env || !s.userId || !worldId) return summary;
+      const { pending } = readFarms({ env: s.env, worldId });
+      const players = owned.state.local?.world.id === worldId ? owned.state.local.snapshot?.players ?? [] : [];
+      const mapping = mappingOf(s.env, worldId);
+      for (const candidate of pending) {
+        const parents = [candidate.record.parent1Id, candidate.record.parent2Id];
+        const who = resolveRegistrant(candidate, { players, mapping, users: s.users, currentUserId: s.userId });
+        if (who.unmapped) {
+          summary.unmapped.push({ uid: who.unmapped, name: players.find((p) => p.uid === who.unmapped)?.name ?? '', parents });
+          continue;
+        }
+        const record = { ...candidate.record, registrant: who.userId };
+        const conflict = s.index ? findConflict(s.index, record) : null;
+        if (conflict?.code !== 'PAIR_CONFLICT') continue;
+        if (loadedTable && isOtherGenderResult(loadedTable, record, conflict.existing)) continue;
+        summary.conflict.push({ id: pendingId(candidate.key), parents });
+      }
+      return summary;
+    },
+    /** 登録待ちの候補を 1 件捨てる（設定の「登録待ち」の「破棄」。id は pendingSummary の id。登録を終えた候補と同じく外し、このタブでは送り直さない）。捨てたら true */
+    discardPending(id, worldId = linkedWorld()) {
+      const s = store.state;
+      if (!s.env || !worldId || typeof id !== 'string') return false;
+      const ctx = { env: s.env, worldId };
+      const candidate = readFarms(ctx).pending.find((c) => pendingId(c.key) === id);
+      if (!candidate) return false;
+      finish(ctx, candidate.key);
+      changed();
+      return true;
     },
     /**
      * 通知欄の元（createNotificationStore の sources に渡す）。未設定・見送り・保留の通知と、登録できた配合の通知（別のキー）を

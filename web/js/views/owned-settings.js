@@ -1,9 +1,11 @@
 // 設定の「セーブ連携」。登録したワールド（モーダルで登録・編集・削除）、使うワールドの切り替え、
 // 表示しているワールドでの自分、配合牧場からの自動登録（ワールドごと）、所持パルの CSV・共有の削除を扱う。
-import { el, button, runButton, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
+import { el, button, link, runButton, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
-import { dateTime, worldName, roleLabel, timeLines } from '../ui/owned-status.js';
+import { dateTime, worldName, roleLabel, timeLines, permissionNotice, grantWithReport } from '../ui/owned-status.js';
+import { palIcon, palsById } from '../ui/pal-icon.js';
+import { buildHash } from '../router.js';
 import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
 import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES } from '../save/handles.js';
 import { mappedUser } from '../core/auto-breeding.js';
@@ -213,8 +215,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // ---- 状態（読み込み・許可） ----
   const autoState = statusChip('', 'neutral', 'owned-auto-state');
   const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
-  // 許可はクリックの中で（await を挟まずに）求める
-  const grant = button('読み込みを許可', () => runButton(grant, () => owned.grantAndRefresh(), (error) => toast(error.message, { kind: 'error' })), 'button primary');
+  // 許可はクリックの中で（await を挟まずに）求める。許可されなかったときのトーストは grantWithReport（3 か所で同じ）
+  const grant = button('読み込みを許可', () => runButton(grant, () => grantWithReport(owned), () => {}), 'button primary');
   const stateRow = el('div', 'owned-import-row');
   stateRow.append(autoState, grant, autoNow);
   const autoError = el('p', 'owned-auto-error');
@@ -259,6 +261,11 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     label.append(toggle, el('span', '', '新しく産まれたタマゴから、配合を自動で登録する'));
     panel.append(label);
     parts.toggle = toggle;
+    // 登録されずに残っている候補（登録者の対応の欄のすぐ上。中身は renderPending が書く）
+    const pendingBox = el('div', 'owned-pending');
+    pendingBox.hidden = true;
+    pendingBoxes.set(world.id, pendingBox);
+    panel.append(pendingBox);
     // 登録者を選ぶには、セーブのプレイヤーが要る（読み込んだワールドのものだけ分かる）
     if (!view.players) {
       panel.append(el('p', 'owned-help muted', '登録者は、このワールドを「使うワールド」にして読み込むと選べます。'));
@@ -292,6 +299,46 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     }
     panel.append(players);
     return panel;
+  }
+
+  // ---- 登録待ち（autoreg-visibility。D-08）: 登録されずに残っている候補を、件数と親だけで出す（候補の子は配合表で決めた値なので
+  // 出さない。INV-2。auto-register.js の pendingSummary が子を返さない）。「登録済みと違う」の行は親 2 体の絵・「登録を開く」・「破棄」だけ。
+  // 登録者未設定の行は数だけ（すぐ下の登録者の選択で片づく）
+  let pendingBoxes = new Map();
+  const pendingShown = new Map();
+  function renderPending() {
+    for (const [worldId, box] of pendingBoxes) {
+      const summary = autoRegister?.pendingSummary?.(worldId) ?? { unmapped: [], conflict: [] };
+      const key = JSON.stringify(summary);
+      if (pendingShown.get(worldId) === key) continue;
+      pendingShown.set(worldId, key);
+      const total = summary.unmapped.length + summary.conflict.length;
+      box.hidden = !total;
+      if (!total) { box.replaceChildren(); continue; }
+      const kinds = [summary.unmapped.length ? `登録者未設定 ${summary.unmapped.length}` : '', summary.conflict.length ? `登録済みと違う ${summary.conflict.length}` : ''].filter(Boolean);
+      const nodes = [el('p', 'owned-pending-head', `登録待ち ${total} 件（${kinds.join('・')}）`)];
+      if (summary.conflict.length) {
+        const list = el('ul', 'owned-pending-list');
+        for (const item of summary.conflict) {
+          const [a, b] = item.parents;
+          const pair = el('span', 'owned-pending-pair');
+          const name = (id) => palsById.get(id)?.ja ?? id;
+          pair.setAttribute('role', 'img');
+          pair.setAttribute('aria-label', `${name(a)}＋${name(b)}`);
+          pair.title = `${name(a)}＋${name(b)}`;
+          pair.append(palIcon(palsById.get(a)), el('span', 'owned-pending-plus', '＋'), palIcon(palsById.get(b)));
+          const discard = button('破棄', async () => {
+            if (!await confirmDialog('この登録待ちを破棄しますか？', `${name(a)}＋${name(b)} のタマゴの配合を、自動登録しません。登録済みの配合は変わりません。`, { confirmText: '破棄', danger: true })) return;
+            autoRegister.discardPending(item.id, worldId);
+          }, 'button quiet small danger-text');
+          const row = el('li', 'owned-pending-item');
+          row.append(pair, link('登録を開く', buildHash('search', { p1: a, p2: b }), 'button quiet small'), discard);
+          list.append(row);
+        }
+        nodes.push(list);
+      }
+      box.replaceChildren(...nodes);
+    }
   }
 
   // ---- 所持パル（ワールドの行を開いたところで、そのワールドについて操作する） ----
@@ -439,6 +486,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       renderedWorlds = signature;
       busyButtons = [];
       worldParts = new Map();
+      pendingBoxes = new Map();
+      pendingShown.clear();
       registered.replaceChildren();
       state.auto.worlds.forEach((world, index) => {
         const item = el('li', 'owned-registered-item');
@@ -477,6 +526,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       });
     }
     setBusy(state.busy);
+    renderPending();
     registered.hidden = !state.auto.worlds.length;
     emptyNote.hidden = state.auto.worlds.length > 0;
   }
@@ -510,10 +560,13 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     autoState.textContent = state.auto.enabled ? AUTO_STATES[state.auto.status] ?? '' : '';
     setChipTone(autoState, AUTO_TONES[state.auto.status] ?? 'neutral');
     // 確かめている途中もエラーは残り（owned.js）、エラーがないときも見えないまま 1 行分の場所を残す（点滅しない・下が上下しない）。
-    // 登録したワールドがなければ、エラーがあるときだけ出す
-    const errorText = state.auto.enabled ? state.auto.error : '';
+    // 登録したワールドがなければ、エラーがあるときだけ出す。許可切れは状態の行（「許可が必要」と「読み込みを許可」）が文の代わりで、
+    // この行には止まった時刻と「毎回のアクセスを許可」の勧めを出す（permissionNotice。ヘッダー・所持パルと同じ文。C-31）
+    const permission = permissionNotice(state);
+    const errorText = permission ? [permission.since, permission.hint].filter(Boolean).map((text) => `${text}。`).join('') : state.auto.enabled ? state.auto.error : '';
     if (autoError.textContent !== errorText) autoError.textContent = errorText;
     autoError.classList.toggle('is-empty', !errorText);
+    autoError.classList.toggle('is-hint', Boolean(permission));
     autoError.hidden = !hasWorlds && !errorText;
     autoNow.hidden = !hasWorlds;
     grant.hidden = !needsPermission;
@@ -610,10 +663,12 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     renderRegistered(owned.state);
     renderSelf();
   }) ?? (() => {});
+  // 自動登録の候補が変わったら（読み込んで判定した・破棄した・対応や設定を変えた）、登録待ちの行だけ書き直す
+  const unsubscribeAuto = autoRegister?.subscribe?.(renderPending) ?? (() => {});
   render(owned.state);
   owned.load().catch(() => {});
   return {
     element: card, reveal,
-    destroy() { destroyed = true; unsubscribe(); unsubscribeStore(); unsubscribeSelf(); },
+    destroy() { destroyed = true; unsubscribe(); unsubscribeStore(); unsubscribeSelf(); unsubscribeAuto(); },
   };
 }

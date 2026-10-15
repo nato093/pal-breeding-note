@@ -411,9 +411,11 @@ test('所持パル画面: 確認・読み込みの間（busy）も案内の帯�
   const owned = fakeOwned(undefined, { auto: permission });
   owned.state.data.snapshot = { ...owned.state.data.snapshot, files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] } };
   const view = ownedView(context(owned), parseHash('#/owned'));
+  // 許可切れの案内は短い 1 文と、勧め（「毎回のアクセスを許可」）の小さな 2 行目（autoreg-visibility の permissionNotice）
+  const PERMISSION_SHOWN = 'セーブを読む許可が必要です。Chrome の確認で「毎回のアクセスを許可」を選ぶと、ゲーム中（タブが裏）も止まりません。読み込みを許可';
   const notices = view.element.querySelector('.owned-notices');
   const shown = () => notices.children.map((node) => node.textContent);
-  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.deepEqual(shown(), [PERMISSION_SHOWN]);
   const item = notices.children[0];
   const parts = view.element.children;
   const filters = view.element.querySelector('.owned-filters');
@@ -421,16 +423,16 @@ test('所持パル画面: 確認・読み込みの間（busy）も案内の帯�
   // 1 分ごとの確認（busy → checking）
   Object.assign(owned.state, { busy: true, auto: { ...permission, status: 'checking' } });
   owned.emit();
-  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.deepEqual(shown(), [PERMISSION_SHOWN]);
   assert.equal(notices.children[0], item);
   // 読み込みの途中（progress は帯に出さない）
   Object.assign(owned.state, { progress: 'Level.sav を読み込み中…' });
   owned.emit();
-  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.deepEqual(shown(), [PERMISSION_SHOWN]);
   // 終わったら結果で描き直す（同じ結果なら帯は同じ）
   Object.assign(owned.state, { busy: false, progress: '', auto: permission });
   owned.emit();
-  assert.deepEqual(shown(), ['セーブを読むには許可が必要です読み込みを許可']);
+  assert.deepEqual(shown(), [PERMISSION_SHOWN]);
   assert.equal(view.element.querySelector('.owned-activity'), null);
   assert.deepEqual(view.element.children, parts);
   assert.equal(view.element.querySelector('.owned-filters'), filters);
@@ -874,6 +876,70 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   owned.state.auto.worlds[0].playedAt = '2026-10-06T00:00:00.000Z';
   owned.emit();
   assert.equal(card.element.querySelectorAll('.owned-world-details')[0].open, true);
+  card.destroy();
+});
+
+test('設定画面（autoreg-visibility）: ワールドの行の登録者の上に「登録待ち n 件」。登録済みと違う行は親 2 体の絵・「登録を開く」・「破棄」だけで、子は出さない', async (t) => {
+  installDom(t);
+  const listeners = new Set();
+  let summary = {
+    unmapped: [{ uid: P2, name: 'Bob', parents: ['SheepBall', 'PinkCat'] }, { uid: P2, name: 'Bob', parents: ['CatMage', 'PinkCat'] }],
+    conflict: [{ id: 'p0000abcd', parents: ['SheepBall', 'SwordCutlassfish'] }],
+  };
+  const discarded = [];
+  const autoRegister = {
+    enabled: () => true, setEnabled() {}, mapping: () => ({}), setMapping() {},
+    pendingSummary: (worldId) => (worldId === 'W' ? summary : { unmapped: [], conflict: [] }),
+    discardPending(id, worldId) { discarded.push([id, worldId]); summary = { ...summary, conflict: [] }; listeners.forEach((listener) => listener()); return true; },
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+  };
+  const owned = fakeOwned();
+  const ctx = { ...context(owned), autoRegister };
+  ctx.store.state.users = ['Alice', '仲間'];
+  const card = ownedSettingsCard(ctx, { win: DROP_WIN });
+  const box = card.element.querySelector('.owned-breeding');
+  const pending = box.querySelector('.owned-pending');
+  assert.equal(pending.hidden, false);
+  assert.equal(pending.querySelector('.owned-pending-head').textContent, '登録待ち 3 件（登録者未設定 2・登録済みと違う 1）');
+  // 登録者の選択（.owned-breeding-players）より上
+  const order = box.children.map((node) => node.className);
+  assert.ok(order.indexOf('owned-pending') < order.indexOf('owned-breeding-players'));
+  const row = pending.querySelector('.owned-pending-item');
+  assert.equal(row.querySelector('.owned-pending-pair').getAttribute('aria-label'), 'モコロン＋オオタチウオ');
+  assert.equal(row.querySelector('a').href, '#/search?p1=SheepBall&p2=SwordCutlassfish');
+  assert.deepEqual(row.querySelectorAll('button').map((node) => node.textContent), ['破棄']);
+  // 子（配合表の答え）は出さない
+  assert.doesNotMatch(pending.textContent, /ヤクモマル|→/);
+  // 破棄は確かめてから
+  const click = row.querySelector('button').dispatch('click');
+  const dialog = document.body.querySelectorAll('dialog').find((node) => node.open);
+  assert.match(dialog.textContent, /自動登録しません/);
+  await dialog.querySelectorAll('button').find((node) => node.textContent === '破棄').dispatch('click');
+  await click;
+  assert.deepEqual(discarded, [['p0000abcd', 'W']]);
+  assert.equal(pending.querySelector('.owned-pending-head').textContent, '登録待ち 2 件（登録者未設定 2）');
+  assert.equal(pending.querySelector('.owned-pending-list'), null);
+  // 0 件なら出さない
+  summary = { unmapped: [], conflict: [] };
+  listeners.forEach((listener) => listener());
+  assert.equal(pending.hidden, true);
+  card.destroy();
+  assert.equal(listeners.size, 0);
+});
+
+test('設定画面（autoreg-visibility）: 許可切れは状態の行（「許可が必要」と「読み込みを許可」）にまとめ、長い文の代わりに止まった時刻と勧めを出す', (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  const stoppedAt = new Date(2026, 9, 15, 14, 32).toISOString();
+  Object.assign(owned.state, { auto: { ...owned.state.auto, status: 'permission', error: 'セーブを読む許可が必要です', stoppedAt } });
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  assert.equal(card.element.querySelector('.owned-auto-state').textContent, '許可が必要');
+  const grant = card.element.querySelectorAll('button').find((node) => node.textContent === '読み込みを許可');
+  assert.equal(grant.hidden, false);
+  const note = card.element.querySelector('.owned-auto-error');
+  assert.match(note.textContent, /から読めていません。この間に拾ったタマゴは自動登録されていない場合があります。Chrome の確認で「毎回のアクセスを許可」/);
+  assert.doesNotMatch(note.textContent, /セーブを読む許可が必要です/);
+  assert.match(note.className, /is-hint/);
   card.destroy();
 });
 

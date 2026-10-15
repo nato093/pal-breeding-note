@@ -2408,6 +2408,18 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .owned-auto-error { min-height: 1lh; font-size: 12px; color: var(--warning); margin: 0 0 6px; overflow-wrap: anywhere; }
 /* エラーがないときも見えないまま 1 行分の場所を残す（確かめるたびに点滅しない） */
 .owned-auto-error.is-empty { visibility: hidden; }
+/* 許可切れのときは、状態の行（「許可が必要」・「読み込みを許可」）の下に止まった時刻と勧めを補足の色で */
+.owned-auto-error.is-hint { color: var(--muted); }
+/* 所持パルの案内の 2 行目（許可切れの「毎回のアクセスを許可」の勧め） */
+.owned-notice-hint { display: block; margin-top: 2px; font-size: 12px; opacity: .9; }
+/* 登録待ち（設定のワールドの行。登録者の対応の欄のすぐ上。候補の子は出さない） */
+.owned-pending { margin: 4px 0 10px; padding: 8px 12px; border-radius: 12px; background: var(--md-sys-color-surface-container-high); }
+.owned-pending-head { margin: 0; font-size: 13px; font-weight: 700; }
+.owned-pending-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.owned-pending-item { display: flex; align-items: center; gap: 8px; }
+.owned-pending-pair { display: inline-flex; align-items: center; gap: 4px; margin-right: auto; }
+.owned-pending-pair .pal-icon { width: 28px; height: 28px; }
+.owned-pending-plus { color: var(--muted); font-size: 12px; }
 .owned-drop.disabled { opacity: .5; }
 /* パッシブ（ゲームのパル詳細画面の表示に合わせる）
    左の帯・枠・板の色はランクの区分（通常・金・水色・最上位・マイナス）ごとにゲーム画面から測った値。
@@ -2577,6 +2589,8 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
   line-height: 1.4;
 }
 .nav-badge[hidden] { display: none; }
+/* 所持パルのタブの「!」（自動の読み込みが止まっている。autoreg-visibility） */
+.nav-badge.is-warning { min-width: 16px; padding: 1px 4px; background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); text-align: center; }
 .nav-tab[data-view="settings"] { margin-top: auto; }
 /* 菱形は on-primary で描き、明暗どちらでも primary の上で読めるようにする */
 .brand-mark::after {

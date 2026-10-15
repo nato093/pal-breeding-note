@@ -149,8 +149,14 @@ export function installDom(t) {
   windowEvents.innerWidth = 1280;
   windowEvents.innerHeight = 900;
   globalThis.window = windowEvents;
+  // head は題名とファビコンの部品（web/js/attention.js）が link[rel=icon] を探す。ページの index.html と同じ値
+  const head = new FakeElement('head');
+  const icon = new FakeElement('link');
+  icon.setAttribute('rel', 'icon');
+  icon.setAttribute('href', 'favicon.svg');
+  head.append(icon);
   globalThis.document = {
-    body, activeElement: body,
+    body, head, title: 'パル配合ノート', activeElement: body,
     createElement: (name) => new FakeElement(name),
     createElementNS: (namespace, name) => {
       const node = new FakeElement(name);
