@@ -27,7 +27,8 @@ async function prepare(context, key, id, approved = null) {
   if (DRAFT_PALS.some((field) => !draft[field])) return { error: '未選択の項目があります。' };
   // 別の子の承認は、確認で見せた内容のままの場合だけ有効にする（確認中に別のタブで変わることがある）。
   const allowDifferentChild = Boolean(approved) && sameDraftContent(draft, approved);
-  const checked = validateRecordInput({ ...draft, parent1Gender: '', parent2Gender: '' }, new Set(palsById.keys()));
+  // 親の性別も通す（下書きの性別は別のキーに持つ。drafts.js）
+  const checked = validateRecordInput({ ...draft }, new Set(palsById.keys()));
   if (!checked.ok) return { error: checked.errors.map(validationText).join(' ') };
   const record = { id: draft.recordId || crypto.randomUUID(), ...checked.value };
   const conflict = findConflict(store.state.index, record, { checkPair: !allowDifferentChild });
@@ -94,8 +95,8 @@ export async function registerDrafts(context, ids) {
 // 読み取り専用の式（親1 ＋ 親2 → 子）。選んでいない枠は破線の「未選択」
 function draftEquation(draft) {
   const equation = el('div', 'breeding-equation draft-equation');
-  const slot = (id) => (id && palsById.has(id) ? palTile(id, { clickable: false }) : el('span', 'draft-empty', '未選択'));
-  equation.append(slot(draft.parent1Id), el('span', 'equation-symbol', '＋'), slot(draft.parent2Id),
+  const slot = (id, gender = '') => (id && palsById.has(id) ? palTile(id, { clickable: false, gender }) : el('span', 'draft-empty', '未選択'));
+  equation.append(slot(draft.parent1Id, draft.parent1Gender), el('span', 'equation-symbol', '＋'), slot(draft.parent2Id, draft.parent2Gender),
     el('span', 'equation-symbol arrow', '→'), slot(draft.childId));
   return equation;
 }
@@ -131,7 +132,7 @@ function draftRow(context, draft, onRemove) {
     element: row,
     update(next, status) {
       if (shown?.draft === next && shown.status === status) return;
-      const palsChanged = !shown || DRAFT_PALS.some((field) => shown.draft[field] !== next[field]);
+      const palsChanged = !shown || [...DRAFT_PALS, 'parent1Gender', 'parent2Gender'].some((field) => shown.draft[field] !== next[field]);
       shown = { draft: next, status };
       current = next;
       if (palsChanged) equationSlot.replaceChildren(draftEquation(next));

@@ -873,15 +873,60 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
   z-index: 2;
   border-top: 1px solid var(--line);
 }
-.record-dialog { width: min(800px, calc(100% - 24px)); height: min(600px, 90dvh); overflow: visible; }
+.record-dialog { width: min(820px, calc(100% - 24px)); max-height: 90dvh; overflow: visible; }
 .record-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .record-dialog .dialog-header { border-radius: 28px 28px 0 0; }
 .record-dialog .dialog-body { min-height: 0; overflow-y: auto; }
 .record-dialog .dialog-footer { border-radius: 0 0 28px 28px; }
-.editor-pickers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.record-form > .field:first-of-type { margin-top: 16px; }
-.editor-warning:not(:empty) { padding: 12px; background: var(--warning-bg); color: var(--warning); border-radius: 12px; margin-top: 16px; }
-.preflight-record { font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 5px 0; }
+/* 登録のモーダル（register-dialog）: 上に式の並び「親1 ＋ 親2 → 子」と親の性別、下は左にフォーム（登録者・メモ・エラー）・右に参照列。
+   参照列は高さを固定し、入力で確認の枠の中身が変わってもメモ欄・フッターが動かない（前は警告が出るたびにメモ欄が 71px・35px 下がった） */
+.editor-pickers, .editor-genders { display: grid; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 18px minmax(0, 1fr); column-gap: 8px; }
+.editor-pickers { grid-template-rows: auto auto; row-gap: 4px; }
+.editor-pickers > .picker { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; gap: 0; }
+.editor-pickers > .equation-symbol { grid-row: 2; align-self: center; }
+.editor-pickers .picker-trigger { height: 40px; }
+.editor-pickers > .picker.is-warning .picker-trigger { border-color: var(--md-sys-color-warning); box-shadow: inset 0 0 0 1px var(--md-sys-color-warning); }
+.editor-pickers > .picker.is-invalid .picker-trigger { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.editor-genders { margin-top: 6px; min-height: 30px; }
+.gender-toggle .segmented-option { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.gender-toggle .segmented-option[data-value="M"][aria-checked="true"] { background: var(--gender-male); color: var(--on-gender); border-color: var(--gender-male); }
+.gender-toggle .segmented-option[data-value="F"][aria-checked="true"] { background: var(--gender-female); color: var(--on-gender); border-color: var(--gender-female); }
+.editor-columns { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 18px; margin-top: 14px; align-items: start; }
+.editor-details { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; align-items: start; }
+.editor-details .field { margin-bottom: 8px; }
+.editor-details textarea { min-height: 64px; }
+.editor-reference {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  height: 236px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-low);
+  font-size: 13px;
+}
+/* 確認の枠: 高さを固定（未選択・未登録・登録済み・別の子の警告で高さが変わらない） */
+.editor-check { min-height: 92px; padding: 8px 10px; border-radius: 10px; background: var(--md-sys-color-surface); }
+.editor-check.is-warning { background: var(--warning-bg); color: var(--warning); }
+.editor-check p { margin: 0; }
+.editor-check-hint { color: var(--md-sys-color-on-surface-variant); font-size: 12px; }
+.editor-check-title, .editor-reference-title { font-size: 12px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); margin: 0; }
+.editor-check-children { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; }
+.editor-check-child { border: 0; background: transparent; padding: 0 4px; border-radius: 8px; }
+.editor-check-child:hover { background: var(--state-hover); }
+.editor-check-child .pal-tile { min-height: 34px; gap: 6px; font-size: 12px; }
+.editor-check-child .pal-icon { width: 30px; height: 30px; }
+.editor-check-more { font-size: 12px; color: var(--md-sys-color-on-surface-variant); margin: 0; }
+.editor-check .warning-text { margin: 4px 0 0; }
+.editor-parent-records { display: grid; gap: 2px; }
+.editor-parent-records .breeding-equation { grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); }
+.editor-parent-records .breeding-equation > .pal-tile { min-height: 28px; font-size: 12px; }
+.editor-parent-records .breeding-equation .pal-icon { width: 26px; height: 26px; }
+.editor-owned { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.editor-owned:empty { display: none; }
+.editor-owned-item { display: inline-flex; align-items: center; gap: 4px; }
+.editor-owned .owned-count { margin-left: 0; }
 .warning-text { color: var(--warning); font-size: 13px; margin: 10px 0; }
 .form-errors { font-size: 13px; overflow-wrap: anywhere; }
 /* トーストは、左のナビを除いた本文の幅の下中央（行の右端の編集・削除にも、左端のパルの絵にも重ならない）。幅は 460px まで。

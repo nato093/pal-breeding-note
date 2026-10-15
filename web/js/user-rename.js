@@ -74,6 +74,21 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     if (!entries.some(([, userId]) => isOld(userId))) continue;
     ok = writeJson(storage, key, Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId]))) && ok;
   }
+  // オブジェクトの形のキー（下書きの親の性別〔drafts.js〕など。{ [id]: 値 }）。移し先と合わせ、同じ id は移す元を優先する
+  for (const prefix of [`${namespace}.draftGenders.${env}.`]) {
+    const from = `${prefix}${oldKey}`;
+    const to = `${prefix}${newKey}`;
+    const source = readJson(storage, from);
+    if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+    if (from === to) continue;
+    const target = readJson(storage, to);
+    const merged = { ...(target && typeof target === 'object' && !Array.isArray(target) ? target : {}), ...source };
+    if (!writeJson(storage, to, merged)) {
+      ok = false;
+      continue;
+    }
+    try { storage.removeItem(from); } catch { /* 消せなくても、移し先が読まれる。 */ }
+  }
   // 配合を探すの「新」の印の基準の時刻（search-seen.js。文字列 1 つ）。移し先に値があれば、新しい方（新着を少なく出す方）を残す
   const seenFrom = `${namespace}.search.seenAt.${env}.${oldKey}`;
   const seenTo = `${namespace}.search.seenAt.${env}.${newKey}`;
@@ -135,6 +150,7 @@ export function createRenamer({ store, drafts, wishlist, ideals, self, notificat
     const ok = moveUserStorage(storage, namespace, plan.env, plan.oldId, plan.newId);
     const keys = (prefix) => [`${prefix}${userIdKey(plan.oldId)}`, `${prefix}${userIdKey(plan.newId)}`];
     for (const key of keys(`${namespace}.drafts.${plan.env}.`)) drafts?.reload(key);
+    for (const key of keys(`${namespace}.draftGenders.${plan.env}.`)) drafts?.reload(key);
     for (const key of keys(`${namespace}.wishlist.${plan.env}.`)) wishlist?.reload(key);
     for (const key of keys(`${namespace}.ideals.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.notifications.read.`)) notifications?.reload(key);

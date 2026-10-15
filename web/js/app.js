@@ -393,6 +393,8 @@ async function boot() {
     const userId = el('input');
     userId.autocomplete = 'username';
     userId.required = true;
+    // ID は 20 文字まで（サーバの検証と同じ。D-17）
+    userId.maxLength = 20;
     userId.value = previousId;
     const password = el('input');
     password.type = 'password';

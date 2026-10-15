@@ -183,7 +183,9 @@ test('登録画面: 未選択から始まり、登録者とメモを常時表示
   const form = modal.body.querySelector('form');
   const registrant = form.querySelector('select');
   const memo = form.querySelector('textarea');
-  assert.deepEqual(form.children.slice(2, 4), [registrant.parentElement, memo.parentElement]);
+  // 登録者とメモは左の列に横並び（右は参照列）
+  assert.deepEqual(form.querySelector('.editor-details').children, [registrant.parentElement, memo.parentElement]);
+  assert.ok(form.querySelector('.editor-reference'));
   assert.deepEqual(form.querySelectorAll('.field-label').map((node) => node.textContent), ['親1', '親2', '子', '登録者', 'メモ（200文字まで）']);
   assert.equal(registrant.value, '自分');
   assert.deepEqual(registrant.children.map((node) => node.value), ['自分', '仲間']);
@@ -307,9 +309,10 @@ test('登録画面: 保存はサーバの応答を待たずに閉じ、登録済
 test('登録画面: 新規の重複はフォーム内に表示し、閉じずに入力を残す', async (t) => {
   const { context, calls, body } = await setup(t, { records: [initial] });
   const modal = openRecordEditor(context, initial);
-  const warning = modal.body.querySelector('.editor-warning');
-  assert.match(warning.textContent, /この組み合わせは登録済み: → セレムーン/);
-  assert.doesNotMatch(warning.textContent, /確認|\+1/);
+  // 右の確認の枠に、登録済みの子の絵（押すと子の欄に入る）
+  const check = modal.body.querySelector('.editor-check');
+  assert.match(check.textContent, /この組み合わせは登録済み:.*セレムーン/);
+  assert.doesNotMatch(check.textContent, /確認|\+1/);
   await buttonNamed(modal.footer, '登録').dispatch('click');
   assert.equal(modal.dialog.open, true);
   assert.equal(body.querySelectorAll('dialog').length, 1);
@@ -340,13 +343,21 @@ for (const registrant of ['古い登録者', '']) {
   });
 }
 
-test('登録画面: 親を変更した編集は両方の性別を空にする', async (t) => {
+test('登録画面: 編集で親を変えると、その枠の性別だけ空にする（D-15。前は両方とも空にした）', async (t) => {
   const { context, store, calls } = await setup(t, { records: [{ ...initial, parent1Gender: 'M', parent2Gender: 'F' }] });
-  const modal = openRecordEditor(context, store.state.records[0]);
+  const original = store.state.records[0];
+  const modal = openRecordEditor(context, original);
+  const toggles = modal.body.querySelectorAll('.gender-toggle');
+  assert.deepEqual(toggles.map((node) => node.getAttribute('aria-label')), ['親1の性別', '親2の性別']);
+  const checked = (node) => node.querySelectorAll('[role="radio"]').find((radio) => radio.getAttribute('aria-checked') === 'true')?.textContent ?? '';
+  const mark = { M: '♂', F: '♀' };
+  // 保存のときに親の順はそろえられる（ID の順）ので、記録の親1・親2 の性別をそのまま出す
+  assert.deepEqual(toggles.map(checked), [mark[original.parent1Gender], mark[original.parent2Gender]]);
   await selectPal(modal, 0, 'ツッパニャン');
+  assert.deepEqual(toggles.map(checked), ['指定なし', mark[original.parent2Gender]]);
   await buttonNamed(modal.footer, '変更を保存').dispatch('click');
   assert.equal(calls[0].payload.record.parent1Gender, '');
-  assert.equal(calls[0].payload.record.parent2Gender, '');
+  assert.equal(calls[0].payload.record.parent2Gender, original.parent2Gender);
 });
 
 test('登録画面: × で親を解除すると未選択に戻り、保存時に必須エラーを表示する', async (t) => {
@@ -450,4 +461,115 @@ test('登録画面: 他の人の更新と競合したら元に戻し、全件取
   assert.match(body.textContent, /変更を保存しました/);
   assert.equal(store.state.records[0].memo, '再編集');
   assert.equal(store.state.syncing, false);
+});
+
+// 下書きの保存先つきの context（閉じたときの退避を確かめる）
+async function withDrafts(t, options) {
+  const app = await setup(t, options);
+  const values = new Map();
+  const storage = {
+    values, fail: false,
+    getItem: (key) => values.get(key) ?? null,
+    setItem(key, value) { if (this.fail) throw new Error('QuotaExceededError'); values.set(key, String(value)); },
+    removeItem: (key) => values.delete(key),
+  };
+  const { createDraftStore } = await import('../../web/js/drafts.js');
+  app.context.drafts = createDraftStore({ store: app.store, storage, namespace: 'test-note' });
+  app.storage = storage;
+  return app;
+}
+const toastNamed = (body, text) => body.querySelectorAll('.toast').find((node) => node.textContent.startsWith(text));
+
+for (const [how, close] of [
+  ['×', (modal) => modal.dialog.querySelector('.dialog-close').dispatch('click')],
+  ['Esc', (modal) => modal.dialog.dispatch('cancel')],
+  ['キャンセル', (modal) => buttonNamed(modal.footer, 'キャンセル').dispatch('click')],
+]) {
+  test(`登録画面: 新規の入力があるまま ${how} で閉じたら下書きに残し（性別も）、トーストの「破棄」で消す`, async (t) => {
+    const app = await withDrafts(t);
+    const modal = openRecordEditor(app.context);
+    await selectPal(modal, 0, 'モコロン');
+    // 親1 の性別を ♂ に
+    await modal.body.querySelectorAll('.gender-toggle')[0].querySelectorAll('[role="radio"]')[0].dispatch('click');
+    modal.body.querySelector('textarea').value = 'あとで確かめる';
+    await close(modal);
+    assert.equal(modal.dialog.open, false);
+    const [saved] = app.context.drafts.list();
+    assert.deepEqual([saved.parent1Id, saved.parent1Gender, saved.parent2Id, saved.memo], ['SheepBall', 'M', '', 'あとで確かめる']);
+    const notice = toastNamed(app.body, '下書きに残しました');
+    assert.ok(notice);
+    await buttonNamed(notice, '破棄').dispatch('click');
+    assert.deepEqual(app.context.drafts.list(), []);
+  });
+}
+
+test('登録画面: 編集・下書き版・初期値のまま・続けて登録の直後（親1 だけ残る）は、閉じても下書きに残さない', async (t) => {
+  const app = await withDrafts(t);
+  const edit = openRecordEditor(app.context, { ...initial, id: '編集中' });
+  edit.body.querySelector('textarea').value = '書き換えた';
+  await buttonNamed(edit.footer, 'キャンセル').dispatch('click');
+  const draftVersion = openRecordEditor(app.context, {}, { draft: true });
+  draftVersion.body.querySelector('textarea').value = '下書き版';
+  await buttonNamed(draftVersion.footer, 'キャンセル').dispatch('click');
+  const prefilled = openRecordEditor(app.context, { parent1Id: 'SheepBall' });
+  await prefilled.dialog.dispatch('cancel');
+  assert.equal(prefilled.dialog.open, false);
+  const continuous = openRecordEditor(app.context);
+  for (const [index, query] of ['モコロン', 'フラリーナ', 'セレムーン'].entries()) await selectPal(continuous, index, query);
+  await buttonNamed(continuous.footer, '続けて登録').dispatch('click');
+  assert.match(continuous.body.querySelectorAll('.picker-trigger')[0].textContent, /モコロン/);
+  await buttonNamed(continuous.footer, 'キャンセル').dispatch('click');
+  assert.equal(continuous.dialog.open, false);
+  assert.deepEqual(app.context.drafts.list(), []);
+});
+
+test('登録画面: 下書きに残せないとき（端末に保存できない）はフォームを残して理由を出し、止められずに閉じたときは「開き直す」を出す', async (t) => {
+  const app = await withDrafts(t);
+  const modal = openRecordEditor(app.context);
+  await selectPal(modal, 0, 'モコロン');
+  app.storage.fail = true;
+  await modal.dialog.querySelector('.dialog-close').dispatch('click');
+  assert.equal(modal.dialog.open, true);
+  assert.equal(modal.body.querySelector('.form-errors').textContent, '下書きに残せませんでした。登録するか、内容を控えてから閉じてください。');
+  assert.deepEqual(app.context.drafts.list(), []);
+  // ブラウザが閉じた（forced）: 残せなければ、入力のまま開き直せるトースト
+  await modal.dialog.close();
+  assert.equal(modal.dialog.open, false);
+  const notice = app.body.querySelector('.toast-alerts').children.find((node) => node.textContent.startsWith('入力を下書きに残せませんでした'));
+  assert.ok(notice);
+  assert.ok(buttonNamed(notice, '開き直す'));
+});
+
+test('登録画面: 最初の未選択の欄にフォーカスし、検証に失敗したらその欄に aria-invalid を付けて移る。登録者は自分を先頭に五十音順', async (t) => {
+  const app = await setup(t);
+  await app.api.request('signup', '画面試験用の入力', { userId: 'あかね' });
+  await app.store.refresh();
+  const modal = openRecordEditor(app.context, { parent1Id: 'SheepBall' });
+  const triggers = modal.body.querySelectorAll('.picker-trigger');
+  assert.equal(document.activeElement, triggers[1]);
+  assert.deepEqual(modal.body.querySelector('select').children.map((node) => node.value), ['自分', 'あかね', '仲間']);
+  await selectPal(modal, 1, 'フラリーナ');
+  await buttonNamed(modal.footer, '登録').dispatch('click');
+  assert.equal(triggers[2].getAttribute('aria-invalid'), 'true');
+  assert.equal(triggers[2].getAttribute('aria-describedby'), modal.body.querySelector('.form-errors').id);
+  assert.equal(document.activeElement, triggers[2]);
+  await selectPal(modal, 2, 'セレムーン');
+  assert.equal(triggers[2].getAttribute('aria-invalid'), null);
+  await modal.close();
+});
+
+test('登録画面: 確認の枠は高さを固定し、別の子が登録済みなら警告の色。子の絵を押すと子の欄に入る。所持パルがあれば親の所持数', async (t) => {
+  const app = await setup(t, { records: [initial] });
+  app.context.owned = { state: { owned: { pals: [{ palId: 'SheepBall', gender: 'M', egg: false, place: 'palbox' }] } } };
+  const modal = openRecordEditor(app.context, { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'CatMage' });
+  const check = modal.body.querySelector('.editor-check');
+  assert.match(check.className, /is-warning/);
+  assert.match(check.textContent, /同じ組み合わせで別の子が登録されています/);
+  assert.match(modal.body.querySelectorAll('.picker')[2].className, /is-warning/);
+  await check.querySelector('.editor-check-child').dispatch('click');
+  assert.match(modal.body.querySelectorAll('.picker-trigger')[2].textContent, /セレムーン/);
+  assert.doesNotMatch(check.className, /is-warning/);
+  assert.match(modal.body.querySelector('.editor-owned').textContent, /所持親1♂1♀0親2未所持/);
+  assert.match(modal.body.querySelector('.editor-parent-records').textContent, /モコロン の登録済みの配合 1 件/);
+  await modal.close();
 });

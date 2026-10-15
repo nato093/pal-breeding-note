@@ -1477,6 +1477,8 @@ test('画面: ログイン画面は見出しが「ログイン」「新規登録
   assert.deepEqual(panel.querySelectorAll('.field-label').map((node) => node.textContent), ['ID（20 文字まで）', '共通パスワード']);
   assert.equal(byClass('login-note').textContent, 'このノートに載るのは、仲間が登録した配合だけ。');
   assert.equal(document.activeElement, input('username'));
+  // ID は 20 文字まで（register-dialog の D-17）
+  assert.equal(input('username').maxLength, 20);
   input('username').value = 'Alice';
   await byText('新規登録').dispatch('click');
   assert.equal(byClass('login-panel').querySelector('h1').textContent, '新規登録');
