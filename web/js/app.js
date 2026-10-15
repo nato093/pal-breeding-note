@@ -35,7 +35,6 @@ import { searchView } from './views/search.js';
 import { inheritanceView } from './views/route.js';
 import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
-import { draftsView } from './views/drafts.js';
 import { wishlistView } from './views/wishlist.js';
 import { palView } from './views/pal.js';
 import { settingsView } from './views/settings.js';
@@ -213,19 +212,15 @@ async function boot() {
   main.id = 'main';
   const skip = link('メイン画面へ', '#main', 'skip-link');
   skip.addEventListener('click', (event) => { event.preventDefault(); main.tabIndex = -1; main.focus(); });
-  const register = button('＋ 登録', () => {
-    if (!store.state.passcode || !store.state.userId) return;
-    context.register();
-  }, 'register-button');
-  register.setAttribute('aria-label', '配合を登録');
   // ヘッダーのパネル（ベル・セーブ連携・ID）は 1 つだけ開く。キーボードで別のボタンを押したときは外側の pointerdown が来ないので、開いたときにほかを閉じる
   const closeOthers = (opened) => { for (const part of [bell, save, account]) if (part !== opened) part.close(); };
   const bell = notificationMenu(notifications, { onOpen: () => closeOthers(bell) });
   const save = saveStatus({ owned, autoRegister, store, onOpen: () => closeOthers(save) });
   // 名前の変更とログアウトに使うのは store と renamer だけ（context はこの後で作る）
   const account = accountMenu({ store, renamer, onOpen: () => closeOthers(account) });
-  // 並び（＝Tab の順）: ロゴ → 同期状況 → セーブ連携 → ベル → 登録 → ID
-  header.append(brand, envChip, headerStatus, save.element, bell.element, register, account.element);
+  // 並び（＝Tab の順）: ロゴ → 同期状況 → セーブ連携 → ベル → ID。常設の「＋ 登録」は外し、登録の入口は配合を探す・パル詳細の
+  // 文脈のボタンと、ショートカット N にした（register-entry。D2）
+  header.append(brand, envChip, headerStatus, save.element, bell.element, account.element);
   // 新しい版の配信を知らせる案内（画面の下端に固定。本文の流れの外）。再読み込みすると、送信待ちの操作や読み込み中のセーブ、開いている入力画面が失われる。
   const version = runningVersion();
   const update = updateBanner({
@@ -387,7 +382,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, route: inheritanceView, owned: ownedView, ideal: idealView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
+  const views = { search: searchView, route: inheritanceView, owned: ownedView, ideal: idealView, wishlist: wishlistView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     // 見出しは「ログイン」「新規登録」だけ（キャッチコピーはなくした）。説明は新規登録のときだけ
@@ -508,7 +503,6 @@ async function boot() {
     // ログイン画面の並び（CSS の #app.is-login。:has() は本文の出し入れのたびに全体のスタイルを計算し直させるので使わない）
     root.classList.toggle('is-login', showingLogin);
     nav.hidden = showingLogin;
-    register.hidden = showingLogin;
     bell.element.hidden = showingLogin;
     save.element.hidden = showingLogin;
     account.element.hidden = showingLogin;
@@ -584,6 +578,19 @@ async function boot() {
   document.addEventListener?.('click', (event) => {
     if (!plainClick(event) || root.contains?.(event.target)) return;
     sameScreenDestination(event, hrefOf(event.target?.closest?.('a') ?? null), afterClose(event.target?.closest?.('dialog')));
+  });
+  // ショートカット N: 配合の登録を開く（配合を探すで親・子を選んでいればそれを初期値に）。文字を打っている・日本語の変換中・長押し・
+  // 修飾キーつき・ログイン画面・ダイアログが開いている・候補を開いている間は何もしない（register-entry。G-06）
+  document.addEventListener?.('keydown', (event) => {
+    if (event.key !== 'n' && event.key !== 'N') return;
+    if (event.isComposing || event.repeat || event.ctrlKey || event.altKey || event.metaKey || showingLogin) return;
+    if (!store.state.passcode || !store.state.userId) return;
+    if (document.querySelector?.('dialog[open]')) return;
+    const active = document.activeElement;
+    const tag = String(active?.tagName ?? '').toLowerCase();
+    if (['input', 'select', 'textarea'].includes(tag) || active?.isContentEditable || active?.getAttribute?.('aria-expanded') === 'true') return;
+    event.preventDefault();
+    context.register(currentView?.registerInitial?.() ?? undefined);
   });
   window.addEventListener('scroll', () => {
     if (showingLogin) return;

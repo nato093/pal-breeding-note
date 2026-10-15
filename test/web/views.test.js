@@ -30,8 +30,9 @@ test('配合を探す: 親1・親2・子は初期未選択で、何も選ばな�
   assert.equal(view.element.querySelector('.find-count-text').textContent, '1 件');
   assert.equal(view.element.querySelector('.swap-button'), null);
   const heading = view.element.querySelector('.view-heading');
-  assert.equal(heading.children.length, 1);
-  assert.equal(heading.children[0].tagName, 'h1');
+  // 見出しの右は登録の入口（全件表示は「＋ 配合を登録」）だけ
+  assert.deepEqual(heading.children.map((node) => node.tagName), ['h1', 'div']);
+  assert.equal(heading.querySelector('.find-register').textContent, '＋ 配合を登録');
   assert.doesNotMatch(heading.textContent, /共有|仲間とつくる|記録した組み合わせから/);
   view.destroy();
 });
@@ -470,7 +471,8 @@ test('配合を探す: 利用者が並べ替えを変えたら、結果の先頭
 
 test('見出し: 各画面の h1 はタブの名前（views/tabs.js の TABS）。キャッチコピーの見出しは出さない', (t) => {
   installDom(t);
-  assert.deepEqual(TABS.map(([view]) => view), ['search', 'route', 'drafts', 'wishlist', 'owned', 'ideal', 'settings']);
+  assert.deepEqual(TABS.map(([view]) => view), ['search', 'route', 'wishlist', 'owned', 'ideal', 'settings']);
+  assert.equal(tabLabel('drafts'), '');
   assert.equal(tabLabel('search'), '配合を探す');
   assert.equal(tabLabel('route'), '継承ルート');
   assert.equal(tabLabel('pal'), '');
@@ -756,4 +758,65 @@ test('配合を探す: 「両親を持つ組を上へ」は組める記録を群
   assert.equal(view.element.querySelectorAll('.breeding-card').length, 3);
   assert.equal(view.element.querySelector('.find-owned').hidden, true);
   view.destroy();
+});
+
+test('配合を探す: 見出しの右の登録のボタンは条件ごとに 1 つ（全件は「＋ 配合を登録」、結果があれば今の親・子を初期値に。0 件は空の状態のボタンだけ）', async (t) => {
+  installDom(t);
+  const app = context();
+  const registers = [];
+  app.register = (fields) => registers.push(fields);
+  for (const [hash, label, fields] of [
+    ['#/search', '＋ 配合を登録', {}],
+    ['#/search?p1=SheepBall&p2=FlowerDoll', 'この組み合わせで別の結果を登録', { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll' }],
+    ['#/search?p2=SheepBall', 'この親で配合を登録', { parent1Id: 'SheepBall' }],
+    ['#/search?p1=SheepBall&c=MoonQueen', 'この親で配合を登録', { parent1Id: 'SheepBall', childId: 'MoonQueen' }],
+    ['#/search?c=MoonQueen', 'この子の配合を登録', { childId: 'MoonQueen' }],
+  ]) {
+    const view = searchView(app, parseHash(hash));
+    const button = view.element.querySelector('.find-register');
+    assert.equal(button.hidden, false, hash);
+    assert.equal(button.textContent, label, hash);
+    await button.dispatch('click');
+    assert.deepEqual(registers.at(-1), fields, hash);
+    // ショートカット N の初期値も同じ
+    assert.deepEqual(view.registerInitial(), fields, hash);
+    view.destroy();
+  }
+  // 0 件のときは空の状態の登録のボタン（primary）だけ
+  const none = searchView(app, parseHash('#/search?p1=PinkCat'));
+  assert.equal(none.element.querySelector('.find-register').hidden, true);
+  assert.equal(none.element.querySelectorAll('button').filter((node) => /登録/.test(node.textContent) && !node.hidden).length, 1);
+  none.destroy();
+});
+
+test('配合を探す: 下書きの帯は全件表示のときだけ出し、開閉は URL の drafts=1（履歴を増やさない）。親・子を選ぶと出さない', async (t) => {
+  installDom(t);
+  const drafts = { list: () => [], scope: () => 'k', status: () => ({ sending: false, error: '' }), subscribe: () => () => {}, saveFailed: false };
+  const app = { ...context(), drafts };
+  let view = null;
+  const updates = updating(app, () => view);
+  view = searchView(app, parseHash('#/search?drafts=1'));
+  const band = () => view.element.querySelector('.drafts-band');
+  assert.ok(band());
+  const toggle = band().querySelector('.drafts-band-toggle');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  await toggle.dispatch('click');
+  assert.deepEqual(updates.at(-1), ['#/search', 'replace']);
+  assert.equal(band().querySelector('.drafts-band-toggle').getAttribute('aria-expanded'), 'false');
+  view.applyRoute(parseHash('#/search?p1=SheepBall'), { reason: 'update' });
+  assert.equal(band(), null);
+  view.applyRoute(parseHash('#/search'), { reason: 'update' });
+  assert.ok(band());
+  view.destroy();
+});
+
+test('パル詳細: 「この子の配合を登録」は、このパルが産まれる配合があれば控えめ（secondary）、なければ primary', (t) => {
+  installDom(t);
+  const born = palView(context(), parseHash('#/pal/MoonQueen'));
+  const button = (view) => view.element.querySelectorAll('button').find((node) => node.textContent === 'この子の配合を登録');
+  assert.equal(button(born).className, 'button secondary');
+  born.destroy();
+  const none = palView(context(), parseHash('#/pal/SheepBall'));
+  assert.equal(button(none).className, 'button primary');
+  none.destroy();
 });

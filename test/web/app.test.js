@@ -27,10 +27,12 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   root.id = 'app';
   const body = new FakeElement('body');
   body.append(root);
+  // document のリスナーは記録だけする（ショートカット N のテストで keydown を呼ぶ。ほかは呼ばない）
+  const documentEvents = new Map();
   globalThis.document = {
     body, createElement: (name) => new FakeElement(name), createElementNS: (namespace, name) => new FakeElement(name),
     getElementById: (id) => descendants(body).find((node) => node.id === id),
-    addEventListener() {}, querySelectorAll: (selector) => body.querySelectorAll(selector),
+    addEventListener: (name, handler) => documentEvents.set(name, handler), querySelectorAll: (selector) => body.querySelectorAll(selector),
     querySelector: (selector) => body.querySelector(selector),
   };
   const values = new Map(Object.entries(initial));
@@ -84,7 +86,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
   assert.equal(byClass('startup-error'), undefined);
   const changeHash = (next) => { location.hash = next; events.get('hashchange')(); };
   return {
-    ...resizing, values, sessionValues, scrolls, calls, ownedCalls, replacements, replaceStates, pushes, events, intervals, changeHash,
+    ...resizing, values, sessionValues, scrolls, calls, ownedCalls, replacements, replaceStates, pushes, events, documentEvents, intervals, changeHash,
     // ブラウザと同じく、リンク・タブで移った先は state のない新しいエントリになる
     go(next) { history.state = null; changeHash(next); },
     // 戻る・進む: ブラウザと同じく、そのエントリの state に戻ってから popstate が来て、URL のハッシュが変わったときだけ続けて hashchange が来る
@@ -99,7 +101,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
 }
 
 // ログイン画面で隠す（ログインした後に出す）部品。sync-line は同期状況（取得の失敗のチップを含む）
-const signedInParts = ['navigation', 'register-button', 'notification-menu', 'save-status', 'account-chip', 'sync-line'];
+const signedInParts = ['navigation', 'notification-menu', 'save-status', 'account-chip', 'sync-line'];
 // 読み上げで読まれる文（hidden・aria-hidden・inert の中は読まれない）
 const readable = (node) => (node.hidden || node.inert || node.getAttribute('aria-hidden') === 'true'
   ? '' : node.text + node.children.map(readable).join(''));
@@ -313,11 +315,12 @@ test('画面: 削除は応答前に結果から消し、送信待ちの間だけ
   assert.equal(leave().prevented, false);
 });
 
-test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状況 → セーブ連携 → ベル → 登録 → ID の順で並ぶ（Tab の順）', async (t) => {
+test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状況 → セーブ連携 → ベル → ID の順で並ぶ（Tab の順。常設の「＋ 登録」はない）', async (t) => {
   await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const header = byClass('app-header');
   assert.deepEqual(header.children.map((node) => node.className.split(' ')[0]),
-    ['brand', 'env-chip', 'header-status', 'save-status', 'notification-menu', 'register-button', 'account-chip']);
+    ['brand', 'env-chip', 'header-status', 'save-status', 'notification-menu', 'account-chip']);
+  assert.equal(byClass('register-button'), undefined);
   assert.equal(byClass('header-actions'), undefined);
   assert.equal(byClass('environment-banner'), undefined);
   // ベル・登録はヘッダーの中（main より前）にあり、ルートの子はスキップリンク・ヘッダー・ナビ・更新の帯・本文だけ
@@ -636,33 +639,76 @@ for (const signup of [false, true]) {
   });
 }
 
-test('画面: 下書きタブで下書きを作って端末に保存し、登録すると一覧の記録に加わる', async (t) => {
-  const { values, calls, events } = await boot(t, {
+test('画面: #/drafts は下書きの帯を開いた配合を探すに着き（履歴を増やさない）、帯から下書きを作って端末に保存し、登録すると記録に加わる', async (t) => {
+  const { values, calls, events, replacements } = await boot(t, {
     initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' },
     api: createDevelopmentApi({ seed: '2' }), hash: '#/drafts',
   });
-  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.includes('下書き'));
-  assert.equal(tab.getAttribute('aria-current'), 'page');
-  assert.ok(byClass('drafts-view'));
+  assert.equal(location.hash, '#/search?drafts=1');
+  assert.ok(replacements.some((url) => url.endsWith('#/search?drafts=1')));
+  // 下書きのタブはない。配合を探すのタブが今の画面
+  assert.equal(navTab('下書き'), undefined);
+  assert.equal(navTab('配合を探す').getAttribute('aria-current'), 'page');
+  const band = byClass('drafts-band');
+  assert.ok(band);
+  const toggle = band.querySelector('.drafts-band-toggle');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(toggle.textContent, '下書き 0 件（この端末だけ）');
   const key = 'pal-note.drafts.test.架空データ';
-  await byText('＋ 下書きに保存').dispatch('click');
+  // 0 件でも「＋ 下書きに追加」で作れる
+  await descendants(band).find((node) => node.tagName === 'button' && node.textContent === '＋ 下書きに追加').dispatch('click');
   const dialog = find((node) => node.tagName === 'dialog' && node.open);
   assert.equal(dialog.querySelector('h2').textContent, '下書きに保存');
   dialog.querySelector('textarea').value = 'あとで確認';
   await byText('下書きに保存').dispatch('click');
   assert.equal(JSON.parse(values.get(key))[0].memo, 'あとで確認');
   assert.equal(calls.filter((call) => call.action === 'create').length, 0);
+  assert.equal(toggle.textContent, '下書き 1 件（この端末だけ）');
   // 別のタブで書き換わった下書きを読み直す。
   const id = crypto.randomUUID();
   values.set(key, JSON.stringify([{ id, parent1Id: 'Alpaca', parent2Id: 'Boar', childId: 'Deer', registrant: '架空データ', memo: '' }]));
   events.get('storage')({ key });
   const rows = () => descendants(document.body).filter((node) => node.className.split(' ').includes('draft-row'));
   assert.equal(rows().length, 1);
-  await byText('登録').dispatch('click');
+  await descendants(rows()[0]).find((node) => node.tagName === 'button' && node.textContent === '登録').dispatch('click');
   assert.equal(rows().length, 0);
   assert.deepEqual(JSON.parse(values.get(key)), []);
   assert.equal(calls.at(-1).action, 'create');
   assert.ok(JSON.parse(values.get('pal-note.cache.test')).records.some((record) => record.parent1Id === 'Alpaca' && record.childId === 'Deer'));
+  // 閉じると URL から drafts を外す（履歴は増やさない）。親を選ぶと帯は出さない
+  await toggle.dispatch('click');
+  assert.equal(location.hash, '#/search');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+});
+
+test('画面: ショートカット N で登録を開く（配合を探すで選んだ親を初期値に）。文字の入力中・変換中・長押し・修飾キー・ダイアログを開いている間は開かない', async (t) => {
+  const { documentEvents } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
+  const keydown = documentEvents.get('keydown');
+  assert.ok(keydown);
+  const press = (extra = {}) => {
+    const event = { key: 'n', isComposing: false, repeat: false, ctrlKey: false, altKey: false, metaKey: false, prevented: false, preventDefault() { this.prevented = true; }, ...extra };
+    keydown(event);
+    return event;
+  };
+  const openDialog = () => find((node) => node.tagName === 'dialog' && node.open);
+  for (const extra of [{ isComposing: true }, { repeat: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { key: 'm' }]) {
+    assert.equal(press(extra).prevented, false, JSON.stringify(extra));
+    assert.equal(openDialog(), undefined, JSON.stringify(extra));
+  }
+  // 入力欄にフォーカスがあれば開かない
+  const keyword = find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）');
+  keyword.focus();
+  assert.equal(press().prevented, false);
+  keyword.blur?.();
+  document.body.focus?.();
+  document.activeElement = document.body;
+  const event = press({ key: 'N' });
+  assert.equal(event.prevented, true);
+  const dialog = openDialog();
+  assert.ok(dialog);
+  assert.match(dialog.querySelectorAll('.picker-trigger')[0].textContent, /モコロン/);
+  // ダイアログを開いている間は開かない（2 つ目を重ねない）
+  assert.equal(press().prevented, false);
 });
 
 test('画面: 右上のベルに未読の数を出し、開くと既読にして、既読も設定タブの通知一覧で見られる', async (t) => {
@@ -815,8 +861,8 @@ test('画面: 理想個体の条件のパネルの高さを画面の --panel-h �
 test('画面: 新しいバージョンの案内の「読み込み直す」は、入力画面（ダイアログ）が開いている間は読み込み直さず、閉じるよう案内する', async (t) => {
   await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const banner = byClass('update-banner');
-  // 登録の画面を開く
-  await byClass('register-button').dispatch('click');
+  // 登録の画面を開く（見出しの右の「＋ 配合を登録」）
+  await byClass('find-register').dispatch('click');
   assert.ok(find((node) => node.tagName === 'dialog' && node.open));
   const reload = descendants(banner).find((node) => node.tagName === 'button' && node.textContent === '読み込み直す');
   await reload.dispatch('click');

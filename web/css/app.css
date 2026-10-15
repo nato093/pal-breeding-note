@@ -166,7 +166,7 @@ button[aria-busy="true"] { cursor: wait; }
    今の色のまま。押せない理由は title（ui/dom.js の setDisabled）。保存済みの目標のように、フォーカスを残す押せないボタンは aria-disabled */
 button:disabled:not([aria-busy="true"]), .button[aria-disabled="true"] { color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent); }
 .button[aria-disabled="true"] { cursor: default; }
-:is(.button.primary, .button.danger, .register-button):is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
+:is(.button.primary, .button.danger):is(:disabled, [aria-disabled="true"]):not([aria-busy="true"]) {
   background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
   border-color: transparent;
   box-shadow: none;
@@ -493,19 +493,6 @@ img, svg { max-width: 100%; }
 .view-heading { margin-bottom: 12px; }
 .view-heading h1 { margin: 0; white-space: nowrap; }
 .view-heading h1, .app-main h1 { font-size: 22px; font-weight: 700; line-height: 1.35; }
-.register-button {
-  height: 40px;
-  padding: 0 20px;
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-  border: 0;
-  border-radius: 100px;
-  box-shadow: none;
-  font-weight: 700;
-  font-size: 14px;
-  white-space: nowrap;
-  letter-spacing: .02em;
-}
 .notification-menu { position: relative; }
 .notification-button {
   position: relative;
@@ -1004,10 +991,7 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 /* パル詳細の hero は絵と属性だけ（名前と番号は見出しの h1。copy-dead-ends） */
 .pal-hero .pal-icon-large { flex: none; }
 .button.small { min-height: 32px; padding: 4px 12px; border-radius: 100px; font-size: 12px; }
-.drafts-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .heading-actions { display: flex; gap: 8px; }
-.drafts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
-.drafts-toolbar .result-note { margin: 0; }
 .drafts-warning { margin: 8px 0; }
 .wishlist-explanation { color: var(--muted); font-size: 13px; }
 .wishlist-warning { margin: 8px 0; }
@@ -1019,31 +1003,61 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .wishlist-hint { margin-left: auto; color: var(--md-sys-color-primary); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .draft-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px auto;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
   align-items: center;
   gap: 4px 14px;
   border-bottom: 1px solid var(--line);
   padding: 9px 0;
   min-width: 0;
 }
-.draft-equation .picker > .field-label { display: none; }
-.draft-equation .picker-trigger { min-height: 38px; padding: 2px 30px 2px 6px; border-color: transparent; background: transparent; }
-.draft-equation .picker-trigger.has-selection { padding-right: 62px; }
-.draft-equation .picker-trigger:not(.has-selection) { border: 1px dashed var(--md-sys-color-outline); }
-.draft-equation .picker-trigger:hover, .draft-equation .picker-trigger[aria-expanded="true"] {
-  border-color: var(--line);
-  background: var(--md-sys-color-surface-container);
+/* 下書きの行の式は読み取り専用（register-entry。前は行の中でパルを選んだ）。選んでいない枠は破線の「未選択」 */
+.draft-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border: 1px dashed var(--md-sys-color-outline);
+  border-radius: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
 }
-.draft-equation .picker-clear { background: transparent; }
-.draft-equation .picker-trigger .pal-tile { min-height: 36px; font-size: 13px; color: var(--ink); }
-.draft-equation .picker-trigger .pal-icon { width: 36px; height: 36px; }
-.draft-equation > .picker:last-child .picker-trigger .pal-tile { color: var(--md-sys-color-tertiary); }
-.draft-equation > .picker:last-child .picker-popover { left: auto; right: 0; }
 .draft-actions { align-items: center; gap: 4px; }
 .draft-actions .button:disabled { cursor: not-allowed; }
 .draft-memo, .draft-message { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .draft-message.draft-error { color: var(--danger); }
-.drafts-add { display: flex; margin: 16px auto 0; }
+/* 下書きの帯（register-entry。配合を探すの全件表示の上）: 頭の行に開閉のボタン「▸ 下書き n 件（この端末だけ）」と「すべて登録」「＋ 下書きに追加」、
+   開くと行の一覧と「すべて削除」 */
+.drafts-band { margin: 0 0 10px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; background: var(--md-sys-color-surface-container-low); }
+.drafts-band-head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 8px 4px 4px; }
+.drafts-band-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+.drafts-band-toggle:hover { background: var(--state-hover); }
+.drafts-band-mark { width: 0; height: 0; border-left: 6px solid currentColor; border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; }
+.drafts-band.is-open .drafts-band-mark { transform: rotate(90deg); }
+.drafts-band-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.drafts-band-body { padding: 0 12px 8px; border-top: 1px solid var(--md-sys-color-outline-variant); }
+.drafts-band-body[hidden] { display: none; }
+.drafts-band-empty { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+.drafts-band-foot { display: flex; justify-content: flex-end; padding-top: 6px; }
+.drafts-band .draft-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "equation equation" "meta actions"; gap: 0 8px; padding: 6px 0 4px; background: transparent; }
+.drafts-band .draft-equation-slot { grid-area: equation; }
+.drafts-band .draft-equation { grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 18px minmax(0, 1fr); max-width: 760px; }
+.drafts-band .draft-row > .card-meta { grid-area: meta; flex-direction: row; align-items: center; gap: 0; min-width: 0; white-space: nowrap; }
+.drafts-band .draft-row > .card-meta > * { flex: none; overflow-wrap: normal; }
+.drafts-band .draft-row > .card-meta > :not(:first-child)::before { content: '·'; margin: 0 6px; color: var(--md-sys-color-outline); }
+.drafts-band .draft-row > .card-meta > .draft-memo, .drafts-band .draft-row > .card-meta > .draft-message { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; grid-column: auto; white-space: nowrap; }
+.drafts-band .draft-row > .card-actions { grid-area: actions; }
 .pal-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .section-title { margin-top: 20px; font-size: 16px; }
 .settings-view { max-width: 800px; margin: 0 auto; }
@@ -1074,14 +1088,14 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
     opacity: .6;
     animation: sync-progress 1.2s ease-in-out infinite;
   }
-  .nav-tab, .breeding-card, .owned-row, .wishlist-row, .draft-row, .picker-trigger, .card-action, .register-button {
+  .nav-tab, .breeding-card, .owned-row, .wishlist-row, .draft-row, .picker-trigger, .card-action {
     transition: background-color .15s, border-color .15s, box-shadow .15s;
   }
   /* ここから下の細部の動きは、手本を上の進捗バーとし、操作に応えるか状態を伝えるときだけ小さく短く動かす */
   .ripple { animation: ripple .45s var(--ease-decelerate) forwards; }
   .nav-tab::before { transition: transform .25s var(--ease-emphasized), opacity .15s linear; }
   .nav-tab .tab-icon { transition: stroke-width .2s var(--ease-emphasized); }
-  .button[aria-busy="true"]::after, .register-button[aria-busy="true"]::after { animation: sweep 1.2s ease-in-out infinite; }
+  .button[aria-busy="true"]::after { animation: sweep 1.2s ease-in-out infinite; }
   /* 残り時間の線の長さは ui/toast.js が --toast-duration で渡す。ダイアログから移したときは経った分だけ先から（--toast-delay）。
      マウスが乗っている・フォーカスがある間（.paused）は止める（JS のタイマーと同じ） */
   .toast.with-action::after { animation: countdown var(--toast-duration, 3s) linear var(--toast-delay, 0ms) forwards; }
@@ -1147,8 +1161,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
   input[type="checkbox"] { transition: background-color .15s linear, border-color .15s linear; }
   input[type="checkbox"]::after { transition: clip-path .22s var(--ease-decelerate); }
   /* 押すと少し沈み、離すとわずかに弾んで戻る。入れ替えは乗ると半回転して、押すと何が起きるかを見せる */
-  .button, .register-button, .start-chip { transition: transform .25s var(--ease-spring), background-color .15s, box-shadow .15s, border-color .15s; }
-  .button:active:not(:disabled), .register-button:active, .start-chip:active { transform: scale(.96); transition-duration: .08s; }
+  .button, .start-chip { transition: transform .25s var(--ease-spring), background-color .15s, box-shadow .15s, border-color .15s; }
+  .button:active:not(:disabled), .start-chip:active { transform: scale(.96); transition-duration: .08s; }
   .swap-button { transition: transform .35s var(--ease-emphasized), background-color .15s; }
   .swap-button:hover { transform: rotate(180deg); }
   :focus-visible { animation: focus-in .18s var(--ease-decelerate); }
@@ -1719,7 +1733,7 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .start-chips .picker-trigger .pal-icon { width: 32px; height: 32px; }
 .start-chips .picker-trigger .dex-label { display: none; }
 .start-chips .picker-clear { right: 28px; background: transparent; }
-.draft-equation .picker-clear:hover, .start-chips .picker-clear:hover { background: var(--state-hover); }
+.start-chips .picker-clear:hover { background: var(--state-hover); }
 .route-owned-box { padding: 14px 18px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin-bottom: 16px; }
 .route-owned-box h2 { font-size: 15px; line-height: inherit; margin-bottom: 10px; }
 .route-starts { display: grid; }
@@ -2450,10 +2464,6 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='none' stroke='%23000' stroke-width='4' d='M24 11L37 24L24 37L11 24Z'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath fill='none' stroke='%23000' stroke-width='4' d='M24 11L37 24L24 37L11 24Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
-.register-button:hover {
-  box-shadow: var(--elevation-2);
-  background: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
-}
 .notification-button:hover { background: var(--state-hover); }
 .primary:hover { box-shadow: var(--elevation-2); }
 .secondary:hover, .quiet:hover { background: var(--state-primary); }
@@ -2528,8 +2538,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .nav-tab.active::before { opacity: 1; transform: none; }
 .nav-tab.active .tab-icon { stroke-width: 2.5; }
 /* 処理中のボタンには、進捗バーと同じ流れる光を通す */
-.button[aria-busy="true"], .register-button[aria-busy="true"] { position: relative; overflow: hidden; opacity: .85; }
-.button[aria-busy="true"]::after, .register-button[aria-busy="true"]::after {
+.button[aria-busy="true"] { position: relative; overflow: hidden; opacity: .85; }
+.button[aria-busy="true"]::after {
   content: '';
   position: absolute;
   inset: 0;

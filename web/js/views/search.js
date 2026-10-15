@@ -4,6 +4,7 @@ import { palIcon, palsById } from '../ui/pal-icon.js';
 import { searchSelect } from '../ui/search-select.js';
 import { breedingCard } from '../ui/breeding-card.js';
 import { ownedBadge, ownedBadgeText } from '../ui/owned-badge.js';
+import { draftsBand } from '../ui/drafts-band.js';
 import { withTransition } from '../ui/motion.js';
 import { queryTerms } from '../core/kana.js';
 import { userIdKey } from '../core/user.js';
@@ -26,15 +27,24 @@ const byValue = (name) => `by:${name}`;
 /**
  * 配合を探す（D1。前の配合検索・逆引き・一覧を 1 画面に）。条件帯（sticky）[親1][親2][子][キーワード] と [登録者][並べ替え] … [件数]。
  * URL: p1・p2・c（パル ID）、by（登録者の ID）、noreg=1（登録者未指定）、sort（既定の updated は書かない）、q（キーワード）、
- * ownedfirst=1（両親を所持している組を上へ）・make=1（今の所持で作れる。どちらも所持パルのデータがあるときだけ効く）。
+ * ownedfirst=1（両親を所持している組を上へ）・make=1（今の所持で作れる。どちらも所持パルのデータがあるときだけ効く）、
+ * drafts=1（下書きの帯を開く。全件表示のときだけ出す。register-entry）。
+ * 登録の入口（D2）: 見出しの右に、今の条件に合う登録のボタンを 1 つ（全件表示は「＋ 配合を登録」、親・子を選んで結果があれば
+ * 「この組み合わせで別の結果を登録」など。0 件のときは空の状態のボタンだけ）。
  * 何も選ばなければ全件（既定は更新日の新しい順。D6）。引くのは登録済みの記録だけ（INV-2。core/record-search.js）。
  * 所持パルのデータがあれば、カードの親に「♂n ♀m／未所持」、子に「所持 N」を重ねる（owned-overlay。core/owned.js の ownedCounts）
  */
 export function searchView(context, route) {
   const element = el('section', 'view find-view');
-  element.append(viewHeading(tabLabel('search')));
+  const heading = viewHeading(tabLabel('search'));
+  const headingActions = el('div', 'view-heading-actions');
+  const contextButton = button('', () => context.register(registerInitial()), 'button secondary small find-register');
+  contextButton.hidden = true;
+  headingActions.append(contextButton);
+  heading.append(headingActions);
+  element.append(heading);
   let current = route;
-  const cond = { p1: '', p2: '', c: '', by: '', noreg: false, sort: RECORD_SORT_DEFAULT, q: '', ownedFirst: false, make: false };
+  const cond = { p1: '', p2: '', c: '', by: '', noreg: false, sort: RECORD_SORT_DEFAULT, q: '', ownedFirst: false, make: false, drafts: false };
   // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）
   function readRoute(next) {
     current = next;
@@ -47,6 +57,7 @@ export function searchView(context, route) {
     cond.q = next.params.get('q') ?? '';
     cond.ownedFirst = next.params.get('ownedfirst') === '1';
     cond.make = next.params.get('make') === '1';
+    cond.drafts = next.params.get('drafts') === '1';
   }
   readRoute(route);
   // 今の URL の条件を changes で変えたハッシュ（ほかのパラメータは残す。空の値は消す）
@@ -129,7 +140,10 @@ export function searchView(context, route) {
   childChips.setAttribute('aria-label', '子で絞る');
   childChips.hidden = true;
   const results = el('div', 'find-results');
-  element.append(panel, childChips, results);
+  // 下書きの帯（全件表示のときだけ。開閉は URL の drafts=1 で、履歴は増やさない）
+  const bandSlot = el('div', 'find-drafts');
+  let band = null;
+  element.append(panel, bandSlot, childChips, results);
   const stopTracking = trackHeight(panel, element);
 
   // ---- 条件の変更 ----
@@ -243,7 +257,9 @@ export function searchView(context, route) {
   function update(state) {
     if (destroyed) return;
     for (const picker of pickers) picker.update();
+    renderBand();
     if (dataPending(results, state, () => context.store.refresh())) {
+      contextButton.hidden = true;
       shownRows = 0;
       shownIds = null;
       showCount(null);
@@ -264,6 +280,7 @@ export function searchView(context, route) {
     const me = state.userId ? userIdKey(state.userId) : '';
     const newCount = records.reduce((total, record) => total + (isNew(record, me) ? 1 : 0), 0);
     showCount({ total: records.length, note: cond.p1 && cond.p2 ? pairNote(records) : '', newCount });
+    renderContext(records.length);
     const single = cond.p1 && cond.p2 ? '' : cond.p1 || cond.p2;
     const groups = groupRecords(records, cond.sort, state.index.palOrder, palsById, { focusParent: single });
     // 両親を所持している組を上へ: 群の中で、組める記録を安定に先へ（同じ側の中は今の並びのまま）
@@ -292,6 +309,37 @@ export function searchView(context, route) {
     shownCond = condKey;
     shownIds = new Set(records.map((record) => record.id));
     shownRows = records.length;
+  }
+
+  // 今の条件の登録の初期値（親 2 体 → その組、親 1 体 → 親1 に、子だけ → 子に。親と子を選んでいれば子も）
+  function registerInitial() {
+    const parent = cond.p1 || cond.p2;
+    if (cond.p1 && cond.p2) return { parent1Id: cond.p1, parent2Id: cond.p2, ...(cond.c ? { childId: cond.c } : {}) };
+    if (parent) return { parent1Id: parent, ...(cond.c ? { childId: cond.c } : {}) };
+    return cond.c ? { childId: cond.c } : {};
+  }
+  // 見出しの右の登録のボタン（どの時点でも 1 つ）。結果が 0 件のときは空の状態の登録のボタンだけにする（ここは隠す）
+  function renderContext(total) {
+    const pal = hasPal();
+    const text = !pal ? '＋ 配合を登録' : cond.p1 && cond.p2 ? 'この組み合わせで別の結果を登録' : cond.p1 || cond.p2 ? 'この親で配合を登録' : 'この子の配合を登録';
+    if (contextButton.textContent !== text) contextButton.textContent = text;
+    contextButton.hidden = pal && !total;
+  }
+  // 下書きの帯は全件表示（親・子を選んでいない）のときだけ。ログインしていなければ出さない（下書きは ID ごと）
+  function renderBand() {
+    const show = !hasPal() && Boolean(context.drafts);
+    if (!show) {
+      if (band) {
+        band.destroy();
+        band = null;
+        bandSlot.replaceChildren();
+      }
+      return;
+    }
+    if (!band) {
+      band = draftsBand(context, { open: cond.drafts, onToggle: (open) => changeRoute(context, hashWith({ drafts: open ? '1' : '' }), { replace: true }) });
+      bandSlot.append(band.element);
+    } else band.update({ open: cond.drafts });
   }
 
   // 所持の切り替えは、所持パルのデータがあるときだけ出す（URL の値は残す）
@@ -408,10 +456,13 @@ export function searchView(context, route) {
     },
     // 間引いて待っているキーワードの入力をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
     flushInputs: () => typed.flush(),
+    // ショートカット N の登録の初期値（app.js）
+    registerInitial,
     destroy() {
       destroyed = true;
       inputs.abort();
       unsubscribeOwned();
+      band?.destroy();
       stopTracking();
       registrant.destroy();
       // 新着の基準を、今の取得の時刻（なければ今）に進める
