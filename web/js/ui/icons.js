@@ -5,13 +5,11 @@ import { svgElement } from './dom.js';
 
 /**
  * 名前 → 図形の並び（`<tag attr="…"/>` の決まった形の文字列。shape() が要素にする）。box を持つものはその格子（既定 24）。
- * ナビの 9 個は views/tabs.js の TABS のキー（navIcon と空の状態の empty の icon）
+ * ナビのアイコンは views/tabs.js の TABS のキー（navIcon と空の状態の empty の icon）。逆引き・一覧のアイコンは find-merge で消した
  */
 export const ICONS = Object.freeze({
   search: ['<circle cx="10.5" cy="10.5" r="6.5"/>', '<path d="m15.5 15.5 5 5"/>'],
-  reverse: ['<path d="M9 14 4 9l5-5"/>', '<path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'],
   route: ['<circle cx="6" cy="19" r="2.5"/>', '<circle cx="18" cy="5" r="2.5"/>', '<path d="M8.5 19H17a3.5 3.5 0 0 0 0-7H7a3.5 3.5 0 0 1 0-7h8.5"/>'],
-  list: ['<path d="M9 6h11M9 12h11M9 18h11"/>', '<path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" stroke-width="3"/>'],
   drafts: ['<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/>', '<path d="m13.5 6.5 4 4"/>'],
   owned: ['<rect x="3" y="4" width="18" height="5" rx="1.5"/>', '<path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9"/>', '<path d="M10 13h4"/>'],
   ideal: ['<path d="M7 4h10l4 5-9 11L3 9z"/>', '<path d="M3 9h18"/>', '<path d="m10 4-2 5 4 11 4-11-2-5"/>'],

@@ -29,7 +29,7 @@ test('icon: createElementNS で 24px の格子の線画の svg を作り（読�
   assert.equal(unknown.children.length, 0);
 });
 
-test('icon: ナビの 9 個・編集・削除・ベル・閉じる・✓・組の目的の 3 つを 1 か所（ICONS）に持つ', (t) => {
+test('icon: ナビのタブ・編集・削除・ベル・閉じる・✓・組の目的の 3 つを 1 か所（ICONS）に持つ', (t) => {
   installDom(t);
   const names = [...TABS.map(([view]) => view), 'edit', 'remove', 'bell', 'close', 'check', 'group-complete', 'group-passive', 'group-talent'];
   for (const name of names) {

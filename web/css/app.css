@@ -593,7 +593,6 @@ img, svg { max-width: 100%; }
 .notification-link:hover .notification-title { color: var(--md-sys-color-primary); }
 .notification-dialog { width: min(560px, calc(100% - 24px)); }
 .selection-panel { padding: 4px 0; margin-bottom: 8px; }
-.search-selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pair-selection { display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); gap: 4px 12px; }
 .pair-selection > .picker { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; }
 .pair-selection > .picker:first-child { grid-column: 1; }
@@ -669,7 +668,7 @@ img, svg { max-width: 100%; }
   background: var(--md-sys-color-surface-container);
   z-index: var(--z-panel);
 }
-.search-selection > .picker:last-child .picker-popover, .pair-selection > .picker:last-child .picker-popover { left: auto; right: 0; }
+.pair-selection > .picker:last-child .picker-popover { left: auto; right: 0; }
 .picker-popover-floating {
   position: fixed;
   z-index: var(--z-popover);
@@ -1004,9 +1003,6 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 }
 /* パル詳細の hero は絵と属性だけ（名前と番号は見出しの h1。copy-dead-ends） */
 .pal-hero .pal-icon-large { flex: none; }
-.list-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
-.list-filters .field { gap: 8px; margin-bottom: 0; }
-.list-filters input, .list-filters select { height: 40px; }
 .button.small { min-height: 32px; padding: 4px 12px; border-radius: 100px; font-size: 12px; }
 .drafts-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .heading-actions { display: flex; gap: 8px; }
@@ -1065,6 +1061,8 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .startup-error { padding: 32px; }
 @media (prefers-reduced-motion: no-preference) {
   .button, .picker-option, .nav-tab { transition: background-color .15s, border-color .15s; }
+  /* 配合を探すで表示中に増えた配合（V-25。@keyframes find-new-row） */
+  .breeding-card.is-new { animation: find-new-row 1.2s ease-out; }
   .sync-progress-fill { transition: width .3s; }
   /* 1 件の送信中は件数が進まないため、流れる光で動いていることを示す。 */
   .sync-progress::after {
@@ -1746,6 +1744,107 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 .route-options > .route-owned-note { grid-column: auto; display: block; padding-bottom: 6px; }
 .route-options > .route-owned-note + .breeding-equation { border-top: 1px dashed var(--line); }
 /* 理想個体: 組ごとに確率の見出しと、♂・♀の個体の行（所持パルの行と同じ形）を並べる */
+/* 配合を探す（find-merge。D1）: 条件は sticky の 2 段の帯（find-bar）。ヘッダーの下に固定し、高さは JS が画面の section の --panel-h に書く
+   （結果の先頭の scroll-margin-top が使う）。見出しと区切りは理想個体・所持パルのパネルと同じ決まり（下の「固定の条件のパネルの共通の決まり」）。
+   1 段目: [親1] ＋ [親2] → [子] [キーワード 1fr]（見出しは入力の上）。2 段目: [登録者][並べ替え] … 右端に件数（見出しは入力の左） */
+.find-bar {
+  position: sticky;
+  top: var(--header-h);
+  z-index: var(--z-panel);
+  display: grid;
+  gap: 5px;
+  padding: 4px 0 6px;
+  margin-bottom: 8px;
+  background: var(--md-sys-color-surface);
+  border-bottom: 1px solid var(--line);
+}
+.find-bar-main { display: grid; grid-template-columns: minmax(150px, 200px) 16px minmax(150px, 200px) 16px minmax(150px, 200px) minmax(160px, 1fr); grid-template-rows: auto auto; gap: 3px 8px; align-items: start; }
+.find-bar-main > .picker, .find-bar-main > .find-keyword { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; gap: 0; margin: 0; }
+.find-bar-main > .find-keyword { margin-left: 8px; }
+/* パルを選ぶと絵と 2 行の名前で中身が 40.6px になり、帯が伸びて結果が 0.6px 下がる。高さを固定して動かさない */
+.find-bar .picker-trigger { height: 40px; }
+.find-bar-main > .find-keyword > input { height: 40px; }
+.find-symbol { grid-row: 2; align-self: center; justify-self: center; color: var(--md-sys-color-on-surface-variant); font-size: 14px; line-height: 1; }
+.find-symbol.arrow { color: var(--md-sys-color-tertiary); }
+/* 子の候補はキーワードの下まで広がるので、右の 2 つのパル選択の候補は右端にそろえない（左端から開く。幅は 320px 以上） */
+.find-bar-sub { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; }
+.find-bar-sub .panel-line { flex: 0 1 auto; }
+.find-bar .search-select select, .find-bar .search-select-trigger { width: 190px; min-height: 32px; }
+.find-bar .find-sort select { width: auto; min-height: 32px; padding: 3px 28px 3px 10px; }
+/* 件数の行（帯の 2 段目の右端）。数字が変わっても幅が揺れないよう、桁をそろえる */
+.find-count { display: flex; align-items: center; gap: 8px; margin: 0 0 0 auto; min-height: 32px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-count-text { font-weight: 700; color: var(--md-sys-color-on-surface); font-size: 13px; }
+.find-new {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 100px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: 12px;
+  font-weight: 700;
+}
+.find-new[aria-disabled="true"] { cursor: default; }
+/* 子ごとの要約のチップ（親を 1 体だけ選んで結果が多いとき）。1 行に並べ、はみ出したら横スクロール */
+.find-child-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: thin; }
+.find-child-chips[hidden] { display: none; }
+.find-child-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 2px 10px 2px 4px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 100px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-size: 12px;
+  font-weight: 400;
+}
+.find-child-chip .pal-icon { width: 24px; height: 24px; }
+.find-child-chip[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: transparent; font-weight: 700; }
+.find-child-count { color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
+.find-child-chip[aria-pressed="true"] .find-child-count { color: inherit; }
+/* 結果: カードを 2 列（幅 1100px で 2 列・式が折り返さない最小幅）。見出しの行（親・子の並び）は全幅 */
+.find-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); column-gap: 28px; overflow-anchor: none; scroll-margin-top: var(--panel-h, 0px); }
+.find-results > .empty-state, .find-results > .loading-state, .find-results > .error-state { grid-column: 1 / -1; }
+.find-group-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  font-size: 14px;
+  font-weight: 700;
+}
+.find-group-heading:first-child { margin-top: 0; }
+.find-group-heading .pal-icon { width: 28px; height: 28px; }
+.find-group-count { font-weight: 400; font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
+/* 2 行のカード: 1 行目 式（カードの幅いっぱい。2 列でも 7 文字までのパル名が折り返さない）、2 行目 新・登録者 · 更新 · メモ（1 行で省略。
+   全文は title）と右端の操作（編集・削除） */
+.breeding-card.is-compact { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "equation equation" "meta actions"; gap: 0 8px; padding: 7px 0 5px; }
+/* 式の列は短い式（見出しの下の「相手 → 子」「親 ＋ 親」）でも同じ幅（3 体の式の左の 2 列にそろえる） */
+.breeding-card.is-compact > .breeding-equation,
+.breeding-card.is-compact > .breeding-equation:has(> .pal-tile:nth-child(3):last-child) { grid-area: equation; grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr) 18px minmax(0, 1fr); }
+.breeding-card.is-compact > .card-actions { grid-area: actions; }
+.breeding-card.is-compact .card-action { min-width: 28px; height: 28px; }
+.breeding-card.is-compact .card-action svg { width: 17px; height: 17px; }
+.breeding-card.is-compact .card-meta { grid-area: meta; flex-direction: row; align-items: center; gap: 0; min-width: 0; white-space: nowrap; }
+.breeding-card.is-compact .card-meta > * { flex: none; overflow-wrap: normal; }
+.breeding-card.is-compact .card-meta > :not(:first-child)::before { content: '·'; margin: 0 6px; color: var(--md-sys-color-outline); }
+.breeding-card.is-compact .card-meta > .status-chip + *::before, .breeding-card.is-compact .card-meta > .status-chip::before { content: none; }
+.breeding-card.is-compact .card-meta > .status-chip { margin-right: 6px; }
+.breeding-card.is-compact .card-memo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; grid-row: auto; font-size: 11px; }
+.find-results > .find-group-heading + .breeding-card, .find-results.is-grouped > .breeding-card { border-bottom-style: dashed; }
+/* 表示中に増えた配合を一瞬だけ淡く光らせる（V-25。動きは上の prefers-reduced-motion: no-preference のブロックで付ける） */
+@keyframes find-new-row {
+  from { background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent); }
+  to { background: transparent; }
+}
+
 /* 理想個体: 条件は sticky の 2 段のパネル（ideal-panel）。ヘッダーの下に固定し、高さは JS が画面の section の --panel-h に書く。
    1 段目: [目標 240px][欲しいパッシブ 1fr（見出しの行にパッシブの条件）][☆ 目標として保存 auto]（見出しは入力の上）。欲しいパッシブの
    チップが 1 行に入りきらないときは改行してパネルが 1 行分伸びる（2026-10-13 のユーザーの判断。横に省略しない）。
@@ -1786,21 +1885,21 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
      見出しと値が同じ重さで並ばないようにする。1 段目は入力の上（見出しの行 .field-head。その欄の条件やリンクを右に添える）、2 段目は入力の左。
    区切り: 2 段目は行（.panel-line）ごとに欄（.panel-item）を並べ、欄の間に縦の短い線（背景の 1px × 18px。要素を足さない）と左右 9〜10px の間。
      所持パルは下の結果の行を地の色の帯にして、条件の欄と結果を分ける */
-:is(.ideal-panel, .owned-panel) .field-label { font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .04em; white-space: nowrap; color: var(--md-sys-color-on-surface-variant); }
-:is(.ideal-panel-main, .owned-panel-main) > * > .field-label { align-self: center; }
-:is(.ideal-panel, .owned-panel) .field-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
+:is(.ideal-panel, .owned-panel, .find-bar) .field-label { font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .04em; white-space: nowrap; color: var(--md-sys-color-on-surface-variant); }
+:is(.ideal-panel-main, .owned-panel-main, .find-bar-main) > * > .field-label { align-self: center; }
+:is(.ideal-panel, .owned-panel, .find-bar) .field-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
 /* 見出しの行の押しボタン（パッシブの条件）は高さ 24px に詰める（見出しの行が高くならないように） */
-:is(.ideal-panel, .owned-panel) .field-head .segmented-option { min-height: 24px; padding-top: 0; padding-bottom: 0; font-size: 12px; }
+:is(.ideal-panel, .owned-panel, .find-bar) .field-head .segmented-option { min-height: 24px; padding-top: 0; padding-bottom: 0; font-size: 12px; }
 :is(.ideal-panel-sub, .owned-panel-sub) { display: grid; gap: 5px; min-width: 0; }
-:is(.ideal-panel, .owned-panel) .panel-line { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 0; min-width: 0; }
-:is(.ideal-panel, .owned-panel) .panel-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-width: 0; }
-:is(.ideal-panel, .owned-panel) .panel-line > :not(:first-child, .ideal-holding) {
+:is(.ideal-panel, .owned-panel, .find-bar) .panel-line { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 0; min-width: 0; }
+:is(.ideal-panel, .owned-panel, .find-bar) .panel-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-width: 0; }
+:is(.ideal-panel, .owned-panel, .find-bar) .panel-line > :not(:first-child, .ideal-holding) {
   margin-left: 9px;
   padding-left: 10px;
   background: linear-gradient(var(--md-sys-color-outline), var(--md-sys-color-outline)) 0 50% / 1px 18px no-repeat;
 }
 /* 2 段目の各行の先頭の見出し（所持者・場所・ケーキ）は同じ幅にして、入力の左端を行の間でそろえる */
-:is(.ideal-panel, .owned-panel) .panel-line > :first-child > .field-label { min-width: 3.3em; }
+:is(.ideal-panel, .owned-panel, .find-bar) .panel-line > :first-child > .field-label { min-width: 3.3em; }
 /* 幅が狭いとき（窓 1080px 以下。幅 920px で本文 約 760px）は、場所のチップの文字と余白を詰めて 1 行に収める（2 段目が 4 行になって
    パネルが伸びないように） */
 @media (max-width: 1080px) {
@@ -1809,11 +1908,11 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 }
 /* 個体値の部品を詰める（理想個体・所持パルの固定パネルで共通）: 各欄の「以上」は見出しに 1 回だけ、増減のボタンを隠して数値欄を狭める
    （↑↓ キーでは増減できる）。プリセットのボタンも高さ 32px */
-:is(.ideal-panel, .owned-panel) .talent-input { flex-wrap: nowrap; gap: 6px 10px; }
-:is(.ideal-panel, .owned-panel) .talent-input-unit { display: none; }
-:is(.ideal-panel, .owned-panel) .talent-input-item input[type="number"] { width: 3.6em; min-height: 32px; padding: 3px 8px; text-align: right; appearance: textfield; -moz-appearance: textfield; }
-:is(.ideal-panel, .owned-panel) .talent-input-item input[type="number"]::-webkit-inner-spin-button,
-:is(.ideal-panel, .owned-panel) .talent-input-item input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+:is(.ideal-panel, .owned-panel, .find-bar) .talent-input { flex-wrap: nowrap; gap: 6px 10px; }
+:is(.ideal-panel, .owned-panel, .find-bar) .talent-input-unit { display: none; }
+:is(.ideal-panel, .owned-panel, .find-bar) .talent-input-item input[type="number"] { width: 3.6em; min-height: 32px; padding: 3px 8px; text-align: right; appearance: textfield; -moz-appearance: textfield; }
+:is(.ideal-panel, .owned-panel, .find-bar) .talent-input-item input[type="number"]::-webkit-inner-spin-button,
+:is(.ideal-panel, .owned-panel, .find-bar) .talent-input-item input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .owned-talent-filter { display: inline-flex; align-items: center; gap: 10px; }
 /* 「まとめて ▾」（すべて 90 以上・すべて 100 のメニュー） */
 .talent-preset-slot { position: relative; display: inline-flex; }
@@ -1871,7 +1970,7 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 .segmented-option:focus-visible { position: relative; z-index: 1; }
 /* 固定パネル（理想個体・所持パル）の押しボタンは左右の余白を詰める。所持パルのパネルの 2 段目の 2 行目に、1100px で 30px の余りを作る
    （「全部持つ」が文字の幅の違うフォントでも折り返さず、パネルが伸びないように。前は 6px。D27）。2 つのパネルで同じ見た目にする */
-:is(.ideal-panel, .owned-panel) .segmented-option { padding-left: 8px; padding-right: 8px; }
+:is(.ideal-panel, .owned-panel, .find-bar) .segmented-option { padding-left: 8px; padding-right: 8px; }
 /* 押しボタンの小さな印（ui/segmented.js の badge。理想個体のケーキの「最速」。D30）。ボタンの右上の角に重ね、ボタンの幅と高さ・
    パネルの高さを変えない（上端は上の行との間 5px の中に置き、上の行の所持者の欄の枠に重ねない。下端は押しボタンの文字の上に収める）。押すのはボタン（印は押せない） */
 .segmented-badge {
@@ -2309,8 +2408,9 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 #app { padding-left: var(--drawer); min-height: 100dvh; }
 .nav-tab .tab-symbol { display: grid; place-items: center; font-size: 0; line-height: 0; }
 .nav-tab .tab-icon { width: 20px; height: 20px; }
-/* 探す｜記録｜所持｜設定 の 4 グループを、間を空けて区切る（並びは app.js のタブの順。キーボードと読み上げの順に合わせるため、CSS で並べ替えない） */
-.nav-tab[data-view="list"], .nav-tab[data-view="owned"] { margin-top: 16px; }
+/* 探す｜記録｜所持｜設定 の 4 グループを、間を空けて区切る（並びは views/tabs.js のタブの順。キーボードと読み上げの順に合わせるため、CSS で並べ替えない）。
+   探す＝配合を探す・継承ルート、記録＝下書き・ウィッシュリスト（逆引き・一覧は find-merge で配合を探すに入った） */
+.nav-tab[data-view="drafts"], .nav-tab[data-view="owned"] { margin-top: 16px; }
 .nav-tab[data-view="settings"] { margin-top: auto; }
 /* 菱形は on-primary で描き、明暗どちらでも primary の上で読めるようにする */
 .brand-mark::after {

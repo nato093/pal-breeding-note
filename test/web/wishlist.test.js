@@ -119,7 +119,7 @@ test('ウィッシュリスト: 追加時に作れるパルは、追加前の配
   assert.deepEqual(ids(app.notifications), []);
 });
 
-test('ウィッシュリスト: 追加後に作れるようになったら通知し、逆引きを開く。新しいデータが無ければ判定も保存もしない', () => {
+test('ウィッシュリスト: 追加後に作れるようになったら通知し、配合を探すを開く。新しいデータが無ければ判定も保存もしない', () => {
   const app = setup();
   app.wishlist.add(TARGET);
   const writes = app.storage.writes;
@@ -132,8 +132,8 @@ test('ウィッシュリスト: 追加後に作れるようになったら通知
   assert.equal(wish.readyAt, new Date(2000).toISOString());
   assert.deepEqual(app.notifications.list(), [{
     id: `wishlist:test:${TARGET}:${wish.readyAt}`, date: wish.readyAt, time: 2000,
-    title: 'セレムーンが作成可能になりました', body: 'ウィッシュリストのパルです。押すと逆引きで、産まれる配合を確認できます。',
-    href: '#/reverse?c=MoonQueen',
+    title: 'セレムーンが作成可能になりました', body: 'ウィッシュリストのパルです。押すと配合を探すで、産まれる配合を確認できます。',
+    href: '#/search?c=MoonQueen',
   }]);
   assert.equal(app.storage.writes, writes + 1);
 });
@@ -149,8 +149,8 @@ test('ウィッシュリスト: 作れる状態で別の組み合わせが増え
   assert.deepEqual(app.wishlist.list()[0].found, [{ pair: 'Alpaca|Boar', at }]);
   assert.deepEqual(app.notifications.list(), [{
     id: `wishlist:test:${TARGET}:Alpaca|Boar:${at}`, date: at, time: 2000,
-    title: 'セレムーンの配合が増えました', body: `${palName('Alpaca')}＋${palName('Boar')}でも作れるようになりました。押すと逆引きで確認できます。`,
-    href: '#/reverse?c=MoonQueen',
+    title: 'セレムーンの配合が増えました', body: `${palName('Alpaca')}＋${palName('Boar')}でも作れるようになりました。押すと配合を探すで確認できます。`,
+    href: '#/search?c=MoonQueen',
   }]);
   // 親の左右を入れ替えただけの登録は、同じ組み合わせとして扱う。
   app.tick();
@@ -173,7 +173,7 @@ test('ウィッシュリスト: 手元のマスターにないパルが親の組
   const unknown = { ...breeding(), parent1Id: 'Boar', parent2Id: '未来のパル' };
   app.store.receive([breeding(), unknown], 1);
   assert.deepEqual(app.notifications.list().map((notification) => notification.body),
-    [`${palName('Boar')}＋不明なパルでも作れるようになりました。押すと逆引きで確認できます。`]);
+    [`${palName('Boar')}＋不明なパルでも作れるようになりました。押すと配合を探すで確認できます。`]);
   const reloaded = setup({ storage: app.storage, records: [breeding(), unknown] });
   reloaded.store.receive([breeding(), unknown], 2);
   assert.deepEqual(ids(reloaded.notifications), ids(app.notifications));
@@ -377,7 +377,7 @@ async function choose(view, id) {
   await picker.querySelectorAll('[role="option"]').find((option) => option.textContent.includes(palName(id))).dispatch('click');
 }
 
-test('ウィッシュリスト画面: 選ぶとすぐ追加して選択欄を空に戻し、作れるパルを上に並べて逆引きへのリンクにする', async (t) => {
+test('ウィッシュリスト画面: 選ぶとすぐ追加して選択欄を空に戻し、作れるパルを上に並べて配合を探すへのリンクにする', async (t) => {
   const { body } = installDom(t);
   const app = setup({ records: [breeding()] });
   const view = wishlistView({ store: app.store, wishlist: app.wishlist });
@@ -390,8 +390,8 @@ test('ウィッシュリスト画面: 選ぶとすぐ追加して選択欄を空
   assert.equal(document.activeElement, view.element.querySelector('.picker-trigger'));
   const rows = view.element.querySelectorAll('.wishlist-row');
   assert.equal(rows.length, 2);
-  assert.match(rows[0].textContent, /セレムーン.*作成可能.*逆引きで見る/);
-  assert.equal(rows[0].querySelector('a').href, '#/reverse?c=MoonQueen');
+  assert.match(rows[0].textContent, /セレムーン.*作成可能.*配合を見る/);
+  assert.equal(rows[0].querySelector('a').href, '#/search?c=MoonQueen');
   assert.match(rows[1].textContent, /メルパカ.*まだ作れません/);
   assert.equal(rows[1].querySelector('a'), null);
   // 状態の印は 1 つの部品（statusChip。前のクラス名 wishlist-status は残す）

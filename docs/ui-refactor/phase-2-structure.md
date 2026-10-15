@@ -157,28 +157,63 @@
 - id: `<実装日>-find-merge`／title: 「配合を探すに統合」（8 字）／body: 「配合検索・逆引き・一覧を「配合を探す」にまとめました。親・子・登録者・キーワードで絞れます。」（46 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る（新しい `record-search.test.js` を含む）。
-- [ ] モックで: 親1／親2／子のどれから選んでも登録済みの配合が出る。親＋子で「A と何を組めば C か」が引ける。何も選ばないと全件が更新日の新しい順で出る。キーワード「もこ」でモコロンを含む記録と、メモに「モコ」を含む記録が出る。
-- [ ] `#/reverse?c=SheepBall`・`#/list` を開くと配合を探すに着き、戻るで旧 URL に戻らない。
-- [ ] 実測: 親を選んでも結果の先頭が動かない（今は +27px）。scrollY=2500 で並べ替えを変えても条件帯が画面に残る（今は先頭へ戻り、帯も流れる）。
-- [ ] レールのタブが 7 本。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 引くのは登録済みの記録だけで、`core/record-search.js` は index・kana・user・record-sort 以外を import しない（`test/import.test.js`）。互換 — 旧 URL の読み替えで履歴が増えない。keep-state が残した旧画面の条件と最後のタブ（reverse・list）は捨てられる。`seenAt` が読めなくても壊れない。セキュリティ — メモ・登録者名は textContent（`test/static/security.test.js`）。性能 — 記録が数千件でも、キーワードの入力で 100ms 以上止まらない（探す文字列は WeakMap で 1 回だけ作る）。
+- [x] `npm test` が通る（新しい `record-search.test.js` を含む）。
+- [x] モックで: 親1／親2／子のどれから選んでも登録済みの配合が出る。親＋子で「A と何を組めば C か」が引ける。何も選ばないと全件が更新日の新しい順で出る。キーワード「もこ」でモコロンを含む記録と、メモに「モコ」を含む記録が出る。
+- [x] `#/reverse?c=SheepBall`・`#/list` を開くと配合を探すに着き、戻るで旧 URL に戻らない。
+- [x] 実測: 親を選んでも結果の先頭が動かない（今は +27px）。scrollY=2500 で並べ替えを変えても条件帯が画面に残る（今は先頭へ戻り、帯も流れる）。
+- [x] レールのタブが 7 本。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 引くのは登録済みの記録だけで、`core/record-search.js` は index・kana・user・record-sort 以外を import しない（`test/import.test.js`）。互換 — 旧 URL の読み替えで履歴が増えない。keep-state が残した旧画面の条件と最後のタブ（reverse・list）は捨てられる。`seenAt` が読めなくても壊れない。セキュリティ — メモ・登録者名は textContent（`test/static/security.test.js`）。性能 — 記録が数千件でも、キーワードの入力で 100ms 以上止まらない（探す文字列は WeakMap で 1 回だけ作る）。
 
 ### TODO
-- [ ] `router.js` に `canonicalHash` と旧画面の表を足し、`startRouter` で replaceState する（テストを先に）
-- [ ] `core/kana.js` に `queryTerms`、`core/owned.js` の `keywordTerms` を委ねる
-- [ ] `core/record-search.js`（`searchRecords`・`groupRecords`・`registrantCounts`・`RECORD_SORTS`）とテスト
-- [ ] `breeding-card.js` に `omitChild`・`compactMemo`
-- [ ] `views/search.js` を条件帯＋件数の行＋一覧で作り直す（`applyRoute`／`update`、syncList）
-- [ ] 件数の行の文言（S-45）と子ごとの要約チップ（S-38）
-- [ ] 空の状態の 5 通りと、登録の初期値に子も渡す
-- [ ] NEW のチップと「新着 n 件」、増えた行を光らせる
-- [ ] `app.js` のタブ・import・ビューの対応、`nav-icons.js`、レールの区切りの CSS
-- [ ] `views/reverse.js`・`views/list.js`・`parentRows` を消し、使わない CSS を片づける
-- [ ] 旧画面へのリンク（route.js:196・wishlist.js:184・views/wishlist.js:52・自動登録の食い違いの通知）を新しい形に
-- [ ] keep-state の許可リストから旧画面名を外す
-- [ ] 既存テストの書き換え（views・app・router・wishlist・auto-register）
-- [ ] OPERATIONS.md・README.md の記述と release-notes
+- [x] `router.js` に `canonicalHash` と旧画面の表を足し、`startRouter` で replaceState する（テストを先に）
+- [x] `core/kana.js` に `queryTerms`、`core/owned.js` の `keywordTerms` を委ねる
+- [x] `core/record-search.js`（`searchRecords`・`groupRecords`・`registrantCounts`・`RECORD_SORTS`）とテスト
+- [x] `breeding-card.js` に `omitChild`・`compactMemo`
+- [x] `views/search.js` を条件帯＋件数の行＋一覧で作り直す（`applyRoute`／`update`、syncList）
+- [x] 件数の行の文言（S-45）と子ごとの要約チップ（S-38）
+- [x] 空の状態の 5 通りと、登録の初期値に子も渡す
+- [x] NEW のチップと「新着 n 件」、増えた行を光らせる
+- [x] `app.js` のタブ・import・ビューの対応、`nav-icons.js`、レールの区切りの CSS
+- [x] `views/reverse.js`・`views/list.js`・`parentRows` を消し、使わない CSS を片づける
+- [x] 旧画面へのリンク（route.js:196・wishlist.js:184・views/wishlist.js:52・自動登録の食い違いの通知）を新しい形に
+- [x] keep-state の許可リストから旧画面名を外す
+- [x] 既存テストの書き換え（views・app・router・wishlist・auto-register）
+- [x] OPERATIONS.md・README.md の記述と release-notes
+
+
+### 実装の記録（2026-10-15、ブランチ `feature/find-merge`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後のテーマ owned-overlay・register-entry・register-dialog・goals-merge と、フェーズ 3 の pal-detail・route-progress はこちらを正とする）。文書の file:line（ad648b7）は関数名・文字列で探し直した。
+
+1. **ルーター（手順 1）**: `views` から `reverse`・`list` を外し、`LEGACY = { reverse: 'search', list: 'search' }`（画面名 → 移った先の画面名。クエリはそのまま渡す）と **`canonicalHash(hash) → string | null`** を足した。`parseHash` も旧画面名を読み替えた route を返す（`#/reverse?c=X` → view `search`・params `c=X`。旧画面の id は捨てる）。`buildHash('reverse')` は `#/search`。`startRouter` は `k` を外した後に `canonicalHash` を当て、違えば `history.replaceState(history.state, '', …)`（state は保つ）してから onChange を呼ぶ。register-entry・goals-merge は `LEGACY` に 1 行ずつ足す（`drafts=1` のように行き先でクエリを足すなら、表の値を関数に広げる）。
+2. **`queryTerms`（手順 2）**: フェーズ 1 ですでに `core/kana.js` にあり、`core/owned.js` の `keywordTerms` もそれを呼んでいた（変更なし）。
+3. **`core/record-search.js`（手順 2）**: 文書の 3 関数に加えて、**`searchBase(index, records, { p1, p2, c, terms }, palsById)`**（登録者の条件を除いた検索）・**`byRegistrant(records, { by, noRegistrant })`**・**`childCounts(records, palOrder)`**（子ごとのチップ）・**`pairNote(records)`**（件数の行の添え書き。`'multi'`・`'gender'`・`''`）・**`recordSort(value)`**（知らない値は既定）・`RECORD_SORT_DEFAULT`（`'updated'`）を export した。`searchRecords` は `byRegistrant(searchBase(…))`。画面は登録者の選択肢の件数を「登録者以外の条件で絞った中の件数」にするため、`searchBase` と `byRegistrant` を分けて呼ぶ。
+   - `registrantCounts(records, { users, me })` の戻り値は `[{ value, label, count, kind }]`（kind は `all`・`self`・`user`・`none`）。自分は 0 件でも出す。名前は `users`（store の今の ID の一覧）に同じ ID があればその書き方、なければ記録の中でいちばん多い書き方。
+   - `groupRecords(records, sort, palOrder, palsById, { focusParent })` の 5 つ目の引数を足した: **親を 1 体だけ選んでいるとき（focusParent）、parent-* ではその親を含む記録をすべてその親の群に入れる**（前の配合検索と同じ「相手 → 子」の並び。入れないと、選んだ親より並び順で先に来る相手の群に分かれる）。同じ順位の並び（五十音で同じ名前など）は図鑑順 → ID で決める。
+   - `core/record-sort.js` に **`palComparator(sort, palOrder, palsById)`** を足し、`recordComparator` と `groupRecords` で使う。`parentRows` は消した。
+4. **カード（手順 4）**: 文書の `compactMemo` は **`compact`** という名前にした（メモだけでなく形が変わるため）。`breedingCard(record, context, { …, omitChild, compact, isNew })`: `compact` は `article.breeding-card.is-compact` で、メモを `span.card-memo`（title に全文）として `.card-meta` の中に入れる。`isNew` は `statusChip('新', 'info', 'new-chip')` を meta の先頭に。`breedingEquation(record, { focusParent, leftParent, omitChild })` の `omitChild` は「→ 子」を出さない。確認のプレビュー（削除・統合・重複）と下書きは今までどおり全文。
+   - **2 列のカードで式が折り返す**ので形を変えた: 1100px の 2 列（カード 457px）で操作を 1 行目に置くと、パルの絵と名前の列が約 110px になり、6 文字の名前（ヴィオレッタなど）も折り返した。**操作（編集・削除。28px に詰めた）を 2 行目の右端に移し、式をカードの幅いっぱい**にした（列 約 135px。7 文字まで折り返さない。8・9 文字のコラボの 7 体〔グリーンスライム・どうくつコウモリなど〕だけ 2 行になる）。カードの高さは 77px（8 文字以上の名前がある行は 93px）。式の列は `minmax(0, 1fr) 18px` × 3 で、見出しの下の短い式（相手 → 子・親 ＋ 親）も同じ列の幅（左の 2 列）にそろえた（文書の `minmax(0, 240px)` は、短い式で矢印の後ろが大きく空いたのでやめた）。
+5. **画面 `views/search.js`（手順 4）**: `section.view.find-view` の中に h1・**`section.find-bar`**（sticky。`aria-label="配合の条件"`。高さは `trackHeight` で `--panel-h`）・`div.find-child-chips`・`div.find-results`。
+   - 帯の 1 段目 `div.find-bar-main`: [親1] ＋ [親2] → [子]（`palPicker`。ラベルは「親1」「親2」「子」。注記は `recordCountNotes` の親・子）と `label.field.find-keyword`（キーワード。placeholder「パル名・メモ・登録者（空白で複数）」）。2 段目 `div.find-bar-sub`: `panelLine(panelItem('登録者', searchSelect), panelItem('並べ替え', select))` と右端の **`p.result-note.find-count`**（aria-live=polite。`span.find-count-text`「N 件」・`span.find-count-note`・`button.find-new`）。見出しと区切りの CSS は理想個体・所持パルのパネルの共通の決まり（`:is(.ideal-panel, .owned-panel, .find-bar)` にした）。**帯の高さは 1100px で 104.88px**（予算 約 120px）。
+   - 登録者は `ui/search-select.js` の `searchSelect`（12 人を超えると検索つき）。値は `''`（すべて）・`by:<ID>`・`noreg`、URL は `by=<ID>`・`noreg=1`。選択肢は「名前 · N 件」（自分は「ID（自分） · N 件」）。URL の登録者が記録にいなければ「名前 · 0 件」を足して選んだままにする。開いている間に件数が変わったら `renderWhenIdle` で離れた後に合わせる。
+   - 条件の変更は `changeRoute(context, hash, options)`（views/shared.js。**3 つ目の引数 options を足し、`context.update(hash, options)` に渡す**）。パル・登録者・並べ替えは既定（1 選択＝1 履歴）、キーワードは `{ replace: true }`（`onTextInput` で間引き 150ms・変換中は呼ばない。`flushInputs` で app.js が移る前に当てる）。URL は今の route のクエリを写して変える（知らないパラメータは残す。register-entry の `drafts=1` もそのまま通る）。入力中のキーワードの欄は `applyRoute` で上書きしない。
+   - 並べ替えを変えたときと、`applyRoute` の理由が `update`（利用者が条件を変えた）のときは、結果の先頭が帯の下に隠れていればそこへ移す（`revealResults`。`.find-results` の `scroll-margin-top: var(--panel-h)`）。並べ替えは 2,000 行以下なら `withTransition`。
+   - 件数の行の添え書きは**親を 2 体選んだときだけ**（全件・片親で「同じ組み合わせで結果が複数あります」はほぼいつも当たり意味がないため）。「· 同じ組み合わせで結果が複数あります」・すべての記録に親の性別があって子ごとに向きが違えば「· 親の性別で子が変わります」。
+   - 子ごとのチップは、親が 1 体だけで、登録者・キーワードで絞った後の「その親の結果（子の条件を除く）」が 6 件以上のとき。`button.find-child-chip`（絵・名前・件数。`aria-pressed`）、押すと `c` を入れる・押されていれば外す。件数の多い順。
+   - 空の状態: 記録が 0 件 →「まだ配合が登録されていません。」＋「配合を登録」（`context.register({})`）。登録者・キーワードがあり、それを外せば結果がある →「条件に合う登録はありません。」＋「条件をすべて解除」（親・子・登録者・キーワードを外す。並べ替えは残す。フォーカスはキーワードの欄）。親 2 体 →「この組み合わせを登録」（子を選んでいれば子も渡す）、親 1 体 →「この親で配合を登録」、**親 1 体と子 →「この親からこの子が産まれる配合はまだ登録されていません。」＋「この親と子で配合を登録」**（文書にない場合を足した）、子だけ →「この子の配合を登録」。アイコンは `search`（記録 0 件・条件の 0 件だけ）。
+   - 新着: `context.seen`（**新しい `web/js/search-seen.js` の `createSearchSeen({ storage, namespace })` → `{ key, read(env, userId), write(env, userId, time?) }`**。キーは文書の `${namespace}.search.seenAt.${userIdKey}` に**環境を足した `${namespace}.search.seenAt.${env}.${userIdKey}`**〔記録は環境ごとのため〕。ISO の時刻だけ読み、読み書きの失敗は投げない）。最初にデータがある描画で読み、値がなければ今の取得の時刻（`store.state.serverTime`、なければ今）を書くだけ。他人の登録で `createdAt` がそれより後なら「新」。`destroy` で今の取得の時刻を書く（取得の時刻にしたのは、端末の時計とサーバの時計のずれで新着を見落とさないため）。「新着 n 件」は表示中の結果の中の数で、押すと更新日の新しい順。すでに更新日の新しい順なら aria-disabled（理由は title）。**ID の変更で新しい ID へ移す**（user-rename.js。移し先にあれば新しい方を残す）。
+   - 増えた行を光らせる: 前の描画と条件が同じ（データの更新）で、前に出していなかった記録 ID のカードに `is-new`（同じ配合の楽観更新・etag の変化では光らせない）。CSS は `@keyframes find-new-row`（1.2 秒で淡い primary の地が消える）で、`animation` は既存の `prefers-reduced-motion: no-preference` のブロックの中に書いた（test/static/styles.test.js が最初のブロックの外の動きを禁じている）。
+   - パルを選ぶと選択欄の中身（絵と 2 行の名前）が 40.6px になり帯が 0.6px 伸びたので、`.find-bar .picker-trigger { height: 40px }` で固定した（所持パル・理想個体のパネルにも同じ 0.6px があるが、このテーマでは触っていない）。
+6. **タブと保存（手順 5）**: `views/tabs.js` の `TABS` から `reverse`・`list` を外し、`search` を「配合を探す」に（7 本）。app.js の import・`views`・`CONDITIONS.list`（`LIST_MEMORY`）を消した。最後のタブと読み込み直しの保存は `TABS` から作るので、古い `lastView`（`list`・`reverse`）とタブの行き先は使われない（`#/` で開くとハッシュのまま＝配合を探す）。ui/icons.js の `ICONS` の `reverse`・`list` を消した。ロゴの aria-label は「パル配合ノート（配合を探すへ）」。レールの区切りは `[data-view="drafts"]`・`[data-view="owned"]`（register-entry・goals-merge で下書き・ウィッシュリストが消えたら、記録のグループごと区切りを直す）。
+7. **旧画面へのリンク（手順 5）**: 継承ルートの「目標の逆引きを見る」→「目標の配合を見る」（`#/search?c=`）、ウィッシュリストの通知の href と本文（「押すと配合を探すで…」）・一覧の行のリンク（「配合を見る →」）、理想個体の目標を持っていないときの「逆引きで親を探す」→「配合を探すで親を探す」、自動登録の食い違いの通知の href → `buildHash('search', { p1, p2 })`（その組）、パル詳細の「配合検索へ」→「配合を探すへ」。保存済みの通知の `#/list`・`#/reverse?c=` はルーターが読み替える。
+8. **テスト**: 1,498 → 1,515 件（`npm test` exit 0）。足したもの: test/core/record-search.test.js（9 件）、test/web/search-seen.test.js（2 件）、router.test.js（2 件: 読み替え・replaceState で state を保つ）、views.test.js（配合を探す: 全件・子だけ・並べ替えと見出し・登録者・キーワード・光らせる・0 件の 6 通り・新着・子のチップ・キーワードの間引き・先頭へ移す）、user-rename.test.js（新着の基準の移動）、auto-register.test.js（食い違いの通知の href）。書き換えたもの: app.test.js（一覧で起動していた削除・同期のテストは `#/search` で起動。一覧の登録者名で確かめていた「タブを切り替えても残す」「読み込み直し」「ページを離れるとき」「間引きの間にタブ」「別のワールドのエントリ」は、配合を探すのキーワード〔URL とタブの行き先〕と所持パルのキーワード〔viewState〕で確かめる形にした。最後のタブが `list`・`reverse` のときを足した）・view-memory.test.js（例の画面名 `list` → `route`。`#/list` は parseHash が配合を探すに読み替えるため）・record-sort.test.js（parentRows の 2 件を消し palComparator を足した）・icons・ideal-view・wishlist の文言。
+9. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/find-merge/`）**: 全件 80 件が更新日の新しい順で 2 列（`01-all-1100-light.png`）、親の図鑑番号順・子の五十音順で見出しの下に短い式（`02-…`・`03-…`）。親1 → 親2 → 子と選んでも結果の先頭は 230.56px のまま（前は +27px）。戻るで前の選択へ。`#/reverse?c=SheepBall` は `#/search?c=SheepBall`（子にモコロン）に着き、戻ると前の `#/search`（旧 URL に戻らない）。`#/list` → `#/search`。scrollY=2500 で並べ替えを変えると、帯（top 56px）は画面に残り、結果の先頭（169px）へ移る（`05-…`）。キーワード「すらいむ」で 3 件、履歴は増えず欄にフォーカスのまま。0 件で「条件をすべて解除」→ 80 件・キーワードの欄にフォーカス。ダーク（`07-parent-name-1100-dark.png`）。横のはみ出しなし（scrollWidth 1085 ＜ 1100）。
+10. **性能**: 記録 5,000 件（node で `searchBase`・`registrantCounts`・`groupRecords` を続けて）: 全件 6.9ms、初回のキーワード（探す文字列を作る）15.3ms、2 回目以降 0.6〜2.1ms。描画は syncList の差分だけ。
+11. **後のテーマへの申し送り**:
+    - owned-overlay: カードの式は `breedingEquation(record, { focusParent, leftParent, omitChild })`、カードは `breedingCard(…, { compact, isNew })`。配合を探すのカードは views/search.js の `createRow` で作る（`renderCards` は使っていない）ので、`annotate` を足すときは `createRow` から渡す。「両親を所持している組を上へ」は `groupRecords` の後の安定ソートで足せる。URL のパラメータを足すときは `hashWith(changes)`（知らないパラメータは残る）。
+    - register-entry: 配合を探すの文脈のボタンは帯（`find-bar`）か件数の行の近くに置く。空の状態の登録の入口は上の 5 の 6 通り。`#/drafts` の読み替えは router.js の `LEGACY` に足す（`drafts=1` を付けるなら表の値を関数に）。下書きの帯は `find-bar` と `find-results` の間（`find-child-chips` の前）。
+    - goals-merge: 空の状態の「目標に登録」（S-?）を足すなら `emptyNode` の分かれ道に。`#/wishlist` の読み替えも `LEGACY`。ウィッシュリストの通知の href はこのテーマで `#/search?c=` にした（id は変えていない）。
+    - pal-detail（3）: パル詳細の「配合を探すへ」のリンクと、配合を探すの子の欄（`c`）で「この子の配合」が引ける。
 
 ---
 

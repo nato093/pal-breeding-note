@@ -22,11 +22,11 @@
 | 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 3 |
 | 1d | 6 | 74 | 6 |
-| 2 | 10 | 119 | 0 |
+| 2 | 10 | 119 | 1 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **21** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **22** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -560,22 +560,22 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 配合を探すに統合
 
-- 状態: 未着手 ／ ブランチ: `feature/find-merge` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/find-merge` ／ マージのコミット: （統合ブランチ `integrate/phase-2` へのマージ。下の「次にやること」）
 
-- [ ] `router.js` に `canonicalHash` と旧画面の表を足し、`startRouter` で replaceState する（テストを先に）
-- [ ] `core/kana.js` に `queryTerms`、`core/owned.js` の `keywordTerms` を委ねる
-- [ ] `core/record-search.js`（`searchRecords`・`groupRecords`・`registrantCounts`・`RECORD_SORTS`）とテスト
-- [ ] `breeding-card.js` に `omitChild`・`compactMemo`
-- [ ] `views/search.js` を条件帯＋件数の行＋一覧で作り直す（`applyRoute`／`update`、syncList）
-- [ ] 件数の行の文言（S-45）と子ごとの要約チップ（S-38）
-- [ ] 空の状態の 5 通りと、登録の初期値に子も渡す
-- [ ] NEW のチップと「新着 n 件」、増えた行を光らせる
-- [ ] `app.js` のタブ・import・ビューの対応、`nav-icons.js`、レールの区切りの CSS
-- [ ] `views/reverse.js`・`views/list.js`・`parentRows` を消し、使わない CSS を片づける
-- [ ] 旧画面へのリンク（route.js:196・wishlist.js:184・views/wishlist.js:52・自動登録の食い違いの通知）を新しい形に
-- [ ] keep-state の許可リストから旧画面名を外す
-- [ ] 既存テストの書き換え（views・app・router・wishlist・auto-register）
-- [ ] OPERATIONS.md・README.md の記述と release-notes
+- [x] `router.js` に `canonicalHash` と旧画面の表を足し、`startRouter` で replaceState する（テストを先に）
+- [x] `core/kana.js` に `queryTerms`、`core/owned.js` の `keywordTerms` を委ねる
+- [x] `core/record-search.js`（`searchRecords`・`groupRecords`・`registrantCounts`・`RECORD_SORTS`）とテスト
+- [x] `breeding-card.js` に `omitChild`・`compactMemo`
+- [x] `views/search.js` を条件帯＋件数の行＋一覧で作り直す（`applyRoute`／`update`、syncList）
+- [x] 件数の行の文言（S-45）と子ごとの要約チップ（S-38）
+- [x] 空の状態の 5 通りと、登録の初期値に子も渡す
+- [x] NEW のチップと「新着 n 件」、増えた行を光らせる
+- [x] `app.js` のタブ・import・ビューの対応、`nav-icons.js`、レールの区切りの CSS
+- [x] `views/reverse.js`・`views/list.js`・`parentRows` を消し、使わない CSS を片づける
+- [x] 旧画面へのリンク（route.js:196・wishlist.js:184・views/wishlist.js:52・自動登録の食い違いの通知）を新しい形に
+- [x] keep-state の許可リストから旧画面名を外す
+- [x] 既存テストの書き換え（views・app・router・wishlist・auto-register）
+- [x] OPERATIONS.md・README.md の記述と release-notes
 
 ### 22. [owned-overlay](phase-2-structure.md#owned-overlay-配合の画面に所持数を重ねる)（M）
 

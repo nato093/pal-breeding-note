@@ -4,13 +4,14 @@ function compareId(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-// 親1・親2は保存時に ID 順で決まるため、どちらの親の位置からも引けるよう 1 件を親ごとの行に展開する。
-// 行の parent1Id が左に表示する親で、record は元の配合（同じ親同士は 1 行）。
-export function parentRows(records) {
-  return records.flatMap((record) => record.parent1Id === record.parent2Id ? [{ ...record, record }] : [
-    { ...record, record },
-    { ...record, parent1Id: record.parent2Id, parent2Id: record.parent1Id, record },
-  ]);
+/**
+ * パル ID どうしの比べ方。sort が '…-name' なら和名の五十音順（日本語の照合）、ほかは図鑑順（palOrder の小さい順。無いパルは後ろ）。
+ * 同じ順位のときは 0（呼び出し側が次の項目で比べる）
+ */
+export function palComparator(sort, palOrder = new Map(), palsById = new Map()) {
+  return sort.endsWith('name')
+    ? (a, b) => japaneseNames.compare(palsById.get(a)?.ja ?? '', palsById.get(b)?.ja ?? '')
+    : (a, b) => (palOrder.get(a) ?? Infinity) - (palOrder.get(b) ?? Infinity);
 }
 
 export function recordComparator(sort, palOrder, palsById) {
@@ -18,9 +19,7 @@ export function recordComparator(sort, palOrder, palsById) {
     return (a, b) => compareId(b.updatedAt, a.updatedAt) || compareId(a.id, b.id);
   }
   const fields = sort.startsWith('parent') ? ['parent1Id', 'parent2Id', 'childId'] : ['childId', 'parent1Id', 'parent2Id'];
-  const comparePal = sort.endsWith('name')
-    ? (a, b) => japaneseNames.compare(palsById.get(a)?.ja ?? '', palsById.get(b)?.ja ?? '')
-    : (a, b) => (palOrder.get(a) ?? Infinity) - (palOrder.get(b) ?? Infinity);
+  const comparePal = palComparator(sort, palOrder, palsById);
   return (a, b) => {
     for (const field of fields) {
       const difference = comparePal(a[field], b[field]);
