@@ -902,19 +902,19 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ゲームの UI アイコンと作業適性を取り込む
 
-- 状態: 未着手 ／ ブランチ: `feature/game-assets` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15。実装の記録は phase-3-4-drawer-data.md の game-assets の節。統合ブランチ `integrate/phase-4` へのマージは親のセッションが確かめてから）／ ブランチ: `feature/game-assets` ／ マージのコミット: （未）
 
-- [ ] `openPak` に `list(prefix)` を足す
-- [ ] `scripts/extract-ui-icons.mjs`（`--list`・`UI_ICONS` の表・縮小・形式の確認）と npm の scripts
-- [ ] `--list` で実在と形式を確かめ、属性の番号の対応をゲームの画面で確かめる
-- [ ] アイコンを書き出して `web/img/` に置き、SOURCES.md に例外・使い分けの表・容量の上限・撤回の手順
-- [ ] `elementIcon`・`elementChips`・`palTile({ elements })` と、表示先（パル詳細・候補・行・目標）
-- [ ] `import-pals.mjs` で作業適性を取り込み（許可リスト・CombiRank を読まない）、build:pals
-- [ ] パル詳細の作業適性の行と、キーワード「採掘」「採掘3」
-- [ ] タマゴ・ケーキ・牧場・性別のアイコン（文字は残す）
-- [ ] X-25: db.json に野生の Lv があるか確かめ、あれば `pal-sources.js` とチップ
-- [ ] テスト（import・breeding-card・pal-detail・owned）
-- [ ] OPERATIONS.md と release-notes
+- [x] `openPak` に `list(prefix)` を足す
+- [x] `scripts/extract-ui-icons.mjs`（`--list`・`UI_ICONS` の表・縮小・形式の確認）と npm の scripts
+- [x] `--list` で実在と形式を確かめ、属性の番号の対応をゲームの画面で確かめる（→ 番号の対応はゲームの `WBP_PalElementIcon`・`WBP_IconPalWork` の IconMap で確かめた。DXT 以外は性別の B8G8R8A8 だけで、`readTexture` に足した）
+- [x] アイコンを書き出して `web/img/` に置き、SOURCES.md に例外・使い分けの表・容量の上限・撤回の手順
+- [x] `elementIcon`・`elementChips`・`palTile({ elements })` と、表示先（パル詳細・候補・行・目標）（→ 所持パルの行は要素を足さない `elements: 'css'`）
+- [x] `import-pals.mjs` で作業適性を取り込み（許可リスト・CombiRank を読まない）、build:pals（→ ユーザーの決定でゲーム本体から `scripts/extract-work.mjs`〔`npm run extract:work`〕で別の生成ファイル `web/data/work.js` に。`import-pals.mjs`・`pals.js` の許可リストは変えていない）
+- [x] パル詳細の作業適性の行と、キーワード「採掘」「採掘3」
+- [x] タマゴ・ケーキ・牧場・性別のアイコン（文字は残す）
+- [x] X-25: 見送った（2026-10-15 のユーザーの答え）。DT_PalWildSpawner は読めるが、ダンジョン・世界樹・仮の行が混ざり、実際にワールドに置かれているかは DT_PalSpawnerPlacement まで読まないと分からないため（`pal-sources.js` とチップは作らない）
+- [x] テスト（import・breeding-card・pal-detail・owned）
+- [x] OPERATIONS.md と release-notes
 
 ### 39. [save-extras](phase-3-4-drawer-data.md#save-extras-セーブから読める追加の情報入手時刻お気に入り接続中の仲間dayケーキの残りほか)（M）
 

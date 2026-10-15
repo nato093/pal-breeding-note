@@ -1174,7 +1174,7 @@
    - ケーキの押しボタン（ideal-panel の I-41）: 各ボタンの左にケーキのアイコン（24px）。名前の文字は残す。
    - 配合牧場: farm-board の帯の見出しと、行の「配合牧場」のバッジに牧場のアイコン。
    - 性別: `genderMark()`（visual-parts）を、`img` かマスク（`mask-image: url(...)`。CSS の中の固定の URL なので CSP に触れない）でゲームの記号にする。**`textContent` の ♂♀ は残す**（読み上げとテストのため。見た目だけ隠す）。
-7. **野生の Lv（X-25。確かめてから）**: `scripts/import-pals.mjs` の取り込み元 db.json（固定 SHA）に `MinWildLevel`・`MaxWildLevel` があるかを先に確かめる。あれば `web/data/pal-sources.js`（`export default { palId: [min, max] }`。野生にいない種は入れない）に書き出し、継承ルートの「相手親の X: 未所持」の後ろと、理想個体の「所持していません」の下に「野生 Lv12–18」（なければ「野生にいない」）の小さなチップ。配合の値は入れない。SOURCES.md に出典。項目がなければこの手順はやめて報告する。
+7. **野生の Lv（X-25。確かめてから）**: `scripts/import-pals.mjs` の取り込み元 db.json（固定 SHA）に `MinWildLevel`・`MaxWildLevel` があるかを先に確かめる。あれば `web/data/pal-sources.js`（`export default { palId: [min, max] }`。野生にいない種は入れない）に書き出し、継承ルートの「相手親の X: 未所持」の後ろと、理想個体の「所持していません」の下に「野生 Lv12–18」（なければ「野生にいない」）の小さなチップ。配合の値は入れない。SOURCES.md に出典。項目がなければこの手順はやめて報告する。 → **見送った（2026-10-15 のユーザーの答え）。DT_PalWildSpawner は読めるが、ダンジョン・世界樹・仮の行が混ざり、実際にワールドに置かれているかは DT_PalSpawnerPlacement まで読まないと分からないため**。
 8. **確率の桁を卵の数で（F044。任意）**: 理想個体の組の「平均 約 N 個」の横に、対数で 1〜5 個の卵のアイコン（`title` に平均の値）。ユーザーが要ると言ったときだけ。→ 2026-10-14 のユーザーのフィードバック（D30）で組の「完成まで 平均 約 N 個」の数値をなくしたので、この案は前提がない（やらない）。
 9. `docs/OPERATIONS.md` の「表示と画像」の節に、取り出しの手順（`npm run extract:ui-icons -- --list …` → 書き出し）と、作業適性のキーワード（「採掘3」）を書く。
 
@@ -1204,26 +1204,90 @@
 - 取り出しだけ（`--list`・縮小）の変更は開発の道具なので通知は要らない（X-17 の判断）。
 
 ### 完了の条件
-- [ ] `npm run extract:ui-icons -- "<インストール先>" --list Pal/Content/Pal/Texture/UI/` で、F083 の名前の実在と形式を確かめ、結果を SOURCES.md に書いた（DXT 以外があれば止めてユーザーに報告した）。
-- [ ] 属性の番号と属性の対応をゲームの画面で確かめて表に固定した。
-- [ ] `npm test` が通る（マスターの許可リストの検査を含む）。
-- [ ] モックで、パル詳細・パル選択の候補・所持パルの行・目標の行に属性のアイコンが出て、画像を消すと文字チップに戻る。
-- [ ] 所持パルのキーワード「採掘3」で、採掘 Lv3 以上の種族だけに絞れる。
-- [ ] 新しく足した画像の合計が SOURCES.md に書いた上限以下。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 取り込み元の表にある配合の値（CombiRank など）を取り込んでいない（許可リストのテスト）。セキュリティ — 画像はビルド時に `web/img/` へ置き、外部の画像を使わず CSP を変えていない（`test/static/security.test.js`）。互換 — 画像がないときは文字の表示に戻る。性能 — 所持パル 2,000 行でアイコンを足しても予算内（超えたら行には出さず、パル詳細と候補だけにした）。
+- [x] `npm run extract:ui-icons -- "<インストール先>" --list Pal/Content/Pal/Texture/UI/` で、F083 の名前の実在と形式を確かめ、結果を SOURCES.md に書いた（DXT 以外があれば止めてユーザーに報告した）。
+- [x] 属性の番号と属性の対応をゲームの画面で確かめて表に固定した。
+- [x] `npm test` が通る（マスターの許可リストの検査を含む）。
+- [x] モックで、パル詳細・パル選択の候補・所持パルの行・目標の行に属性のアイコンが出て、画像を消すと文字チップに戻る。
+- [x] 所持パルのキーワード「採掘3」で、採掘 Lv3 以上の種族だけに絞れる。
+- [x] 新しく足した画像の合計が SOURCES.md に書いた上限以下。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 取り込み元の表にある配合の値（CombiRank など）を取り込んでいない（許可リストのテスト）。セキュリティ — 画像はビルド時に `web/img/` へ置き、外部の画像を使わず CSP を変えていない（`test/static/security.test.js`）。互換 — 画像がないときは文字の表示に戻る。性能 — 所持パル 2,000 行でアイコンを足しても予算内（超えたら行には出さず、パル詳細と候補だけにした）。
 
 ### TODO
-- [ ] `openPak` に `list(prefix)` を足す
-- [ ] `scripts/extract-ui-icons.mjs`（`--list`・`UI_ICONS` の表・縮小・形式の確認）と npm の scripts
-- [ ] `--list` で実在と形式を確かめ、属性の番号の対応をゲームの画面で確かめる
-- [ ] アイコンを書き出して `web/img/` に置き、SOURCES.md に例外・使い分けの表・容量の上限・撤回の手順
-- [ ] `elementIcon`・`elementChips`・`palTile({ elements })` と、表示先（パル詳細・候補・行・目標）
-- [ ] `import-pals.mjs` で作業適性を取り込み（許可リスト・CombiRank を読まない）、build:pals
-- [ ] パル詳細の作業適性の行と、キーワード「採掘」「採掘3」
-- [ ] タマゴ・ケーキ・牧場・性別のアイコン（文字は残す）
-- [ ] X-25: db.json に野生の Lv があるか確かめ、あれば `pal-sources.js` とチップ
-- [ ] テスト（import・breeding-card・pal-detail・owned）
-- [ ] OPERATIONS.md と release-notes
+- [x] `openPak` に `list(prefix)` を足す
+- [x] `scripts/extract-ui-icons.mjs`（`--list`・`UI_ICONS` の表・縮小・形式の確認）と npm の scripts
+- [x] `--list` で実在と形式を確かめ、属性の番号の対応をゲームの画面で確かめる（→ 番号の対応はゲームの `WBP_PalElementIcon`・`WBP_IconPalWork` の IconMap で確かめた。DXT 以外は性別の B8G8R8A8 だけで、`readTexture` に足した）
+- [x] アイコンを書き出して `web/img/` に置き、SOURCES.md に例外・使い分けの表・容量の上限・撤回の手順
+- [x] `elementIcon`・`elementChips`・`palTile({ elements })` と、表示先（パル詳細・候補・行・目標）（→ 所持パルの行は要素を足さない `elements: 'css'`）
+- [x] `import-pals.mjs` で作業適性を取り込み（許可リスト・CombiRank を読まない）、build:pals（→ ユーザーの決定でゲーム本体から `scripts/extract-work.mjs`〔`npm run extract:work`〕で別の生成ファイル `web/data/work.js` に。`import-pals.mjs`・`pals.js` の許可リストは変えていない）
+- [x] パル詳細の作業適性の行と、キーワード「採掘」「採掘3」
+- [x] タマゴ・ケーキ・牧場・性別のアイコン（文字は残す）
+- [x] X-25: 見送った（2026-10-15 のユーザーの答え）。DT_PalWildSpawner は読めるが、ダンジョン・世界樹・仮の行が混ざり、実際にワールドに置かれているかは DT_PalSpawnerPlacement まで読まないと分からないため（`pal-sources.js` とチップは作らない）
+- [x] テスト（import・breeding-card・pal-detail・owned）
+- [x] OPERATIONS.md と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/game-assets`）
+
+文書の file:line（ad648b7）は関数名・文字列で探し直した。細かな UI はユーザーの指示（D27）のとおり聞かずに決めた（下の 4）。ゲーム本体は v1.0.5（調査では `G:/SteamLibrary/steamapps/common/Palworld`）を読み取りだけで使った。
+
+1. **ユーザーの決定（2026-10-15。親のセッションで AskUserQuestion で確かめた）**:
+   - 取り出す画像は全部（44 枚）: 属性 9（InGame の `T_Icon_element_s_00..08`）・作業適性 12（`WorkSuitability` の列の作業。使うパルがいない原油抽出は省いた）・タマゴ 12・ケーキ 5・配合牧場 1・性別 2・インプラント 2（`PalPassiveSkillChange` と `_Consumable`）・パルリバーサー 1（`PalGenderReverse`）。インプラントとパルリバーサーは implants で使う（このテーマでは置くだけ）。表示の 2 倍に縮め、合計 89,819 バイト（上限 200KB）。
+   - 作業適性はゲーム本体から取り出す（palworld-helper の CSV は使わない）。`DT_PalMonsterParameter_Common` の `WorkSuitability_*`（13 列・int）と、作業の日本語名 `DT_UI_Common_Text_Common` の `COMMON_WORK_SUITABILITY_〈鍵〉`。型の情報のない表を読む道具は scripts/ に置いて、implants でも使い回す。
+   - X-25（野生の Lv のチップ）は見送る（手順 7 と TODO に理由）。
+2. **取り出しの道具**（README の 5-4 にも書いた）:
+   - `scripts/extract-passive-icons.mjs`: `openPak(file)` の返り値に `list(prefix)`（pak の中のパスのうち接頭辞で始まるもの。名前の順）を足した（`get`・`has`・`close` は変えていない。`extract-humans.mjs`・`extract:passive-icons` を流し直して、`web/img/passive/`・`web/img/humans/`・`web/data/humans.js` に差分がないことを確かめた）。`textureInfo(uexp)`（幅・高さ・形式だけ）を足し、`readTexture` に `PF_B8G8R8A8`（B・G・R・A の並びを入れ替えるだけ）を足した。
+   - `scripts/extract-ui-icons.mjs`（`npm run extract:ui-icons`）: `--list <接頭辞>` はテクスチャのパス・大きさ・形式を出すだけ。書き出しは表 `UI_ICONS`（出力名 → `{ texture, size }`）の全部を `downscale(rgba, width, height, size)`（面積の重みつきの平均。色はアルファで重みを付けて混ぜ、縁を黒ずませない。拡大はしない）で縮めて `web/img/〈出力名〉.png` に。合計が `UI_ICONS_MAX_BYTES`（200KB）を超えたら止まる。
+   - `scripts/game-tables.mjs`: `gameFiles(gameDir)`（pak と実行ファイルのパス）、`openExecutable(exe).structSchema(name)`（実行ファイルの `.rdata`・`.data` から、構造体の名前の文字列を指す `FStructParams` を探し、`FPropertyParams` の並び〔名前と EPropertyGenFlags の型〕を後ろから組み立てる。配列の要素・マップのキーと値・列挙の元の型は親に入る）、`readDataTable(schema, uexp, names, { keep, overrides })`（unversioned の構造体の断片の並びと既定値のビット列を読む。`keep` で残す列を限る。入れ子の構造体は `overrides` に読み方〔`readers.vector` など〕を渡す。最後まで読み切れない〈末尾 4 バイトより多く残る・はみ出す〉と投げる）。
+   - `scripts/extract-work.mjs`（`npm run extract:work`）: 行の構造体 `PalCharacterParameterDatabaseRow`（91 列）のうち `WorkSuitability_*` だけを `keep` で残し（同じ行の `CombiRank`・`MaleProbability`・`Rarity`・`Price` などは読み進めるためだけに読んで捨てる。INV-2）、`buildWork(rows, columns, palIds)` でマスターの ID（大文字小文字をそろえて引く）ごとに `{ 作業の鍵: Lv }`（1 以上の整数だけ・どのパルも持たない作業は外す）にし、`web/data/work.js`（`WORKS`＝作業の鍵 → `{ ja, icon }`、既定の書き出し＝パル ID → `{ 鍵: Lv }`。「自動生成・手で編集しない」のコメント）に書く。299 体すべてが表にあり、作業の種類は 12（原油抽出は 0 体）。作業を持たないのはホエーラー（`KingWhale`）だけ。
+   - `--list` で確かめた形式: 属性・作業適性（`T_icon_palwork_09` だけ 40×40）・タマゴ・ケーキ・インプラント・パルリバーサー・配合牧場はすべて DXT5、性別（Main_Menu の `T_Icon_PanGender_*`）は B8G8R8A8 の 34×34。BC7 はなかった（止めて聞く場面はなかった）。
+   - 属性・作業の番号の対応は、ゲームの画面を目で見る代わりに、ゲームが画面に出す対応そのもの（`WBP_PalElementIcon`・`WBP_IconPalWork` の IconMap。列挙 → テクスチャ）で確かめて `UI_ICONS` に固定した（属性は 00 無・01 炎・02 水・03 雷・04 草・05 闇・06 竜・07 地・08 氷で、列挙の順とは違う）。
+3. **文書と違う形にしたこと**:
+   - 作業適性は `pals.js` に `work` を足さず、別の生成ファイル `web/data/work.js` にした（ユーザーの決定。`scripts/import-pals.mjs` の `JS_FIELDS`・`CSV_COLUMNS`、`test/import.test.js` の許可リストの検査、`data/pals.csv`・`gas/PalMaster.js` は変えていない）。取り込み元も palworld-helper の CSV ではなくゲーム本体。data/SOURCES.md は「属性」の行を変えず、作業適性の行を足し、「取り込まないもの」に同じ表の配合の値を明記した。Lv は文書の「1〜5」ではなく 1〜8（ゲームの表の値。テストは「作業の鍵と 1 以上の整数だけ」）。
+   - **所持パルの行の属性のアイコンは img を足さず、名前の行（`.pal-name-line`）の `::after` に CSS の背景で描く**（`palTile(id, { elements: 'css' })`。名前の行〈性別のない個体は名前の `strong`〉に `has-elements el1-〈属性〉 el2-〈属性〉` のクラス、CSS 変数 `--el1`・`--el2`。性別のない個体にも名前の行を作らない）。初めは img（`elements: true`）で、ブラウザの 2,000 行は DOM 58,753 → 61,042 で予算内だったが、`npm run test:perf` の行の要素の数の上限（印のある行 41 個。理論上の最悪の形で 80,000 を守る線）を 42〜43 個で超えたため。上限を緩めずに、行の要素の数を基準と同じにした（owned.perf.js の 33・41・47 個、56,480・68,480・74,480 個は基準と同じ）。行の属性は読み上げ・title を持たない（前から行に属性は出ていなかった。属性は属性の絞り込みとキーワードで探せる）。パル選択の候補は img（alt・title「炎属性」）。
+   - 性別は OperatingTable の光の縁つきの記号ではなく Main_Menu の平らな記号（B8G8R8A8 を `readTexture` に足した）。丸い印（`.gender:not(.gender-inline)`）だけ、記号の形（`mask-image`）を今の色のトークンで塗る（丸い地はなくなる）。文の中の色だけの印（`.gender-inline`。「♂2 ♀1」など）は文字のまま。
+   - 画像を消したら文字の表示に戻すため、CSS だけで描く画像（性別の記号・行の属性）は `ui/pal-icon.js` の `probeImage` で 1 回だけ読めるかを確かめ、使う画像が全部（性別は 2 枚・属性は 9 枚）読めたら html に `game-gender`・`game-elements` のクラスを付ける（CSS はこのクラスがあるときだけ画像にする。mask-image の画像が読めないと印が消えるため）。パルの絵が読めないときの代わりのアバターは、絵だけを替える（前は中を全部入れ替えていたので、右下に重ねたタマゴのアイコンも消えた）。img の部品は `gameIcon` の `error` で 1 回だけ差し替える（属性は文字のチップ、ほかは外す）。
+   - 書き出しの大きさ: 属性 40（文書は 32。ヒーローの 20px に合わせた）・ケーキ 40（文書は 48。表示 18px）・性別 32（文書は 28。表示 16px）。出力名は、タマゴを `egg-〈アイテム ID の種類〉`（`egg-Normal`〈無属性〉・`egg-Fire`…・`egg-MutationPal`・`egg-Unknown`）、ケーキを `cake-〈アイテム ID〉`（`cake-Cake`・`cake-Cake02`…）、インプラントとパルリバーサーをアイテム ID のまま（`item/PalPassiveSkillChange.png` など）にした（文書の `egg-mutant.png`・`cake-〈種類〉` から。セーブのアイテム ID からそのまま引くため）。
+   - 文書にない表示先を 2 つ足した: 配合牧場のボードのタマゴの中身の絵の右下にタマゴの種類（14px）、中身の分からないタマゴの「?」をゲームの中身不明のタマゴのアイコンに（読めなければ「?」）。個体の詳細（`views/owned-detail.js`）の属性も `elementChips` なのでアイコン＋名前になった。
+   - X-25 は見送った（手順 7）。手順 8（確率の桁を卵の数で）は文書のとおりやらない。
+4. **決めたこと（D27。細かな UI）**:
+   - 属性: ヒーロー・解説の板・個体の詳細は 20px のアイコンと名前（太字 13px。前の地の色のチップは画像が読めないときだけ）。パル選択の候補（ヘッダーのパル検索・各画面のパル選択の候補の行。選んだ後の欄には出さない）・所持パルの行・目標の一覧の行は名前の右に 16px（2 属性は 3px 重ねる）。alt・title は「炎属性」（ヒーローなど名前を横に出す所は alt なし）。
+   - 作業適性: パル詳細のヒーローのパートナースキルの下に、見出し「作業適性」（11px）と「[16px のアイコン] 採掘 Lv6」を折り返して並べる（ゲームの表の列の順）。持たない種族は行を出さない。一覧は見出しを `aria-labelledby`。
+   - キーワード: 「採掘」は作業の名前の部分一致（ほかの項目と同じ）、「採掘3」（作業の名前＋数字。何桁でも。「採掘100」は当たる個体なし）はその作業の Lv がその数以上の種族だけ（文字の部分一致では見ない）。一致の理由は「作業適性：採掘 Lv6」（その個体の種族の Lv）。並びは属性の次。全角の数字・ひらがなもそろえる。
+   - タマゴ: 所持パルの行の種族の絵（36px）の右下に 18px（`right -3px`・`bottom -2px`・地の色の 1px の縁）。名前の下の文字のバッジ（タマゴの名前・突然変異）は残す。アイテム ID の分からないタマゴはアイコンなし。
+   - ケーキ: 理想個体のケーキの 3 つの押しボタンの左に 18px（なし＝ケーキ・キノコ等＝キノコケーキ・スペシャル＝スペシャルケーキ。「なし」は効果のないケーキの意味なので、ふつうのケーキの絵にした）。押しボタンの高さ 32px・固定パネル 150.5px（1100px・パッシブ 0 個）は変わらない。
+   - 配合牧場: 帯の見出しの ▶ の後に 20px、行の「配合牧場」「配合牧場のタマゴ」の印の文字の左に 14px（印の高さ 14px のまま）。
+   - 性別: 18px の枠に 16px の記号。
+5. **テスト**: 1,655 → 1,664 件（`npm test` exit 0）。足したもの: test/import.test.js（`work.js` は作業の鍵と 1 以上の整数だけ・マスターの全員・配合の語が混じらない・取り出しは `keep` で列を限る）、test/static/extract-ui-icons.test.js（4 件: `downscale` の平均と縦横比と拡大しない、`UI_ICONS` の全部が web/img にあり大きさと合計 200KB 以下・4 つのフォルダに表にない画像がない・属性と作業の名前がマスターの鍵、`readDataTable` の `keep` で配合の値を捨てる・読み切れなければ投げる・`buildWork` の形、断片の並び〈飛ばす・既定値の印・最後〉と既定値のビット列〈1・2 バイト〉・配列と名前と真偽・知らない型で止まる）、test/web/breeding-card.test.js（2 件: `palTile` の既定と配合カードに属性のアイコンが出ない・`elements: true` の alt と大きさ・`'css'` のクラスと要素の数が既定と同じ〈性別のない個体も〉、読めないとき文字のチップ・タマゴのアイコンの種類・パルの絵が読めないときタマゴのアイコンが残る）、test/web/pal-detail.test.js（1 件: アイコン＋名前・読めないとき文字のチップ・作業適性の行と読めないとき・持たない種族）、test/core/owned.test.js（1 件: 「採掘」「採掘3」「採掘６」「採掘100」「運搬 手作業2」と一致の理由・共有の個体も種族から）。期待値を直したもの: test/web/owned-view.test.js（名前の行のクラス）。`npm run test:perf` 13 件 exit 0。
+6. **画面の確認（モック・1100×900・ライトとダーク。`Claude outputs/ui-audit-2026-10/shots/phase-4/`。撮影 `ga01-…`〜`ga21-…`、スクリプト `ga-shots-tmpl.js`・`ga-perf-5196.js`・`ga-fallback-5196.js`、タマゴのアイテム ID つきの注入 `inject-ga.js`）**:
+   - 所持パル: 行の名前の右に属性（2 属性は重ねて 2 つ）、丸い性別の印はゲームの記号（mask-image・色 rgb(27,108,168)／ダーク rgb(124,196,255)）、タマゴの行の右下にタマゴ（平凡・凍てつく・ゴツゴツ・突然変異・竜）、配合牧場の帯の見出しと印に牧場、キーワード「採掘3」で 48 体（理由「作業適性：採掘 Lv3」など）。パル詳細（ページ・ドロワー）にアイコン＋名前と作業適性の行（ドロワーの横のはみ出し 0）。ヘッダーのパル検索の候補に属性。理想個体のケーキの押しボタン（32px・固定パネル 150.5px）。目標の一覧の行に属性。解説の板にアイコン＋名前。
+   - 画像を 404 にした（撤回と同じ）とき: 行の属性は出ず（前と同じ）・性別は丸い地の ♂♀・ヒーローは地の色のチップ・作業適性は名前と Lv・ケーキと牧場のアイコンなし・固定パネル 150.5px のまま。
+   - 性能（基準＝統合ブランチの元の版を scratchpad に展開して同じ手順。2,009 体の注入〔`inject-rows-2000.js`〕を Lv 順〔種族の見出しなし〕で全部描く。交互に 2 回ずつ）: DOM 58,753 → 58,763（配合牧場の印と帯のアイコン）、最初の 200 行 36〜42 → 48〜52ms、全行 549〜589 → 700〜710ms（予算 100ms・1 秒の内。この PC は負荷で揺れる）、Long Task 最大 78ms、キーワード「採掘3」の 1 字ずつの入力の Long Task 最大 78ms。20,009 体（見えている範囲だけ描く）のキーワード「採掘3」の入力の Long Task 0 件。JS ヒープ 15〜21MB（2,000 行）・47〜58MB（20,000 行）。
+   - レビューの直しの後（`ga-recheck-5196.js`。撮影 `ga30-…`）: 性別のない個体の行は名前の後ろに属性（幅 29px・背景 2 枚）、メスの画像だけを 404 にすると性別の記号に切り替えない（♂♀ とも丸い地の文字）。
+   - 終わった後にブラウザを閉じ、5196・5197 番のサーバーを止めた。
+7. **レビュー（Codex・読み取り専用。メモリの「UI 改善の Codex はフル活用可」に従った）**: 指摘 5 件（中 3・低 2）をすべて直した。(1) 性別の記号はオスの画像だけで切り替えていた（メスの画像だけ欠けると ♀ が見えない）→ 2 枚とも読めてから。(2) パルの絵が読めないと、重ねたタマゴのアイコンも消えた → 絵だけを替える。(3) `elements: 'css'` で性別のない個体に名前の行を作り、行の要素が 1 個増えた → 名前の `strong` にクラスを付ける。(4) 「採掘100」が文字の部分一致に戻った → 数字は何桁でも Lv。(5) 表の読み方のテストが単純な形だけ → 断片・既定値のビット列・配列のテストを足した（実行ファイルからの並びの組み立ては、ゲーム本体がないと試せないのでテストにしていない）。
+8. **確かめていないこと**:
+   - 作業適性の値をゲームの画面と照合していない（例 アヌビス 手作業 6・採掘 6・運搬 4、モコロン 手作業 1・運搬 1・牧場 1）。Lv が 8 まであることも画面では確かめていない。パル濃縮で上がる分は入れていない（種族の値だけ）。
+   - 属性・作業の番号の対応はゲームの画面ではなく WBP の IconMap で確かめた。
+   - 実際のセーブでのタマゴのアイテム ID とアイコン（モックの注入だけ）。共有の個体の `eggItemId` が空のとき（古い共有）はタマゴのアイコンが出ない（文字のバッジのまま）。
+   - Chrome 以外（mask-image・`:is()`・`::after` の背景）とブラウザの拡大。性別の記号は読み込み直した直後の一瞬、丸い地の文字で出てから記号に替わる（画像を確かめる間）。
+9. **後のテーマへの申し送り**:
+   - **implants（取り出しの道具の使い方）**: 手術台の表とアイテム名は同じ道具で読める（調査で 2026-10-15 に読めることを確かめた。行の名前＝パッシブ ID、列は `PassiveSkill`・`Price`・`RequireItemId` など）。
+     ```js
+     import { openPak } from './extract-passive-icons.mjs';
+     import { nameMap, readNameText } from './extract-humans.mjs';
+     import { gameFiles, openExecutable, readDataTable } from './game-tables.mjs';
+     const files = gameFiles(gameDir);
+     const schema = openExecutable(files.exe).structSchema('PalOperatingTablePassiveSkillData');
+     const pak = openPak(files.pak);
+     const load = (base) => ({ names: nameMap(pak.get(`${base}.uasset`)), uexp: pak.get(`${base}.uexp`) });
+     const table = load('Pal/Content/Pal/DataTable/MapObject/DT_OperatingTablePassiveSkillDataTable');
+     const rows = readDataTable(schema, table.uexp, table.names, { keep: (name) => ['PassiveSkill', 'Price', 'RequireItemId'].includes(name) });
+     const items = load('Pal/Content/Pal/DataTable/Text/DT_ItemNameText_Common');
+     const itemNames = readNameText(items.names, items.uexp); // ITEM_NAME_〈アイテム ID〉 → 日本語名
+     ```
+     構造体の名前は先頭の F を付けない。入れ子の構造体（Struct）の列があると「overrides に読み方を渡してください」で止まるので `overrides: { 列名: (b, o, names) => ({ v, next }) }` を渡す（`readers.vector` が FVector）。SoftObject（アイコンのパスなど）は「/Game/…/T_x.T_x」で読める。「DataTable を読み切れませんでした」は並びの読み違い（静的配列など）。アイコンは `web/img/item/PalPassiveSkillChange.png`・`PalPassiveSkillChange_Consumable.png`・`PalGenderReverse.png`（48px。表示 24px）を `gameIcon('item/PalGenderReverse.png', { size: 24 })` で出す。取り出す画像を足すときは `UI_ICONS` に足し、合計 200KB と test/static/extract-ui-icons.test.js の 4 つのフォルダの一覧を見る。
+   - save-extras: ケーキの残りは `item/cake-〈アイテム ID〉.png`（`gameIcon`）が使える。所持パルの行に何かを足すときは、行の要素の数の上限（owned.perf.js の 35・41・47 個）を見る（このテーマで余りはない。属性は CSS の背景にした）。行の差分更新のキー（`write('tile', …)`）にタマゴのアイコンのファイルを入れた。
+   - paldex: 図鑑の格子の属性は `palTile(id, { elements: true })` か `elementIcon(element)`（格子が多ければ `elements: 'css'`）、作業適性は `views/pal-detail.js` の `workLine(palId)` と `web/data/work.js`・core/owned.js の `workEntries`。
+   - CSS だけで描くゲームの画像を足すときは `probeImage(file, className)`（ui/pal-icon.js の中）で html にクラスを付け、そのクラスの下だけ画像にする（画像を消したら前の表示に戻す）。
 
 ---
 
