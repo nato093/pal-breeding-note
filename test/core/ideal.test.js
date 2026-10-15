@@ -5,6 +5,7 @@ import { buildIndex } from '../../web/js/core/index.js';
 import {
   passiveChance, talentChance, talentExpectation, talentTargets, breedingLayouts, idealPlan, PLAN_GROUPS, isParentCandidate, TALENT_PATTERNS,
   generationTable, generationEggs, idealPlanSteps, hasGenerationTable, planSpeed, fastestCake, cakeSpeedSteps, CAKE_FASTER,
+  genderFlipHints, genderFlipSteps, REVERSER_FASTER, REVERSER_SHOWN,
 } from '../../web/js/core/ideal.js';
 
 const master = ['A', 'B', 'X', 'Y'].map((id, no) => ({ id, no, variant: false }));
@@ -1119,4 +1120,182 @@ test('理想個体（ケーキの提案）: cakeSpeedSteps はケーキごとに
   const onlyPals = [pal('m3', 'X', 'M', ['P1'], talent(100, 100, 100)), pal('f3', 'X', 'F', ['P1'], talent(100, 100, 100))];
   for (const _ of cakeSpeedSteps({ pals: onlyPals, index: index(), target: 'X', passives: ['P1'], mode: 'only' }, ['special'], (cake, speed) => only.set(cake, speed))) { /* 最後まで回す */ }
   assert.deepEqual([...only], [['special', null]]);
+});
+
+// ---------------------------------------------------------------------------
+// パルリバーサーの案内（implants・D17）: 目標の種族の親の候補を 1 体ずつ性別を変えて、今の 1 番の完全体作成組より 1 割以上早く完成する
+// （完全体作成組がなければ、完全体作成組ができる）個体を探す。計画（idealPlan）の一覧と並びは変えない
+// ---------------------------------------------------------------------------
+
+const roundedKey = (value) => Number(value.toPrecision(12));
+// 総当たり: 1 体ずつ性別を変えて idealPlan を呼び、新しい 1 番がその個体（変えた性別）を含む、同じ組み合わせで別の子も登録されていない
+// 完全体作成組で、今の 1 番の 0.9 倍以下（完全体作成組がなければ、できれば）なら案内する。並びは値の小さい順（同じなら計画の並びと同じ決め方）
+function bruteFlip(pals, input) {
+  const before = planSpeed(idealPlan({ ...input, pals }));
+  const found = [];
+  for (const x of pals) {
+    if (x.palId !== input.target || !isParentCandidate(x) || (x.gender !== 'M' && x.gender !== 'F')) continue;
+    const to = x.gender === 'M' ? 'F' : 'M';
+    const [first] = idealPlan({ ...input, pals: pals.map((item) => (item === x ? { ...item, gender: to } : item)), limit: 1 }).pairs;
+    if (!first || first.group !== 'complete' || first.ambiguous || (to === 'M' ? first.male : first.female).id !== x.id) continue;
+    if (before !== null && !(roundedKey(first.eggs) <= roundedKey(before * REVERSER_FASTER))) continue;
+    found.push({ pal: x.id, to, partner: (to === 'M' ? first.female : first.male).id, eggs: first.eggs, first });
+  }
+  const ids = (a, b) => (a.male.id < b.male.id ? -1 : a.male.id > b.male.id ? 1 : 0) || (a.female.id < b.female.id ? -1 : a.female.id > b.female.id ? 1 : 0);
+  found.sort((a, b) => roundedKey(a.eggs) - roundedKey(b.eggs) || b.first.chance - a.first.chance || b.first.expected - a.first.expected
+    || a.first.extras.length - b.first.extras.length || ids(a.first, b.first));
+  return { before, found };
+}
+// 案内を比べる文字列（個体は ID に、値は有効数字 10 桁）
+const idOf = (item) => (typeof item === 'string' ? item : item.id);
+const flipText = ({ pal: who, to, partner, eggs }) => `${idOf(who)}>${to}/${idOf(partner)}/${eggs.toPrecision(10)}`;
+
+test('理想個体（パルリバーサーの案内）: 1 体ずつ性別を変えて idealPlan を呼ぶ総当たりと、案内する個体・性別・相手・値・ほかの数が一致する', () => {
+  let state = 0x52455653;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+  const value = () => [0, 60, 88, 94, 95, 99, 100][Math.floor(random() * 7)];
+  const passivePool = ['P1', 'P2', 'P3', 'J1', 'J2', 'J3'];
+  // X×A は X（性別なし。両方の向き）、B♂×X♀ は X（性別つき。入れ替えた向きも候補）、X×B は Y（同じ組み合わせで別の子 → X♂×B♀ はあいまい）、A×B は X
+  const records = [rec('r1', 'X', 'A', 'X'), rec('r2', 'B', 'X', 'X', 'M', 'F'), rec('r3', 'X', 'B', 'Y'), rec('r4', 'A', 'B', 'X')];
+  // 4 回に 1 回は全員 ♂（同じ種族の組がなく、完全体作成組がない計画）
+  const worlds = Array.from({ length: 12 }, (_, round) => ({
+    pals: Array.from({ length: 8 + Math.floor(random() * 8) }, (_, i) => pal(`k${round}-${i}`, ['X', 'X', 'X', 'X', 'A', 'B'][Math.floor(random() * 6)],
+      round % 4 === 3 || random() < 0.5 ? 'M' : 'F', passivePool.filter(() => random() < 0.35), talent(value(), value(), value()), { egg: random() < 0.08 })),
+    records: round % 3 === 0 ? [] : records,
+    targets: round % 2 ? ALL : talent(90, 0, 95),
+  }));
+  const seen = { faster: 0, none: 0, cross: 0, more: 0 };
+  // 条件ごとに世界を回す（世代の表を条件ごとに使い回す）
+  for (const cake of ['none', 'talent', 'special']) {
+    for (const mode of ['include', 'only']) {
+      for (const passives of [['P1'], ['P1', 'P2'], []]) {
+        for (const [round, world] of worlds.entries()) {
+          const input = { index: index(world.records), target: 'X', passives, mode, cake, targets: world.targets };
+          const { before, found } = bruteFlip(world.pals, input);
+          const result = genderFlipHints({ ...input, pals: world.pals }, before);
+          const label = `round ${round} ${cake} ${mode} ${passives}`;
+          assert.deepEqual(result.hints.map(flipText), found.slice(0, REVERSER_SHOWN).map(flipText), label);
+          assert.equal(result.more, Math.max(0, found.length - REVERSER_SHOWN), label);
+          assert.equal(result.before, before, label);
+          if (found.length) seen[before === null ? 'none' : 'faster']++;
+          if (result.hints.some((hint) => hint.partner.palId !== 'X')) seen.cross++;
+          if (result.more) seen.more++;
+        }
+      }
+    }
+  }
+  // 速くなる場合・完全体作成組がない計画で作れる場合・異なる種族の相手・4 体以上の場合を、どれも確かめた
+  assert.ok(Object.values(seen).every((count) => count > 0), JSON.stringify(seen));
+});
+
+test('理想個体（パルリバーサーの案内）: 今の 1 番の 0.9 倍ちょうどなら案内し、それより少しでも多ければ案内しない（丸めた比較）', () => {
+  // ♂ の 2 体だけが欲しいパッシブと個体値 100 を持ち、♀ は個体値 0 でパッシブなし。♂ どうしの組なら早くできる
+  const pals = [pal('m1', 'X', 'M', ['P1'], ALL), pal('m2', 'X', 'M', ['P1'], ALL), pal('f1', 'X', 'F', [], talent(0, 0, 0))];
+  const input = { pals, index: index(), target: 'X', passives: ['P1'], targets: ALL };
+  const before = planSpeed(idealPlan(input));
+  const { hints } = genderFlipHints(input, before);
+  assert.ok(hints.length > 0);
+  const value = hints[0].eggs;
+  assert.ok(value <= before * REVERSER_FASTER);
+  assert.equal(REVERSER_FASTER, 0.9);
+  const shows = (base) => genderFlipHints(input, base).hints.some((hint) => hint.pal.id === hints[0].pal.id);
+  // 1 割ちょうど（値 = 今の 1 番 × 0.9）は案内する。末尾の誤差は丸めて同じとみなす
+  assert.equal(shows(value / REVERSER_FASTER), true);
+  assert.equal(shows((value / REVERSER_FASTER) * (1 + 1e-14)), true);
+  assert.equal(shows((value / REVERSER_FASTER) * (1 - 1e-14)), true);
+  // 1 割に少し届かない・同じ速さなら案内しない
+  assert.equal(shows((value / REVERSER_FASTER) * (1 - 1e-6)), false);
+  assert.equal(shows(value), false);
+});
+
+test('理想個体（パルリバーサーの案内）: 完全体作成組が 1 組もなければ、性別を変えて完全体作成組ができる個体を案内する（上位 3 体とほかの数）', () => {
+  // ♂ だけ 5 体（欲しいパッシブを持つ 4 体と持たない 1 体）。今の計画には組がない
+  const pals = [
+    pal('m1', 'X', 'M', ['P1'], ALL), pal('m2', 'X', 'M', ['P1'], talent(100, 100, 90)), pal('m3', 'X', 'M', ['P1'], talent(100, 90, 90)),
+    pal('m4', 'X', 'M', ['P1'], talent(90, 90, 90)), pal('m5', 'X', 'M', [], talent(0, 0, 0)),
+  ];
+  const input = { pals, index: index(), target: 'X', passives: ['P1'], targets: ALL };
+  const plan = idealPlan(input);
+  assert.equal(plan.total, 0);
+  assert.equal(planSpeed(plan), null);
+  const result = genderFlipHints(input, null);
+  const { found } = bruteFlip(pals, input);
+  // どの ♂ も ♀ にすれば、ほかの ♂ と完全体作成組ができる。値の小さい 3 体と、ほか 2 体
+  assert.equal(found.length, 5);
+  assert.deepEqual(result.hints.map(flipText), found.slice(0, 3).map(flipText));
+  assert.deepEqual([result.hints.length, result.more, result.before], [REVERSER_SHOWN, 2, null]);
+  assert.ok(result.hints.every((hint) => hint.to === 'F' && hint.partner.gender === 'M'));
+  // 値の小さい順（個体値の高い 2 体どうしの組がいちばん早い。m1 を ♀ にしても m2 を ♀ にしても同じ組なので、どちらも出る。
+  // 同じ値は計画の並びと同じ決め方〔ここでは ♂ の個体 ID〕で、♂m1 × ♀m2 が先）
+  assert.deepEqual(result.hints.map((hint) => [hint.pal.id, hint.partner.id]), [['m2', 'm1'], ['m1', 'm2'], ['m3', 'm1']]);
+  assert.ok(result.hints.every((hint, i) => i === 0 || hint.eggs >= result.hints[i - 1].eggs));
+});
+
+test('理想個体（パルリバーサーの案内）: 登録済みの配合の異なる種族の組で速くなる個体も案内する（同じ組み合わせで別の子も登録されている組は案内しない）', () => {
+  // X×A は X（性別なし。X♂×A♀ も A♂×X♀ も）。今は ♂xm0（個体値 0）しか ♂ がいないので遅い。♀xf1 を ♂ にすると、A の ♀af と 1 回で作れる組ができる
+  const pals = [
+    pal('xm0', 'X', 'M', [], talent(0, 0, 0)), pal('xf1', 'X', 'F', ['P1'], ALL), pal('xf2', 'X', 'F', [], talent(0, 0, 0)),
+    pal('af', 'A', 'F', ['P1'], ALL),
+  ];
+  const input = { pals, index: index([rec('r1', 'X', 'A', 'X')]), target: 'X', passives: ['P1'], targets: ALL };
+  const before = planSpeed(idealPlan(input));
+  assert.ok(before !== null);
+  const result = genderFlipHints(input, before);
+  assert.deepEqual(result.hints.map((hint) => [hint.pal.id, hint.to, hint.partner.id]), [['xf1', 'M', 'af']]);
+  assert.deepEqual(result.hints.map(flipText), bruteFlip(pals, input).found.map(flipText));
+  // X♂×A♀ から別の子（Y）も登録されている（どちらかの登録が間違っている可能性がある）組は、速くても性別を変える根拠にしない
+  const doubtful = { ...input, index: index([rec('r1', 'X', 'A', 'X'), rec('r2', 'X', 'A', 'Y')]) };
+  const flipped = idealPlan({ ...doubtful, pals: pals.map((item) => (item.id === 'xf1' ? { ...item, gender: 'M' } : item)), watch: new Set(['xf1|af']) });
+  assert.deepEqual([flipped.measures.get('xf1|af').rank, flipped.measures.get('xf1|af').ambiguous], [0, true]);
+  assert.ok(flipped.measures.get('xf1|af').eggs < planSpeed(idealPlan(doubtful)) * REVERSER_FASTER);
+  assert.deepEqual(genderFlipHints(doubtful, planSpeed(idealPlan(doubtful))).hints, []);
+  assert.deepEqual(bruteFlip(pals, doubtful).found, []);
+});
+
+test('理想個体（パルリバーサーの案内）: 計画の一覧と並びを変えず、入力の個体も書き換えない。区切って求めても同じ結果', () => {
+  // 画像の 4 体に、4 つとも持つ個体値 100 の ♂E1・♂E2 を足す（どちらかを ♀ にすれば、2 体で ♀B・♀D と組むよりずっと早い）
+  const pals = [...kabuki(), pal('E1', 'X', 'M', KABUKI, talent(100, 100, 100)), pal('E2', 'X', 'M', KABUKI, talent(100, 100, 100))];
+  const copy = JSON.parse(JSON.stringify(pals));
+  for (const cake of ['none', 'talent']) {
+    const input = { pals, index: index(), target: 'X', passives: KABUKI, targets: ALL, cake };
+    const plan = canonicalPlan(idealPlan(input));
+    const hints = genderFlipHints(input, planSpeed(idealPlan(input)));
+    assert.deepEqual(hints.hints.map((hint) => [hint.pal.id, hint.to, hint.partner.id]), [['E2', 'F', 'E1'], ['E1', 'F', 'E2']], cake);
+    assert.equal(canonicalPlan(idealPlan(input)), plan, cake);
+    assert.deepEqual(JSON.parse(JSON.stringify(pals)), copy);
+    assert.deepEqual(hints.hints.map(flipText), bruteFlip(pals, input).found.slice(0, REVERSER_SHOWN).map(flipText), cake);
+    // 区切って求めても同じ（ジェネレーターを最後まで回す）
+    const steps = genderFlipSteps(input, planSpeed(idealPlan(input)));
+    let step;
+    while (!(step = steps.next()).done) { /* 最後まで回す */ }
+    assert.deepEqual(step.value.hints.map(flipText), hints.hints.map(flipText));
+    assert.equal(step.value.more, hints.more);
+  }
+  // 画像の 4 体だけなら、どの 1 体の性別を変えても 1 番（A×D 約 3,591.5 個）より 1 割以上は早くならない
+  const four = { pals: kabuki(), index: index(), target: 'X', passives: KABUKI, targets: ALL };
+  const fourBefore = planSpeed(idealPlan(four));
+  assert.deepEqual(genderFlipHints(four, fourBefore), { hints: [], more: 0, before: fourBefore });
+  assert.deepEqual(bruteFlip(four.pals, four).found, []);
+});
+
+test('理想個体（パルリバーサーの案内）: 組が多いときは組のループの中で区切る', () => {
+  const pals = Array.from({ length: 200 }, (_, i) => pal(`m${i}`, 'X', 'M', ['P1'], talent(i % 101, 100, 100)));
+  const steps = genderFlipSteps({ pals, index: index(), target: 'X', passives: ['P1'], targets: ALL }, null);
+  let yields = 0;
+  let step;
+  while (!(step = steps.next()).done) yields++;
+  // ♂ 200 体を 1 体ずつ ♀ にすると、ほかの 199 体と組める（39,800 組）
+  assert.ok(yields >= 30, `区切りが少ない: ${yields}`);
+  assert.equal(step.value.hints.length + step.value.more, 200);
+});
+
+test('理想個体（パルリバーサーの案内）: 欲しいパッシブを候補のだれも持たない・パッシブの条件を満たせないときは、性別を変えても案内しない', () => {
+  const pals = [pal('m1', 'X', 'M', ['P1'], ALL), pal('m2', 'X', 'M', ['P1'], ALL)];
+  assert.equal(genderFlipHints({ pals, index: index(), target: 'X', passives: ['P1'], targets: ALL }, null).hints.length, 2);
+  assert.deepEqual(genderFlipHints({ pals, index: index(), target: 'X', passives: ['P1', 'P9'], targets: ALL }, null).hints, []);
+  // スペシャルケーキで 4 個未満の「欲しいものだけ」は産まれない
+  assert.deepEqual(genderFlipHints({ pals, index: index(), target: 'X', passives: ['P1'], mode: 'only', cake: 'special', targets: ALL }, null).hints, []);
+  // 性別が分からない・タマゴ・グローバルパルボックスの個体は、性別を変える候補にも相手にもしない
+  const others = [pal('u1', 'X', '', ['P1'], ALL), pal('e1', 'X', 'M', ['P1'], ALL, { egg: true }), pal('g1', 'X', 'M', ['P1'], ALL, { place: 'global' }), pal('m3', 'X', 'M', ['P1'], ALL)];
+  assert.deepEqual(genderFlipHints({ pals: others, index: index(), target: 'X', passives: ['P1'], targets: ALL }, null).hints, []);
 });

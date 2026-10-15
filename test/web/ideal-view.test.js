@@ -138,7 +138,9 @@ test('理想個体画面: URL の目標とパッシブで、配合牧場に置�
   // 計算のしくみの説明（見出しの「?」とダイアログ）はない（D30。前は「?」で 4 つの見出しの説明を開いた）
   assert.equal(view.element.querySelector('.view-help-button'), null);
   assert.ok(!view.element.querySelectorAll('button').some((node) => node.textContent === '?' || /計算のしくみ/.test(node.getAttribute('aria-label') ?? '')));
-  assert.deepEqual(view.element.querySelector('.view-heading').querySelectorAll('button').map((node) => node.className.split(' ').at(-1)), ['ideal-goals-button']);
+  // 見出しの右は「目標（N）」（目標のストアのないこの画面では隠す）と、パルリバーサーの案内を消したときだけ出る「…を戻す」（implants・D17）
+  assert.deepEqual(view.element.querySelector('.view-heading').querySelectorAll('button').map((node) => [node.className.split(' ').at(-1), node.hidden]),
+    [['ideal-reverser-restore', true], ['ideal-goals-button', true]]);
   // 選んだパッシブは選択欄に出る
   assert.deepEqual(view.element.querySelectorAll('.passive-selector')[0].querySelectorAll('.passive-name').map((node) => node.textContent), ['職人気質', '希少']);
   // 選択欄は条件のパネル（.ideal-panel）の 1 段目に、目標と並べて置く
@@ -153,10 +155,12 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
   const children = view.element.children;
-  // 並び: 見出し → パネル → 手術で付ける前提の帯（URL の s があるときだけ。implants）→ 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果
+  // 並び: 見出し → パネル → 手術で付ける前提の帯（URL の s があるときだけ。implants）→ 足りないパッシブ → 孵化させると完成するタマゴ →
+  // パルリバーサーの案内（性別を変えると早く完成できる個体がいるときだけ。implants・D17）→ 牧場の帯 → 牧場の詳細 → 結果
   //（登録の行・登録した一覧の折りたたみはない。データ元の 1 行は上のバーのセーブ連携の表示と重なるのでなくした〔D29〕。要約の行もなくした〔D30〕）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-surgery-band', 'ideal-missing-note', 'ideal-hatch', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-surgery-band', 'ideal-missing-note', 'ideal-hatch', 'ideal-reverser', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
   assert.equal(view.element.querySelector('.ideal-surgery-band').hidden, true);
+  assert.equal(view.element.querySelector('.ideal-reverser').hidden, true);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
   assert.equal(view.element.querySelector('.ideal-register'), null);
   const panel = view.element.querySelector('.ideal-panel');
@@ -2888,4 +2892,246 @@ test('理想個体画面（implants）: 目標の一覧で、足りないパッ�
   // 完成の通知（ベル）の元の判定は完成済みだけ（どちらも未完成のまま）
   assert.ok(ctx.ideals.list().every((goal) => !Object.values(goal.worlds).some((world) => world.complete)));
   view.destroy();
+});
+
+// ---- パルリバーサーの案内（implants・D17）: 性別を変えると早く完成できる個体・「パルリバーサーを使わずに作る」・消した案内を戻す ----
+// 希少を持つ ♂ が 5 体（個体値の高い順）と、希少を持たない個体値 0 の ♀ が 1 体。今の 1 番は ♂ × ♀f0 で遅く、どの ♂ も ♀ にすればほかの ♂ と早く作れる
+const reverserPals = [
+  palworldPal('m1', 'SheepBall', 'Male', ['Rare'], full, { kind: 'palbox', playerUid: P1, slotIndex: 0 }),
+  palworldPal('m2', 'SheepBall', 'Male', ['Rare'], full, { kind: 'palbox', playerUid: P1, slotIndex: 1 }),
+  palworldPal('m3', 'SheepBall', 'Male', ['Rare'], { hp: 100, shot: 100, defense: 90 }, { kind: 'palbox', playerUid: P1, slotIndex: 2 }),
+  palworldPal('m4', 'SheepBall', 'Male', ['Rare'], { hp: 100, shot: 90, defense: 90 }, { kind: 'palbox', playerUid: P1, slotIndex: 3 }),
+  palworldPal('m5', 'SheepBall', 'Male', ['Rare'], { hp: 90, shot: 90, defense: 90 }, { kind: 'palbox', playerUid: P1, slotIndex: 4 }),
+  palworldPal('f0', 'SheepBall', 'Female', [], { hp: 0, shot: 0, defense: 0 }, { kind: 'palbox', playerUid: P1, slotIndex: 5 }),
+];
+// ホストが読んだセーブの在庫（ギルド保管庫にパルリバーサー 3 個）
+const reverserStock = { items: [{ itemId: 'PalGenderReverse', count: 3, where: 'guild', id: 'g1', object: '' }] };
+const reverserBox = (view) => view.element.querySelector('.ideal-reverser');
+const reverserLines = (view) => reverserBox(view).querySelectorAll('li').map((node) => node.textContent);
+const reverserSkip = (view) => reverserBox(view).querySelector('.ideal-reverser-skip');
+const reverserRestore = (view) => view.element.querySelector('.ideal-reverser-restore');
+const REVERSER_HEAD = 'パル手術台でパルリバーサーを使うと、性別を変えて早く完成できる個体がいます（性別を変えられない種族もあります）';
+const setTalent = (view, label, value) => {
+  const node = input(view, label);
+  node.value = value;
+  node.dispatch('input');
+};
+
+test('理想個体画面（パルリバーサー）: 性別を変えると 1 番より 1 割以上早く完成する個体を、上位 3 体と「ほか n 体」で数値なしに出し、在庫はホストの画面だけ添える', (t) => {
+  install(t);
+  const owned = fakeOwned(reverserPals, reverserStock);
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  const box = reverserBox(view);
+  assert.equal(box.hidden, false);
+  assert.equal(box.getAttribute('aria-label'), 'パルリバーサーの案内');
+  const head = box.querySelector('.ideal-reverser-head');
+  // 1 行目の文（断り書きは改行して小さく）
+  assert.equal(`${head.querySelector('.ideal-reverser-text').textContent}${head.querySelector('.ideal-reverser-note').textContent}`, REVERSER_HEAD);
+  assert.equal(head.querySelector('.ideal-reverser-stock').textContent, ' · 在庫 3（ギルド保管庫）');
+  // 左の欄に 1 行目と 3 体、右に「パルリバーサーを使わずに作る」
+  assert.deepEqual(box.children.map((node) => node.className.split(' ').at(-1)), ['ideal-reverser-body', 'ideal-reverser-skip']);
+  assert.equal(reverserSkip(view).textContent, 'パルリバーサーを使わずに作る');
+  // 1 体ごとに「〈個体〉 を ♀ にすると（相手 〈個体〉）、より早く完成します」。値の小さい順の 3 体（m1・m2 は同じ組なので、どちらも出る）と、
+  // ほか 1 体（m4。個体値 90 の m5 は ♀ にしても 1 割以上は早くならない）
+  assert.deepEqual(reverserLines(view), [
+    'モコロン♂ Lv10（P1 · 1-2） を ♀ にすると（相手 モコロン♂ Lv10（P1 · 1-1））、より早く完成します',
+    'モコロン♂ Lv10（P1 · 1-1） を ♀ にすると（相手 モコロン♂ Lv10（P1 · 1-2））、より早く完成します',
+    'モコロン♂ Lv10（P1 · 1-3） を ♀ にすると（相手 モコロン♂ Lv10（P1 · 1-1））、より早く完成します',
+    'ほか 1 体',
+  ]);
+  // 数値（完成までの平均など）は出さない（D30）。個体の title は個体値とパッシブ
+  assert.doesNotMatch(box.textContent, NUMBERS);
+  assert.equal(box.querySelectorAll('.ideal-reverser-pal')[0].title, 'HP 100・攻 100・防 100\n希少');
+  // 計画（組の一覧と並び）はいつもどおり（♂ × ♀f0。性別を変えた組は計画に入れない）
+  assert.deepEqual(cards(view).map(pairOf), [pairOf(cards(view)[0])]);
+  assert.ok(cards(view)[0].querySelectorAll('.owned-row').length === 2);
+  view.destroy();
+  // 参加者・在庫を読む前のデータ（在庫が分からない）は在庫を添えない
+  const guest = idealView(context(fakeOwned(reverserPals)), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(reverserBox(guest).hidden, false);
+  assert.equal(reverserBox(guest).querySelector('.ideal-reverser-stock'), null);
+  guest.destroy();
+});
+
+test('理想個体画面（パルリバーサー）: 完全体作成組がなければ、性別を変えて完全体作成組ができる個体を案内する（組がないときの文の上）。速くならなければ出さない', (t) => {
+  install(t);
+  // ♂ だけ（組がない）
+  const males = reverserPals.filter((pal) => pal.gender === 'Male').slice(0, 2);
+  const view = idealView(context(fakeOwned(males)), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(cards(view).length, 0);
+  assert.match(view.element.querySelector('.ideal-results').textContent, /♂ と ♀ の組を作れる個体がいません/);
+  assert.deepEqual(reverserLines(view), [
+    'モコロン♂ Lv10（P1 · 1-2） を ♀ にすると（相手 モコロン♂ Lv10（P1 · 1-1））、完全体作成組ができます',
+    'モコロン♂ Lv10（P1 · 1-1） を ♀ にすると（相手 モコロン♂ Lv10（P1 · 1-2））、完全体作成組ができます',
+  ]);
+  view.destroy();
+  // ♂♀ とも個体値 100 で希少を持つ（性別を変えても 1 割以上は早くならない）
+  const even = idealView(context(fakeOwned([reverserPals[0], palworldPal('f1', 'SheepBall', 'Female', ['Rare'], full)])), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(cards(even).length, 1);
+  assert.equal(reverserBox(even).hidden, true);
+  assert.deepEqual(reverserBox(even).children, []);
+  even.destroy();
+});
+
+test('理想個体画面（パルリバーサー）: 「パルリバーサーを使わずに作る」でこの目標の案内を消し（計画は変えない）、ケーキ・パッシブの条件の種類を変えても消えたまま、個体値の目標を変えると別の目標として出る。「…を戻す」で全部戻る', (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned(reverserPals);
+  const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  body.append(view.element);
+  const plan = cards(view).map(cardText);
+  assert.equal(reverserRestore(view).hidden, true);
+  reverserSkip(view).dispatch('click');
+  // 案内は消え（場所も取らない）、計画は同じ。見出しの右に「…を戻す」（この端末・この利用者で消した目標の数）が出て、フォーカスはそこへ
+  assert.equal(reverserBox(view).hidden, true);
+  assert.deepEqual(cards(view).map(cardText), plan);
+  assert.equal(reverserRestore(view).hidden, false);
+  assert.equal(reverserRestore(view).textContent, '非表示にしたパルリバーサーの案内（1 件）を戻す');
+  assert.equal(document.activeElement, reverserRestore(view));
+  assert.ok(document.body.querySelectorAll('.toast').some((node) => node.textContent.startsWith('この目標ではパルリバーサーの案内を出しません')));
+  // ケーキとパッシブの条件の種類は目標の見分け方に入れない（消えたまま）
+  chooseRadio(view, 'ケーキ', 'talent');
+  assert.equal(reverserBox(view).hidden, true);
+  chooseRadio(view, 'ケーキ', 'none');
+  chooseRadio(view, 'パッシブの条件', 'only');
+  assert.equal(reverserBox(view).hidden, true);
+  chooseRadio(view, 'パッシブの条件', 'include');
+  assert.equal(reverserBox(view).hidden, true);
+  // 個体値の目標を変えると別の目標（案内が出る）。戻すと消えたまま
+  setTalent(view, '防御の目標（以上）', '90');
+  assert.equal(reverserBox(view).hidden, false);
+  assert.ok(reverserLines(view).length > 0);
+  setTalent(view, '防御の目標（以上）', '100');
+  assert.equal(reverserBox(view).hidden, true);
+  // 欲しいパッシブを変えても別の目標
+  view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare,CraftSpeed_up2'));
+  view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(reverserBox(view).hidden, true);
+  // 2 つ目の目標でも消す（2 件）
+  setTalent(view, '防御の目標（以上）', '90');
+  reverserSkip(view).dispatch('click');
+  assert.equal(reverserRestore(view).textContent, '非表示にしたパルリバーサーの案内（2 件）を戻す');
+  // 「…を戻す」で全部戻し、描き直す（計画は同じ）
+  const shownPlan = cards(view).map(cardText);
+  reverserRestore(view).dispatch('click');
+  assert.equal(reverserRestore(view).hidden, true);
+  assert.equal(reverserBox(view).hidden, false);
+  assert.deepEqual(cards(view).map(cardText), shownPlan);
+  assert.equal(document.activeElement, reverserSkip(view));
+  setTalent(view, '防御の目標（以上）', '100');
+  assert.equal(reverserBox(view).hidden, false);
+  view.destroy();
+});
+
+test('理想個体画面（パルリバーサー）: 消した記録はこの端末に環境・ID ごとの別のキーで持ち、作り直した画面でも消えたまま。消した直後の「元に戻す」で 1 件だけ戻る', async (t) => {
+  install(t);
+  const { createReverserHidden } = await import('../../web/js/reverser-hidden.js');
+  const storage = new Map();
+  const memory = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)), removeItem: (key) => storage.delete(key) };
+  const owned = fakeOwned(reverserPals);
+  const ctx = { ...context(owned), reverserHidden: createReverserHidden({ storage: memory, namespace: 'ns' }) };
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  reverserSkip(view).dispatch('click');
+  // 目標の見分け方は 種族＋欲しいパッシブ（並べ替え）＋個体値の目標（0＝条件なし）。目標のストアのキー（ns.ideals.test.…）の下に置かない
+  assert.deepEqual([...storage.keys()], ['ns.reverserHidden.test.仲間']);
+  assert.deepEqual(JSON.parse(storage.get('ns.reverserHidden.test.仲間')), ['["SheepBall",["Rare"],[100,100,100]]']);
+  view.destroy();
+  const again = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(reverserBox(again).hidden, true);
+  assert.equal(reverserRestore(again).textContent, '非表示にしたパルリバーサーの案内（1 件）を戻す');
+  again.destroy();
+  // 消した直後のトーストの「元に戻す」は、その 1 件だけを戻す
+  ctx.reverserHidden.hide('test', '仲間', '["SheepBall",["Rare"],[100,100,90]]');
+  const third = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  third.element.querySelector('.ideal-reverser-restore').dispatch('click');
+  assert.equal(storage.has('ns.reverserHidden.test.仲間'), false);
+  ctx.reverserHidden.hide('test', '仲間', '["SheepBall",["Rare"],[100,100,90]]');
+  third.update();
+  assert.equal(reverserBox(third).hidden, false);
+  reverserSkip(third).dispatch('click');
+  assert.deepEqual(JSON.parse(storage.get('ns.reverserHidden.test.仲間')), ['["SheepBall",["Rare"],[100,100,100]]', '["SheepBall",["Rare"],[100,100,90]]']);
+  const undo = document.body.querySelectorAll('.toast').at(-1).querySelector('.toast-action');
+  assert.equal(undo.textContent, '元に戻す');
+  undo.dispatch('click');
+  assert.equal(reverserBox(third).hidden, false);
+  assert.deepEqual(JSON.parse(storage.get('ns.reverserHidden.test.仲間')), ['["SheepBall",["Rare"],[100,100,90]]']);
+  third.destroy();
+});
+
+test('理想個体画面（パルリバーサー）: 壊れた記録を読んでも落ちず、形の合う項目だけを使う。保存できない端末でも、開いている間は消えたまま', async (t) => {
+  install(t);
+  const { createReverserHidden } = await import('../../web/js/reverser-hidden.js');
+  const owned = fakeOwned(reverserPals);
+  for (const source of ['{壊れた', '{"a":1}', '"文字"', JSON.stringify([1, null, '["SheepBall",["Rare"],[100,100,999]]', '["SheepBall", ["Rare"], [100,100,100]]'])]) {
+    const storage = { getItem: () => source, setItem() {}, removeItem() {} };
+    const view = idealView({ ...context(owned), reverserHidden: createReverserHidden({ storage, namespace: 'ns' }) }, parseHash('#/ideal?to=SheepBall&p=Rare'));
+    assert.equal(reverserBox(view).hidden, false, source);
+    assert.equal(reverserRestore(view).hidden, true, source);
+    view.destroy();
+  }
+  // 書けない端末（容量切れ・読み取り専用）でも、消した案内はこの画面を開いている間は消えたまま
+  const broken = { getItem: () => null, setItem() { throw new Error('quota'); }, removeItem() { throw new Error('quota'); } };
+  const ctx = { ...context(owned), reverserHidden: createReverserHidden({ storage: broken, namespace: 'ns' }) };
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  reverserSkip(view).dispatch('click');
+  assert.equal(reverserBox(view).hidden, true);
+  view.update();
+  assert.equal(reverserBox(view).hidden, true);
+  assert.equal(reverserRestore(view).textContent, '非表示にしたパルリバーサーの案内（1 件）を戻す');
+  view.destroy();
+});
+
+test('理想個体画面（パルリバーサー）: 右のドロワーがあれば、案内の個体の呼び名を押すとその個体の詳細を開く', (t) => {
+  install(t);
+  const opened = [];
+  const ctx = { ...context(fakeOwned(reverserPals)), drawer: { open: (target) => opened.push(target) } };
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  const [first] = reverserBox(view).querySelectorAll('.ideal-reverser-pal');
+  assert.equal(first.tagName, 'button');
+  first.dispatch('click');
+  assert.deepEqual(opened, [{ kind: 'owned', id: 'm2' }]);
+  view.destroy();
+});
+
+test('理想個体画面（パルリバーサー）: 区切った計算でも、計画と案内がそろってから一緒に描く（案内だけ後から出さない）。案内を戻したときは計画を計算し直さない', async (t) => {
+  installDom(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  // ♂ 50 体と ♀ 1 体（性別を変えた組が 50×49 組あり、案内の計算の途中でも区切る）
+  const many = [
+    ...Array.from({ length: 50 }, (_, i) => palworldPal(`m${i}`, 'SheepBall', 'Male', ['Rare'], i < 2 ? full : { hp: 90, shot: 90, defense: 80 + (i % 10) })),
+    palworldPal('f0', 'SheepBall', 'Female', [], { hp: 0, shot: 0, defense: 0 }),
+  ];
+  const view = idealView({ ...context(fakeOwned(many)), sliceBudget: 0 }, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  const results = view.element.querySelector('.ideal-results');
+  // 計算中は結果も案内もまだ出さない
+  assert.equal(results.getAttribute('aria-busy'), 'true');
+  assert.equal(cards(view).length, 0);
+  assert.equal(reverserBox(view).hidden, true);
+  t.mock.timers.runAll();
+  await settle();
+  assert.equal(results.getAttribute('aria-busy'), null);
+  assert.equal(cards(view).length, 1);
+  assert.equal(reverserBox(view).hidden, false);
+  // 消すと、描いている計画のまま案内だけを隠す（計算し直さない）
+  const card = cards(view)[0];
+  reverserSkip(view).dispatch('click');
+  assert.equal(results.getAttribute('aria-busy'), null);
+  assert.equal(cards(view)[0], card);
+  view.destroy();
+  // 消した目標で開いた画面は案内を求めない。戻すと、計画（カード）は描いたまま案内だけを区切って求め、そろったら描く
+  const ctx = { ...context(fakeOwned(many)), sliceBudget: 0 };
+  ctx.reverserHidden = (await import('../../web/js/reverser-hidden.js')).createReverserHidden({ storage: null });
+  ctx.reverserHidden.hide('test', '仲間', '["SheepBall",["Rare"],[100,100,100]]');
+  const hidden = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  t.mock.timers.runAll();
+  await settle();
+  const shown = cards(hidden)[0];
+  assert.ok(shown);
+  assert.equal(reverserBox(hidden).hidden, true);
+  hidden.element.querySelector('.ideal-reverser-restore').dispatch('click');
+  assert.equal(hidden.element.querySelector('.ideal-results').getAttribute('aria-busy'), 'true');
+  assert.equal(cards(hidden)[0], shown);
+  t.mock.timers.runAll();
+  await settle();
+  assert.equal(reverserBox(hidden).hidden, false);
+  hidden.destroy();
 });

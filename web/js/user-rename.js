@@ -45,6 +45,8 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     { prefix: `${namespace}.autoBreeding.notices.${env}.` },
     // 自動登録の、登録できた配合の通知（旧版のタブが知らない別のキー。auto-register.js）
     { prefix: `${namespace}.autoBreeding.registered.${env}.` },
+    // パルリバーサーの案内を消した目標（旧版のタブが知らない別のキー。reverser-hidden.js。合わせて 200 件を超えた分は読むときに捨てる）
+    { prefix: `${namespace}.reverserHidden.${env}.` },
     // 既読は環境を含まないので、別の環境の同じ名前のために元を残す
     { prefix: `${namespace}.notifications.read.`, keep: true },
   ];

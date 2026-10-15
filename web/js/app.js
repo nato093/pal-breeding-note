@@ -7,6 +7,7 @@ import { createSelfStore } from './self-player.js';
 import { createPlanMemory } from './ideal-plan-memory.js';
 import { createSearchSeen } from './search-seen.js';
 import { createOwnedSeen } from './owned-seen.js';
+import { createReverserHidden } from './reverser-hidden.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createAttention } from './attention.js';
@@ -370,6 +371,8 @@ async function boot() {
     seen: createSearchSeen({ storage: browserStorage, namespace }),
     // 所持パルの「NEW」の基準（ワールドごとに、前に所持パルの画面で見ていたデータのセーブの時刻。この端末に環境・ID ごと。save-extras）
     ownedSeen: createOwnedSeen({ storage: browserStorage, namespace }),
+    // 理想個体のパルリバーサーの案内を消した目標（この端末に環境・ID ごと。仲間と共有しない。implants・D17）
+    reverserHidden: createReverserHidden({ storage: browserStorage, namespace }),
     notifications,
     owned,
     autoRegister,

@@ -22,8 +22,11 @@ import { goalToggle } from '../ui/goal-toggle.js';
 import { onlineUids, onlineKey } from '../ui/owned-status.js';
 import { cakeLine } from '../ui/farm-board.js';
 import {
-  idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
+  idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, genderFlipSteps, talentTargets,
+  MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
 } from '../core/ideal.js';
+import { GENDER_REVERSE_ITEM, GENDER_REVERSE_NAME } from '../../data/implants.js';
+import { createReverserHidden, reverserTarget } from '../reverser-hidden.js';
 import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmCompleteness, emptyFarms, farmNames, farmsInUse } from '../core/ideal-farms.js';
 import { buildHash, settingsHash } from '../router.js';
 import { ownedWorldId } from '../core/owned-shared.js';
@@ -70,7 +73,20 @@ const CAKE_NOTE = 'この条件でいちばん早く完成できるケーキ（�
 //（web/img/item/ の下。game-assets で取り出したもの。アイテムのない行は出さない）
 const SURGERY_SAVE_REASON = '手術を含めずに計画すると保存できます';
 const IMPLANT_ICONS = { reusable: 'PalPassiveSkillChange', consumable: 'PalPassiveSkillChange_Consumable' };
+// パルリバーサー（性別の変更。implants・D17）のアイコン（web/img/item/ の下）
+const REVERSER_ICON = `item/${GENDER_REVERSE_ITEM}.png`;
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
+
+/**
+ * 配合の計画（idealPlanSteps）の後に続けて、パルリバーサーの案内（genderFlipSteps。implants・D17）を区切って求める。
+ * 計画と案内がそろってから一緒に描く（案内だけ後から出して結果を押し下げない）。flipInput が null なら案内は求めない（消した目標）。
+ * reuse は描いている同じ計画（消した案内を戻したとき。計画は計算し直さず、案内だけを求める）
+ */
+function* planSteps(input, flipInput, reuse = null) {
+  const result = reuse ?? (yield* idealPlanSteps(input));
+  const reverser = flipInput ? yield* genderFlipSteps(flipInput, planSpeed(result)) : null;
+  return { ...result, reverser };
+}
 
 // 中身が変わったときだけ作り直されるもの（配合の index）を、計算の署名に入れる番号にする
 const objectIds = new WeakMap();
@@ -219,15 +235,20 @@ function goalGap(goal, near) {
 // パルボックスの場所は行と同じ短い形（P4 · 2-5）。在庫は手元で読んだホストのデータ（data の items）のときだけ添える（参加者・在庫を読む前の
 // データは添えない）
 function surgeryLine({ pal, add, count }, data) {
-  const sex = pal.gender === 'M' ? '♂' : pal.gender === 'F' ? '♀' : '';
   const adds = add.map((id) => {
     const entry = implantOf(id);
     const stock = entry?.item ? stockText(itemStock(data, entry.item), { short: true }) : '';
     return `＋${passivesById.get(id)?.ja ?? id}（${[IMPLANT_KINDS[entry?.kind] ?? '', stock].filter(Boolean).join('・')}）`;
   }).join('');
-  const where = pal.box ? `P${pal.box.page} · ${pal.box.row}-${pal.box.column}` : pal.placeLabel;
-  const head = `${pal.name}${sex} Lv${pal.level}${where ? `（${where}）` : ''}${adds}`;
+  const head = `${palBrief(pal)}${adds}`;
   return count > 1 ? `${head} · ほか ${count - 1} 体` : head;
+}
+// 個体の短い呼び名「アヌビス♂ Lv52（P4 · 2-5）」（パルボックスは行と同じ短い場所。ほかは場所の文字。手術で完成できる個体の 1 行と
+// パルリバーサーの案内で使う）
+function palBrief(pal) {
+  const sex = pal.gender === 'M' ? '♂' : pal.gender === 'F' ? '♀' : '';
+  const where = pal.box ? `P${pal.box.page} · ${pal.box.row}-${pal.box.column}` : pal.placeLabel;
+  return `${pal.name}${sex} Lv${pal.level}${where ? `（${where}）` : ''}`;
 }
 // data は所持パルのデータ（在庫を添えるため。implants）
 function goalStatus(goal, pals, all = null, data = null) {
@@ -525,6 +546,113 @@ export function idealView(context, route) {
     hatchLink.href = buildHash('owned', { pal: to, place: 'egg', p: passives.join(','), holder: '' });
     hatchLink.title = '所持パルでタマゴを開く（孵化させて受け取ると目標が完成します）';
   }
+
+  // パルリバーサーの案内（implants・D17）: 目標の種族の親の候補の 1 体の性別を変えると、今の 1 番の完全体作成組より 1 割以上早く完成する
+  //（完全体作成組がなければ、完全体作成組ができる）個体を、いちばん速い 3 体と「ほか n 体」で出す（1 体ごとの数値は出さない。D30）。
+  // 計画とそろってから一緒に描く（paintPlan）。孵化させると完成するタマゴと同じ「別の作り方」の案内なので、その下・牧場の帯の上に置く。
+  // 「パルリバーサーを使わずに作る」で、その目標（種族＋欲しいパッシブ＋個体値の目標。ケーキとパッシブの条件の種類は含めない）では以後出さず、
+  // 案内の計算もしない（計画は変えない）。消した記録はこの端末だけ（web/js/reverser-hidden.js。テストなどでは画面の中で覚える）
+  const reverserHidden = context.reverserHidden ?? createReverserHidden({ storage: null });
+  const reverserUser = () => [context.store.state.env ?? '', context.store.state.userId ?? ''];
+  const flipTarget = () => {
+    const goal = talentTargets(conditions.targets);
+    return reverserTarget(to, passives, TALENT_KEYS.map((key) => goal[key]));
+  };
+  const isFlipHidden = (target) => reverserHidden.has(...reverserUser(), target);
+  const reverserBox = el('section', 'ideal-reverser');
+  reverserBox.setAttribute('aria-label', `${GENDER_REVERSE_NAME}の案内`);
+  reverserBox.hidden = true;
+  // 個体の呼び名（「ゴウカブキ♂ Lv66（P4 · 2-5）」）。右のドロワーがあれば押すとその個体の詳細を開く。title は個体値とパッシブ
+  const reverserPal = (pal) => {
+    const text = palBrief(pal);
+    const node = context.drawer ? button(text, () => context.drawer.open({ kind: 'owned', id: pal.id }, { opener: node }), 'ideal-reverser-pal')
+      : el('span', 'ideal-reverser-pal', text);
+    if (context.drawer) node.setAttribute('data-focus-key', `reverser-pal:${pal.id}`);
+    node.title = [talentLine(pal), pal.passives.length ? passiveNames(pal.passives) : ''].filter(Boolean).join('\n');
+    return node;
+  };
+  let reverserKey = '';
+  function renderReverser(result, plan) {
+    const flip = result?.reverser ?? null;
+    const target = plan?.flipTarget ?? '';
+    const show = Boolean(flip?.hints.length) && !isFlipHidden(target);
+    // 在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
+    const stock = show ? stockText(itemStock(plan.data, GENDER_REVERSE_ITEM)) : '';
+    const signature = show ? JSON.stringify([target, flip.before === null, flip.more, stock, Boolean(context.drawer),
+      flip.hints.map((hint) => [hint.to, ...[hint.pal, hint.partner].map((pal) => [pal.id, palBrief(pal), talentLine(pal), pal.passives])])]) : '';
+    if (signature === reverserKey) return;
+    reverserKey = signature;
+    reverserBox.hidden = !show;
+    if (!show) { reverserBox.replaceChildren(); return; }
+    const focus = captureFocus(reverserBox);
+    // [アイコン][1 行目の文]、改行して小さく（性別を変えられない種族もあります）[· 在庫]、その下に 3 体まで・「ほか n 体」。
+    // 右に「パルリバーサーを使わずに作る」（1 行目の文は 1100px で 1 行に収まらないので、断り書きを次の行に分けて折り返す位置を決めた）
+    const head = el('p', 'ideal-reverser-head');
+    head.append(gameIcon(REVERSER_ICON, { size: 16, className: 'ideal-reverser-icon' }),
+      el('span', 'ideal-reverser-text', `パル手術台で${GENDER_REVERSE_NAME}を使うと、性別を変えて早く完成できる個体がいます`), el('br'),
+      el('small', 'ideal-reverser-note', '（性別を変えられない種族もあります）'));
+    if (stock) head.append(el('small', 'ideal-reverser-stock', ` · ${stock}`));
+    const skip = button(`${GENDER_REVERSE_NAME}を使わずに作る`, () => hideReverser(target), 'button secondary small ideal-reverser-skip');
+    skip.title = 'この目標（種族・欲しいパッシブ・個体値の目標）では、この案内を出しません（計画は変わりません）';
+    skip.setAttribute('data-focus-key', 'reverser-skip');
+    const list = el('ul', 'ideal-reverser-list');
+    for (const hint of flip.hints) {
+      const item = el('li', 'ideal-reverser-item');
+      item.append(reverserPal(hint.pal), el('span', '', ' を '), genderMark(hint.to, { inline: true }), el('span', '', ' にすると（相手 '), reverserPal(hint.partner),
+        el('span', '', flip.before === null ? '）、完全体作成組ができます' : '）、より早く完成します'));
+      list.append(item);
+    }
+    if (flip.more) list.append(el('li', 'ideal-reverser-more', `ほか ${flip.more} 体`));
+    const body = el('div', 'ideal-reverser-body');
+    body.append(head, list);
+    reverserBox.replaceChildren(body, skip);
+    restoreFocus(reverserBox, focus);
+  }
+  function clearReverser() {
+    reverserKey = '';
+    reverserBox.hidden = true;
+    reverserBox.replaceChildren();
+  }
+  // 見出しの右（「目標（N）」の左）の小さな「非表示にしたパルリバーサーの案内（n 件）を戻す」。n はこの端末・この利用者で消した目標の数。
+  // 押すと全部戻して描き直す（案内を計算していない目標は、計画はそのままで案内だけを求める）
+  const reverserRestore = button('', () => restoreReversers(), 'ideal-reverser-restore');
+  reverserRestore.title = `「${GENDER_REVERSE_NAME}を使わずに作る」で消した案内を、すべての目標で戻します（この端末だけ）`;
+  reverserRestore.hidden = true;
+  function renderRestore() {
+    const count = reverserHidden.list(...reverserUser()).length;
+    const text = `非表示にした${GENDER_REVERSE_NAME}の案内（${count} 件）を戻す`;
+    if (reverserRestore.textContent !== text) reverserRestore.textContent = text;
+    reverserRestore.hidden = !count;
+  }
+  // 描いている案内を、消した記録に合わせる（計算中でも、出している案内は消す）
+  function syncReverser() {
+    renderRestore();
+    if (shown) renderReverser(shown.result, shown.plan);
+  }
+  function hideReverser(target) {
+    const [env, userId] = reverserUser();
+    reverserHidden.hide(env, userId, target);
+    syncReverser();
+    renderResults();
+    // 押したボタンは消えるので、戻す先（見出しの「…を戻す」）へ
+    if (!reverserRestore.hidden) reverserRestore.focus();
+    toast(`この目標では${GENDER_REVERSE_NAME}の案内を出しません`, {
+      action: () => {
+        reverserHidden.show(env, userId, target);
+        syncReverser();
+        renderResults();
+      },
+    });
+  }
+  function restoreReversers() {
+    reverserHidden.clear(...reverserUser());
+    syncReverser();
+    renderResults();
+    // 押したリンクは消えるので、出てきた案内のボタンか、見出しの「目標（N）」へ
+    const skip = reverserBox.hidden ? null : reverserBox.querySelector('.ideal-reverser-skip');
+    if (skip) skip.focus();
+    else if (!goalsButton.hidden) goalsButton.focus();
+  }
   const farmStrip = el('div', 'ideal-farm-strip');
   farmStrip.setAttribute('role', 'group');
   farmStrip.setAttribute('aria-label', '配合牧場の判定');
@@ -564,7 +692,7 @@ export function idealView(context, route) {
   goalsButton.hidden = !ideals;
   const heading = viewHeading(tabLabel('ideal'));
   const headingActions = el('div', 'view-heading-actions');
-  headingActions.append(goalsButton);
+  headingActions.append(reverserRestore, goalsButton);
   heading.append(headingActions);
 
   // 保存した目標のダイアログ（表。完成済みを上に）。開いている間は、登録・所持パルが変わるたびに行を合わせる（同じ行は作り直さない）
@@ -748,7 +876,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
+  element.append(heading, panel, surgeryBand, missingBox, hatchBox, reverserBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -1340,9 +1468,10 @@ export function idealView(context, route) {
     renderHolding(null);
     clearFarms();
   }
-  // 足りないパッシブの案内・牧場の帯と詳細を出さない（帯と詳細は場所も取らない）
+  // 足りないパッシブの案内・パルリバーサーの案内・牧場の帯と詳細を出さない（案内・帯・詳細は場所も取らない）
   function clearFarms() {
     missingBox.replaceChildren();
+    clearReverser();
     farmStrip.replaceChildren();
     farmStrip.hidden = true;
     farmBox.replaceChildren();
@@ -1355,6 +1484,8 @@ export function idealView(context, route) {
     const started = clock();
     renderSave();
     renderSurgeryBand();
+    // 消したパルリバーサーの案内を戻すリンク（目標を選ぶ前・データがないときも、消した目標があれば出す）
+    renderRestore();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
     renderHatch(pals, pals ? ofHolder(pals) : null);
@@ -1396,15 +1527,22 @@ export function idealView(context, route) {
     const nextCakeKey = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
       conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), holder, self])}\u0003${candidateKey}`;
     setCakeKey(nextCakeKey);
+    // パルリバーサーの案内（D17）を求めるか（この目標の案内を消していなければ）。計画の署名には入れず、案内を求めた計算か（job.hints・
+    // shown の result.reverser）で見る（消したときは描いている計画のまま案内を隠すだけ、戻したときは計画を計算し直さずに案内だけを求める）
+    const target = flipTarget();
+    const wantHints = !isFlipHidden(target);
+    const enough = (hints) => !wantHints || Boolean(hints);
     // 同じ計算をしている途中（計算に効かない値だけが変わった）。終わって描くときに、新しいデータの個体に入れ替える
-    if (job?.key === key) return;
+    if (job?.key === key && enough(job.hints)) return;
     // 出している結果と同じ条件に戻った（計算している途中なら、その計算は捨てる）。データだけが変わっていれば個体を入れ替えて描き直す
-    if (key === shownKey) {
+    if (key === shownKey && enough(shown?.result.reverser)) {
       job?.cancel();
       job = null;
       setComputing(false);
       if (shown) {
         drawLatest(shown);
+        // 案内を消した・戻した（計画は同じ）ときは、案内の欄だけを合わせる
+        renderReverser(shown.result, shown.plan);
         // s（手術で付ける前提のパッシブ）だけが変わった（計画は同じ）ときは、足りないパッシブの案内（「手術で付ける分を除いて計画する」の
         // リンクの s）だけを描き直す（implants）
         if (missingSurgery !== surgery.join(',')) {
@@ -1429,9 +1567,13 @@ export function idealView(context, route) {
     const cakeInput = { pals: candidates, index: state.index, target: to, passives: [...passives], mode: conditions.mode, targets: { ...conditions.targets } };
     const plan = {
       placedFarms, signature, memoryId, baseline, farms, layouts, holder, cake: conditions.cake, data: owned.state.owned,
-      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short, cakeKey: nextCakeKey, cakeInput,
+      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short, cakeKey: nextCakeKey, cakeInput, flipTarget: target,
     };
-    const steps = idealPlanSteps({ ...cakeInput, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys });
+    // 計画の後に続けて、今の選択のケーキでパルリバーサーの案内を求める（ほかのケーキの比べ方〔D30〕は、描いた後の compareCakes）。
+    // 同じ計画を描いていて案内だけがない（消した案内を戻した）ときは、描いている計画を使い回す
+    const flipInput = wantHints ? { ...cakeInput, cake: conditions.cake } : null;
+    const steps = planSteps({ ...cakeInput, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys }, flipInput,
+      key === shownKey && shown ? shown.result : null);
     // 最初の区切りは、ここまでの下ごしらえ（所持パルが多いと数十 ms）と合わせて 1 区切りに収める
     const run = startSliced(steps, { budget: sliceBudget, firstBudget: Math.max(0, sliceBudget - (clock() - started)) });
     if (run.done) {
@@ -1444,7 +1586,7 @@ export function idealView(context, route) {
     // 終わらなければ、前の結果を残したまま「計算中」にする（高さは変えない）。何も出していなければ「計算中…」を出す。
     // ケーキの比べ方は、今の計画を先に出すために止める（描いた後に残りから続ける）
     stopCakes();
-    const current = { key, cancel: run.cancel };
+    const current = { key, hints: Boolean(flipInput), cancel: run.cancel };
     job = current;
     if (!shownKey) {
       renderHolding(null);
@@ -1478,16 +1620,20 @@ export function idealView(context, route) {
   function withLatestPals({ result, plan }) {
     const byId = new Map((owned.state.owned?.pals ?? []).map((pal) => [pal.id, pal]));
     const swap = (pal) => byId.get(pal.id) ?? pal;
+    const reverser = result.reverser
+      ? { ...result.reverser, hints: result.reverser.hints.map((hint) => ({ ...hint, pal: swap(hint.pal), partner: swap(hint.partner) })) } : null;
     return {
-      result: { ...result, pairs: result.pairs.map((pair) => ({ ...pair, male: swap(pair.male), female: swap(pair.female) })) },
+      result: { ...result, pairs: result.pairs.map((pair) => ({ ...pair, male: swap(pair.male), female: swap(pair.female) })), reverser },
       plan: { ...plan, data: owned.state.owned, placedFarms: plan.placedFarms.map((farm) => ({ ...farm, male: swap(farm.male), female: swap(farm.female) })) },
     };
   }
   // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・全部の牧場〔名前・状態・使用中・空き〕と拠点の名前・足りないパッシブの
-  // 手術台の案内に添える在庫〔implants〕）。同じなら描き直さない
-  const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female])]
+  // 手術台の案内に添える在庫〔implants〕・パルリバーサーの案内の個体と在庫〔D17〕）。同じなら描き直さない
+  const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female]),
+    ...(result.reverser?.hints ?? []).flatMap((hint) => [hint.pal, hint.partner])]
     .map((pal) => rowSignature(pal, [])).concat(holderName(), JSON.stringify([plan.data?.farms ?? null, (plan.data?.bases ?? []).map((base) => [base.id, base.label])]),
-      result.missing.map((id) => stockText(itemStock(plan.data, implantOf(id)?.item ?? ''))).join('|'))
+      result.missing.map((id) => stockText(itemStock(plan.data, implantOf(id)?.item ?? ''))).join('|'),
+      result.reverser?.hints.length ? stockText(itemStock(plan.data, GENDER_REVERSE_ITEM)) : '')
     .join('\u0003');
   // 描いている結果を、今のデータの個体で描き直す（データが変わっていて、出す値も変わったときだけ）
   function drawLatest(current) {
@@ -1523,7 +1669,7 @@ export function idealView(context, route) {
     return { measureOf, advice: farmAdvice(placedFarms, result.pairs, { measureOf }) };
   }
 
-  // 要約・所持の状況・足りないパッシブ・配合牧場の判定（帯と詳細）・組のカードを描く。牧場の名前・完全性・使用中・空きは、
+  // 要約・所持の状況・足りないパッシブ・パルリバーサーの案内・配合牧場の判定（帯と詳細）・組のカードを描く。牧場の名前・完全性・使用中・空きは、
   // 描くときのデータ（plan.data。計算の後に読み直したデータ）から求める。読めない牧場があれば判定を保留し、交換推奨・空き牧場・使用中・
   //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）。
   // 作り直す部品（帯のセル・詳細の行・空き牧場の番号・カードと札・行の部品・畳みの見出し）にあったフォーカスは、描いた後に同じ役目の部品
@@ -1537,6 +1683,8 @@ export function idealView(context, route) {
     const { placedFarms, highlight, short = [] } = plan;
     renderHolding(result);
     renderMissing(result);
+    // パルリバーサーの案内は計画といっしょに描く（D17。組がないときの文〔noPairs〕の上にも出る）
+    renderReverser(result, plan);
     const farm = farmContext(plan.data, plan.layouts ?? []);
     const pending = Boolean(farm && !farm.complete);
     const judged = farm && !pending ? farmAdviceOf(result, placedFarms) : null;
