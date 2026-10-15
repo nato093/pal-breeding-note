@@ -22,11 +22,11 @@
 | 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 3 |
 | 1d | 6 | 74 | 6 |
-| 2 | 10 | 119 | 4 |
+| 2 | 10 | 119 | 5 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **25** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **26** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -636,20 +636,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 ウィッシュリストを目標に統合
 
-- 状態: 未着手 ／ ブランチ: `feature/goals-merge` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/goals-merge` ／ マージのコミット: （統合ブランチ `integrate/phase-2` へのマージ。下の「次にやること」）
 
-- [ ] `speciesGoal`・`isSpeciesGoal`（`core/ideal-goals.js`）
-- [ ] `core/goal-observations.js`（形・1 件の判定・併合）とテスト
-- [ ] ideals ストアに観測のキー・観測・`observation(palId)`・add／remove／restore の連動
-- [ ] `goals-migration.js`（併合・上限・書く順番・読み戻し）とテスト（テストを先に）
-- [ ] 名前の変更で観測のキーを移す
-- [ ] 通知の元を `goalObservationSource` に（id は旧と同じ形・種族だけの目標がある種族だけ）
-- [ ] 目標の一覧の行（パルだけのタグ・配合・所持・呼び出す・外す）と空の状態
-- [ ] 移行が終わっていないときの 1 行と、旧ウィッシュリストの読み取り専用のダイアログ
-- [ ] `ui/goal-toggle.js` とパル詳細・配合を探すの空の状態
-- [ ] レールの「完成した目標 n」
-- [ ] `#/wishlist` の読み替え・タブ・ファイルの削除・`context.wishlist` の片づけ
-- [ ] 既存テストの書き換え（app・ideals・ideal-view・user-rename）と release-notes・OPERATIONS.md
+- [x] `speciesGoal`・`isSpeciesGoal`（`core/ideal-goals.js`）
+- [x] `core/goal-observations.js`（形・1 件の判定・併合）とテスト
+- [x] ideals ストアに観測のキー・観測・`observation(palId)`・add／remove／restore の連動
+- [x] `goals-migration.js`（併合・上限・書く順番・読み戻し）とテスト（テストを先に）
+- [x] 名前の変更で観測のキーを移す
+- [x] 通知の元を `goalObservationSource` に（id は旧と同じ形・種族だけの目標がある種族だけ）
+- [x] 目標の一覧の行（パルだけのタグ・配合・所持・呼び出す・外す）と空の状態
+- [x] 移行が終わっていないときの 1 行と、旧ウィッシュリストの読み取り専用のダイアログ
+- [x] `ui/goal-toggle.js` とパル詳細・配合を探すの空の状態
+- [x] レールの「完成した目標 n」
+- [x] `#/wishlist` の読み替え・タブ・ファイルの削除・`context.wishlist` の片づけ
+- [x] 既存テストの書き換え（app・ideals・ideal-view・user-rename）と release-notes・OPERATIONS.md
 
 ### 26. [route-cleanup](phase-2-structure.md#route-cleanup-継承ルートの整理)（M）
 

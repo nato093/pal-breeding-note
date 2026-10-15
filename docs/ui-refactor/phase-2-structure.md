@@ -697,31 +697,54 @@
 - id: `<実装日>-goals-merge`／title: 「ウィッシュリストを目標に」（12 字）／body: 「ウィッシュリストは理想個体の「目標」に移りました。パルだけの目標も登録でき、配合の登録を知らせます。」（50 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る（移行のテストを含む）。
-- [ ] モックで、旧ウィッシュリストのデータ（`pal-note.local.wishlist.test.<ID>` に手で入れる）から起動すると、目標の一覧に「パルだけ」の目標として並び、旧キーが消える。もう一度読み込んでも増えない。
-- [ ] 旧ウィッシュリストで既読だった「作成可能になりました」の通知が、移行後も既読のまま。
-- [ ] 目標を 98 件にしてから 5 件のウィッシュで起動すると、「まだ目標に移せていません」と「旧ウィッシュリストを見る」が出る。旧キーは残り、目標を外して空きを作ってから読み込み直すと残りが移って旧キーが消える。
-- [ ] 同じ条件の目標（`goalKey` が同じ）がすでにある種族は、目標が増えず観測だけが併せられる（`goals-migration.test.js`）。
-- [ ] 書き込みの失敗（目標のキー・観測のキー）と読み戻しの不一致では旧キーが消えず、次の起動で続きから同じ結果になる（`goals-migration.test.js`。書く順番は「目標 → 観測と移行の記録 → 読み戻し → 既読の写し（id が同じ形なので空）→ 旧キーを消す」）。
-- [ ] 旧コードのタブ（フェーズ 1 の版）を開いたまま移行しても、旧タブが目標のキーを書き直した後に観測の状態と移行の記録（`goalsObs` の別のキー）が残り、旧タブがウィッシュリストを書き戻しても外した目標が戻らない（ブラウザとテスト）。
-- [ ] 名前の変更で `goalsObs` のキーが新しい名前へ移り、別のタブでの変更（storage）で観測を読み直す（`user-rename.test.js`・`ideals.test.js`）。
-- [ ] パル詳細と、配合を探すで子だけを選んで 0 件のときに「☆ 目標に登録」が出る。レールの理想個体に「完成した目標 n」のバッジ（0 なら出ない）。
-- [ ] `#/wishlist` が履歴を増やさずに目標のダイアログ（`#/ideal?goals=1`）を開く。レールのタブが 5 本。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 観測と通知の文の親は登録済みの記録（`confirmedRecords`）だけで、`goals-migration.js`・`core/goal-observations.js` は配合表・`core/ideal.js` を import しない（`test/import.test.js`）。互換 — 目標のキーの形を変えていない（`{ version, goals }` で包んでいない）。セキュリティ — 旧キーの中身は `parseWishes` と data-boundary を通し、名前は textContent（`test/static/security.test.js`）。性能 — 観測はサーバ時刻が新しくなったときだけ、目標のある種族だけ。
+- [x] `npm test` が通る（移行のテストを含む）。
+- [x] モックで、旧ウィッシュリストのデータ（`pal-note.local.wishlist.test.<ID>` に手で入れる）から起動すると、目標の一覧に「パルだけ」の目標として並び、旧キーが消える。もう一度読み込んでも増えない。
+- [x] 旧ウィッシュリストで既読だった「作成可能になりました」の通知が、移行後も既読のまま。
+- [x] 目標を 98 件にしてから 5 件のウィッシュで起動すると、「まだ目標に移せていません」と「旧ウィッシュリストを見る」が出る。旧キーは残り、目標を外して空きを作ってから読み込み直すと残りが移って旧キーが消える。
+- [x] 同じ条件の目標（`goalKey` が同じ）がすでにある種族は、目標が増えず観測だけが併せられる（`goals-migration.test.js`）。
+- [x] 書き込みの失敗（目標のキー・観測のキー）と読み戻しの不一致では旧キーが消えず、次の起動で続きから同じ結果になる（`goals-migration.test.js`。書く順番は「目標 → 観測と移行の記録 → 読み戻し → 既読の写し（id が同じ形なので空）→ 旧キーを消す」）。
+- [x] 旧コードのタブ（フェーズ 1 の版）を開いたまま移行しても、旧タブが目標のキーを書き直した後に観測の状態と移行の記録（`goalsObs` の別のキー）が残り、旧タブがウィッシュリストを書き戻しても外した目標が戻らない（ブラウザとテスト）。
+- [x] 名前の変更で `goalsObs` のキーが新しい名前へ移り、別のタブでの変更（storage）で観測を読み直す（`user-rename.test.js`・`ideals.test.js`）。
+- [x] パル詳細と、配合を探すで子だけを選んで 0 件のときに「☆ 目標に登録」が出る。レールの理想個体に「完成した目標 n」のバッジ（0 なら出ない）。
+- [x] `#/wishlist` が履歴を増やさずに目標のダイアログ（`#/ideal?goals=1`）を開く。レールのタブが 5 本。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 観測と通知の文の親は登録済みの記録（`confirmedRecords`）だけで、`goals-migration.js`・`core/goal-observations.js` は配合表・`core/ideal.js` を import しない（`test/import.test.js`）。互換 — 目標のキーの形を変えていない（`{ version, goals }` で包んでいない）。セキュリティ — 旧キーの中身は `parseWishes` と data-boundary を通し、名前は textContent（`test/static/security.test.js`）。性能 — 観測はサーバ時刻が新しくなったときだけ、目標のある種族だけ。
 
 ### TODO
-- [ ] `speciesGoal`・`isSpeciesGoal`（`core/ideal-goals.js`）
-- [ ] `core/goal-observations.js`（形・1 件の判定・併合）とテスト
-- [ ] ideals ストアに観測のキー・観測・`observation(palId)`・add／remove／restore の連動
-- [ ] `goals-migration.js`（併合・上限・書く順番・読み戻し）とテスト（テストを先に）
-- [ ] 名前の変更で観測のキーを移す
-- [ ] 通知の元を `goalObservationSource` に（id は旧と同じ形・種族だけの目標がある種族だけ）
-- [ ] 目標の一覧の行（パルだけのタグ・配合・所持・呼び出す・外す）と空の状態
-- [ ] 移行が終わっていないときの 1 行と、旧ウィッシュリストの読み取り専用のダイアログ
-- [ ] `ui/goal-toggle.js` とパル詳細・配合を探すの空の状態
-- [ ] レールの「完成した目標 n」
-- [ ] `#/wishlist` の読み替え・タブ・ファイルの削除・`context.wishlist` の片づけ
-- [ ] 既存テストの書き換え（app・ideals・ideal-view・user-rename）と release-notes・OPERATIONS.md
+- [x] `speciesGoal`・`isSpeciesGoal`（`core/ideal-goals.js`）
+- [x] `core/goal-observations.js`（形・1 件の判定・併合）とテスト
+- [x] ideals ストアに観測のキー・観測・`observation(palId)`・add／remove／restore の連動
+- [x] `goals-migration.js`（併合・上限・書く順番・読み戻し）とテスト（テストを先に）
+- [x] 名前の変更で観測のキーを移す
+- [x] 通知の元を `goalObservationSource` に（id は旧と同じ形・種族だけの目標がある種族だけ）
+- [x] 目標の一覧の行（パルだけのタグ・配合・所持・呼び出す・外す）と空の状態
+- [x] 移行が終わっていないときの 1 行と、旧ウィッシュリストの読み取り専用のダイアログ
+- [x] `ui/goal-toggle.js` とパル詳細・配合を探すの空の状態
+- [x] レールの「完成した目標 n」
+- [x] `#/wishlist` の読み替え・タブ・ファイルの削除・`context.wishlist` の片づけ
+- [x] 既存テストの書き換え（app・ideals・ideal-view・user-rename）と release-notes・OPERATIONS.md
+
+### 実装の記録（2026-10-15、ブランチ `feature/goals-merge`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の bell・settings と、フェーズ 3 の pal-detail・goals-detail はこちらを正とする）。
+
+1. **種族だけの目標（手順 1）**: `core/ideal-goals.js` の **`speciesGoal(palId, { name, addedAt })`**（`passives: []`・`mode: 'include'`・`targets` 0・`cake: 'none'`・`worlds: {}`。id は呼び出し側）と **`isSpeciesGoal(goal)`**。
+2. **観測（手順 2）**: `web/js/core/goal-observations.js` に **`cleanObservations`・`parseObservations`・`cleanEntry`・`cleanPair`・`firstObservation`・`observeSpecies`・`mergeObservation`・`mergeObservations`（保存の値どうし。名前の変更用）・`OBSERVATIONS_VERSION`**。形は文書のとおり（`{ version: 1, species, migration: { wishlist: { migrated, pending, doneAt } } }`）。種族の ID は形（英数字と `_`）だけで確かめる（core/ はマスターを読まない）。
+3. **ideals ストア（手順 3）**: 観測のキー `<namespace>.goalsObs.<env>.<userIdKey>` の読み書き（`loadObs`・`saveObs`・`latestObs`。保存の失敗は `saveFailed` に含める）と `observeRecords()`（ログイン中・キャッシュでない・名前の変更中でない・サーバ時刻が読めるとき、目標のある種族ごとに、その種族の `observedAt` より新しいデータのときだけ進める。確定データ `confirmedRecords` から子ごとの親の組）。`add` は観測がなければ `firstObservation`（知らせない）。**`remove` はその種族の目標がほかになければ観測も消し、戻り値に `observation` を足した（`{ goal, index, observation }`）。`restore(goal, index, key, observation)` の 4 つ目でそれを戻す**（文書の「観測を作り直して判定し直す」だと、作れるようになった時刻が消えて通知が戻らないため）。公開: **`observation(palId)`・`observations()`・`migration()`・`legacyWishes()`**。`reload(key)` は観測のキー・旧ウィッシュリストのキー（今の ID のものなら移行をやり直す）にも反応する。
+4. **移行（手順 4）**: `web/js/goals-migration.js` の **`migrateWishlist({ storage, namespace, env, userKey, now }) → { status, migrated, pending }`** と `cleanWish`・`parseWishes`・キーの関数。**書く順番は文書と少し変えた: ① 目標を書いて読み戻す（見つからなければ移行の記録を書かずに `failed`）→ ② 観測と移行の記録を書いて読み戻す → ③ 既読の写しは不要 → ④ すべて移せたら `doneAt` を書いて旧キーを消す**（テストで、目標の書き込みが消えた〔読み戻しの不一致〕のに観測に「移した」と記録すると、次の実行で目標を作り直さない不具合が見つかったため）。空・壊れた旧キーは片づけて `none`。ideals ストアがログインした環境・ID ごとに 1 回（`migratedScope`）と、旧キーの storage イベントで呼ぶ。名前の変更中は呼ばない。
+5. **名前の変更（手順 5）**: user-rename.js の「オブジェクトの形のキー」の並びに `goalsObs`（併せ方は `mergeObservations`）を足した。`createRenamer` の引数から `wishlist` を外し、`localSaveFailed` は drafts・ideals・self だけ。`moveLocal` で旧ウィッシュリストと観測のキーの元と先を `ideals.reload` に渡す。旧ウィッシュリストのキー（配列）は移し終わるまで今どおり移す。
+6. **通知（手順 6）**: ideals.js の **`goalObservationSource({ store, ideals })`** を app.js の通知の元にした（`wishlistNotificationSource` と入れ替え）。id は前と同じ形、title は「〈パル〉の配合が登録されました」「〈パル〉の配合が増えました」、body は「A＋B で作れます（ほか N 組）。」（観測で見た組の先頭）・「A＋B でも作れます。」、href は `#/search?c=`。知らせるのは種族だけの目標がある種族だけ。
+7. **目標の一覧（手順 7）**: 行の名前の欄（`div.ideal-goal-name`）に名前・「パルだけ」（`statusChip('パルだけ', 'info', 'ideal-goal-tag')`）・下の行に「配合: 登録済み n 件 →」／「配合: 未登録」（`a.ideal-goal-records`。画面のデータの `findByChild`。押すとダイアログを閉じて配合を探す）と「所持 n 体（親になれる m）」（所持パルのデータごとに `ownedCounts` を 1 回）。**種族だけの目標の条件の要約は「条件なし（そのパルがいれば完成）」**、呼び出すは `#/ideal?to=<palId>`（g を付けない）。外すと「元に戻す」で観測も戻す。空の文は文書のとおり。移行が partial・failed なら表の上に 1 行と「旧ウィッシュリストを見る」（読み取り専用のダイアログ。パルのタイルと「配合あり／未登録」）。`#/ideal?goals=1` で開いたら（app.js が同じ画面で受けたときも）目標のダイアログを開いて `goals` を URL から外す。
+8. **「☆ 目標に登録」（手順 8）**: `web/js/ui/goal-toggle.js` の **`goalToggle(context, palId, { className, label }) → { element, update, destroy }`**（`aria-pressed`。星は ui/icons.js の **`star`**〔前の `wishlist` を改名。登録済みは塗る〕、文は「目標に登録」／「目標に登録済み」。押すと add・外す〔トーストに「元に戻す」〕。`'full'`・`null` は理由のトースト）。置き場所: パル詳細のヒーローの操作、配合を探すで子だけを選んで 0 件の空の状態（primary「目標に登録（作れるようになったら知らせます）」と secondary「この子の配合を登録」。syncList が同じ文の空の表示を作り直さないので、描いた後に出ている方の押しボタンだけ購読を残す `keepEmptyGoal`）、理想個体の目標を ♂♀ で持っていないときの次の一手（前の「ウィッシュリストに追加」）。
+9. **レールのバッジ（手順 9）**: 理想個体のタブに `span.nav-badge`「完成 n」（表示しているワールドで `worlds[worldId].complete` の目標の数。0 なら hidden）とタブの aria-label「理想個体（完成した目標 n 件）」。ideals と owned を購読して書き換える（画面は描き直さない）。
+10. **片づけ（手順 10）**: router.js の `LEGACY` に `wishlist: { view: 'ideal', add: { goals: '1' } }`。TABS・views・app.js からウィッシュリストを外し（タブは 5 本）、`web/js/wishlist.js`・`web/js/views/wishlist.js`・`test/web/wishlist.test.js` とウィッシュリストの CSS を消した。レールの区切りは所持パルの前だけ（探す｜所持｜設定）。
+11. **テスト**: 1,538 → 1,533 件（ウィッシュリストのテスト 22 件を消し、移行 7 件・観測 4 件・目標の観測 4 件ほかを足した。`npm test` exit 0）。goals-migration.test.js（3 件・2 回目で変わらない／同じ条件に併合／98 件で partial と続き／書き込みの失敗と読み戻しの不一致〔目標が消えたら記録しない〕／外した目標を作り直さない／前の版の目標の書き直しで残る／旧キーを信用しない）、goal-observations.test.js、ideals.test.js（足した時点は知らせず作れるようになったら同じ id で知らせる・増えた組・種族だけの目標だけ・外すと消えて元に戻すと戻る・キャッシュ・名前の変更中・古いデータ・別タブの観測のキー・移行と旧キーの書き戻し）、user-rename.test.js（goalsObs の移動と併せ方・名前の変更のテストを目標で）、app.test.js（パル詳細の「目標に登録」→ 仲間の登録 → ベル「配合が登録されました」→ `#/wishlist` で目標のダイアログ・「配合: 登録済み 1 件」、旧ウィッシュリストからの起動）、ideal-view.test.js（目標に登録の押しボタンと登録できないときの文・行の名前の欄・空の文）、views.test.js（タブ 5 本）。
+12. **画面（モック・1100×900・所持パル 138 体）**: 旧ウィッシュリスト 3 件を入れて読み込み直すと、目標 `wish-SheepBall`・`wish-Anubis`・`wish-KingBahamut` ができ旧キーが消えた。`#/wishlist` → `#/ideal` で目標のダイアログ（3 行とも「パルだけ」・「配合: 未登録」・「所持 n 体（親になれる m）」・完成済み。`40-goals-dialog-1100-light.png`）。パル詳細で「☆ 目標に登録」→「目標に登録済み」（`41-pal-goal-toggle-1100-light.png`）。タブは 5 本で、理想個体に「完成 4」。
+   - **確かめていないこと**: 目標を 98 件にした状態での「まだ目標に移せていません」の画面と、旧版のタブを同時に開いたままの移行は、ブラウザでは確かめていない（goals-migration.test.js で確かめた）。
+13. **後のテーマへの申し送り**:
+    - bell: 目標の観測の通知は id の頭 `wishlist:`（kind なし）、完成の通知は `ideal:`。種類のチップでは両方を「目標」に分類する。
+    - settings: 端末のデータの書き出しで目標を扱うときは、観測のキー `goalsObs` も対象にするか決める（目標のキーの形は変わっていない）。
+    - goals-detail（3）: 行の名前の欄（`.ideal-goal-name`）に集計を足す。観測は `ideals.observation(palId)`。
+    - pal-detail（3）: ヒーローの「目標に登録」は `goalToggle(context, palId)`。
 
 ---
 
