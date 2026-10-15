@@ -550,13 +550,14 @@ async function boot() {
   const hrefOf = (anchor) => (anchor ? String(anchor.getAttribute?.('href') ?? anchor.href ?? '') : '');
   // 設定を開いたまま、設定の行き先（`#/settings?…&open=<意図>`。views/settings.js が読んだら URL から外す）のリンクを押したときは、
   // 履歴を増やさずに今のエントリのまま行き先を当てる。増やすと、外した後の `#/settings` が 2 件続き、「戻る」が 1 回空振りする。
-  // 行き先はその場でフォーカスを移すだけで、条件の変更（同じ画面の 1 選択＝1 履歴）ではないので増やさない。当てたら true
-  function sameScreenDestination(event, hash) {
+  // 行き先はその場でフォーカスを移すだけで、条件の変更（同じ画面の 1 選択＝1 履歴）ではないので増やさない。当てたら true。
+  // later は当てる時機（既定はすぐ）
+  function sameScreenDestination(event, hash, later = (apply) => apply()) {
     if (showingLogin || !hash.startsWith('#/') || hash === location.hash) return false;
     const next = parseHash(hash);
     if (next.view !== 'settings' || !SETTINGS_OPEN.includes(next.params.get('open')) || !currentView?.applyRoute || !sameScreen(shownRoute, next)) return false;
     event.preventDefault();
-    context.update(hash, { replace: true });
+    later(() => context.update(hash, { replace: true }));
     return true;
   }
   root.addEventListener('click', (event) => {
@@ -568,10 +569,19 @@ async function boot() {
     saveEntry();
     intent = String(anchor.className).split(' ').includes('nav-tab') ? 'tab' : 'navigate';
   });
-  // ダイアログ（body に置く。設定の「通知一覧」など）の中のリンクも、同じ画面への行き先なら同じく履歴を増やさない
+  // ダイアログ（body に置く。設定の「通知一覧」など）の中のリンクも、同じ画面への行き先なら同じく履歴を増やさない。
+  // リンクを押して閉じたダイアログは、閉じた後（close イベント。後から来る）でフォーカスを開いたボタンへ戻すので、行き先はその後に当てる
+  //（close が来ないときのために、少し後にも 1 回だけ当てる）
+  const afterClose = (dialog) => (apply) => {
+    if (!dialog || dialog.open) { apply(); return; }
+    let done = false;
+    const once = () => { if (!done) { done = true; apply(); } };
+    dialog.addEventListener('close', once, { once: true });
+    setTimeout(once, 100);
+  };
   document.addEventListener?.('click', (event) => {
     if (!plainClick(event) || root.contains?.(event.target)) return;
-    sameScreenDestination(event, hrefOf(event.target?.closest?.('a') ?? null));
+    sameScreenDestination(event, hrefOf(event.target?.closest?.('a') ?? null), afterClose(event.target?.closest?.('dialog')));
   });
   window.addEventListener('scroll', () => {
     if (showingLogin) return;
