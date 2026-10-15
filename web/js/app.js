@@ -59,7 +59,9 @@ async function boot() {
   let transport;
   if (localDevelopment) {
     const development = await import(`/dev/${developmentKey}-api.js`);
-    transport = development.createDevelopmentApi({ seed: new URLSearchParams(location.search).get('seed') });
+    // as は開発用の役割の切り替え（viewer: 共有ワールドを 1 つ入れて、未連携で共有を見ている人の画面を確かめる。roles）
+    const search = new URLSearchParams(location.search);
+    transport = development.createDevelopmentApi({ seed: search.get('seed'), as: search.get('as') });
   }
   let browserStorage = null;
   try { browserStorage = window.localStorage; } catch { /* 保存できない端末でも画面は使える。 */ }

@@ -188,12 +188,10 @@ function goalSummary(goal) {
 
 /**
  * 一覧での完成の状態（自分の個体で判定する）。所持パルのデータがない・自分のプレイヤーが分からないときは、
- * 完成していないとは言えないので「未確認」にする。自分のプレイヤーが分からないときは設定でこのワールドでの自分を選ぶ行き先、
- * データがないときはセーブ連携を開く行き先（action。worldId は表示しているワールド）を添える
+ * 完成していないとは言えないので「未確認」にする。理由は行ごとに繰り返さず、目標のダイアログの表の上に 1 回だけ出す（goalsReason。roles。C-06）
  */
-function goalStatus(goal, pals, worldId = '') {
-  if (pals === undefined) return { done: false, text: '未確認（所持パルのデータがありません）', action: { label: 'セーブ連携を開く', href: settingsHash(worldId, 'status') } };
-  if (pals === null) return { done: false, text: '未確認（このワールドでの自分が未設定）', action: { label: '設定で選ぶ', href: settingsHash(worldId, 'self') } };
+function goalStatus(goal, pals) {
+  if (pals === undefined || pals === null) return { done: false, text: '未確認' };
   const found = goalMatches(goal, pals);
   if (!found.length) return { done: false, text: '未完成' };
   const [first] = found;
@@ -487,7 +485,7 @@ export function idealView(context, route) {
     const header = goalsModal.dialog.querySelector('header');
     header?.insertBefore(statusChip('この端末だけ', 'neutral', 'device-only-chip'), header.children[1] ?? null);
     goalsClose = button('閉じる', goalsModal.close, 'button secondary');
-    goalsModal.body.append(goalsWarning, migrationNote, goalsList);
+    goalsModal.body.append(goalsWarning, migrationNote, goalsReason, goalsList);
     goalsModal.footer.append(goalsClose);
     renderGoals();
   }
@@ -519,13 +517,8 @@ export function idealView(context, route) {
     nameCell.append(facts1);
     title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), nameCell);
     const state = statusChip('', 'neutral', 'ideal-goal-status');
-    // 自分のプレイヤーが分からない（未確認）ときだけ、状態の下に設定への行き先（このワールドでの自分を選ぶ）を出す
-    const action = link('', '#/settings', 'button secondary small ideal-goal-action');
-    action.setAttribute('data-focus-key', `goal-action:${goal.id}`);
-    // ダイアログは画面の遷移で閉じないので、押したら閉じる（リンクの遷移はそのまま進む。ベルの通知と同じ）
-    action.addEventListener('click', () => goalsModal?.close());
     const stateCell = el('div', 'ideal-goal-state');
-    stateCell.append(state, action);
+    stateCell.append(state);
     const recall = link('呼び出す', goalHash(goal), 'button secondary small');
     // 一覧を合わせ直しても、押した「呼び出す」にフォーカスを戻す（ui/dom.js の syncList・ui/focus.js）
     recall.setAttribute('data-focus-key', `goal:${goal.id}`);
@@ -545,11 +538,6 @@ export function idealView(context, route) {
       row.classList.toggle('done', item.status.done);
       setChipTone(state, item.status.done ? 'ready' : 'neutral');
       if (state.textContent !== item.status.text) state.textContent = item.status.text;
-      action.hidden = !item.status.action;
-      if (item.status.action) {
-        if (action.textContent !== item.status.action.label) action.textContent = item.status.action.label;
-        action.href = item.status.action.href;
-      }
     };
     update({ status, facts });
     return { element: row, update };
@@ -567,6 +555,15 @@ export function idealView(context, route) {
     const entry = counts.get(palId);
     return entry ? `所持 ${entry.total} 体（親になれる ${entry.male + entry.female}）` : '所持 0 体';
   };
+  // 「未確認」の理由と行き先（表の上に 1 回だけ。自分のプレイヤーが分からない → このワールドでの自分、所持パルのデータがない → セーブ連携。C-06）
+  const goalsReason = el('p', 'ideal-goals-reason');
+  goalsReason.setAttribute('role', 'status');
+  const reasonText = el('span');
+  const reasonAction = link('', '#/settings', 'button secondary small ideal-goal-action');
+  // ダイアログは画面の遷移で閉じないので、押したら閉じる（リンクの遷移はそのまま進む。ベルの通知と同じ）
+  reasonAction.addEventListener('click', () => goalsModal?.close());
+  goalsReason.append(reasonText, reasonAction);
+  goalsReason.hidden = true;
   // 前のウィッシュリストを移せていないときの 1 行と、読み取り専用の一覧
   const migrationNote = el('p', 'ideal-goal-migration');
   migrationNote.setAttribute('role', 'status');
@@ -606,8 +603,18 @@ export function idealView(context, route) {
     const pals = ideals.mine();
     const worldId = ownedWorldId(owned?.state?.meta?.worldId);
     const index = context.store.state.index;
+    const reason = !goals.length ? null : pals === undefined
+      ? { text: '所持パルのデータがないため、完成を確かめられません。', label: 'セーブ連携を開く', href: settingsHash(worldId, 'status') }
+      : pals === null ? { text: '自分のプレイヤーが分からないため、完成を確かめられません。', label: '設定で選ぶ', href: settingsHash(worldId, 'self') } : null;
+    goalsReason.hidden = !reason;
+    reasonAction.hidden = !reason;
+    if (reason) {
+      if (reasonText.textContent !== reason.text) reasonText.textContent = reason.text;
+      if (reasonAction.textContent !== reason.label) reasonAction.textContent = reason.label;
+      reasonAction.href = reason.href;
+    }
     const rows = goals.map((goal) => ({
-      goal, status: goalStatus(goal, pals, worldId),
+      goal, status: goalStatus(goal, pals),
       facts: { records: index ? findByChild(index, goal.palId).length : 0, holding: holdingOf(goal.palId) },
     }));
     // 完成済みを上に（それぞれ保存の新しい順）

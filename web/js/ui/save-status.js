@@ -2,7 +2,7 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, roleLabel, timeLines, permissionNotice, grantWithReport } from './owned-status.js';
+import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -122,7 +122,9 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     const render = () => {
       const state = owned.state;
       const items = [];
-      if (state.role) items.push(['この PC', roleLabel(state)]);
+      // 役割の説明（ホスト・参加者・共有を見ている人。roles）
+      const role = roleSummary(state, { userId: store?.state?.userId ?? '', now });
+      if (role) items.push(['この PC', role.hint ? `${role.text}\n${role.hint}` : role.text]);
       items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? state.meta.palCount ?? 0} 体` : '（データなし）'}` : 'なし']);
       const lines = timeLines(state);
       if (lines.length) items.push(['更新', lines.join('\n')]);

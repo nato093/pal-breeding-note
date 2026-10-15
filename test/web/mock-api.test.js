@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import pals from '../../web/data/pals.js';
-import { createDevelopmentApi } from '../../dev/mock-api.js';
+import { createDevelopmentApi, VIEWER_WORLD_ID } from '../../dev/mock-api.js';
 import { createApi } from '../../web/js/api.js';
 
 const ids = pals.filter((pal) => pal.active).slice(0, 5).map((pal) => pal.id);
@@ -269,4 +269,21 @@ test('モック: 名前の変更は登録者名（削除済みを含む）と共
   assert.equal((await api(request('rename', { userId: 'Jiro', newUserId: 'ＨＡＮＡＫＯ' }))).code, 'USER_EXISTS');
   assert.equal((await api(request('rename', { userId: 'Jiro', newUserId: 'Jiro' }))).errors[0].code, 'SAME_ID');
   assert.equal((await api(request('rename', { userId: '未登録', newUserId: 'X' }))).code, 'USER_NOT_FOUND');
+});
+
+test('モック（roles）: as=viewer なら、ホスト（Alice）が 3 分前に共有したワールドを 1 つ返し（3 人・拠点 2・牧場 3・パル 30 体）、ほかの値では入れない', async () => {
+  const api = createDevelopmentApi({ as: 'viewer' });
+  // 所持パルの共有の操作は opId を持たない
+  const ownedRequest = (action, extra = {}) => ({ action, passcode: 'ローカル動作確認', ...extra });
+  const { worlds } = await api(ownedRequest('ownedWorlds'));
+  assert.equal(worlds.length, 1);
+  const [world] = worlds;
+  assert.deepEqual([world.worldId, world.worldName, world.hostName, world.uploadedBy, world.palCount], [VIEWER_WORLD_ID, 'みんなのワールド', 'Alice', 'Alice', 30]);
+  assert.deepEqual([world.players.length, world.bases.length, world.farms.length], [3, 2, 3]);
+  const minutes = (Date.now() - Date.parse(world.uploadedAt)) / 60000;
+  assert.ok(minutes > 2.5 && minutes < 3.5, String(minutes));
+  const shared = await api(ownedRequest('owned', { worldId: VIEWER_WORLD_ID }));
+  assert.equal(shared.rows.length, 30);
+  assert.deepEqual((await createDevelopmentApi({ as: 'host' })(ownedRequest('ownedWorlds'))).worlds, []);
+  assert.deepEqual((await createDevelopmentApi()(ownedRequest('ownedWorlds'))).worlds, []);
 });

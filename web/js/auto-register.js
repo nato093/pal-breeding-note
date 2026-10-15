@@ -385,7 +385,8 @@ export function createAutoRegister({
   const unmappedNotice = (ctx, uid, players) => ({
     id: unmappedId(ctx, uid), date: ctx.importedAt,
     title: 'プレイヤーの対応が未設定です',
-    body: `${players.find((p) => p.uid === uid)?.name || 'セーブのプレイヤー'}の配合を登録できません。設定で登録者を選んでください。`,
+    // 呼び名は設定の欄と同じ「プレイヤーの対応」（roles。C-04）
+    body: `${players.find((p) => p.uid === uid)?.name || 'セーブのプレイヤー'}の配合を登録できません。設定の「プレイヤーの対応」で選んでください。`,
     // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする
     href: settingsHash(ctx.worldId, 'registrant'),
   });

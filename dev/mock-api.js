@@ -18,7 +18,10 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const invalid = (field, code) => ({ ok: false, code: 'VALIDATION', errors: [{ field, code }] });
 const fail = (code, data = {}) => ({ ok: false, code, ...data });
 
-export function createDevelopmentApi({ seed, passcode } = {}) {
+// as=viewer で入れておく共有ワールド（roles。X-12）。3 人・拠点 2・牧場 3・パル 30 体
+export const VIEWER_WORLD_ID = 'D1E2A3B4C5F60718293A4B5C6D7E8F90';
+
+export function createDevelopmentApi({ seed, passcode, as } = {}) {
   const records = new Map();
   const users = [];
   const operations = new Map();
@@ -140,6 +143,50 @@ export function createDevelopmentApi({ seed, passcode } = {}) {
         memo: '動作確認用のランダムな配合です。ゲームの配合を示すものではありません。',
         confirmCount: 1, createdAt: now, updatedAt: now, deleted: false });
     }
+  }
+
+  // 開発用の役割の切り替え: as=viewer は、ホスト（Alice）が 3 分前に共有したワールドを 1 つ入れておく（未連携で共有を見ている人の画面を
+  // 確かめる。ホスト・参加者はファイルのハンドルのスタブが要るので、必要になってから足す）
+  if (as === 'viewer') seedViewerWorld();
+  function seedViewerWorld() {
+    const now = Date.now();
+    const players = [
+      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice' }, { uid: '00000000-0000-0000-0000-00000000b0b0', name: 'Bob' },
+      { uid: '00000000-0000-0000-0000-00000000ca01', name: 'Carol' },
+    ];
+    const bases = [{ id: 'base-1', label: '拠点 1' }, { id: 'base-2', label: '拠点 2' }];
+    const species = ['SheepBall', 'PinkCat', 'CuteFox', 'FlowerDoll', 'CatMage', 'Kitsunebi', 'ChickenPal', 'Anubis', 'BlackCentaur', 'LongCat'].filter((id) => palIds.has(id));
+    const passiveSets = [['CraftSpeed_up2'], ['Rare', 'CraftSpeed_up2'], ['Noukin'], [], ['PAL_sadist', 'Rare'], ['PAL_rude']];
+    const rows = Array.from({ length: 30 }, (_, index) => {
+      const palId = species[index % species.length];
+      const holder = players[index % players.length];
+      const atBase = index % 4 === 3;
+      const base = bases[index % bases.length];
+      const page = 1 + Math.floor(index / 30);
+      const value = {
+        instanceId: `viewer-${String(index).padStart(3, '0')}`, palId, palName: pals.find((pal) => pal.id === palId)?.ja ?? palId, characterId: palId, nickname: '',
+        gender: index % 2 ? 'M' : 'F', level: String(5 + (index * 7) % 50), rank: '1', stars: String(index % 5), passiveIds: passiveSets[index % passiveSets.length].join('|'),
+        talentHp: String((index * 13) % 101), talentShot: String((index * 29) % 101), talentDefense: String((index * 41) % 101), lucky: index === 7 ? '1' : '', alpha: '', egg: '',
+        place: atBase ? 'base' : 'palbox', placeLabel: atBase ? base.label : `パルボックス ${page} ページ・${1 + (index % 5)} 行 ${1 + (index % 6)} 列`,
+        holderUid: atBase ? '' : holder.uid, holder: atBase ? base.label : holder.name, baseId: atBase ? base.id : '', lastOwner: atBase ? holder.name : '', skillIds: '',
+      };
+      return OWNED_FIELDS.map((field) => value[field] ?? '');
+    });
+    const farms = [
+      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'] }, { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'] },
+      { id: 'farm-3', baseId: 'base-2', parents: [] },
+    ];
+    const checked = validateOwnedUpload({
+      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice' }, saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(),
+      players, bases, farms, columns: OWNED_FIELDS, rows,
+    });
+    if (!checked.ok) return;
+    const input = checked.value;
+    const world = {
+      worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
+      uploadedAt: new Date(now - 3 * 60 * 1000).toISOString(), uploadedBy: 'Alice', palCount: input.rows.length, players: input.players, bases: input.bases, farms: input.farms,
+    };
+    ownedWorlds.set(input.worldId, { world, rows: input.rows });
   }
 
   function owned(request) {

@@ -1069,9 +1069,11 @@ test('理想個体画面: 目標を外すとダイアログの行が消えて空
   ctx.ideals.add({ name: '目標', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 100, shot: 100, defense: 100 }, cake: 'none', order: 'next' });
   const view = idealView(ctx, parseHash('#/ideal'));
   const dialog = openGoals(view);
-  assert.match(dialog.querySelector('.ideal-goal').textContent, /未確認（所持パルのデータがありません）/);
+  // 行は「未確認」だけで、理由は表の上に 1 回（roles。C-06）
+  assert.equal(dialog.querySelector('.ideal-goal').querySelector('.ideal-goal-status').textContent, '未確認');
+  assert.match(dialog.querySelector('.ideal-goals-reason').textContent, /^所持パルのデータがないため、完成を確かめられません。/);
   // 行き止まりにしない: 「セーブ連携を開く」で設定のセーブ連携へ（copy-dead-ends）
-  const action = dialog.querySelector('.ideal-goal-action');
+  const action = dialog.querySelector('.ideal-goals-reason').querySelector('.ideal-goal-action');
   assert.equal(action.hidden, false);
   assert.equal(action.textContent, 'セーブ連携を開く');
   assert.equal(action.href, '#/settings?open=status');
@@ -2651,8 +2653,11 @@ test('理想個体画面（このワールドでの自分）: 自分が分から
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
   let dialog = openGoals(view);
   const row = dialog.querySelector('.ideal-goal');
-  assert.equal(row.querySelector('.ideal-goal-status').textContent, '未確認（このワールドでの自分が未設定）');
-  const action = row.querySelector('.ideal-goal-action');
+  assert.equal(row.querySelector('.ideal-goal-status').textContent, '未確認');
+  // 理由と「設定で選ぶ」は表の上に 1 回だけ（roles。C-06）
+  assert.equal(row.querySelector('.ideal-goal-action'), null);
+  assert.match(dialog.querySelector('.ideal-goals-reason').textContent, /^自分のプレイヤーが分からないため、完成を確かめられません。/);
+  const action = dialog.querySelector('.ideal-goal-action');
   assert.equal(action.hidden, false);
   assert.equal(action.textContent, '設定で選ぶ');
   assert.equal(action.href, `#/settings?world=${SELF_WORLD}&open=self`);
@@ -2664,6 +2669,6 @@ test('理想個体画面（このワールドでの自分）: 自分が分から
   dialog = openGoals(view);
   const done = dialog.querySelector('.ideal-goal');
   assert.match(done.querySelector('.ideal-goal-status').textContent, /^完成済み: Bob/);
-  assert.equal(done.querySelector('.ideal-goal-action').hidden, true);
+  assert.equal(dialog.querySelector('.ideal-goals-reason').hidden, true);
   view.destroy();
 });

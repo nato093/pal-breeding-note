@@ -969,7 +969,7 @@ export function ownedView(context, route) {
   let noticesKey = null;
   function renderSummary(state) {
     if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
-    const list = ownedNotices(state);
+    const list = ownedNotices(state, { userId: context.store.state.userId });
     const key = JSON.stringify(list);
     if (key === noticesKey) return;
     // 案内の帯はパネルより上にあるので、出入りすると下の一覧が上下する（一覧は overflow-anchor: none）。一覧の先頭がパネルの下に
