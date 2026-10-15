@@ -5,7 +5,7 @@ import { el, button, link } from '../ui/dom.js';
 import { palsById, palIcon, humanIcon, elementChips, genderMark } from '../ui/pal-icon.js';
 import { passiveChip, passivesById } from '../ui/passive-picker.js';
 import { navIcon } from '../ui/nav-icons.js';
-import { keywordTerms, keywordNotes } from '../core/owned.js';
+import { keywordTerms, keywordNotes, eggName, isMutantEgg } from '../core/owned.js';
 import { buildHash } from '../router.js';
 import { fillTalentCell, fillWhereCell } from './owned.js';
 
@@ -64,10 +64,15 @@ export function ownedDetail(context, instanceId, { terms, query = '' } = {}) {
     starNode.setAttribute('data-off', '☆'.repeat(4 - stars));
     level.append(starNode);
     names.append(level);
-    const badges = [pal.egg ? 'タマゴ' : '', pal.lucky ? 'ラッキー' : '', pal.alpha ? 'アルファ' : ''].filter(Boolean);
+    // 印（所持パルの行と同じ。タマゴはゲームのタマゴの名前、配合牧場の親とタマゴ、突然変異。farm-board）
+    const badges = [
+      pal.egg ? ['badge-egg', eggName(pal.eggItemId) || 'タマゴ'] : null, isMutantEgg(pal) ? ['badge-mutant', '突然変異'] : null,
+      pal.farm ? ['badge-farm', pal.farm.role === 'egg' ? '配合牧場のタマゴ' : '配合牧場'] : null,
+      pal.lucky ? ['badge-lucky', 'ラッキー'] : null, pal.alpha ? ['badge-alpha', 'アルファ'] : null,
+    ].filter(Boolean);
     if (badges.length) {
       const line = el('p', 'owned-badges owned-detail-badges');
-      line.append(...badges.map((text) => el('span', `owned-badge ${text === 'タマゴ' ? 'badge-egg' : text === 'ラッキー' ? 'badge-lucky' : 'badge-alpha'}`, text)));
+      line.append(...badges.map(([className, text]) => el('span', `owned-badge ${className}`, text)));
       names.append(line);
     }
     if (master) names.append(elementChips(master));

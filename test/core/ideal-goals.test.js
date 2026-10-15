@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanGoal, parseGoals, goalKey, goalMatches, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
+import { cleanGoal, parseGoals, goalKey, goalMatches, eggMatches, goalMarks, ownPlayerUids, ownPals, palsOfPlayers, GOAL_LIMIT } from '../../web/js/core/ideal-goals.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const talent = (hp = 0, shot = 0, defense = 0) => ({ hp, shot, defense });
@@ -205,4 +205,24 @@ test('目標の印: 登録した目標から、個体ごとに「完成品: 目�
   assert.deepEqual(more.get('none'), undefined);
   assert.equal(goalMarks([goal({ id: 'g5', name: 'Lv100', passives: ['P9'], targets: { hp: 100, shot: 100, defense: 100 } })], pals).get('none')[0], 'Lv100 の欲しいパッシブ');
   assert.equal(goalMarks([], pals).size, 0);
+});
+
+test('孵化待ち（eggMatches）: 目標の条件を満たすタマゴだけを返し（完成品は返さない）、goalMatches の結果は変わらない。自分の個体を渡すと、自分のタマゴと拠点の持ち主のないタマゴだけ', () => {
+  const full = talent(100, 100, 100);
+  const pals = [
+    pal('done', 'X', 'M', ['P1', 'P2'], full),
+    pal('mine-egg', 'X', '', ['P1', 'P2'], full, { egg: true, holderUid: 'me', place: 'egg-inventory' }),
+    pal('base-egg', 'X', '', ['P1', 'P2', 'P3'], full, { egg: true, holderUid: '', place: 'egg-ground' }),
+    pal('other-egg', 'X', '', ['P1', 'P2'], full, { egg: true, holderUid: 'other', place: 'egg-inventory' }),
+    pal('weak-egg', 'X', '', ['P1'], full, { egg: true, holderUid: 'me', place: 'egg-inventory' }),
+    pal('unknown-egg', '', '', ['P1', 'P2'], full, { egg: true, holderUid: '', place: 'egg-ground' }),
+  ];
+  assert.deepEqual(eggMatches(goal(), pals).map((item) => item.id), ['mine-egg', 'base-egg', 'other-egg']);
+  const mine = pals.filter((item) => item.holderUid === 'me' || item.id === 'done');
+  assert.deepEqual(eggMatches(goal(), pals, mine).map((item) => item.id), ['mine-egg', 'base-egg']);
+  // 「欲しいパッシブだけ」なら余計なパッシブのあるタマゴは外れる
+  assert.deepEqual(eggMatches(goal({ mode: 'only' }), pals, mine).map((item) => item.id), ['mine-egg']);
+  // 完成の判定はタマゴを数えないまま
+  assert.deepEqual(goalMatches(goal(), pals).map((item) => item.id), ['done']);
+  assert.deepEqual(eggMatches({ ...goal(), palId: '' }, pals), []);
 });

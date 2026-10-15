@@ -41,6 +41,7 @@ import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { palView, palDrawer } from './views/pal.js';
 import { ownedDetail } from './views/owned-detail.js';
+import { farmBoard } from './ui/farm-board.js';
 import { settingsView, RIGHTS_NOTE } from './views/settings.js';
 import { palDataNotes } from './views/shared.js';
 import { TABS, tabLabel } from './views/tabs.js';
@@ -252,7 +253,8 @@ async function boot() {
   // ヘッダーのパネル（ベル・セーブ連携・ID）は 1 つだけ開く。キーボードで別のボタンを押したときは外側の pointerdown が来ないので、開いたときにほかを閉じる
   const closeOthers = (opened) => { for (const part of [bell, save, account]) if (part !== opened) part.close(); };
   const bell = notificationMenu(notifications, { onOpen: () => closeOthers(bell) });
-  const save = saveStatus({ owned, autoRegister, store, onOpen: () => closeOthers(save) });
+  // 「配合牧場を見る」は右のドロワー（context の後で作るので、押したときに引く。farm-board）
+  const save = saveStatus({ owned, autoRegister, store, onOpen: () => closeOthers(save), openFarms: (opener) => drawer.open({ kind: 'farms', id: '' }, { opener }) });
   // 名前の変更とログアウトに使うのは store と renamer だけ（context はこの後で作る）
   const account = accountMenu({ store, renamer, onOpen: () => closeOthers(account) });
   // ヘッダーのパル検索（G-03。どの画面からでも、選んだパルを右のドロワーで開く。選んだら空に戻す）。ショートカットは「/」。
@@ -441,6 +443,8 @@ async function boot() {
     pal: (entry) => palDrawer(context, entry.id),
     // 所持パルの個体の詳細（params.q は所持パルで入れていたキーワード。一致の理由の全文を出す。owned-detail）
     owned: (entry) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '' }),
+    // 全部の配合牧場（所持パルの帯の「右に開く」・セーブ連携のパネル・理想個体の配合牧場の詳細から。farm-board）
+    farms: () => farmBoard(context, { mode: 'drawer' }),
   };
   const drawer = createDrawer({ context, render: drawerContents, main, url: () => urlOf(location.hash) });
   context.drawer = drawer;

@@ -75,6 +75,8 @@
 - 共有（スプレッドシートのワールドの行の `farms` の 1 セル）: 牧場ごとに短い鍵 `n`（タマゴの数）・`eggs: [{ id, p: パル ID, m: 1〔突然変異〕 }]`（1 牧場 20 個まで）と、読めない牧場は `s: 'u'` で親を空にして送る（古い GAS・古い画面が `s` を捨てても、親のない牧場は置いてある組にならない）。JSON にした後 45,000 字（`OWNED_FARMS_MAX_CHARS`）を超えたら、全部の牧場の `eggs` を外して `n` だけにし、それでも超えたら牧場を先頭から入る分だけにして `of`（元の牧場の数）を付ける（`fitOwnedFarms`。画面・GAS・開発用 API の `validateOwnedUpload` で同じ）。今の 200 件の上限では 2 段目で必ず収まる（1 牧場 約 210 字）。
 - 受け取る側（`ownedFromShared`）: `eggs` がなければ中身が分からない（`eggs: null`）。`n` のない古い形（古い GAS・古いホストの画面）は「タマゴの情報なし」で、`farmsCounted: false`（理想個体は空き牧場を数えない）。`of` が受け取った数より多ければ `farmsPartial: true`（理想個体は交換推奨・空き牧場・使用中の判定を保留）。中身だけを省いたときは保留しない。
 - GAS に新しい列は要らない（`farms` の列のまま）。反映は `npm run gas:push` だけ（`setup()` は `farms` の列がないシートのときだけ）。
+- タマゴのアイテム ID（farm-board。2026-10-15）: 個体の `location.itemId`（タマゴのとき）を画面用の `eggItemId` に残し、共有は個体の列の末尾に `eggItemId` を足した（`OWNED_ADDED_FIELDS`。GAS は `setup()` をやり直してシートに列が足されるまで書かずに読む。足す前の画面からの共有も受け付ける）。名前はゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_PalEgg_*`（56 件。`npm run extract:skills` → `web/data/items.js`。セーブの ID と大文字小文字が違うことがあるので小文字にそろえて引く）。突然変異は `PalEgg_MutationPal_*`（名前は「突然変異タマゴ」など）。
+- 個体の牧場の印（farm-board）: 画面用の各個体に `farm: { id, baseId, role: 'parent' | 'egg', mutant } | null`（牧場の親と、牧場の上のタマゴ。共有で中身を省いた牧場のタマゴには付かない）。
 
 ## 使う項目
 

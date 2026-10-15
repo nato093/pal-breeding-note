@@ -817,7 +817,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 牧場のタマゴを残して共有する（牧場の表示の土台）
 
-- 状態: 済（2026-10-15。GAS の反映〔npm run gas:push〕はフェーズの報告の後にユーザー） ／ ブランチ: `feature/farm-data` ／ マージのコミット: （マージの後に書く）
+- 状態: 済（2026-10-15。GAS の反映〔npm run gas:push〕はフェーズの報告の後にユーザー） ／ ブランチ: `feature/farm-data` ／ マージのコミット: `c4d2400`
 
 - [x] 画面用の farms に `eggs`（id・palId・mutant）・`eggCount`、全体に `farmsPartial` を足す
 - [x] `owned-shared.js` に `OWNED_FARMS_MAX_CHARS`・`OWNED_FARM_EGGS_MAX`・短い鍵の検証・`fitOwnedFarms` を書く
@@ -835,18 +835,18 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 配合牧場ボード・牧場の印・孵化待ちのタマゴ
 
-- 状態: 未着手 ／ ブランチ: `feature/farm-board` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15。GAS の反映〔npm run gas:push と setup()〕はフェーズの報告の後にユーザー。N-08 はユーザーの答えでチップを出さない） ／ ブランチ: `feature/farm-board` ／ マージのコミット: （マージの後に書く）
 
-- [ ] 個体に `farm`（親・タマゴ）を足し、キーワードの status に「配合牧場」「突然変異」
-- [ ] `eggItemId` を正規化と共有の列（`OWNED_ADDED_FIELDS`）に足し、build:gas
-- [ ] `scripts/extract-skills.mjs` で `EGG_NAMES` を取り出し、SOURCES.md に 1 行
-- [ ] 行のバッジ（配合牧場・突然変異・タマゴの名前）
-- [ ] `web/js/ui/farm-board.js`（カード・状態のチップ・タマゴの画像・登録の件数のリンク・一部だけの文）
-- [ ] 所持パルの帯（既定は閉じる・viewState・「右に開く」）とドロワーの入口
-- [ ] `eggMatches` と、理想個体の「孵化させると完成」・目標の行の添え書き
-- [ ] N-08 の上限をユーザーに確かめてもらい、確かめた後にだけチップを出す
-- [ ] テスト（farm-board・ideal-goals・owned・shared・gas・extract-skills）
-- [ ] OPERATIONS.md・SAVE_FORMAT.md・release-notes と、`gas:push`・`setup()` の依頼
+- [x] 個体に `farm`（親・タマゴ）を足し、キーワードの status に「配合牧場」「突然変異」
+- [x] `eggItemId` を正規化と共有の列（`OWNED_ADDED_FIELDS`）に足し、build:gas
+- [x] `scripts/extract-skills.mjs` で `EGG_NAMES` を取り出し、SOURCES.md に 1 行
+- [x] 行のバッジ（配合牧場・突然変異・タマゴの名前）
+- [x] `web/js/ui/farm-board.js`（カード・状態のチップ・タマゴの画像・登録の件数のリンク・一部だけの文）
+- [x] 所持パルの帯（既定は閉じる・viewState・「右に開く」）とドロワーの入口
+- [x] `eggMatches` と、理想個体の「孵化させると完成」・目標の行の添え書き
+- [x] N-08 の上限をユーザーに確かめてもらい、確かめた後にだけチップを出す（2026-10-15 の答え「分からない」で出さない）
+- [x] テスト（farm-board・ideal-goals・owned・shared・gas・extract-skills）
+- [ ] OPERATIONS.md・SAVE_FORMAT.md・release-notes と、`gas:push`・`setup()` の依頼（文書と release-notes は済。依頼はフェーズの報告で）
 
 ### 36. [route-progress](phase-3-4-drawer-data.md#route-progress-継承ルートの進み具合と横断の導線)（M）
 

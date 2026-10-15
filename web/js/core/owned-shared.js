@@ -6,13 +6,13 @@ export const OWNED_FIELDS = [
   'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars',
   'passiveIds', 'passive1', 'passive2', 'passive3', 'passive4', 'talentHp', 'talentShot', 'talentDefense',
   'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner',
-  'skillIds',
+  'skillIds', 'eggItemId',
 ];
 // 後から足した列（OWNED_FIELDS の末尾）。足す前の画面（開いたままのページ）からの共有も受け付けて空として扱い、
-// GAS は setup() を実行し直してシートに列が足されるまで書かずに読む
-export const OWNED_ADDED_FIELDS = ['skillIds'];
+// GAS は setup() を実行し直してシートに列が足されるまで書かずに読む。eggItemId はタマゴのアイテム ID（名前と突然変異。farm-board）
+export const OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId'];
 // 覚えているアクティブスキルの ID（| 区切り）は、ほかの列より長くなる
-const OWNED_TEXT_MAX = { skillIds: 1000 };
+const OWNED_TEXT_MAX = { skillIds: 1000, eggItemId: 64 };
 export const OWNED_MAX_ROWS = 20000;
 // 配合牧場（ワールドの行に JSON で 1 セル）。牧場の ID・拠点・親（個体 ID、2 体まで）と、farm-data で足した短い鍵:
 //   s: 'u'（親が読めない牧場。親は送らない）、eggs: [{ id, p, m }]（牧場の上のタマゴの中身。p はパル ID、m: 1 は突然変異。1 牧場 20 個まで）、

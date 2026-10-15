@@ -1278,6 +1278,73 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 /* :has() は行の出し入れのたびに計算し直させるので使わず、入れ物で決める（owned-rows の決まり） */
 :is(.owned-list, .pal-owned-rows) > .owned-row > :is(.owned-talent, .owned-where), .owned-list .virtual-rows > .owned-row > :is(.owned-talent, .owned-where) { cursor: pointer; }
 .owned-row[aria-current="true"] { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); box-shadow: inset 3px 0 0 var(--md-sys-color-primary); }
+/* 配合牧場ボード（ui/farm-board.js。所持パルの帯と右のドロワー。farm-board） */
+.farm-band { margin: 0 0 12px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; background: var(--md-sys-color-surface-container-low); }
+.farm-band[hidden] { display: none; }
+.farm-band-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 4px; }
+.farm-band-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+}
+.farm-band-toggle::before { content: ''; width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 7px; border-color: transparent transparent transparent currentColor; }
+.farm-band-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.farm-band-toggle:hover { background: var(--state-hover); }
+.farm-band-body { padding: 0 12px 12px; }
+.farm-board-note { margin: 0 0 8px; font-size: 13px; color: var(--md-sys-color-warning); }
+.farm-board-empty { margin: 0; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
+.farm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.farm-board.is-drawer .farm-cards { grid-template-columns: 1fr; }
+.farm-card { display: grid; gap: 8px; align-content: start; padding: 10px 12px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; background: var(--md-sys-color-surface); }
+.farm-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.farm-card-title { margin: 0; font-size: 14px; font-weight: 700; }
+.farm-parents { display: grid; gap: 6px; }
+.farm-parents-note { margin: 0; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
+.farm-parent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.farm-parent:hover { background: var(--state-hover); }
+.farm-parent .pal-icon { width: 36px; height: 36px; grid-row: span 2; }
+.farm-parent.is-missing { display: block; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.farm-parent-info { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.farm-parent-name { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.farm-parent-facts, .farm-parent-owner { font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+.farm-parent-passives { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+.farm-eggs { display: grid; gap: 4px; }
+.farm-eggs p { margin: 0; }
+.farm-eggs-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.farm-eggs-note { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.farm-egg-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.farm-egg .pal-icon { width: 30px; height: 30px; border-radius: 50%; background: var(--md-sys-color-surface-container-high); }
+.farm-egg.is-mutant .pal-icon { box-shadow: 0 0 0 2px var(--md-sys-color-warning); }
+.farm-egg-unknown { display: inline-grid; place-items: center; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.farm-egg-open { display: block; padding: 0; border: 0; border-radius: 50%; background: transparent; }
+.farm-egg-open:hover .pal-icon { background: var(--state-hover); }
+.farm-records { font-size: 12px; font-weight: 700; }
+.badge-mutant { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); font-weight: 700; }
+.badge-farm { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.ideal-hatch { margin: 0 0 10px; font-size: 13px; }
+.ideal-hatch-link { font-weight: 700; }
+.ideal-farms-all { margin-top: 8px; }
 /* 所持パルの個体の詳細（views/owned-detail.js。右のドロワーの中身） */
 .owned-detail { display: grid; gap: 14px; }
 .owned-detail-hero {

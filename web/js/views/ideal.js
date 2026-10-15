@@ -12,7 +12,7 @@ import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/p
 import { talentInput } from '../ui/talent-input.js';
 import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
-import { goalMatches, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
+import { goalMatches, eggMatches, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { passiveCounts, ownedCounts } from '../core/owned.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
@@ -190,10 +190,14 @@ function goalSummary(goal) {
  * 一覧での完成の状態（自分の個体で判定する）。所持パルのデータがない・自分のプレイヤーが分からないときは、
  * 完成していないとは言えないので「未確認」にする。理由は行ごとに繰り返さず、目標のダイアログの表の上に 1 回だけ出す（goalsReason。roles。C-06）
  */
-function goalStatus(goal, pals) {
+// all は全部の個体（孵化待ちのタマゴを数える。自分の個体のタマゴと、拠点に置かれた持ち主のないタマゴ。farm-board）
+function goalStatus(goal, pals, all = null) {
   if (pals === undefined || pals === null) return { done: false, text: '未確認' };
   const found = goalMatches(goal, pals);
-  if (!found.length) return { done: false, text: '未完成' };
+  if (!found.length) {
+    const hatching = all ? eggMatches(goal, all, pals).length : 0;
+    return { done: false, text: hatching ? `未完成（孵化待ちに ${hatching} 個）` : '未完成', hatching };
+  }
   const [first] = found;
   const where = `${first.holder} · ${first.placeLabel}`;
   return { done: true, text: `完成済み: ${where}${found.length > 1 ? ` ほか ${found.length - 1} 体` : ''}` };
@@ -431,6 +435,22 @@ export function idealView(context, route) {
   // 帯の高さは固定（判定が変わっても変わらない）。この目標の組を置いた牧場がない（保留でもない）ときは帯を出さず、場所も取らない（D30。
   // 前は「この目標の組を置いた牧場はありません」と出して場所を残していた。目標を変えたときに下が動くのは利用者の操作なのでよい）
   const missingBox = el('div', 'ideal-missing-note');
+  // 孵化させると完成するタマゴ（今の条件を満たすタマゴ。所持者で絞った個体のタマゴと、拠点に置かれた持ち主のないタマゴ。F048・N-16）。
+  // 押すと所持パルをタマゴ・その種族・欲しいパッシブで開く。0 個なら出さない（目標を変えたときに下が動くのは利用者の操作なのでよい）
+  const hatchBox = el('p', 'ideal-hatch');
+  hatchBox.hidden = true;
+  const hatchLink = link('', '#', 'ideal-hatch-link');
+  hatchBox.append(hatchLink);
+  function renderHatch(pals, candidates) {
+    const eggs = pals && to ? eggMatches({ palId: to, passives, mode: conditions.mode, targets: conditions.targets }, pals, holderNow() ? candidates : null) : [];
+    hatchBox.hidden = !eggs.length;
+    if (!eggs.length) return;
+    const places = [...new Set(eggs.map((pal) => pal.placeLabel || pal.holder))];
+    const text = `孵化させると完成: タマゴ ${eggs.length} 個（${places.slice(0, 2).join('・')}${places.length > 2 ? ' ほか' : ''}）`;
+    if (hatchLink.textContent !== text) hatchLink.textContent = text;
+    hatchLink.href = buildHash('owned', { pal: to, place: 'egg', p: passives.join(','), holder: '' });
+    hatchLink.title = '所持パルでタマゴを開く（孵化させて受け取ると目標が完成します）';
+  }
   const farmStrip = el('div', 'ideal-farm-strip');
   farmStrip.setAttribute('role', 'group');
   farmStrip.setAttribute('aria-label', '配合牧場の判定');
@@ -614,7 +634,7 @@ export function idealView(context, route) {
       reasonAction.href = reason.href;
     }
     const rows = goals.map((goal) => ({
-      goal, status: goalStatus(goal, pals),
+      goal, status: goalStatus(goal, pals, owned?.state?.owned?.pals ?? null),
       facts: { records: index ? findByChild(index, goal.palId).length : 0, holding: holdingOf(goal.palId) },
     }));
     // 完成済みを上に（それぞれ保存の新しい順）
@@ -625,7 +645,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, missingBox, farmStrip, farmBox, results);
+  element.append(heading, panel, missingBox, hatchBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -922,6 +942,12 @@ export function idealView(context, route) {
     farmHead.title = title;
     if (changed) farmBody.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
     if (pending) farmBody.append(el('p', 'ideal-farm-pending', `${pendingReason(farm, { because: true })}ため、交換推奨・空き牧場・使用中の判定を保留しています`));
+    // 目標と関係ない牧場も含めた全部の牧場（右のドロワー。farm-board）
+    if (context.drawer) {
+      const all = button('全部の牧場を見る', () => context.drawer.open({ kind: 'farms', id: '' }, { opener: all }), 'button secondary small ideal-farms-all');
+      all.setAttribute('data-focus-key', 'farms-all');
+      farmBody.append(all);
+    }
     if (rows.length) {
       const list = el('ul', 'ideal-farm-list');
       list.append(...rows.map((row) => farmRow(row, view)));
@@ -1130,6 +1156,7 @@ export function idealView(context, route) {
     renderSave();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
+    renderHatch(pals, pals ? ofHolder(pals) : null);
     if (!pals) {
       clearPlan();
       // データがなければ 1 文と行き先（セーブ連携。登録したワールドがあれば、その行を開く）

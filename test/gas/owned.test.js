@@ -191,3 +191,25 @@ test('所持パル共有: 配合牧場のタマゴ（短い鍵 s・eggs・n）�
   assert.equal(back.world.farms.length, 200);
   assert.ok(back.world.farms.every((farm) => farm.n === 20 && !('eggs' in farm)));
 });
+
+test('所持パル共有: タマゴのアイテム ID（eggItemId 列）を残して返す。列のない古いシートでは書かずに空で返し、setup をやり直すと列を足す', () => {
+  const eggAt = OWNED_FIELDS.indexOf('eggItemId');
+  assert.equal(eggAt, OWNED_FIELDS.length - 1);
+  const env = fixture();
+  env.call('ownedUpload', upload(WORLD_A, [row('e1', { egg: '1', eggItemId: 'PalEgg_Dark_03' })]));
+  assert.equal(env.call('owned', { worldId: WORLD_A }).rows[0][eggAt], 'PalEgg_Dark_03');
+  const old = fixture();
+  const sheet = old.pals();
+  const at = sheet.data[0].indexOf('eggItemId');
+  for (const line of sheet.data) line.splice(at, 1);
+  assert.equal(old.call('ownedUpload', upload(WORLD_A, [row('e1', { eggItemId: 'PalEgg_Dark_03' })])).stored, true);
+  const before = old.call('owned', { worldId: WORLD_A });
+  assert.deepEqual([before.rows[0][0], before.rows[0][eggAt]], ['e1', '']);
+  // eggItemId を知らない前の版の画面（skillIds まで）からの共有も受け付ける
+  const legacy = old.call('ownedUpload', upload(WORLD_A, [row('e2').slice(0, eggAt)], '2026-10-05T11:00:00.000Z', { columns: OWNED_FIELDS.slice(0, eggAt) }));
+  assert.equal(legacy.stored, true);
+  old.gas.setup();
+  assert.equal(sheet.data[0][sheet.data[0].length - 1], 'eggItemId');
+  old.call('ownedUpload', upload(WORLD_A, [row('e3', { eggItemId: 'PalEgg_Fire_01' })], '2026-10-05T12:00:00.000Z'));
+  assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[eggAt]]), [['e3', 'PalEgg_Fire_01']]);
+});

@@ -77,7 +77,7 @@ function problems(state, now) {
  * ヘッダーの部品。中身は textContent・className・title だけを書き換える（作り直さない）。
  * ヘッダーはアプリと同じ寿命だが、テストのために destroy で購読を全部外せる。
  */
-export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen }) {
+export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen, openFarms }) {
   const element = el('div', 'save-status');
   const trigger = button('', onClick, 'save-status-button');
   trigger.setAttribute('aria-haspopup', 'dialog');
@@ -116,8 +116,14 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     // 設定のセーブ連携のカード（状態の欄の操作〔許可・今すぐ読み込む〕か見出しへフォーカス。router.js の settingsHash の 'status'）
     const settings = link('設定を開く', settingsHash('', 'status'), 'save-status-settings');
     settings.addEventListener('click', () => popup.close({ focus: false }));
+    // 全部の配合牧場を右のドロワーで（牧場の情報があるときだけ。farm-board）
+    const farms = button('配合牧場を見る', () => {
+      popup.close({ focus: false });
+      openFarms?.(trigger);
+    }, 'button secondary');
+    farms.hidden = true;
     const actions = el('div', 'header-panel-actions');
-    actions.append(grant, reload, settings);
+    actions.append(grant, reload, farms, settings);
     panel.replaceChildren(el('h2', '', 'セーブ連携'), details, issues, actions);
     const render = () => {
       const state = owned.state;
@@ -135,6 +141,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       issues.hidden = !found.length;
       grant.hidden = !(state.auto.enabled && state.auto.status === 'permission');
       reload.hidden = !state.auto.worlds?.length;
+      farms.hidden = !openFarms || !Array.isArray(state.owned?.farms);
       reload.disabled = state.busy;
       settings.href = settingsHash(state.linkedWorldId || state.meta?.worldId || '', 'status');
     };

@@ -767,24 +767,44 @@
 - body: 「所持パルの上に全部の牧場の親・タマゴ・預けた人を出します。孵化で完成するタマゴも示します。」（45 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モック（inject.js の配合牧場 3 か所・牧場の上のタマゴ）で、所持パルの帯に 3 か所のカードが出て、タマゴの中身の画像と状態のチップが正しい。閉じた状態がタブを替えても残る。
-- [ ] 所持パルのキーワード「配合牧場」で牧場の親とタマゴに絞れる。
-- [ ] 理想個体で、条件を満たすタマゴがあるときだけ「孵化させると完成」の 1 行が出て、押すと所持パルのタマゴの絞り込みに着く。
-- [ ] GAS の反映（`npm run gas:push` と `setup()`）の手順をユーザーに伝える。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — カードに「→ 子」を書かず、タマゴの中身を「A×B→C」の式で出さない。互換 — `eggs: null`・`farms: null`・`eggItemId` の列のない共有で「情報なし」と出て壊れない。セキュリティ — 名前は textContent（`test/static/security.test.js`）。性能 — 帯は閉じている間カードを作らず、所持パル 2,000 行の予算を守る。
+- [x] `npm test` が通る。
+- [x] モック（inject.js の配合牧場 3 か所・牧場の上のタマゴ）で、所持パルの帯に 3 か所のカードが出て、タマゴの中身の画像と状態のチップが正しい。閉じた状態がタブを替えても残る。
+- [x] 所持パルのキーワード「配合牧場」で牧場の親とタマゴに絞れる。
+- [x] 理想個体で、条件を満たすタマゴがあるときだけ「孵化させると完成」の 1 行が出て、押すと所持パルのタマゴの絞り込みに着く。
+- [x] GAS の反映（`npm run gas:push` と `setup()`）の手順をユーザーに伝える。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — カードに「→ 子」を書かず、タマゴの中身を「A×B→C」の式で出さない。互換 — `eggs: null`・`farms: null`・`eggItemId` の列のない共有で「情報なし」と出て壊れない。セキュリティ — 名前は textContent（`test/static/security.test.js`）。性能 — 帯は閉じている間カードを作らず、所持パル 2,000 行の予算を守る。
 
 ### TODO
-- [ ] 個体に `farm`（親・タマゴ）を足し、キーワードの status に「配合牧場」「突然変異」
-- [ ] `eggItemId` を正規化と共有の列（`OWNED_ADDED_FIELDS`）に足し、build:gas
-- [ ] `scripts/extract-skills.mjs` で `EGG_NAMES` を取り出し、SOURCES.md に 1 行
-- [ ] 行のバッジ（配合牧場・突然変異・タマゴの名前）
-- [ ] `web/js/ui/farm-board.js`（カード・状態のチップ・タマゴの画像・登録の件数のリンク・一部だけの文）
-- [ ] 所持パルの帯（既定は閉じる・viewState・「右に開く」）とドロワーの入口
-- [ ] `eggMatches` と、理想個体の「孵化させると完成」・目標の行の添え書き
-- [ ] N-08 の上限をユーザーに確かめてもらい、確かめた後にだけチップを出す
-- [ ] テスト（farm-board・ideal-goals・owned・shared・gas・extract-skills）
-- [ ] OPERATIONS.md・SAVE_FORMAT.md・release-notes と、`gas:push`・`setup()` の依頼
+- [x] 個体に `farm`（親・タマゴ）を足し、キーワードの status に「配合牧場」「突然変異」
+- [x] `eggItemId` を正規化と共有の列（`OWNED_ADDED_FIELDS`）に足し、build:gas
+- [x] `scripts/extract-skills.mjs` で `EGG_NAMES` を取り出し、SOURCES.md に 1 行
+- [x] 行のバッジ（配合牧場・突然変異・タマゴの名前）
+- [x] `web/js/ui/farm-board.js`（カード・状態のチップ・タマゴの画像・登録の件数のリンク・一部だけの文）
+- [x] 所持パルの帯（既定は閉じる・viewState・「右に開く」）とドロワーの入口
+- [x] `eggMatches` と、理想個体の「孵化させると完成」・目標の行の添え書き
+- [x] N-08 の上限をユーザーに確かめてもらい、確かめた後にだけチップを出す
+- [x] テスト（farm-board・ideal-goals・owned・shared・gas・extract-skills）
+- [x] OPERATIONS.md・SAVE_FORMAT.md・release-notes と、`gas:push`・`setup()` の依頼
+
+### 実装の記録（2026-10-15、ブランチ `feature/farm-board`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の route-progress・goals-detail・save-extras はこちらを正とする）。着手の前にユーザーに確かめた（2026-10-15）: 共有の個体の列 `eggItemId` を足す（「列を足す」）、タマゴの名前の表をゲーム本体から取り出して data/SOURCES.md に 1 行（「取り出して SOURCES.md に 1 行」）、N-08 の牧場のタマゴの上限は分からないのでチップは出さない（「分からないのでチップは出さない」）。
+
+1. **個体の牧場の印（手順 1）**: core/owned.js の `attachFarms(entries, farms)` を `normalizeOwned` と `ownedFromShared` の最後で呼び、各個体に **`farm: { id, baseId, role: 'parent' | 'egg', mutant } | null`**（文書の形に `mutant` を足した。共有で列のない古い形でも、牧場の上のタマゴの突然変異が分かるように）。牧場の中身を省いた共有（`eggs: null`）のタマゴには付かない。読めない牧場の親も、引けた分は親として付ける。キーワードの status に「配合牧場」「突然変異」と**タマゴの名前**（文書にない。「デカタマゴ」で探せる）。`isMutantEgg(pal)`（アイテム ID か牧場の印）と `eggName(itemId)` を export。
+2. **タマゴのアイテム ID（手順 2）**: 画面用の個体に `eggItemId`（タマゴのとき `location.itemId`、64 字まで）。共有は `OWNED_FIELDS` の末尾に `eggItemId`、`OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId']`、`OWNED_TEXT_MAX.eggItemId = 64`。`npm run build:gas` で gas/Shared.js を作り直した。GAS は今の仕組みのまま（`setup()` をやり直すまで書かずに読む・前の版の画面〔skillIds まで〕からの共有も受け付ける）。**反映（`npm run gas:push` と GAS エディタの `setup()`）はフェーズの報告の後にユーザー**。
+3. **タマゴの名前の表（手順 3）**: `scripts/extract-skills.mjs` に `buildEggNames(itemNames)`・`renderEggNames(eggs)` を足し、`npm run extract:skills` が `web/data/items.js` の **`EGG_NAMES`**（アイテム ID → 名前。56 件）も書き出す。ゲーム本体（G:\SteamLibrary\steamapps\common\Palworld の Pal-Windows.pak。読み取りのみ）から取り出した（同じ実行で書き直された skills.js は改行の違いだけだったので戻した）。名前は「暗黒デカタマゴ」「突然変異タマゴ」など。data/SOURCES.md の出典の表に 1 行と変更記録。
+4. **行の印（手順 4）**: 文書の「『孵化前』の代わりにタマゴの名前」は、**名前の下の印の 1 行（`.owned-badges`）の「タマゴ」の印をタマゴの名前に替える形**にした（Lv・★の列は 72px で「ゴツゴツしたキョダイタマゴ」が入らないため。Lv の列は「—」のまま）。印は「突然変異」（`badge-mutant`。warning の色）・「配合牧場」／「配合牧場のタマゴ」（`badge-farm`。secondary-container）。行の署名（`baseSignature`）と印のセルの書き換えの鍵に `eggItemId`・`farm.role`・突然変異を足した。個体の詳細（owned-detail）の頭の印も同じ。
+5. **牧場ボードの部品（手順 5）**: **`web/js/ui/farm-board.js` の `farmBoard(context, { mode })` → `{ element, title: '配合牧場', update(), summary(), destroy() }`** と `farmState(farm, byId)`・`FARM_EGGS_SHOWN`（20）・`FARM_EGG_CAP`（0＝出さない）。owned と store を自分で購読し、データ・記録の索引が変わったときだけ `syncList` で描き直す（カードの鍵は中身の署名）。カード: 見出し「拠点 1 の牧場 A」（ideal-farms の `farmNames`）と状態のチップ（配合中・片親・同性〔性別が分かって同じ〕・空き・読めませんでした）、親は**押すと個体の詳細を開くボタン**（絵・性別・名前・「Lv 30 · 個体値 計 187」・「Alice が預けた」・パッシブ 4 つまで）、「タマゴ n 個」と中身の絵（20 個まで、突然変異は黄色の輪、押すとそのタマゴの個体の詳細。中身の分からないタマゴは「?」）・「ほか n 個」、その組の登録の件数のリンク「この組の登録 n 件を見る」（`#/search?p1=&p2=`。**文書の「→」は付けない**〔カードに「→」を出さない INV-2 の回帰のテストと合わせた〕）。`eggs: null` は「中身はホストの画面で見られます」、`farmsCounted: false` は「タマゴの情報なし（…）」、`farmsPartial` は上に「牧場の情報が一部です（共有の上限のため）。」、牧場 0 件は「配合牧場はまだありません。」、farms が null は「このデータには配合牧場の情報がありません…」。並びは拠点の並び → 名前。
+6. **置き場所（手順 6）**: 所持パルの画面の **`section.farm-band`**（要約の下・絞り込みのパネルの上）。頭の行は `button.farm-band-toggle`（aria-expanded・aria-controls。「▸ 配合牧場（3 か所 · タマゴ 2 個）」。数の分からない古い形ではタマゴの数を出さない）と「右に開く」（secondary small）。**文書の `details` ではなく下書きの帯と同じ押しボタンにした**（右に開くボタンを頭の行に並べるため）。開閉は `viewState('owned').farmsOpen`。ボードは開いている間だけ作り、閉じたら destroy。ドロワーの中身の表に `farms: () => farmBoard(context, { mode: 'drawer' })`（1 列）。入口: 帯の「右に開く」、ヘッダーのセーブ連携のパネルの **「配合牧場を見る」**（`saveStatus({ …, openFarms })`。牧場の情報があるときだけ。閉じてからドロワー、閉じたらセーブ連携のボタンへフォーカス）、理想個体の配合牧場の詳細の中の **「全部の牧場を見る」**（文書の「sticky 行の見出しに」は、帯が 1 行の高さで固定なので詳細の中に置いた）。
+7. **孵化待ち（手順 7）**: core/ideal-goals.js の **`eggMatches(goal, pals, mine?)`**（`goalTest(goal, { egg: true })` でタマゴだけ。mine を渡すとそのタマゴと持ち主のないタマゴだけ。`goalMatches` の結果は変わらない）。理想個体の画面の **`p.ideal-hatch`**（足りないパッシブの案内の下）: 今の条件（種族・欲しいパッシブ・パッシブの条件・個体値）で、所持者で絞った個体のタマゴ（「すべて」なら全部）と持ち主のないタマゴを数え、「孵化させると完成: タマゴ 1 個（タマゴ（地面）・拠点 1）」と所持パルへのリンク（`#/owned?pal=&place=egg&p=`。所持者は付けない＝すべて）。0 個なら出さない（ideal-panel の固定スロットには入れていない。目標を変えたときに動くのは利用者の操作）。目標の一覧の未完成の行は「未完成（孵化待ちに n 個）」（`goalStatus(goal, mine, all)`）。ベルは鳴らさない。
+8. **N-08（手順 8）**: ユーザーの答えでチップを出さない（`FARM_EGG_CAP = 0`）。上限が分かったら定数を入れるだけで「もうすぐいっぱい（18/20）」が出る。手元の実セーブでは 1 牧場に 19 個まであった（farm-data の check-save）。
+9. **テスト**: 1,625 → 1,635 件（`npm test` exit 0）。新規 test/web/farm-board.test.js（4 件: 並びと状態のチップ・親を押すと詳細・20 個と「ほか n 個」と突然変異・中身を省いた共有と古い形と一部だけ・登録の件数のリンクと「→」と子の名前がない〔INV-2〕・読み直しと 0 件）。owned.test.js（牧場の印・eggItemId・タマゴの名前・キーワード・共有の往復と列のない古い共有）、owned-farms は farm-data の分、gas/owned.test.js（`eggItemId` の列の往復・列のない古いシート・setup で足す）、static/extract-skills.test.js（`buildEggNames`・`EGG_NAMES`）、ideal-goals.test.js（`eggMatches`）、ideal-view.test.js（孵化待ちの 1 行と行き先・ない条件では出さない・画面の子の並び）、owned-view.test.js（帯の文・既定で閉じてカードなし・開くと 2 枚・viewState で残る・「右に開く」・牧場の情報がなければ隠す・画面の子の並び）。`npm run test:perf` の owned.perf.js も通る（行の要素の数は変わらない）。
+10. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/phase-3/b01-farm-board.js`）**: ホスト（inject.js の 138 体・牧場 3 か所）で帯「配合牧場（3 か所 · タマゴ 2 個）」とカード 3 枚（`b01-…`）、キーワード「配合牧場」で 8 体（親 6・タマゴ 2）に「配合牧場」の印（`b02-…`）、セーブ連携のパネルの「配合牧場を見る」でドロワーにカード 3 枚（`b03-…`）、親を押すと「アヌビス」の個体の詳細が積まれ「←」で戻る、ダーク（`b04-…`）。参加者（`127.0.0.1:5191/?mock=1&seed=80&as=viewer`）で、共有の牧場 3 か所（配合中・片親・空き）とタマゴ 3 個（突然変異 1 個に黄色の輪）、行に「配合牧場」「配合牧場のタマゴ」「突然変異」（`b05-…`）。どのカードにも「→」はない。
+    - **確かめていないこと**: 実セーブ（ホストの PC）での帯とタマゴの名前（モックの所持パルにタマゴのアイテム ID がないため）。GAS に反映した後の参加者の画面（`gas:push` と `setup()` の後）。
+11. **後のテーマへの申し送り**:
+    - route-progress: 「牧場に配置中」は個体の `farm?.role === 'parent'`、「タマゴあり」は `farm?.role === 'egg'` か `farms[].eggs` の `palId`。
+    - goals-detail: 目標の一覧の行の状態は `goalStatus(goal, mine, all)` の `{ done, text, hatching }`（孵化待ちの数）。行の形を変えるときに `hatching` を「孵化待ち」の添え書きに使う。
+    - save-extras: 牧場のケーキの残りを足すなら、ボードのカード（`cardOf`）の「タマゴ n 個」の下に。
 
 ---
 
