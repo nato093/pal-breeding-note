@@ -16,6 +16,8 @@
     "extract:passive-icons": "node scripts/extract-passive-icons.mjs",
     "extract:humans": "node scripts/extract-humans.mjs",
     "extract:skills": "node scripts/extract-skills.mjs",
+    "extract:ui-icons": "node scripts/extract-ui-icons.mjs",
+    "extract:work": "node scripts/extract-work.mjs",
     "build:gas": "node scripts/build-gas.mjs",
     "fetch:icons": "node scripts/fetch-icons.mjs",
     "dev": "node scripts/dev-server.mjs",

@@ -112,3 +112,32 @@ test('buildPals: 名前で突合できない属性は図鑑ラベルで補い、
   assert.deepEqual(report.missingIcon, ['Alpha_Ground']);
   assert.deepEqual(elementNames, { Water: '水', Ground: '地' });
 });
+
+// game-assets: 作業適性は pals.js ではなく別の生成ファイル（web/data/work.js。ゲーム本体の表から npm run extract:work）に持つ。
+// INV-2: 同じ表にある配合の値（CombiRank など）が混じらない（値は作業の鍵と 1 以上の整数だけ）
+test('INV-2: 作業適性（web/data/work.js）は作業の鍵と 1 以上の整数だけで、配合の値を含めない', async () => {
+  const { default: work, WORKS } = await import('../web/data/work.js');
+  const keys = Object.keys(WORKS);
+  assert.ok(keys.length >= 10, `作業の種類 ${keys.length}`);
+  for (const [key, kind] of Object.entries(WORKS)) {
+    assert.match(key, /^[A-Za-z]+$/);
+    assert.deepEqual(Object.keys(kind).sort(), ['icon', 'ja'], key);
+    assert.ok(kind.ja && kind.ja !== key, `${key} の日本語名`);
+    if (kind.icon) assert.ok(fs.existsSync(`web/img/work/${kind.icon}`), kind.icon);
+  }
+  // パル ID はマスターと同じ（全員）。値は作業の鍵 → 1 以上の整数だけ
+  assert.deepEqual(Object.keys(work).sort(), pals.map((p) => p.id).sort());
+  for (const [id, entry] of Object.entries(work)) {
+    for (const [key, level] of Object.entries(entry)) {
+      assert.ok(keys.includes(key), `${id}: ${key}`);
+      assert.ok(Number.isInteger(level) && level >= 1, `${id}.${key} = ${level}`);
+    }
+  }
+  const source = fs.readFileSync('web/data/work.js', 'utf8');
+  assert.doesNotMatch(source.replace(/^\s*\/\/.*$/gm, ''), /Combi|Breed|Rarity|Price/i);
+  assert.match(source, /自動生成/);
+  assert.match(source, /手で編集しない/);
+  // 取り出しのスクリプトも、残すのは WorkSuitability_* の列だけ
+  const script = fs.readFileSync('scripts/extract-work.mjs', 'utf8');
+  assert.match(script, /keep: \(name\) => columns\.includes\(name\)/);
+});
