@@ -225,6 +225,8 @@ const speciesIndex = memo((pals) => {
     const size = group.pals.length;
     group.talent = { hp: new Int16Array(size), shot: new Int16Array(size), defense: new Int16Array(size) };
     group.distinct = new Uint8Array(size);
+    // 個体値の目標ごとの、目標に届く個体の位置（talentReach。目標の一覧の手術で完成できる個体の数え上げに使う）
+    group.reach = new Map();
     group.pals.forEach((pal, at) => {
       for (const key of GOAL_STATS) group.talent[key][at] = pal.talent[key];
       group.distinct[at] = distinctCount(pal.passives);
@@ -236,14 +238,15 @@ const speciesIndex = memo((pals) => {
 /**
  * 目標の一覧の 1 行に要るもの（goals-detail）: 完成品（goalMatches と同じ個体・同じ並び）と、完成品がなければいちばん近い個体（goalNearest と同じ）。
  * 種族ごとの索引を使い、目標ごとには欲しいパッシブを持つ個体の数え上げと個体値の型付き配列だけを見る。
- * canAdd（パッシブ ID → 後から付けられるか）を渡すと、足りないパッシブをすべて後から付ければ完成する個体のうち、いちばん良い 1 体と数（addable）も
- * 同じ数え上げで求める（implants の「手術で完成できる」。views/ideal.js が手術台の表〔core/implants.js の canImplant〕を渡す。この関数は表を知らない）。
+ * canAdd（パッシブ ID → 後から付けられるか）を渡すと、完成品がないときだけ、足りないパッシブをすべて後から付ければ完成する個体のうち、
+ * いちばん良い 1 体と数（addable）も同じ数え上げで求める（implants の「手術で完成できる」。views/ideal.js が手術台の表〔core/implants.js の
+ * canImplant〕を渡す。この関数は表を知らない。目標の一覧は完成品があれば「完成済み」で、手術の判定を使わない）。
  * 1 体と数だけにするのは、目標 100 件 × 同じ種族 20,000 行で全部の個体を並べると 0.7 秒止まったため（全部は goalAddable）
  * @param {object} goal cleanGoal で整えたもの
  * @param {object[]} pals 自分の個体
  * @param {{ canAdd?: ((passiveId: string) => boolean) | null }} [options]
  * @returns {{ found: object[], nearest: ReturnType<typeof goalNearest>, addable: { pal: object, add: string[], count: number } | null }}
- *   addable は canAdd がない・そういう個体がいなければ null（並びは goalAddable の先頭と同じ）
+ *   addable は canAdd がない・完成品がある・そういう個体がいなければ null（並びは goalAddable の先頭と同じ）
  */
 export function goalProgress(goal, pals, { canAdd = null } = {}) {
   return progressOf(goal, pals, false, canAdd);
@@ -278,7 +281,8 @@ function progressOf(goal, pals, withNearest, canAdd = null) {
       if (talent.hp[at] >= hp && talent.shot[at] >= shot && talent.defense[at] >= defense) found.push(group.pals[at]);
     }
   }
-  const addable = canAdd ? bestAddable(scan, canAdd) : null;
+  // 完成品があれば手術で完成できる個体は数えない（目標の一覧は完成済みと出す。性能 3: 種族の個体をもう 1 周しない）
+  const addable = canAdd && !found.length ? bestAddable(scan, canAdd) : null;
   if (found.length && !withNearest) return { found, nearest: null, addable };
   // いちばん近い個体: 欲しいパッシブを持つ数が最も多い個体のうち、足りない個体値の合計が少ない順 → 個体 ID
   let best = -1;
@@ -298,6 +302,22 @@ function progressOf(goal, pals, withNearest, canAdd = null) {
 
 // 個体が持てるパッシブの数（ゲームの枠）
 const PASSIVE_SLOTS = 4;
+// 種族の索引ごとに覚える、個体値の目標の数（目標が違う個体値で 100 件あっても、覚える量を抑える）
+const REACH_MEMORY = 16;
+
+// 個体値の目標（[hp, shot, defense]。0 は条件なし）に届く個体の位置（昇順）。種族の索引（個体の配列ごとに作り直す）に目標ごとに覚える
+function talentReach(group, [hp, shot, defense]) {
+  const key = `${hp},${shot},${defense}`;
+  const known = group.reach.get(key);
+  if (known) return known;
+  const { talent } = group;
+  const list = [];
+  for (let at = 0; at < group.pals.length; at++) {
+    if (talent.hp[at] >= hp && talent.shot[at] >= shot && talent.defense[at] >= defense) list.push(at);
+  }
+  if (group.reach.size < REACH_MEMORY) group.reach.set(key, list);
+  return list;
+}
 
 /**
  * 足りないパッシブ（1 個以上）をすべて後から付ければ完成する個体の位置ごとに visit(at) を呼ぶ。完成品（足りないものがない個体）は入れない。
@@ -305,7 +325,8 @@ const PASSIVE_SLOTS = 4;
  * 足りないパッシブの数以下（付けるときに余計なものの枠へ上書きするので、その数までしか消せない）・付けた後の数が枠を超えない
  *（持っている数＋足りない数−上書きする余計な数。「全部持つ」は余計なものへも上書きできるので、欲しいものが 4 個までならいつも収まる）
  */
-function scanAddable({ group, wanted, counts, target: [hp, shot, defense], only }, canAdd, visit) {
+function scanAddable({ group, wanted, counts, target, only }, canAdd, visit) {
+  const [hp, shot, defense] = target;
   const hard = wanted.filter((id) => !canAdd(id));
   const { talent, distinct } = group;
   // 付けられないパッシブがあれば、それを全部持つ個体だけを見る（いちばん少ない持ち主の一覧から引き、残りは数えて確かめる）
@@ -317,6 +338,13 @@ function scanAddable({ group, wanted, counts, target: [hp, shot, defense], only 
     if (!positions.length) return;
     hardCounts = new Uint8Array(group.pals.length);
     for (const list of lists) for (const at of list) hardCounts[at]++;
+  }
+  // 個体値の目標があれば、目標に届く個体の一覧の方が短ければそちらから引く（目標の一覧は同じ個体値の目標〔既定の 100・100・100〕が多く、
+  // 届く個体はわずかなので、種族の全部の個体をもう 1 周しない。性能 3）
+  if (hp || shot || defense) {
+    const reach = talentReach(group, target);
+    if (!positions || reach.length < positions.length) positions = reach;
+    if (!positions.length) return;
   }
   const check = (at) => {
     const missing = wanted.length - counts[at];

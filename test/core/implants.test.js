@@ -106,17 +106,38 @@ test('goalNear: 全部の個体を 1 体ずつ見る素朴な決め方と同じ�
     return out.sort((a, b) => a.add.length - b.add.length || b.pal.level - a.pal.level || (a.pal.id < b.pal.id ? -1 : 1));
   };
   let found = 0;
+  let both = 0;
   for (let i = 0; i < 80; i++) {
     const target = goal({ id: `g${i}`, palId: pick(['X', 'Y']), passives: ids.filter(() => random() < 0.35).slice(0, 4), mode: pick(['include', 'only']),
       targets: { hp: pick([0, 50]), shot: pick([0, 50, 100]), defense: pick([0, 100]) } });
     const near = goalNear(target, pals);
     assert.deepEqual(near.map((item) => [item.pal.id, item.add]), naive(target).map((item) => [item.pal.id, item.add]), `目標 ${i}`);
-    // 目標の一覧（goalProgress の addable）は、同じ並びの先頭の 1 体と数だけ
+    // 目標の一覧（goalProgress の addable）は、同じ並びの先頭の 1 体と数だけ。完成品があれば求めない（一覧は「完成済み」。性能 3）
     const best = goalProgress(target, pals, { canAdd: canImplant }).addable;
-    assert.deepEqual(best && [best.pal.id, best.add, best.count], near.length ? [near[0].pal.id, near[0].add, near.length] : null, `目標の一覧 ${i}`);
+    const complete = goalMatches(target, pals).length > 0;
+    assert.deepEqual(best && [best.pal.id, best.add, best.count], near.length && !complete ? [near[0].pal.id, near[0].add, near.length] : null, `目標の一覧 ${i}`);
     if (near.length) found++;
+    if (near.length && complete) both++;
   }
   assert.ok(found > 10, `手術で完成できる目標 ${found}`);
+  assert.ok(both > 0, `完成品もある目標 ${both}`);
+});
+
+test('goalProgress: 個体値の目標に届く個体の一覧は、同じ個体の配列の間は目標ごとに使い回し、別の目標・作り直した配列でも正しく数える', () => {
+  const pals = [
+    pal('a', 'X', ['Rare'], talent(100, 100, 100)), pal('b', 'X', ['Rare'], talent(100, 90, 100)), pal('c', 'X', [], talent(100, 100, 100)),
+  ];
+  const progress = (targets, list = pals) => goalProgress(goal({ palId: 'X', passives: [SPEED, 'Rare'], targets }), list, { canAdd: canImplant }).addable;
+  // 個体値 100・100・100 に届くのは a と c。c は希少を持たない（付けられないので数えない）
+  assert.deepEqual([progress(talent(100, 100, 100)).pal.id, progress(talent(100, 100, 100)).count], ['a', 1]);
+  // 攻撃 90 なら b も届く。同じ配列でも目標ごとに数え直す
+  assert.deepEqual([progress(talent(100, 90, 100)).pal.id, progress(talent(100, 90, 100)).count], ['a', 2]);
+  // 届く個体がいなければ null
+  assert.equal(progress(talent(100, 100, 100), [pals[1]]), null);
+  // 配列を作り直したら（読み直し）、前の一覧を使わない
+  const changed = [{ ...pals[0], talent: talent(100, 50, 100) }, pals[1], pals[2]];
+  assert.equal(progress(talent(100, 100, 100), changed), null);
+  assert.deepEqual([progress(talent(100, 90, 100), changed).pal.id, progress(talent(100, 90, 100), changed).count], ['b', 1]);
 });
 
 test('cleanSurgery: パッシブ ID の形・手術台で付けられる・欲しいパッシブと重ならない・合わせて 4 個まで。捨てたら changed', () => {

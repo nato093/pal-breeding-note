@@ -999,8 +999,9 @@ export function genderFlipHints(input, before = null) {
  *（計画では確実な組の後ろに回る組で、性別を変える根拠にしない）。
  * @param {object} input idealPlan と同じ入力（pals・index・target・passives・mode・targets・cake。limit・prefer・watch は使わない）
  * @param {number | null} before 今の計画の 1 番の完全体作成組の完成までの平均（planSpeed。完全体作成組がなければ null）
- * @returns {{ hints: { pal: object, to: 'M'|'F', partner: object, eggs: number }[], more: number, before: number | null }}
- *   hints は値（eggs）の小さい順（同じなら計画の並びと同じ決め方）に REVERSER_SHOWN 体まで、more は残りの体数
+ * @returns {{ hints: { pal: object, to: 'M'|'F', partner: object, eggs: number, either: boolean }[], more: number, before: number | null }}
+ *   hints は値（eggs）の小さい順（同じなら計画の並びと同じ決め方）に REVERSER_SHOWN 行まで、more は残りの行の数。
+ *   同じ 2 体を向きだけ変えた 2 つの案内（pal を to に〔相手 partner〕と partner を to に〔相手 pal〕）は先の 1 行にまとめ、either を true にする
  */
 export function* genderFlipSteps({ pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none' }, before = null) {
   let work = 0;
@@ -1140,8 +1141,20 @@ export function* genderFlipSteps({ pals, index, target, passives = [], mode = 'i
     }
   }
   found.sort((a, b) => comparePlan(a.pair, b.pair));
-  return {
-    hints: found.slice(0, REVERSER_SHOWN).map(({ pal, to, partner, eggs }) => ({ pal, to, partner, eggs })),
-    more: Math.max(0, found.length - REVERSER_SHOWN), before: base,
-  };
+  // 同じ 2 体を向きだけ変えた案内（「A を ♀ に〔相手 B〕」と「B を ♀ に〔相手 A〕」。同じ種族の、もとは同じ性別の 2 体）は 1 行にまとめ、
+  // 先の行に either を付ける（「A か B のどちらかを ♀ に」。フェーズ 4 の終わりのレビューの操作性 9）。上位 REVERSER_SHOWN 行と残りの数は、
+  // まとめた後の行で数える
+  const rows = [];
+  const byPair = new Map();
+  for (const { pal, to, partner, eggs } of found) {
+    const twin = byPair.get(`${partner.id}\u0001${pal.id}\u0001${to}`);
+    if (twin) {
+      twin.either = true;
+      continue;
+    }
+    const row = { pal, to, partner, eggs, either: false };
+    byPair.set(`${pal.id}\u0001${partner.id}\u0001${to}`, row);
+    rows.push(row);
+  }
+  return { hints: rows.slice(0, REVERSER_SHOWN), more: Math.max(0, rows.length - REVERSER_SHOWN), before: base };
 }

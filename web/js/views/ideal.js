@@ -44,8 +44,9 @@ const TALENT_LABELS = { hp: 'HP', shot: '攻撃', defense: '防御' };
 // 条件のパネルの押しボタンの短いラベル（長い説明は core/ideal.js の PASSIVE_MODES・CAKES の文を title に出す）
 const MODE_LABELS = { include: '全部持つ', only: 'だけ' };
 const CAKE_LABELS = { none: 'なし', talent: 'キノコ等', special: 'スペシャル' };
-// ケーキの押しボタンのアイコン（web/img/item/ の下。core/ideal.js の CAKES の鍵 → ゲームのケーキのアイテム ID）
-const CAKE_ICONS = { none: 'cake-Cake', talent: 'cake-Cake02', special: 'cake-Cake05' };
+// ケーキの押しボタンのアイコン（web/img/item/ の下。core/ideal.js の CAKES の鍵 → ゲームのケーキのアイテム ID）。「なし」は文と食い違うので
+// 絵を出さない（フェーズ 4 の終わりのレビューの操作性 10。押しボタンの幅は CSS の .cake-plain で前と同じにする）
+const CAKE_ICONS = { talent: 'cake-Cake02', special: 'cake-Cake05' };
 const shortChoices = (choices, labels) => choices.map(([key, text]) => [key, labels[key] ?? text, text]);
 
 const targetValue = (value) => intIn(value, { min: 0, max: 100, fallback: 100 });
@@ -76,17 +77,9 @@ const IMPLANT_ICONS = { reusable: 'PalPassiveSkillChange', consumable: 'PalPassi
 // パルリバーサー（性別の変更。implants・D17）のアイコン（web/img/item/ の下）
 const REVERSER_ICON = `item/${GENDER_REVERSE_ITEM}.png`;
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
-
-/**
- * 配合の計画（idealPlanSteps）の後に続けて、パルリバーサーの案内（genderFlipSteps。implants・D17）を区切って求める。
- * 計画と案内がそろってから一緒に描く（案内だけ後から出して結果を押し下げない）。flipInput が null なら案内は求めない（消した目標）。
- * reuse は描いている同じ計画（消した案内を戻したとき。計画は計算し直さず、案内だけを求める）
- */
-function* planSteps(input, flipInput, reuse = null) {
-  const result = reuse ?? (yield* idealPlanSteps(input));
-  const reverser = flipInput ? yield* genderFlipSteps(flipInput, planSpeed(result)) : null;
-  return { ...result, reverser };
-}
+// パルリバーサーの案内が出ないと計算の前に分かる計画（目標の種族の性別の分かる親の候補がいない・欲しいパッシブを候補のだれも持たない。
+// core/ideal.js の genderFlipSteps が、どちらも案内なしで返す条件と同じ）。案内は求めない（フェーズ 4 の終わりのレビューの性能 1）
+const flipNeeded = (result) => !result.missing.length && result.sameSpecies.M + result.sameSpecies.F > 0;
 
 // 中身が変わったときだけ作り直されるもの（配合の index）を、計算の署名に入れる番号にする
 const objectIds = new WeakMap();
@@ -230,18 +223,23 @@ function goalGap(goal, near) {
   if (near.extra) parts.push(`余計なパッシブ ${near.extra}`);
   return parts.join(' · ');
 }
-// 手術で完成できる個体の 1 行（implants の X-26）: 「アヌビス♂ Lv52（拠点 1）＋神速（使い切りインプラント・在庫 4）」。2 体以上なら
-//「 · ほか n 体」。目標の一覧の状態の欄は狭いので、アイテムは種類だけ（アイテム名は「使い切りインプラント：〈パッシブ〉」で、パッシブ名と重なる）、
-// パルボックスの場所は行と同じ短い形（P4 · 2-5）。在庫は手元で読んだホストのデータ（data の items）のときだけ添える（参加者・在庫を読む前の
-// データは添えない）
+// 手術で完成できる個体の 1 行（implants の X-26）: 「アヌビス♂ Lv52（P4 · 2-5）＋神速（在庫 4）」。2 体以上なら「 · ほか n 体」。
+// 目標の一覧の状態の欄は狭いので、付けるものの括弧は在庫（手元で読んだホストのデータ〔data の items〕のときだけ）か、在庫が分からなければ
+// インプラントの種類の 1 つだけにし（前は「使い切りインプラント・在庫 4」で、920px で 5 行に折れた。フェーズ 4 の終わりのレビューの操作性 7）、
+// 種類と在庫の両方は title に出す。アイテム名は「使い切りインプラント：〈パッシブ〉」でパッシブ名と重なるので出さない。
+// パルボックスの場所は行と同じ短い形（P4 · 2-5）
 function surgeryLine({ pal, add, count }, data) {
-  const adds = add.map((id) => {
+  const parts = add.map((id) => {
     const entry = implantOf(id);
     const stock = entry?.item ? stockText(itemStock(data, entry.item), { short: true }) : '';
-    return `＋${passivesById.get(id)?.ja ?? id}（${[IMPLANT_KINDS[entry?.kind] ?? '', stock].filter(Boolean).join('・')}）`;
-  }).join('');
-  const head = `${palBrief(pal)}${adds}`;
-  return count > 1 ? `${head} · ほか ${count - 1} 体` : head;
+    return { name: passivesById.get(id)?.ja ?? id, kind: IMPLANT_KINDS[entry?.kind] ?? '', stock };
+  });
+  const head = palBrief(pal);
+  const more = count > 1 ? ` · ほか ${count - 1} 体` : '';
+  return {
+    text: `${head}${parts.map((part) => `＋${part.name}（${part.stock || part.kind}）`).join('')}${more}`,
+    title: `${head}${parts.map((part) => `＋${part.name}（${[part.kind, part.stock].filter(Boolean).join('・')}）`).join('')}${more}`,
+  };
 }
 // 個体の短い呼び名「アヌビス♂ Lv52（P4 · 2-5）」（パルボックスは行と同じ短い場所。ほかは場所の文字。手術で完成できる個体の 1 行と
 // パルリバーサーの案内で使う）
@@ -259,7 +257,8 @@ function goalStatus(goal, pals, all = null, data = null) {
   if (!found.length) {
     const hatching = all ? eggMatches(goal, all, pals).length : 0;
     if (addable) {
-      return { done: false, surgery: true, text: `手術で完成できる${hatching ? `（孵化待ちに ${hatching} 個）` : ''}`, hatching, gap: surgeryLine(addable, data) };
+      const line = surgeryLine(addable, data);
+      return { done: false, surgery: true, text: `手術で完成できる${hatching ? `（孵化待ちに ${hatching} 個）` : ''}`, hatching, gap: line.text, gapTitle: line.title };
     }
     // 種族だけの目標は、持っていれば完成なので差は「未所持」だけ
     const gap = isSpeciesGoal(goal) ? '未所持' : goalGap(goal, nearest);
@@ -402,11 +401,13 @@ export function idealView(context, route) {
     onChange: (value) => { conditions.mode = value; renderResults(); } });
   const cakeChoice = segmented({ label: 'ケーキ', choices: shortChoices(CAKES, CAKE_LABELS), value: conditions.cake,
     onChange: (value) => { conditions.cake = value; renderResults(); } });
-  // ケーキの押しボタンの左にゲームのケーキのアイコン（なし＝ケーキ・キノコ等＝キノコケーキ・スペシャル＝スペシャルケーキ。game-assets）。
-  // 文字は残す。読めなければアイコンだけ外す
-  for (const [value, file] of Object.entries(CAKE_ICONS)) {
+  // ケーキの押しボタンの左にゲームのケーキのアイコン（キノコ等＝キノコケーキ・スペシャル＝スペシャルケーキ。game-assets）。「なし」は絵を出さず、
+  // 左右の余白で同じ幅にする（.cake-plain）。文字は残す。読めなければアイコンだけ外す
+  for (const [value] of CAKES) {
     const radio = cakeChoice.element.querySelector(`[data-value="${value}"]`);
-    radio?.insertBefore(gameIcon(`item/${file}.png`, { size: 18, className: 'cake-icon' }), radio.firstChild ?? null);
+    if (!radio) continue;
+    if (CAKE_ICONS[value]) radio.insertBefore(gameIcon(`item/${CAKE_ICONS[value]}.png`, { size: 18, className: 'cake-icon' }), radio.firstChild ?? null);
+    else radio.classList.add('cake-plain');
   }
   // 同じ画面のまま登録した理想個体を呼び出したとき（g）・戻る・進むで条件を入れ直したとき、入れた条件を入力欄にも出す
   function showConditions() {
@@ -429,6 +430,18 @@ export function idealView(context, route) {
     if (result && to) holding.setAttribute('href', buildHash('owned', { pal: to, p: passives.join(','), holder: holderNow(), place: HOLDING_PLACES }));
     else holding.removeAttribute('href');
   }
+  // パルリバーサーの案内の入口（implants・D17。フェーズ 4 の終わりのレビューの性能 1・2）: ケーキの行の、所持の状況の左の小さな印
+  //「パルリバーサーで早くなる個体 N 件」。案内は計画を描いた後に区切って求め、あるときだけ印を出す。行の空きに入れ、幅が足りなければ
+  // 省略記号で縮めるので、パネルの高さも結果の位置も変わらない（前は計画と案内がそろうまで結果を待たせ、出入りで結果が 112〜178px 動いた）。
+  // 押すと案内の板（下の reverserBoard）を開く。開くのは利用者の操作なので、板は結果の上に重ねる
+  const reverserSlot = el('span', 'ideal-reverser-slot');
+  reverserSlot.hidden = true;
+  const reverserToggle = button('', () => toggleReverser(), 'ideal-reverser-toggle');
+  reverserToggle.setAttribute('aria-haspopup', 'dialog');
+  reverserToggle.setAttribute('data-focus-key', 'reverser-toggle');
+  const reverserToggleText = el('span', 'ideal-reverser-toggle-text');
+  reverserToggle.append(gameIcon(REVERSER_ICON, { size: 16, className: 'ideal-reverser-icon' }), reverserToggleText);
+  reverserSlot.append(reverserToggle);
 
   // 今の条件（パル・欲しいパッシブ・パッシブの条件・個体値の目標・ケーキ）を、名前を付けて目標として保存する（この端末だけ）。
   // 名前の変更・条件の更新はしない（外して保存し直す。I-18）
@@ -513,9 +526,12 @@ export function idealView(context, route) {
   fieldHead(passive.element, modeChoice.element);
   panelMain.append(toPicker.element, passive.element, saveSlot);
   const panelSub = el('div', 'ideal-panel-sub');
+  // ケーキの行: [ケーキ][パルリバーサーの案内の印（あるときだけ）] と右端の所持の状況。案内の板はこの行の下に右端でそろえて開く（.ideal-cake-line）
+  const cakeRow = panelLine(panelItem('ケーキ', cakeChoice.element, { hidden: true }), reverserSlot, holding);
+  cakeRow.classList.add('ideal-cake-line');
   panelSub.append(
     panelLine(panelItem('所持者', holderSelect, { tag: 'label' }), panelItem('個体値（以上）', talent.element)),
-    panelLine(panelItem('ケーキ', cakeChoice.element, { hidden: true }), holding),
+    cakeRow,
   );
   panel.append(panelMain, panelSub);
   const stopTracking = trackHeight(panel, element);
@@ -548,8 +564,11 @@ export function idealView(context, route) {
   }
 
   // パルリバーサーの案内（implants・D17）: 目標の種族の親の候補の 1 体の性別を変えると、今の 1 番の完全体作成組より 1 割以上早く完成する
-  //（完全体作成組がなければ、完全体作成組ができる）個体を、いちばん速い 3 体と「ほか n 体」で出す（1 体ごとの数値は出さない。D30）。
-  // 計画とそろってから一緒に描く（paintPlan）。孵化させると完成するタマゴと同じ「別の作り方」の案内なので、その下・牧場の帯の上に置く。
+  //（完全体作成組がなければ、完全体作成組ができる）個体を、いちばん速い 3 行と「ほか n 件」で出す（1 体ごとの数値は出さない。D30。同じ 2 体を
+  // 向きだけ変えた 2 つは「A か B のどちらかを」の 1 行にまとめ、行で数える。フェーズ 4 の終わりのレビューの操作性 9）。
+  // 計画を先に描き、案内は描いた後に区切って求める（startFlip。前は計画と案内がそろうまで描かず、結果が出るまでが 1.6〜2.3 倍になった。
+  // 性能 1）。案内はケーキの行の印（reverserSlot）と、押すと開く板（reverserBoard）に出すので、後から出ても結果は動かない（D17 の
+  //「結果を押し下げない」を、そろえて描く代わりに、結果の流れの外に出して守る）。
   // 「パルリバーサーを使わずに作る」で、その目標（種族＋欲しいパッシブ＋個体値の目標。ケーキとパッシブの条件の種類は含めない）では以後出さず、
   // 案内の計算もしない（計画は変えない）。消した記録はこの端末だけ（web/js/reverser-hidden.js。テストなどでは画面の中で覚える）
   const reverserHidden = context.reverserHidden ?? createReverserHidden({ storage: null });
@@ -559,64 +578,163 @@ export function idealView(context, route) {
     return reverserTarget(to, passives, TALENT_KEYS.map((key) => goal[key]));
   };
   const isFlipHidden = (target) => reverserHidden.has(...reverserUser(), target);
-  const reverserBox = el('section', 'ideal-reverser');
+  // 案内の板（印の下に右端でそろえて開く。フォーカスが外へ出る・外を押す・Esc で閉じる）
+  const reverserBoard = createPopover({
+    anchor: reverserToggle, wrapper: reverserSlot, className: 'picker-popover ideal-reverser', tag: 'section', focusOut: true,
+    // 開いたら板へフォーカスを移す（読み上げが板の名前を読み、Tab で中の個体と「使わずに作る」へ進む）
+    onOpen: () => reverserBox.focus({ preventScroll: true }),
+  });
+  const reverserBox = reverserBoard.element;
+  reverserBox.setAttribute('role', 'dialog');
   reverserBox.setAttribute('aria-label', `${GENDER_REVERSE_NAME}の案内`);
-  reverserBox.hidden = true;
-  // 個体の呼び名（「ゴウカブキ♂ Lv66（P4 · 2-5）」）。右のドロワーがあれば押すとその個体の詳細を開く。title は個体値とパッシブ。
-  // フォーカスを戻す目印は、行（性別を変える個体 X は行ごとに 1 体）と役目（X か相手か）で作る（同じ個体が別の行の相手にも出るため）
+  reverserBox.tabIndex = -1;
+  function toggleReverser() {
+    if (reverserBoard.isOpen()) reverserBoard.close();
+    else reverserBoard.open();
+  }
+  // 個体の呼び名（「ゴウカブキ♂ Lv66（P4 · 2-5）」）。右のドロワーがあれば押すとその個体の詳細を開く（板は閉じ、ドロワーを閉じたら印へ戻る）。
+  // title は個体値とパッシブ。フォーカスを戻す目印は、行（行の先頭の個体 X は行ごとに 1 体）と役目（X か相手か）で作る（同じ個体が別の行にも出るため）
   const reverserPal = (pal, hint, role) => {
     const text = palBrief(pal);
-    const node = context.drawer ? button(text, () => context.drawer.open({ kind: 'owned', id: pal.id }, { opener: node }), 'ideal-reverser-pal')
-      : el('span', 'ideal-reverser-pal', text);
+    const node = context.drawer ? button(text, () => {
+      reverserBoard.close({ focus: false });
+      context.drawer.open({ kind: 'owned', id: pal.id }, { opener: reverserToggle });
+    }, 'ideal-reverser-pal') : el('span', 'ideal-reverser-pal', text);
     if (context.drawer) node.setAttribute('data-focus-key', `reverser-pal:${hint.pal.id}:${role}`);
     node.title = [talentLine(pal), pal.passives.length ? passiveNames(pal.passives) : ''].filter(Boolean).join('\n');
     return node;
   };
+  // 案内の行の文（either は同じ 2 体を向きだけ変えた 2 つをまとめた行）:
+  //「A を ♀ にすると（相手 B）、より早く完成します」「A か B のどちらかを ♀ にすると、より早く完成します」（完全体作成組がなければ「完全体作成組ができます」）
+  function reverserItem(hint, before) {
+    const item = el('li', 'ideal-reverser-item');
+    const end = before === null ? '、完全体作成組ができます' : '、より早く完成します';
+    if (hint.either) {
+      item.append(reverserPal(hint.pal, hint, 'pal'), el('span', '', ' か '), reverserPal(hint.partner, hint, 'partner'), el('span', '', ' のどちらかを '),
+        genderMark(hint.to, { inline: true }), el('span', '', ` にすると${end}`));
+    } else {
+      item.append(reverserPal(hint.pal, hint, 'pal'), el('span', '', ' を '), genderMark(hint.to, { inline: true }), el('span', '', ' にすると（相手 '),
+        reverserPal(hint.partner, hint, 'partner'), el('span', '', `）${end}`));
+    }
+    return item;
+  }
+  // 案内の計算（区切った仕事）と、求めた案内（描いている計画の署名 key ごと。消した・戻した・読み直しでは計算し直さない）
+  let flipJob = null;
+  let flip = null;
+  function stopFlip() {
+    flipJob?.cancel();
+    flipJob = null;
+  }
+  // 描いた計画の案内を、区切って求める（今の計画を計算している間は始めない。描いた後に呼ぶ）。消した目標・案内が出ないと分かる計画では求めない。
+  // spent は同じ処理の中で先に使った時間（最初の区切りと合わせて 1 区切りに収める）
+  function startFlip(plan, result, spent = Infinity) {
+    if (destroyed || job || !plan) return;
+    // ほかの計画の案内を求めている途中なら捨てる（条件を変えて戻ったときに、古い仕事が後から終わって、覚えた案内を上書きしないように）
+    if (flipJob && flipJob.key !== plan.key) stopFlip();
+    if (isFlipHidden(plan.flipTarget)) {
+      if (flipJob?.key === plan.key) stopFlip();
+      renderReverser();
+      return;
+    }
+    if (flip?.key === plan.key || flipJob?.key === plan.key) {
+      renderReverser();
+      return;
+    }
+    stopFlip();
+    if (!flipNeeded(result)) {
+      flip = { key: plan.key, value: null };
+      renderReverser();
+      return;
+    }
+    const run = startSliced(genderFlipSteps(plan.flipInput, planSpeed(result)),
+      { budget: sliceBudget, firstBudget: Number.isFinite(sliceBudget) ? Math.max(0, sliceBudget - spent) : sliceBudget });
+    if (run.done) {
+      flip = { key: plan.key, value: run.value };
+      renderReverser();
+      return;
+    }
+    const current = { key: plan.key, cancel: run.cancel };
+    flipJob = current;
+    finishFlip(current, run.promise);
+  }
+  async function finishFlip(current, promise) {
+    let value;
+    try {
+      value = await promise;
+    } catch (error) {
+      if (flipJob === current) flipJob = null;
+      throw error;
+    }
+    if (destroyed || flipJob !== current || value === null) return;
+    flipJob = null;
+    // 描いている計画の案内のときだけ覚える（念のため。違う計画の仕事は startFlip が捨てている）
+    if (shown?.plan?.key !== current.key) return;
+    flip = { key: current.key, value };
+    renderReverser();
+  }
+  // 案内の個体は、描いている計画のデータ（読み直しで入れ替えたもの）の同じ ID の個体で描く（個体の配列ごとに 1 回だけ引く表を作る）
+  let latestFor = null;
+  let latestById = null;
+  const latestPal = (data, pal) => {
+    const list = data?.pals ?? null;
+    if (list !== latestFor) {
+      latestFor = list;
+      latestById = new Map((list ?? []).map((item) => [item.id, item]));
+    }
+    return latestById.get(pal.id) ?? pal;
+  };
+  // 印と板を、描いている計画の案内に合わせる（案内がない・まだ求めていない・消した目標なら印を隠して板を閉じる）。同じ中身なら作り直さない
   let reverserKey = '';
-  function renderReverser(result, plan) {
-    const flip = result?.reverser ?? null;
-    const target = plan?.flipTarget ?? '';
-    const show = Boolean(flip?.hints.length) && !isFlipHidden(target);
+  function renderReverser() {
+    const plan = shown?.plan ?? null;
+    const value = plan && flip?.key === plan.key && !isFlipHidden(plan.flipTarget) ? flip.value : null;
+    const show = Boolean(value?.hints.length);
+    const hints = show ? value.hints.map((hint) => ({ ...hint, pal: latestPal(plan.data, hint.pal), partner: latestPal(plan.data, hint.partner) })) : [];
     // 在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
     const stock = show ? stockText(itemStock(plan.data, GENDER_REVERSE_ITEM)) : '';
-    const signature = show ? JSON.stringify([target, flip.before === null, flip.more, stock, Boolean(context.drawer),
-      flip.hints.map((hint) => [hint.to, ...[hint.pal, hint.partner].map((pal) => [pal.id, palBrief(pal), talentLine(pal), pal.passives])])]) : '';
+    const signature = show ? JSON.stringify([plan.flipTarget, value.before === null, value.more, stock, Boolean(context.drawer),
+      hints.map((hint) => [hint.to, hint.either, ...[hint.pal, hint.partner].map((pal) => [pal.id, palBrief(pal), talentLine(pal), pal.passives])])]) : '';
     if (signature === reverserKey) return;
     reverserKey = signature;
-    reverserBox.hidden = !show;
-    if (!show) { reverserBox.replaceChildren(); return; }
+    if (!show) {
+      // 印か板の中にフォーカスがあれば（読み直しで案内がなくなった・消した）、隠す前に見出しの「目標（N）」へ（なければケーキの選んでいる
+      // 押しボタンへ。同じ行の近くの部品）。body に落とさない
+      const active = globalThis.document?.activeElement;
+      const inside = Boolean(active) && reverserSlot.contains(active);
+      reverserBoard.close({ focus: false });
+      reverserSlot.hidden = true;
+      reverserBox.replaceChildren();
+      if (inside) (!goalsButton.hidden ? goalsButton : cakeChoice.element.querySelector('[aria-checked="true"]'))?.focus();
+      return;
+    }
+    // 印: 「パルリバーサーで早くなる個体 N 件」（N はまとめた後の行の数。全文は title と読み上げの名前にも）
+    const count = value.hints.length + value.more;
+    const label = `${GENDER_REVERSE_NAME}で早くなる個体 ${count} 件`;
+    if (reverserToggleText.textContent !== label) reverserToggleText.textContent = label;
+    reverserToggle.title = `${label}（押すと案内を開きます）`;
+    reverserSlot.hidden = false;
     const focus = captureFocus(reverserBox);
-    // [アイコン][1 行目の文]、改行して小さく（性別を変えられない種族もあります）[· 在庫]、その下に 3 体まで・「ほか n 体」。
-    // 右に「パルリバーサーを使わずに作る」（1 行目の文は 1100px で 1 行に収まらないので、断り書きを次の行に分けて折り返す位置を決めた）
+    // 板: [アイコン][1 行目の文]、改行して小さく（性別を変えられない種族もあります）[· 在庫]、その下に 3 行まで・「ほか n 件」、
+    // 下の右に「パルリバーサーを使わずに作る」
     const head = el('p', 'ideal-reverser-head');
     head.append(gameIcon(REVERSER_ICON, { size: 16, className: 'ideal-reverser-icon' }),
       el('span', 'ideal-reverser-text', `パル手術台で${GENDER_REVERSE_NAME}を使うと、性別を変えて早く完成できる個体がいます`), el('br'),
       el('small', 'ideal-reverser-note', '（性別を変えられない種族もあります）'));
     if (stock) head.append(el('small', 'ideal-reverser-stock', ` · ${stock}`));
+    const target = plan.flipTarget;
     const skip = button(`${GENDER_REVERSE_NAME}を使わずに作る`, () => hideReverser(target), 'button secondary small ideal-reverser-skip');
     skip.title = 'この目標（種族・欲しいパッシブ・個体値の目標）では、この案内を出しません（計画は変わりません）';
     skip.setAttribute('data-focus-key', 'reverser-skip');
     const list = el('ul', 'ideal-reverser-list');
-    for (const hint of flip.hints) {
-      const item = el('li', 'ideal-reverser-item');
-      item.append(reverserPal(hint.pal, hint, 'pal'), el('span', '', ' を '), genderMark(hint.to, { inline: true }), el('span', '', ' にすると（相手 '),
-        reverserPal(hint.partner, hint, 'partner'),
-        el('span', '', flip.before === null ? '）、完全体作成組ができます' : '）、より早く完成します'));
-      list.append(item);
-    }
-    if (flip.more) list.append(el('li', 'ideal-reverser-more', `ほか ${flip.more} 体`));
+    list.append(...hints.map((hint) => reverserItem(hint, value.before)));
+    if (value.more) list.append(el('li', 'ideal-reverser-more', `ほか ${value.more} 件`));
     const body = el('div', 'ideal-reverser-body');
     body.append(head, list);
     reverserBox.replaceChildren(body, skip);
     restoreFocus(reverserBox, focus);
   }
-  function clearReverser() {
-    reverserKey = '';
-    reverserBox.hidden = true;
-    reverserBox.replaceChildren();
-  }
   // 見出しの右（「目標（N）」の左）の小さな「非表示にしたパルリバーサーの案内（n 件）を戻す」。n はこの端末・この利用者で消した目標の数。
-  // 押すと全部戻して描き直す（案内を計算していない目標は、計画はそのままで案内だけを求める）
+  // 押すと全部戻して描き直す（案内を求めていない目標は、計画はそのままで案内だけを求める）
   const reverserRestore = button('', () => restoreReversers(), 'ideal-reverser-restore');
   reverserRestore.title = `「${GENDER_REVERSE_NAME}を使わずに作る」で消した案内を、すべての目標で戻します（この端末だけ）`;
   reverserRestore.hidden = true;
@@ -629,20 +747,30 @@ export function idealView(context, route) {
   // 描いている案内を、消した記録に合わせる（計算中でも、出している案内は消す）
   function syncReverser() {
     renderRestore();
-    if (shown) renderReverser(shown.result, shown.plan);
+    renderReverser();
+  }
+  // 戻した後のフォーカス: 押したリンク（「…を戻す」）は隠れるので、出てきた印へ（案内を求めている途中などで印がなければ「目標（N）」へ）。
+  // トーストの「元に戻す」では、トーストが入る前の要素（隠れた「…を戻す」）へ戻した後に呼ぶ。ほかの所へ移っていれば動かさない（安定性 3）
+  function focusAfterRestore() {
+    const doc = globalThis.document;
+    const active = doc?.activeElement;
+    if (active && active !== doc.body && active !== reverserRestore && active.isConnected !== false && !active.hidden) return;
+    if (!reverserSlot.hidden) reverserToggle.focus();
+    else if (!goalsButton.hidden) goalsButton.focus();
   }
   function hideReverser(target) {
     const [env, userId] = reverserUser();
     reverserHidden.hide(env, userId, target);
     syncReverser();
     renderResults();
-    // 押したボタンは消えるので、戻す先（見出しの「…を戻す」）へ
+    // 押したボタン（板ごと）は消えるので、戻す先（見出しの「…を戻す」）へ
     if (!reverserRestore.hidden) reverserRestore.focus();
     toast(`この目標では${GENDER_REVERSE_NAME}の案内を出しません`, {
       action: () => {
         reverserHidden.show(env, userId, target);
         syncReverser();
         renderResults();
+        focusAfterRestore();
       },
     });
   }
@@ -650,10 +778,7 @@ export function idealView(context, route) {
     reverserHidden.clear(...reverserUser());
     syncReverser();
     renderResults();
-    // 押したリンクは消えるので、出てきた案内のボタンか、見出しの「目標（N）」へ
-    const skip = reverserBox.hidden ? null : reverserBox.querySelector('.ideal-reverser-skip');
-    if (skip) skip.focus();
-    else if (!goalsButton.hidden) goalsButton.focus();
+    focusAfterRestore();
   }
   const farmStrip = el('div', 'ideal-farm-strip');
   farmStrip.setAttribute('role', 'group');
@@ -730,9 +855,12 @@ export function idealView(context, route) {
     const row = el('li', 'ideal-goal');
     const title = el('div', 'ideal-goal-title');
     const nameCell = el('div', 'ideal-goal-name');
-    nameCell.append(el('strong', '', goal.name));
-    // 名前の右に属性のアイコン（game-assets）
-    for (const element of palsById.get(goal.palId)?.el ?? []) nameCell.append(elementIcon(element));
+    // 名前の前に属性のアイコン（game-assets）。名前と同じ strong の中の行の頭に置き、長い名前が折り返してもアイコンだけが次の行に残らない
+    //（前は名前の右で、920px の目標の一覧で次の行に残った。フェーズ 4 の終わりのレビューの操作性 7）
+    const nameText = el('strong', 'ideal-goal-name-text');
+    for (const element of palsById.get(goal.palId)?.el ?? []) nameText.append(elementIcon(element));
+    nameText.append(el('span', '', goal.name));
+    nameCell.append(nameText);
     if (isSpeciesGoal(goal)) nameCell.append(statusChip('パルだけ', 'info', 'ideal-goal-tag'));
     // 配合の登録（画面のデータの登録済みの数。押すと配合を探すでその子）と、所持パルがあれば所持の数（親になれる数）
     const records = link('', buildHash('search', { c: goal.palId }), 'ideal-goal-records');
@@ -783,6 +911,8 @@ export function idealView(context, route) {
       if (gap.textContent !== gapText) {
         gap.replaceChildren(...gapText.split(' · ').filter(Boolean).flatMap((part, i) => [...(i ? [el('span', 'ideal-goal-gap-sep', ' · ')] : []), el('span', 'ideal-goal-gap-part', part)]));
       }
+      // 手術で完成できる個体の 1 行は、インプラントの種類と在庫の両方を title に（行は短い形）
+      gap.title = item.status.gapTitle ?? '';
       gap.hidden = !gapText;
     };
     update({ status, facts });
@@ -878,7 +1008,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, surgeryBand, missingBox, hatchBox, reverserBox, farmStrip, farmBox, results);
+  element.append(heading, panel, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -945,23 +1075,35 @@ export function idealView(context, route) {
     }
     return carryMemo.map.get(id);
   }
-  // パル手術台の案内の 1 行（implants の X-20）: 「[チップ]: パル手術台で付けられます（[アイコン]使い切りインプラント：神速） · 在庫 4（拠点 1 の箱）」。
+  // パル手術台の案内の文（チップの後ろ。implants の X-20）: 「: パル手術台で付けられます（[アイコン]使い切りインプラント：神速） · 在庫 4（拠点 1 の箱）」。
   // アイテムのない行は「（インプラント不要）」、インプラント（使い切りでないもの）は 1 個あれば何度でも使える旨を添える。付けられないものは
-  //「[チップ]: 手術台では付けられません」。在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
-  function surgeryItem(id) {
+  //「: 手術台では付けられません」。在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
+  function surgeryText(id) {
     const entry = implantOf(id);
-    const item = el('li', `ideal-surgery-item${entry ? '' : ' is-none'}`);
-    item.append(passiveChip(id, { compact: true }));
-    if (!entry) {
-      item.append(el('span', '', ': 手術台では付けられません'));
-      return item;
-    }
-    item.append(el('span', '', ': パル手術台で付けられます（'));
-    if (IMPLANT_ICONS[entry.kind]) item.append(gameIcon(`item/${IMPLANT_ICONS[entry.kind]}.png`, { size: 16, className: 'ideal-surgery-icon' }));
-    item.append(el('span', '', `${implantNeed(id)}${entry.kind === 'reusable' ? '。1 個あれば何度でも使えます' : ''}）`));
+    if (!entry) return [el('span', '', ': 手術台では付けられません')];
+    const nodes = [el('span', '', ': パル手術台で付けられます（')];
+    if (IMPLANT_ICONS[entry.kind]) nodes.push(gameIcon(`item/${IMPLANT_ICONS[entry.kind]}.png`, { size: 16, className: 'ideal-surgery-icon' }));
+    nodes.push(el('span', '', `${implantNeed(id)}${entry.kind === 'reusable' ? '。1 個あれば何度でも使えます' : ''}）`));
     const stock = entry.item ? itemStock(owned?.state?.owned, entry.item) : null;
-    if (stock) item.append(el('small', 'ideal-surgery-stock', ` · ${stockText(stock)}`));
+    if (stock) nodes.push(el('small', 'ideal-surgery-stock', ` · ${stockText(stock)}`));
+    return nodes;
+  }
+  // 手術台の案内の 1 行（[チップ] と surgeryText。手術で付ける前提の帯）
+  function surgeryItem(id) {
+    const item = el('li', `ideal-surgery-item${implantOf(id) ? '' : ' is-none'}`);
+    item.append(passiveChip(id, { compact: true }), ...surgeryText(id));
     return item;
+  }
+  // 足りないパッシブを運ぶ継承ルート（route-progress の R-32）: 所持パルから運べれば最短の回数と開始を添えたボタン（読み上げの名前にパッシブ名）、
+  // 運べなければリンクにせず文字だけ。所持パルのデータ・記録がまだなければ回数なしのボタン
+  function carryAction(id) {
+    const carry = carryOf(id);
+    if (carry === null) return el('span', 'ideal-carry is-none', '所持パルから運べません');
+    const via = carry && carry.length ? `（最短 ${carry.length} 回・開始 ${palsById.get(carry.palId)?.ja ?? carry.palId}）` : '';
+    const action = link(`継承ルートで運ぶ${via}`, buildHash('route', { to, p: id }), 'button secondary small ideal-carry');
+    action.setAttribute('data-focus-key', `carry:${id}`);
+    action.setAttribute('aria-label', `${passivesById.get(id)?.ja ?? id}を継承ルートで運ぶ${via}`);
+    return action;
   }
   // 手術で付ける前提で計画しているとき（URL の s。X-22）の結果の上の帯: 「[神速][勇敢] はパル手術台で付ける前提で計画しています。」と、
   // パッシブごとの案内の行（必要なインプラントと在庫）、「手術を含めずに計画する」（s を p に戻す）。同じ内容なら作り直さない（10 秒ごとの読み直しで
@@ -981,6 +1123,8 @@ export function idealView(context, route) {
     const back = link('手術を含めずに計画する', buildHash('ideal', { to, p: [...passives, ...surgery].join(',') }), 'ideal-surgery-back');
     back.title = '手術で付ける分も欲しいパッシブに戻して、配合だけで計画します';
     back.setAttribute('data-focus-key', 'surgery-back');
+    // 押すとこの帯は消えるので、出てきた「手術で付ける分を除いて計画する →」へフォーカスを移す（applyRoute。安定性 2・操作性 3）
+    back.setAttribute('data-focus-fallback', 'surgery-plan');
     head.append(back);
     const list = el('ul', 'ideal-surgery-list');
     list.append(...surgery.map(surgeryItem));
@@ -1002,15 +1146,21 @@ export function idealView(context, route) {
       }
       return;
     }
-    const listed = result.total ? 'いまは個体値厳選組だけを出しています。' : '';
-    const warning = el('p', 'ideal-warning');
-    warning.append(passiveList(result.missing, { compact: true, focusable: true }), el('span', '', ` を持つ親の候補がいません。${listed}`));
-    missingBox.append(warning);
-    // パル手術台の案内（implants の X-20）: 足りないパッシブごとに、手術台で付けられるか・必要なインプラント・在庫（「別に手に入れてください」で
-    // 止めない）。付けられる分があれば、それを除いた計画へのリンク（X-22。計画の既定は配合だけ〔判断事項 3〕なので、リンクで移るだけ）
-    const surgeryList = el('ul', 'ideal-surgery-list');
-    surgeryList.append(...result.missing.map(surgeryItem));
-    missingBox.append(surgeryList);
+    // 警告は 1 文、足りないパッシブはパッシブごとに 1 行（[チップ]: 手術台で付けられるか〔アイテム・在庫〕と、右に運ぶ継承ルートのボタンか
+    //「所持パルから運べません」）。前は警告・手術台の案内・運ぶ経路の 3 か所で同じパッシブを繰り返していた（フェーズ 4 の終わりのレビューの操作性 6）
+    missingBox.append(el('p', 'ideal-warning', result.total
+      ? '次のパッシブを持つ親の候補がいないため、いまは個体値厳選組だけを出しています。' : '次のパッシブを持つ親の候補がいません。'));
+    // パル手術台の案内（implants の X-20）は「別に手に入れてください」で止めない。運ぶ経路（R-32）も並べる（手術と運ぶの両方を比べられる）
+    const list = el('ul', 'ideal-surgery-list ideal-missing-list');
+    list.append(...result.missing.map((id) => {
+      const item = el('li', `ideal-surgery-item ideal-missing-item${implantOf(id) ? '' : ' is-none'}`);
+      const text = el('span', 'ideal-missing-text');
+      text.append(passiveChip(id, { compact: true, focusable: true }), ...surgeryText(id));
+      item.append(text, carryAction(id));
+      return item;
+    }));
+    missingBox.append(list);
+    // 付けられる分があれば、それを除いた計画へのリンク（X-22。計画の既定は配合だけ〔判断事項 3〕なので、リンクで移るだけ）
     const implantable = result.missing.filter(canImplant);
     if (implantable.length) {
       const names = implantable.map((id) => passivesById.get(id)?.ja ?? id).join('・');
@@ -1018,27 +1168,10 @@ export function idealView(context, route) {
         buildHash('ideal', { to, p: passives.filter((id) => !implantable.includes(id)).join(','), s: [...surgery, ...implantable].join(',') }), 'ideal-surgery-plan');
       plan.title = '欲しいパッシブから手術で付ける分を外して、配合の計画を立て直します（目標の条件は変えません）';
       plan.setAttribute('data-focus-key', 'surgery-plan');
+      // 押すとこのリンクは消えるので、出てきた帯の「手術を含めずに計画する」へフォーカスを移す（drawPlan・applyRoute。安定性 2・操作性 3）
+      plan.setAttribute('data-focus-fallback', 'surgery-back');
       missingBox.append(plan);
     }
-    // 運ぶ継承ルート（route-progress の R-32）は今までどおり並べる（手術と運ぶの両方を比べられる）
-    const actions = el('div', 'ideal-missing');
-    // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）。所持パルから運べれば最短の回数と開始を添え、
-    // 運べなければリンクにせず文字だけ（R-32）。所持パルのデータ・記録がまだなければ今までどおりのリンク
-    for (const id of result.missing) {
-      const carry = carryOf(id);
-      if (carry === null) {
-        const none = el('span', 'ideal-carry is-none');
-        none.append(passiveChip(id, { compact: true }), el('span', '', ': 所持パルから運べません'));
-        actions.append(none);
-        continue;
-      }
-      const action = link('', buildHash('route', { to, p: id }), 'button secondary ideal-carry');
-      action.setAttribute('data-focus-key', `carry:${id}`);
-      const via = carry && carry.length ? `（最短 ${carry.length} 回・開始 ${palsById.get(carry.palId)?.ja ?? carry.palId}）` : '';
-      action.append(passiveChip(id, { compact: true }), el('span', '', `を運ぶ継承ルート${via}`));
-      actions.append(action);
-    }
-    missingBox.append(actions);
   }
 
   // 牧場の行の個体（絵・名前と性別・個体値。passives なら小さなパッシブのチップも）。同じ種族の 2 体は個体値で見分ける
@@ -1114,7 +1247,8 @@ export function idealView(context, route) {
   // 帯の 1 か所: [牧場の名前][♂の絵]＋[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）。
   // 絵の「♂＋♀」は読ませず、見た目は隠した文で「（名前♂＋名前♀）」と読ませる（押せないセルは aria-label がないので、どの組か分かるように）。
   // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」）
-  function stripCell({ item, name, state, key }) {
+  // cakeOut はその牧場のケーキ切れ（ホストの画面だけ。交換推奨の判定は変えず、印だけ添える。フェーズ 4 の終わりのレビューの操作性 4）
+  function stripCell({ item, name, state, key, cakeOut }) {
     const cell = key ? button('', () => jumpTo(key), `ideal-farm-cell ${item.status}`) : el('div', `ideal-farm-cell ${item.status} is-static`);
     if (key) cell.setAttribute('data-focus-key', `farm-cell:${item.farm.id}`);
     const pals = el('span', 'ideal-farm-cell-pals');
@@ -1129,7 +1263,9 @@ export function idealView(context, route) {
     arrow.setAttribute('aria-hidden', 'true');
     cell.append(el('span', 'ideal-farm-cell-name', name), pals, el('span', 'visually-hidden', `（${item.farm.male.name}♂＋${item.farm.female.name}♀）`),
       arrow, el('span', 'ideal-farm-cell-state', state.short));
-    const label = `${name}（${item.farm.male.name}♂＋${item.farm.female.name}♀）: ${state.chip}`;
+    // ケーキ切れの牧場は状態の右に小さな印（帯の高さは変えない。狭ければ牧場の名前が縮む）
+    if (cakeOut) cell.append(el('span', 'ideal-farm-cell-cake', 'ケーキ切れ'));
+    const label = `${name}（${item.farm.male.name}♂＋${item.farm.female.name}♀）: ${state.chip}${cakeOut ? '（ケーキ切れ）' : ''}`;
     cell.title = label;
     if (key) cell.setAttribute('aria-label', `${label}。押すとその組へ移ります`);
     return cell;
@@ -1202,7 +1338,7 @@ export function idealView(context, route) {
     return list;
   }
   // 詳細の 1 行（牧場の名前・今の 2 体・状態のチップ）。移る組があれば行（の上の段）を押すとその組へ移る
-  function farmRow({ item, name, state, key }, view) {
+  function farmRow({ item, name, state, key, cakeOut }, view) {
     const { pending } = view;
     const status = pending ? 'pending' : item.status;
     const row = el('li', `ideal-farm ${status}`);
@@ -1211,11 +1347,17 @@ export function idealView(context, route) {
     const pair = el('span', 'ideal-farm-pair');
     pair.append(farmPal(item.farm.male, { passives: true }), el('span', 'ideal-farm-x', '＋'), farmPal(item.farm.female, { passives: true }));
     main.append(el('strong', 'ideal-farm-name', name), pair, el('span', `ideal-farm-status ${status}`, pending ? '判定を保留' : state.chip));
+    // ケーキ切れは判定のチップのすぐ横に（交換推奨でも、ケーキを入れないとタマゴを産まない。判定は変えない。操作性 4）
+    if (cakeOut) {
+      const out = statusChip('ケーキ切れ', 'warning', 'farm-cake-out ideal-farm-cake-out');
+      out.title = '配合牧場にケーキがありません（ケーキがないとタマゴを産みません）';
+      main.append(out);
+    }
     // 交換を見送った「そのまま」（D15）は、チップの横に理由
     if (!pending && state.skipped) main.append(el('span', 'ideal-farm-reason', '入れ替えても全体の速さの目安が上がりません'));
     row.append(main);
-    // その牧場のケーキの残り（ホストの画面だけ。0 個なら「ケーキ切れ」。save-extras）
-    const cakes = cakeLine(view.farm?.cakes?.get(item.farm.id), { className: 'ideal-farm-cakes' });
+    // その牧場のケーキの残り（ホストの画面だけ。save-extras。ケーキ切れは上の行のチップ）
+    const cakes = cakeOut ? null : cakeLine(view.farm?.cakes?.get(item.farm.id), { className: 'ideal-farm-cakes' });
     if (cakes) row.append(cakes);
     if (pending) return row;
     if (item.status === 'swap') row.append(swapTable(item, view.pairs[item.to]), moveList(item.out, item.in, view));
@@ -1265,6 +1407,9 @@ export function idealView(context, route) {
     const swaps = pending ? 0 : rows.filter((row) => row.item.status === 'swap').length;
     const counts = [`置いている ${rows.length} か所`];
     if (swaps) counts.push(`交換推奨 ${swaps}`);
+    // ケーキ切れの牧場の数（閉じていても気づけるように。操作性 4）
+    const cakeOuts = rows.filter((row) => row.cakeOut).length;
+    if (cakeOuts) counts.push(`ケーキ切れ ${cakeOuts}`);
     if (empties.length) counts.push(`空き ${empties.length}`);
     const title = `配合牧場の詳細（${counts.join('・')}）`;
     if (farmTitle.textContent !== title) farmTitle.textContent = title;
@@ -1385,6 +1530,8 @@ export function idealView(context, route) {
   // 描いている結果（計算に効かない値だけが変わったデータでは、計算し直さずに個体を入れ替えて描き直す）
   let shown = null;
   let destroyed = false;
+  // applyRoute で押した部品が消え、行き先がまだ描かれていない（計画を区切って計算している途中）ときのフォーカスの目印（drawPlan が使う）
+  let pendingFocus = null;
 
   // ケーキの提案（D30「ケーキ以外の条件を入れたら、どのケーキだと最速で作成できるかも提案してほしい」）: 目標とケーキ以外の条件
   //（パッシブ・条件・個体値の目標・所持者と候補の個体）が同じ計算ごとに、3 通りのケーキの速さ（core/ideal.js の planSpeed。1 番の
@@ -1463,6 +1610,7 @@ export function idealView(context, route) {
   function clearPlan() {
     job?.cancel();
     job = null;
+    stopFlip();
     shownKey = '';
     shown = null;
     setComputing(false);
@@ -1470,10 +1618,10 @@ export function idealView(context, route) {
     renderHolding(null);
     clearFarms();
   }
-  // 足りないパッシブの案内・パルリバーサーの案内・牧場の帯と詳細を出さない（案内・帯・詳細は場所も取らない）
+  // 足りないパッシブの案内・パルリバーサーの案内の印・牧場の帯と詳細を出さない（案内・帯・詳細は場所も取らない。描いている計画がなければ印も隠す）
   function clearFarms() {
     missingBox.replaceChildren();
-    clearReverser();
+    renderReverser();
     farmStrip.replaceChildren();
     farmStrip.hidden = true;
     farmBox.replaceChildren();
@@ -1529,22 +1677,15 @@ export function idealView(context, route) {
     const nextCakeKey = `${JSON.stringify([state.revision ?? null, objectRev(state.index), state.env, to, [...passives].sort(),
       conditions.mode, TALENT_KEYS.map((name) => conditions.targets[name]), holder, self])}\u0003${candidateKey}`;
     setCakeKey(nextCakeKey);
-    // パルリバーサーの案内（D17）を求めるか（この目標の案内を消していなければ）。計画の署名には入れず、案内を求めた計算か（job.hints・
-    // shown の result.reverser）で見る（消したときは描いている計画のまま案内を隠すだけ、戻したときは計画を計算し直さずに案内だけを求める）
-    const target = flipTarget();
-    const wantHints = !isFlipHidden(target);
-    const enough = (hints) => !wantHints || Boolean(hints);
     // 同じ計算をしている途中（計算に効かない値だけが変わった）。終わって描くときに、新しいデータの個体に入れ替える
-    if (job?.key === key && enough(job.hints)) return;
+    if (job?.key === key) return;
     // 出している結果と同じ条件に戻った（計算している途中なら、その計算は捨てる）。データだけが変わっていれば個体を入れ替えて描き直す
-    if (key === shownKey && enough(shown?.result.reverser)) {
+    if (key === shownKey) {
       job?.cancel();
       job = null;
       setComputing(false);
       if (shown) {
         drawLatest(shown);
-        // 案内を消した・戻した（計画は同じ）ときは、案内の欄だけを合わせる
-        renderReverser(shown.result, shown.plan);
         // s（手術で付ける前提のパッシブ）だけが変わった（計画は同じ）ときは、足りないパッシブの案内（「手術で付ける分を除いて計画する」の
         // リンクの s）だけを描き直す（implants）
         if (missingSurgery !== surgery.join(',')) {
@@ -1552,8 +1693,10 @@ export function idealView(context, route) {
           renderMissing(shown.result);
           restoreFocus(missingBox, focus);
         }
-        // 今の計画の計算で止めていたケーキの比べ方を、残りから続ける
+        // 今の計画の計算で止めていたケーキの比べ方と、パルリバーサーの案内を、残りから続ける（案内を消した・戻したときは、計画は
+        // 計算し直さず、印と板だけを合わせる。戻した目標の案内を求めていなければ、ここで求める）
         compareCakes(shown.plan, shown.result, clock() - started);
+        startFlip(shown.plan, shown.result, clock() - started);
       }
       return;
     }
@@ -1567,15 +1710,14 @@ export function idealView(context, route) {
       .map((name) => `${TALENT_LABELS[name]} ${reach(name)} 以上`);
     // ケーキの比べ方に渡す入力（ケーキ以外は今の計画と同じ）
     const cakeInput = { pals: candidates, index: state.index, target: to, passives: [...passives], mode: conditions.mode, targets: { ...conditions.targets } };
+    // key は計算の署名（パルリバーサーの案内は、この計画を描いた後に startFlip が同じ key で求めて覚える）。flipInput は案内の入力
+    //（今の選択のケーキ。ほかのケーキの比べ方〔D30〕は compareCakes）、flipTarget は消した記録の目標の見分け方
     const plan = {
-      placedFarms, signature, memoryId, baseline, farms, layouts, holder, cake: conditions.cake, data: owned.state.owned,
-      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short, cakeKey: nextCakeKey, cakeInput, flipTarget: target,
+      key, placedFarms, signature, memoryId, baseline, farms, layouts, holder, cake: conditions.cake, data: owned.state.owned,
+      highlight: { wanted: [...passives], targets: { ...conditions.targets } }, short, cakeKey: nextCakeKey, cakeInput,
+      flipInput: { ...cakeInput, cake: conditions.cake }, flipTarget: flipTarget(),
     };
-    // 計画の後に続けて、今の選択のケーキでパルリバーサーの案内を求める（ほかのケーキの比べ方〔D30〕は、描いた後の compareCakes）。
-    // 同じ計画を描いていて案内だけがない（消した案内を戻した）ときは、描いている計画を使い回す
-    const flipInput = wantHints ? { ...cakeInput, cake: conditions.cake } : null;
-    const steps = planSteps({ ...cakeInput, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys }, flipInput,
-      key === shownKey && shown ? shown.result : null);
+    const steps = idealPlanSteps({ ...cakeInput, cake: conditions.cake, limit: LIMIT, prefer, watch: placedKeys });
     // 最初の区切りは、ここまでの下ごしらえ（所持パルが多いと数十 ms）と合わせて 1 区切りに収める
     const run = startSliced(steps, { budget: sliceBudget, firstBudget: Math.max(0, sliceBudget - (clock() - started)) });
     if (run.done) {
@@ -1583,12 +1725,14 @@ export function idealView(context, route) {
       showPlan(run.value, plan);
       shownKey = key;
       compareCakes(plan, run.value, clock() - started);
+      startFlip(plan, run.value, clock() - started);
       return;
     }
     // 終わらなければ、前の結果を残したまま「計算中」にする（高さは変えない）。何も出していなければ「計算中…」を出す。
-    // ケーキの比べ方は、今の計画を先に出すために止める（描いた後に残りから続ける）
+    // ケーキの比べ方とパルリバーサーの案内は、今の計画を先に出すために止める（描いた後に求める。条件が変わった古い案内は捨てる）
     stopCakes();
-    const current = { key, hints: Boolean(flipInput), cancel: run.cancel };
+    stopFlip();
+    const current = { key, cancel: run.cancel };
     job = current;
     if (!shownKey) {
       renderHolding(null);
@@ -1616,34 +1760,33 @@ export function idealView(context, route) {
     showPlan(latest.result, latest.plan);
     shownKey = current.key;
     compareCakes(latest.plan, latest.result);
+    startFlip(latest.plan, latest.result);
   }
 
-  // 結果の組・牧場の個体を、今のデータの同じ ID の個体に入れ替える（計算に効く値は同じなので、組と順位はそのまま）
+  // 結果の組・牧場の個体を、今のデータの同じ ID の個体に入れ替える（計算に効く値は同じなので、組と順位はそのまま。パルリバーサーの案内の個体は、
+  // 描くときに plan.data から引き直す〔renderReverser〕）
   function withLatestPals({ result, plan }) {
     const byId = new Map((owned.state.owned?.pals ?? []).map((pal) => [pal.id, pal]));
     const swap = (pal) => byId.get(pal.id) ?? pal;
-    const reverser = result.reverser
-      ? { ...result.reverser, hints: result.reverser.hints.map((hint) => ({ ...hint, pal: swap(hint.pal), partner: swap(hint.partner) })) } : null;
     return {
-      result: { ...result, pairs: result.pairs.map((pair) => ({ ...pair, male: swap(pair.male), female: swap(pair.female) })), reverser },
+      result: { ...result, pairs: result.pairs.map((pair) => ({ ...pair, male: swap(pair.male), female: swap(pair.female) })) },
       plan: { ...plan, data: owned.state.owned, placedFarms: plan.placedFarms.map((farm) => ({ ...farm, male: swap(farm.male), female: swap(farm.female) })) },
     };
   }
-  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・全部の牧場〔名前・状態・使用中・空き〕と拠点の名前・足りないパッシブの
-  // 手術台の案内に添える在庫〔implants〕・パルリバーサーの案内の個体と在庫〔D17〕）。同じなら描き直さない
-  const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female]),
-    ...(result.reverser?.hints ?? []).flatMap((hint) => [hint.pal, hint.partner])]
+  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・全部の牧場〔名前・状態・使用中・空き・ケーキ〕と拠点の名前・足りないパッシブの
+  // 手術台の案内に添える在庫〔implants〕）。同じなら描き直さない（パルリバーサーの案内の個体と在庫は renderReverser が自分の署名で見る）
+  const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female])]
     .map((pal) => rowSignature(pal, [])).concat(holderName(), JSON.stringify([plan.data?.farms ?? null, (plan.data?.bases ?? []).map((base) => [base.id, base.label])]),
-      result.missing.map((id) => stockText(itemStock(plan.data, implantOf(id)?.item ?? ''))).join('|'),
-      result.reverser?.hints.length ? stockText(itemStock(plan.data, GENDER_REVERSE_ITEM)) : '')
+      result.missing.map((id) => stockText(itemStock(plan.data, implantOf(id)?.item ?? ''))).join('|'))
     .join('\u0003');
-  // 描いている結果を、今のデータの個体で描き直す（データが変わっていて、出す値も変わったときだけ）
+  // 描いている結果を、今のデータの個体で描き直す（データが変わっていて、出す値も変わったときだけ）。パルリバーサーの案内の個体も新しいデータで描く
   function drawLatest(current) {
     if (owned.state.owned === current.plan.data) return;
     const latest = withLatestPals(current);
     const display = displayKey(latest);
     shown = { ...latest, changed: current.changed, display };
     if (display !== current.display) drawPlan(latest.result, latest.plan, current.changed);
+    renderReverser();
   }
 
   // 計算の結果を描く。「変更あり」の基準（planMemory）もここで更新する。
@@ -1659,6 +1802,8 @@ export function idealView(context, route) {
     }
     shown = { result, plan, changed, display: displayKey({ result, plan }) };
     drawPlan(result, plan, changed);
+    // 前の計画の案内の印は外す（この計画の案内は、描いた後の startFlip が求めて出す）
+    renderReverser();
   }
 
   // 配合牧場の判定。今の牧場の組は見張った物差しから、交換先の組（おすすめの組）は一覧から引く
@@ -1671,13 +1816,18 @@ export function idealView(context, route) {
     return { measureOf, advice: farmAdvice(placedFarms, result.pairs, { measureOf }) };
   }
 
-  // 要約・所持の状況・足りないパッシブ・パルリバーサーの案内・配合牧場の判定（帯と詳細）・組のカードを描く。牧場の名前・完全性・使用中・空きは、
+  // 要約・所持の状況・足りないパッシブ・配合牧場の判定（帯と詳細）・組のカードを描く。牧場の名前・完全性・使用中・空きは、
   // 描くときのデータ（plan.data。計算の後に読み直したデータ）から求める。読めない牧場があれば判定を保留し、交換推奨・空き牧場・使用中・
   //「変更あり」を出さない（D13。セーブの事実の「配置中」は出す）。
   // 作り直す部品（帯のセル・詳細の行・空き牧場の番号・カードと札・行の部品・畳みの見出し）にあったフォーカスは、描いた後に同じ役目の部品
   //（data-focus-key）へ戻す。10 秒ごとの読み直しや再計算で、キーボードの位置を body に落とさない（開いていた札の説明の板は閉じる）
   function drawPlan(result, plan, changed) {
-    const focus = captureFocus(element);
+    // 同じ画面のまま URL が変わって押した部品が消え、行き先がまだなかったフォーカス（applyRoute の pendingFocus）は、body に落ちたままなら
+    // この描き直しで行き先へ移す（フォーカスがほかへ移っていれば捨てる）
+    const doc = globalThis.document;
+    const lost = !doc?.activeElement || doc.activeElement === doc.body;
+    const focus = captureFocus(element) ?? (lost ? pendingFocus : null);
+    pendingFocus = null;
     paintPlan(result, plan, changed, focus);
     restoreFocus(element, focus);
   }
@@ -1685,8 +1835,6 @@ export function idealView(context, route) {
     const { placedFarms, highlight, short = [] } = plan;
     renderHolding(result);
     renderMissing(result);
-    // パルリバーサーの案内は計画といっしょに描く（D17。組がないときの文〔noPairs〕の上にも出る）
-    renderReverser(result, plan);
     const farm = farmContext(plan.data, plan.layouts ?? []);
     const pending = Boolean(farm && !farm.complete);
     const judged = farm && !pending ? farmAdviceOf(result, placedFarms) : null;
@@ -1698,7 +1846,9 @@ export function idealView(context, route) {
     const advice = judged?.advice ?? placedFarms.map((item) => ({ farm: item, status: 'keep', rank: rankOf.get(keyOf(item)) ?? -1 }));
     const rows = advice.map((item) => {
       const state = farmState(item, placedFarms.length);
-      return { item, name: nameOf(item.farm.id), state, key: state.target >= 0 ? keyOf(result.pairs[state.target]) : '' };
+      // ケーキ切れ（ケーキを読めた牧場で 0 個。共有・ケーキを読む前のデータは null で分からない）
+      const cakes = farm?.cakes?.get(item.farm.id);
+      return { item, name: nameOf(item.farm.id), state, key: state.target >= 0 ? keyOf(result.pairs[state.target]) : '', cakeOut: Array.isArray(cakes) && !cakes.length };
     });
     // 空き牧場は、判定がそろっていて、所持者が「すべて」か自分のときだけ（仲間の拠点の牧場も含む）。D30 で既定の自分でも出すようにした
     //（D29 で既定が自分になり、「すべて」を選ばないと出なくなっていた）。ほかのプレイヤーを選んでいるときは、その人の個体の組を
@@ -1753,6 +1903,9 @@ export function idealView(context, route) {
   // 画面を作り直さないので、条件のパネル・開いた候補・条件の入力は残る。
   // 戻る・進むで app.js が履歴のエントリの条件を conditions に入れ直したとき（restored）は、入力欄にも出す
   function applyRoute(next, { restored = false } = {}) {
+    // 押したリンクが描き直しで消えても、行き先の部品（data-focus-fallback）へフォーカスを移す（手術の帯は計画より先に消えるので、
+    // 前後で覚えて戻す。「手術で付ける分を除いて計画する →」⇄「手術を含めずに計画する」。安定性 2・操作性 3）
+    const focus = captureFocus(element);
     const before = `${to}|${passives.join(',')}`;
     const fromGoal = readRoute(next);
     // 保存の板を開いたまま目標・パッシブが変わったら閉じる（前の条件の名前のまま保存しない）
@@ -1762,6 +1915,10 @@ export function idealView(context, route) {
     syncPicker(toPicker, to);
     renderPassives(owned?.state?.owned?.pals);
     renderResults();
+    if (focus && !restoreFocus(element, focus)) {
+      const doc = globalThis.document;
+      if (!doc?.activeElement || doc.activeElement === doc.body) pendingFocus = focus;
+    }
     openPendingGoals();
   }
   // goals=1 で開いた・来たときは、目標のダイアログを開く（1 回だけ）
@@ -1781,6 +1938,8 @@ export function idealView(context, route) {
       job?.cancel();
       job = null;
       stopCakes();
+      stopFlip();
+      reverserBoard.destroy();
       toPicker.destroy();
       passive.destroy();
       modeChoice.destroy();
