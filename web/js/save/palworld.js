@@ -567,6 +567,10 @@ const ITEM_CONTAINER_MODULE = 'EPalMapObjectConcreteModelModuleType::ItemContain
 const CHARACTER_CONTAINER_MODULE = 'EPalMapObjectConcreteModelModuleType::CharacterContainer';
 // 牧場の入れ物のケーキ（Cake・Cake02〜Cake05。ほかのアイテムは数えない）
 const CAKE_ITEM = /^Cake\d*$/i;
+// アイテムの在庫に数えるもの（implants）: インプラント（PalPassiveSkillChange_〈パッシブ〉・…_Consumable_〈パッシブ〉）とパルリバーサー
+const STOCK_ITEM = /^(?:PalPassiveSkillChange_[A-Za-z0-9_]+|PalGenderReverse)$/i;
+// 在庫を数えた拠点の MapObject の種類（拠点の箱・配合牧場・ほかの設備）
+const stockObject = (mapObjectId) => (/^ItemChest/i.test(mapObjectId) ? 'chest' : /^BreedFarm/i.test(mapObjectId) ? 'farm' : 'other');
 
 /**
  * Level.sav（解凍済み GVAS）を読む。結果はプレーンなデータのみ（Worker 間で structured clone 可能、元バッファを参照しない）。
@@ -671,6 +675,9 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
   const breedFarms = parseBreedFarms(ws, malformed);
   // 牧場の入れ物 ID → ケーキ（アイテム ID → 個数。スロットの順）。入れ物が見つからない牧場はケーキが分からない（null のまま）
   const farmCakes = new Map(breedFarms.filter((farm) => farm.cakeContainerId).map((farm) => [farm.cakeContainerId, null]));
+  // アイテムの在庫（implants）: 入れ物 ID → アイテム ID → 個数（インプラントとパルリバーサーだけ。どの入れ物を在庫に数えるかは buildSnapshot が
+  // 持ち主で決める）
+  const itemCounts = new Map();
 
   // 卵が入っているアイテムコンテナとスロット
   const eggSlot = new Map(); // localId → { containerId, slotIndex }
@@ -690,6 +697,11 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
           eggContainers.add(containerId);
         }
         if (cakes && slot.count > 0 && CAKE_ITEM.test(slot.staticId)) cakes.set(slot.staticId, (cakes.get(slot.staticId) || 0) + slot.count);
+        if (slot.count > 0 && STOCK_ITEM.test(slot.staticId)) {
+          let counted = itemCounts.get(containerId);
+          if (!counted) itemCounts.set(containerId, (counted = new Map()));
+          counted.set(slot.staticId, (counted.get(slot.staticId) || 0) + slot.count);
+        }
       } catch {
         bump(malformed, 'itemSlots');
       }
@@ -718,8 +730,11 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
     displayCages.push({ containerId: uid(guidAt(raw, 0)), baseCampId });
   }
 
-  // 卵の入ったコンテナを持つマップオブジェクト（宝箱・地面の卵・孵化器など）
+  // 卵の入ったコンテナを持つマップオブジェクト（宝箱・地面の卵・孵化器など）と、在庫を数えたコンテナを持つマップオブジェクト（拠点の箱・
+  // ワールドの宝箱など。implants）。在庫の持ち主（itemOwners）は卵の持ち主（containerOwners）と別に持ち、卵の場所の判定は前と同じ
+  // 入れ物・同じ順（最初に見つかったマップオブジェクト）で決める
   const containerOwners = {};
+  const itemOwners = {};
   for (const mo of ws.MapObjectSaveData || []) {
     const modules = (mo.ConcreteModel && mo.ConcreteModel.ModuleMap) || [];
     for (const m of modules) {
@@ -727,7 +742,9 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
       const raw = m.value && m.value.RawData;
       if (!(raw instanceof Uint8Array) || raw.length < 16) continue;
       const containerId = guidAt(raw, 0);
-      if (!eggContainers.has(containerId) || containerOwners[containerId]) continue;
+      const forEgg = eggContainers.has(containerId) && !containerOwners[containerId];
+      const forItems = itemCounts.has(containerId) && !itemOwners[containerId];
+      if (!forEgg && !forItems) continue;
       const mapObjectId = str(mo.MapObjectId);
       let model = { baseCampId: '', position: null, buildPlayerUid: '' };
       try {
@@ -736,7 +753,8 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
       } catch {
         bump(malformed, 'mapObjectModels');
       }
-      containerOwners[containerId] = { mapObjectId, kind: eggPlaceKind(mapObjectId), ...model };
+      if (forEgg) containerOwners[containerId] = { mapObjectId, kind: eggPlaceKind(mapObjectId), ...model };
+      if (forItems) itemOwners[containerId] = { mapObjectId, baseCampId: model.baseCampId };
     }
   }
 
@@ -770,6 +788,9 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
     eggs,
     containerOwners,
     displayCages,
+    // アイテムの在庫（implants）: 入れ物ごとのインプラント・パルリバーサーの数と、その入れ物を持つマップオブジェクト（拠点の中か）
+    itemCounts: [...itemCounts].map(([containerId, counted]) => ({ containerId, items: [...counted].map(([itemId, count]) => ({ itemId, count })) })),
+    itemOwners,
     inLockerInstanceIds,
     breedFarms,
     counts: {
@@ -1195,6 +1216,25 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     return { id: f.id, baseId: f.baseCampId, status, parents, eggs, cakes };
   });
 
+  // アイテムの在庫（implants。ホストの画面だけ・共有しない）: 数えた入れ物のうち、ギルド保管庫・プレイヤーの所持品と、拠点の中のマップオブジェクト
+  //（baseCampId のある拠点の箱・配合牧場・ほかの設備）の入れ物だけを、アイテムと場所ごとに合わせる。拠点の外の入れ物（ワールドの宝箱
+  // TreasureBox_* など。baseCampId が空）と持ち主の分からない入れ物は数えない（数えると実セーブでパルリバーサーが 3 個から 88 個に化けた）
+  const stock = new Map();
+  for (const entry of level.itemCounts || []) {
+    const ic = itemContainer.get(entry.containerId);
+    const owner = level.itemOwners ? level.itemOwners[entry.containerId] : undefined;
+    const place = ic && ic.kind === 'egg-guild' ? { where: 'guild', id: ic.guildId, object: '' }
+      : ic && ic.kind === 'egg-inventory' ? { where: 'player', id: ic.playerUid, object: '' }
+        : owner && owner.baseCampId ? { where: 'base', id: owner.baseCampId, object: stockObject(owner.mapObjectId) } : null;
+    if (!place) continue;
+    for (const { itemId, count } of entry.items) {
+      const key = `${itemId}\u0001${place.where}\u0001${place.id}\u0001${place.object}`;
+      const prev = stock.get(key);
+      if (prev) prev.count += count;
+      else stock.set(key, { itemId, count, ...place });
+    }
+  }
+
   const m = meta && meta.kind === 'levelMeta' ? meta : null;
   if (m) for (const [k, v] of Object.entries(m.malformed || {})) bump(stats.malformed, `meta.${k}`, v);
   // ゲーム内の日数は LevelMeta.sav の InGameDay。読めなければ Level.sav のゲーム内の時刻から（floor(GameDateTimeTicks ÷ 864e9) と一致する）
@@ -1214,6 +1254,9 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     bases,
     pals,
     breedFarms,
+    // アイテムの在庫（[{ itemId, count, where: 'base'|'guild'|'player', id: 拠点・ギルド・プレイヤーの ID, object: 'chest'|'farm'|'other'|'' }]。
+    // 場所の呼び名は画面の側〔core/owned.js の normalizeOwned〕が付ける。implants）
+    items: [...stock.values()],
     stats,
   };
 }

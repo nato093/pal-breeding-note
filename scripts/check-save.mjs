@@ -85,6 +85,10 @@ async function main() {
   for (const farm of farms) if (farm.eggCount) console.log(`  ${farm.id.slice(0, 8)}: タマゴ ${farm.eggCount} 個${farm.eggs.some((egg) => egg.mutant) ? `（突然変異 ${farm.eggs.filter((egg) => egg.mutant).length}）` : ''}`);
   // 牧場のケーキ（save-extras。[] はケーキ切れ、null は分からない）
   console.log(`牧場のケーキ: ${farms.map((farm) => (Array.isArray(farm.cakes) ? (farm.cakes.map((cake) => `${cake.itemId}×${cake.count}`).join('+') || 'ケーキ切れ') : '不明')).join(' / ') || 'なし'}`);
+  // アイテムの在庫（implants。拠点の箱・ギルド保管庫・所持品などを合わせた数。拠点の外の宝箱は数えない）
+  const stock = Object.entries(owned.items ?? {});
+  const reverser = stock.find(([itemId]) => /^PalGenderReverse$/i.test(itemId))?.[1].total ?? 0;
+  console.log(`アイテムの在庫（インプラント・パルリバーサー。拠点の外の宝箱は数えない）: ${stock.reduce((sum, [, item]) => sum + item.total, 0)} 個・${stock.length} 種（うちパルリバーサー ${reverser} 個）`);
   if (probe) await probeWorld(worldDir, { snapshot, files });
 }
 

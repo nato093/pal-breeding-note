@@ -1429,6 +1429,8 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .route-cross { font-size: 13px; font-weight: 700; }
 .route-split { margin: 0 0 12px; padding: 10px 14px; border: 1px dashed var(--md-sys-color-outline-variant); border-radius: 12px; }
 .route-split[hidden] { display: none; }
+/* パル手術台の 1 行（implants の X-24。開始の行の下・経路の上） */
+.route-surgery { margin: 0 0 12px; padding: 0 14px; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
 .route-split-title { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
 .route-split-list { display: grid; gap: 2px; margin: 0 0 8px; padding: 0 0 0 18px; font-size: 13px; }
 .route-split-none { color: var(--md-sys-color-on-surface-variant); }
@@ -2902,6 +2904,20 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-notes { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .ideal-warning { color: var(--warning); }
 .ideal-missing { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+/* パル手術台の案内（implants）: 足りないパッシブごとの 1 行（[チップ]: パル手術台で付けられます（[アイコン]〈アイテム名〉） · 在庫）と、
+   手術で付ける分を除いた計画へのリンク、URL の s があるときの帯（左に primary の線。結果の上） */
+.ideal-surgery-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.ideal-surgery-item { display: flex; flex-wrap: wrap; align-items: center; }
+.ideal-surgery-item.is-none { color: var(--md-sys-color-on-surface-variant); }
+.ideal-surgery-icon { flex: none; width: 16px; height: 16px; margin: 0 2px 0 1px; }
+.ideal-surgery-stock { margin-left: 4px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-surgery-plan { display: inline-block; margin: 0 0 10px; font-size: 13px; font-weight: 700; }
+.ideal-surgery-band { margin: 4px 0 10px; padding: 8px 14px; border-left: 3px solid var(--md-sys-color-primary); border-radius: 0 12px 12px 0; background: var(--md-sys-color-surface-container-low); }
+.ideal-surgery-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 4px; font-size: 13px; font-weight: 700; }
+.ideal-surgery-back { margin-left: auto; font-size: 13px; font-weight: 700; }
+.ideal-surgery-band .ideal-surgery-list { margin: 0; }
+/* 目標の一覧の「手術で完成できる」の 1 行（「アヌビス♂ Lv52（拠点 1）＋神速（…）」）は長いので、項目の中でも折る */
+.ideal-goal-gap.is-surgery .ideal-goal-gap-part { white-space: normal; overflow-wrap: anywhere; }
 /* 保存した目標（見出しの「目標（N）」のダイアログ。列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す） */
 .ideal-goals-dialog { width: min(960px, calc(100% - 24px)); }
 .ideal-goal-list { list-style: none; margin: 0; padding: 0; display: grid; }

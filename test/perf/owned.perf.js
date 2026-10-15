@@ -237,8 +237,10 @@ test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,00
   }
 });
 
-test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,000 行（1 割はタマゴ）で、目標の一覧の状態（完成品・いちばん近い個体・孵化待ち）が 100ms 以内', async () => {
+test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,000 行（1 割はタマゴ）で、目標の一覧の状態（完成品・いちばん近い個体・孵化待ち・手術で完成できる個体）が 100ms 以内', async () => {
   const { goalProgress, eggMatches, cleanGoal } = await import('../../web/js/core/ideal-goals.js');
+  // 目標の一覧は手術台で付けられるパッシブ（implants）も同じ数え上げで見る（views/ideal.js の goalStatus と同じ呼び方）
+  const { canImplant } = await import('../../web/js/core/implants.js');
   const { normalizeOwned } = await import('../../web/js/core/owned.js');
   let state = 0x474f414c;
   const random = () => {
@@ -267,15 +269,38 @@ test('性能: 同じ種族の目標 100 件 × 同じ種族の所持パル 20,00
     const mine = owned.pals.slice();
     const start = performance.now();
     let unfinished = 0;
+    let surgery = 0;
     for (const goal of goals) {
-      const { found, nearest } = goalProgress(goal, mine);
+      const { found, nearest, addable } = goalProgress(goal, mine, { canAdd: canImplant });
       if (!found.length && nearest) unfinished++;
+      if (addable) surgery++;
       eggMatches(goal, owned.pals, mine);
     }
     const spent = performance.now() - start;
-    console.log(`目標の一覧の状態（同じ種族の目標 100 件・同じ種族の 20,000 行）${round + 1} 回目: ${spent.toFixed(2)} ms（未完成 ${unfinished} 件）`);
+    console.log(`目標の一覧の状態（同じ種族の目標 100 件・同じ種族の 20,000 行）${round + 1} 回目: ${spent.toFixed(2)} ms（未完成 ${unfinished} 件・手術で完成できる ${surgery} 件）`);
     assert.equal(unfinished, 100);
     assert.ok(spent < 100, `目標の一覧の状態が 100ms を超えました: ${spent.toFixed(2)} ms`);
+  }
+  // 手術で完成できる個体がいちばん多い形（implants）: 欲しいパッシブがどれも手術台で付けられ、個体値の目標がない目標 100 件。
+  // ほとんどの個体が当てはまるが、一覧に出すのは 1 体と数だけ（全部を並べると 0.7 秒止まった）
+  const implantable = passiveIds.filter(canImplant);
+  const open = Array.from({ length: 100 }, (_, i) => cleanGoal({
+    id: `s${i}`, name: `手術${i}`, palId: 'SheepBall', passives: implantable.slice(i % 40, (i % 40) + 3), mode: i % 4 === 0 ? 'only' : 'include',
+    targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', addedAt: '', worlds: {},
+  }));
+  for (let round = 0; round < 2; round++) {
+    const mine = owned.pals.slice();
+    const start = performance.now();
+    let near = 0;
+    for (const goal of open) {
+      const { found, addable } = goalProgress(goal, mine, { canAdd: canImplant });
+      if (!found.length && addable) near += addable.count;
+      eggMatches(goal, owned.pals, mine);
+    }
+    const spent = performance.now() - start;
+    console.log(`目標の一覧の状態（手術で付けられるパッシブだけの目標 100 件・同じ種族の 20,000 行）${round + 1} 回目: ${spent.toFixed(2)} ms（手術で完成できる個体 のべ ${near} 体）`);
+    assert.ok(near > 100000, `手術で完成できる個体が少なすぎます: ${near}`);
+    assert.ok(spent < 100, `手術で完成できる目標の一覧の状態が 100ms を超えました: ${spent.toFixed(2)} ms`);
   }
 });
 

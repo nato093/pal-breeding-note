@@ -29,9 +29,10 @@ const basePals = [
 const carryRecord = (id, parent1Id, parent2Id, childId) => ({ id, parent1Id, parent2Id, childId, parent1Gender: '', parent2Gender: '', registrant: '仲間', memo: '', updatedAt: '2026-10-01T00:00:00Z' });
 const carryRecords = [carryRecord('c1', 'PinkCat', 'FlowerDoll', 'ChickenPal'), carryRecord('c2', 'ChickenPal', 'FlowerDoll', 'SheepBall')];
 
-function fakeOwned(list = basePals) {
+// extra はスナップショットに足す項目（アイテムの在庫 items・拠点 bases など。implants）
+function fakeOwned(list = basePals, extra = {}) {
   const listeners = new Set();
-  const snapshot = { version: 1, world: { name: 'テスト', hostName: 'Alice' }, players: [{ uid: P1, name: 'Alice', level: 50 }], bases: [], pals: list, stats: {} };
+  const snapshot = { version: 1, world: { name: 'テスト', hostName: 'Alice' }, players: [{ uid: P1, name: 'Alice', level: 50 }], bases: [], pals: list, stats: {}, ...extra };
   const state = { ready: true, data: { snapshot }, owned: list ? normalizeOwned(snapshot, { pals, passives }) : null };
   return {
     state, loads: 0,
@@ -152,9 +153,10 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
   const children = view.element.children;
-  // 並び: 見出し → パネル → 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果（登録の行・登録した一覧の折りたたみはない。
-  // データ元の 1 行は上のバーのセーブ連携の表示と重なるのでなくした〔D29〕。要約の行もなくした〔D30〕）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-missing-note', 'ideal-hatch', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  // 並び: 見出し → パネル → 手術で付ける前提の帯（URL の s があるときだけ。implants）→ 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果
+  //（登録の行・登録した一覧の折りたたみはない。データ元の 1 行は上のバーのセーブ連携の表示と重なるのでなくした〔D29〕。要約の行もなくした〔D30〕）
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-surgery-band', 'ideal-missing-note', 'ideal-hatch', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  assert.equal(view.element.querySelector('.ideal-surgery-band').hidden, true);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
   assert.equal(view.element.querySelector('.ideal-register'), null);
   const panel = view.element.querySelector('.ideal-panel');
@@ -2748,4 +2750,129 @@ test('理想個体画面: 欲しいパッシブが 2 つ以上でどれも候補
   const missing = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Rare,Legend'));
   assert.equal(missing.element.querySelector('.ideal-route-cross'), null);
   missing.destroy();
+});
+
+// ---- パル手術台（implants）: 足りないパッシブの案内・在庫・手術で付ける分を除いた計画（URL の s）・目標の「手術で完成できる」 ----
+const SPEED = 'MoveSpeed_up_3';
+const SPEED_ITEM = 'PalPassiveSkillChange_Consumable_MoveSpeed_up_3';
+// ホストが読んだセーブの在庫（拠点 1 の箱に神速 5。屈強な肉体〔インプラント〕は 0 個）
+const stockSnapshot = { bases: [{ id: 'b1', number: 1, guildId: 'g1' }], items: [{ itemId: SPEED_ITEM, count: 5, where: 'base', id: 'b1', object: 'chest' }] };
+const surgeryTexts = (root) => root.querySelectorAll('.ideal-surgery-item').map((node) => node.textContent);
+
+test('理想個体画面（implants）: 足りないパッシブごとに、パル手術台で付けられるか・必要なインプラント・在庫を出し、付けられない伝説は「手術台では付けられません」。警告の文と運ぶ経路は今のまま', (t) => {
+  install(t);
+  const view = idealView(context(fakeOwned(basePals, stockSnapshot)), parseHash(`#/ideal?to=SheepBall&p=${SPEED},Legend,PAL_ALLAttack_up1,Deffence_up2`));
+  const note = view.element.querySelector('.ideal-missing-note');
+  // 警告の文は route-progress の後の文のまま（「別に手に入れてください」は使わない）
+  assert.match(note.querySelector('.ideal-warning').textContent, / を持つ親の候補がいません。いまは個体値厳選組だけを出しています。$/);
+  assert.doesNotMatch(note.textContent, /別に手に入れて/);
+  assert.deepEqual(surgeryTexts(note), [
+    '神速: パル手術台で付けられます（使い切りインプラント：神速） · 在庫 5（拠点 1 の箱）',
+    '伝説: 手術台では付けられません',
+    // アイテムのない行（勇敢）は在庫を添えない。インプラント（使い切りでない）は 1 個あれば何度でも使える旨と、0 個なら「在庫なし」
+    '勇敢: パル手術台で付けられます（インプラント不要）',
+    '屈強な肉体: パル手術台で付けられます（インプラント：屈強な肉体。1 個あれば何度でも使えます） · 在庫なし',
+  ]);
+  const items = note.querySelectorAll('.ideal-surgery-item');
+  assert.match(items[0].querySelector('img').src, /item\/PalPassiveSkillChange_Consumable\.png$/);
+  assert.equal(items[2].querySelector('img'), null);
+  assert.match(items[3].querySelector('img').src, /item\/PalPassiveSkillChange\.png$/);
+  assert.ok(items[1].className.split(' ').includes('is-none'));
+  // 手術で付けられる分を除いた計画へ（p から外し、s に入れる）
+  const plan = note.querySelector('.ideal-surgery-plan');
+  assert.equal(plan.textContent, '手術で付ける分（神速・勇敢・屈強な肉体）を除いて計画する →');
+  assert.equal(plan.href, buildHash('ideal', { to: 'SheepBall', p: 'Legend', s: `${SPEED},PAL_ALLAttack_up1,Deffence_up2` }));
+  // 運ぶ経路（所持パルから運べないものは文字だけ。R-32）は今までどおり並べる
+  assert.deepEqual(note.querySelectorAll('.ideal-carry').map((node) => node.textContent), ['神速: 所持パルから運べません', '伝説: 所持パルから運べません', '勇敢: 所持パルから運べません', '屈強な肉体: 所持パルから運べません']);
+  // 結果の上の帯（s がないので出さない）
+  assert.equal(view.element.querySelector('.ideal-surgery-band').hidden, true);
+  view.destroy();
+  // 在庫を読む前のデータ・参加者（在庫が分からない）は在庫を添えない。付けられるものがなければ計画のリンクを出さない
+  const plain = idealView(context(fakeOwned()), parseHash(`#/ideal?to=SheepBall&p=${SPEED}`));
+  assert.deepEqual(surgeryTexts(plain.element), ['神速: パル手術台で付けられます（使い切りインプラント：神速）']);
+  plain.destroy();
+  const legend = idealView(context(fakeOwned()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  assert.deepEqual(surgeryTexts(legend.element), ['伝説: 手術台では付けられません']);
+  assert.equal(legend.element.querySelector('.ideal-surgery-plan'), null);
+  legend.destroy();
+});
+
+test('理想個体画面（implants）: URL の s は手術で付ける前提で計画から除き、結果の上の帯と「手術を含めずに計画する」を出す。計画は p だけ・目標に保存は押せない', (t) => {
+  install(t);
+  const owned = fakeOwned(basePals, stockSnapshot);
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&s=${SPEED},PAL_ALLAttack_up1`));
+  // 正しい s なので URL は置き換えない
+  assert.deepEqual(ctx.replacements, []);
+  const band = view.element.querySelector('.ideal-surgery-band');
+  assert.equal(band.hidden, false);
+  assert.equal(band.querySelector('.ideal-surgery-head').textContent, '神速勇敢 はパル手術台で付ける前提で計画しています。手術を含めずに計画する');
+  assert.deepEqual(surgeryTexts(band), ['神速: パル手術台で付けられます（使い切りインプラント：神速） · 在庫 5（拠点 1 の箱）', '勇敢: パル手術台で付けられます（インプラント不要）']);
+  assert.equal(band.querySelector('.ideal-surgery-back').href, buildHash('ideal', { to: 'SheepBall', p: `Rare,${SPEED},PAL_ALLAttack_up1` }));
+  // 計画は p（希少）だけで立てる（s のない同じ条件と同じ組）
+  const plain = idealView(context(fakeOwned(basePals, stockSnapshot)), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.deepEqual(cards(view).map(cardText), cards(plain).map(cardText));
+  plain.destroy();
+  // 目標は配合で作る条件のまま保存するので、s があるときは押せない（理由を title に。フォーカスは残す）
+  const save = saveButton(view);
+  assert.equal(save.textContent, '☆ 目標に保存');
+  assert.equal(save.getAttribute('aria-disabled'), 'true');
+  assert.equal(save.title, '手術を含めずに計画すると保存できます');
+  save.dispatch('click');
+  assert.equal(nameInput(view), undefined);
+  assert.equal(ctx.ideals.list().length, 0);
+  // 同じ画面のまま s を外す（「手術を含めずに計画する」）と、帯が消えて保存できる
+  view.applyRoute(parseHash(`#/ideal?to=SheepBall&p=Rare,${SPEED},PAL_ALLAttack_up1`));
+  assert.equal(band.hidden, true);
+  assert.equal(save.getAttribute('aria-disabled'), 'false');
+  view.destroy();
+});
+
+test('理想個体画面（implants）: 不正な s（付けられない・形が違う・重なり・p にある・p と合わせて 4 個を超える）は捨てて URL を置き換える', (t) => {
+  install(t);
+  const owned = fakeOwned();
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash(`#/ideal?to=SheepBall&p=Rare&s=Legend,Noukin,Noukin,Rare,${encodeURIComponent('<x>')}`));
+  assert.deepEqual(ctx.replacements, ['#/ideal?to=SheepBall&p=Rare&s=Noukin']);
+  assert.deepEqual(surgeryTexts(view.element.querySelector('.ideal-surgery-band')), ['脳筋: パル手術台で付けられます（インプラント：脳筋。1 個あれば何度でも使えます）']);
+  // 残るものがなければ s ごと外し、帯を出さない
+  view.applyRoute(parseHash('#/ideal?to=SheepBall&p=Rare&s=Legend'));
+  assert.equal(ctx.replacements.at(-1), '#/ideal?to=SheepBall&p=Rare');
+  assert.equal(view.element.querySelector('.ideal-surgery-band').hidden, true);
+  // p と合わせて 4 個まで（p を残す）
+  view.applyRoute(parseHash(`#/ideal?to=SheepBall&p=Rare,Legend,CraftSpeed_up2&s=${SPEED},Noukin`));
+  assert.equal(ctx.replacements.at(-1), `#/ideal?to=SheepBall&p=${encodeURIComponent('Rare,Legend,CraftSpeed_up2')}&s=${SPEED}`);
+  view.destroy();
+});
+
+test('理想個体画面（implants）: 目標の一覧で、足りないパッシブを手術台で付ければ完成する目標は「手術で完成できる」（info の色）と、最初の 1 体＋付けるもの・在庫・ほか n 体', (t) => {
+  install(t);
+  const owned = fakeOwned([
+    palworldPal('m1', 'SheepBall', 'Male', ['Rare'], full, { kind: 'palbox', playerUid: P1, slotIndex: 37 }),
+    palworldPal('m2', 'SheepBall', 'Male', ['Rare'], full),
+    palworldPal('f1', 'SheepBall', 'Female', [], full),
+  ], stockSnapshot);
+  const ctx = withIdeals(context(owned), owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
+  ctx.ideals.add({ name: '神速モコロン', palId: 'SheepBall', passives: ['Rare', SPEED], mode: 'include', targets: full, cake: 'none' });
+  // 伝説は付けられないので手術では完成しない（未完成のまま）
+  ctx.ideals.add({ name: '伝説モコロン', palId: 'SheepBall', passives: ['Rare', 'Legend'], mode: 'include', targets: full, cake: 'none' });
+  const dialog = openGoals(view);
+  const rows = dialog.querySelectorAll('.ideal-goal');
+  const byName = (name) => rows.find((row) => row.querySelector('.ideal-goal-name').children[0].textContent === name);
+  const surgery = byName('神速モコロン');
+  assert.equal(surgery.querySelector('.ideal-goal-status').textContent, '手術で完成できる');
+  assert.deepEqual(surgery.querySelector('.ideal-goal-status').className.split(' ').filter((name) => name.startsWith('is-')), ['is-info']);
+  const gap = surgery.querySelector('.ideal-goal-gap');
+  // 状態の欄は狭いので、アイテムは種類だけ（アイテム名はパッシブ名と重なる）。パルボックスの位置が分かれば行と同じ短い形（P4 · 2-5）
+  assert.equal(gap.textContent, 'モコロン♂ Lv10（P2 · 2-2）＋神速（使い切りインプラント・在庫 5） · ほか 1 体');
+  assert.ok(gap.className.split(' ').includes('is-surgery'));
+  // 完成済みではないので、状態は所持パルへのリンクにしない
+  assert.equal(surgery.querySelector('.ideal-goal-found'), null);
+  const legend = byName('伝説モコロン');
+  assert.equal(legend.querySelector('.ideal-goal-status').textContent, '未完成');
+  assert.ok(!legend.querySelector('.ideal-goal-gap').className.split(' ').includes('is-surgery'));
+  // 完成の通知（ベル）の元の判定は完成済みだけ（どちらも未完成のまま）
+  assert.ok(ctx.ideals.list().every((goal) => !Object.values(goal.worlds).some((world) => world.complete)));
+  view.destroy();
 });

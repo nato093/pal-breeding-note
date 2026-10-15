@@ -521,3 +521,15 @@ test('理想個体（settings）: importGoals は重複・上限を除いて今�
   // 同じものをもう一度は足さない
   assert.deepEqual(ideals.importGoals(imported, observations), { added: 0, skipped: 2, saved: true });
 });
+
+test('理想個体の登録（implants）: 手術で完成できる個体（足りないパッシブを手術台で付けられる）がいても完成にせず、ベルで知らせない。付けた後のセーブで完成したら知らせる', () => {
+  const { ideals, show, notices } = setup({ pals: [sheep('a', 100, ['Rare'])] });
+  // 神速（使い切りインプラント）は手術台で付けられるが、まだ持っていない
+  ideals.add({ ...GOAL, passives: ['Rare', 'MoveSpeed_up_3'] });
+  show([sheep('a', 100, ['Rare'])], WORLD_A, time(1));
+  assert.equal(ideals.list()[0].worlds[WORLD_A].complete, false);
+  assert.deepEqual(notices(), []);
+  show([sheep('a', 100, ['Rare', 'MoveSpeed_up_3'])], WORLD_A, time(2));
+  assert.equal(ideals.list()[0].worlds[WORLD_A].complete, true);
+  assert.equal(notices().length, 1);
+});

@@ -14,7 +14,8 @@ import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { eggMatches, goalProgress, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { goalOwnedHash } from '../ideals.js';
-import { passiveCounts, ownedCounts, ownedRouteStarts } from '../core/owned.js';
+import { passiveCounts, ownedCounts, ownedRouteStarts, itemStock, stockText } from '../core/owned.js';
+import { implantOf, implantNeed, canImplant, cleanSurgery, IMPLANT_KINDS } from '../core/implants.js';
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
@@ -65,6 +66,10 @@ const FLASH_MS = 1000;
 // ケーキの提案で覚える条件の数（新しく使った条件から。D30）と、「最速」の印を付けた押しボタンの title に足す文
 const CAKE_MEMORY = 8;
 const CAKE_NOTE = 'この条件でいちばん早く完成できるケーキ（押すと切り替えます）';
+// パル手術台（implants）: 手術で付ける分を除いて計画しているとき（URL の s）に「目標に保存」を押せない理由と、インプラントの種類のアイコン
+//（web/img/item/ の下。game-assets で取り出したもの。アイテムのない行は出さない）
+const SURGERY_SAVE_REASON = '手術を含めずに計画すると保存できます';
+const IMPLANT_ICONS = { reusable: 'PalPassiveSkillChange', consumable: 'PalPassiveSkillChange_Consumable' };
 const clock = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now());
 
 // 中身が変わったときだけ作り直されるもの（配合の index）を、計算の署名に入れる番号にする
@@ -209,12 +214,32 @@ function goalGap(goal, near) {
   if (near.extra) parts.push(`余計なパッシブ ${near.extra}`);
   return parts.join(' · ');
 }
-function goalStatus(goal, pals, all = null) {
+// 手術で完成できる個体の 1 行（implants の X-26）: 「アヌビス♂ Lv52（拠点 1）＋神速（使い切りインプラント・在庫 4）」。2 体以上なら
+//「 · ほか n 体」。目標の一覧の状態の欄は狭いので、アイテムは種類だけ（アイテム名は「使い切りインプラント：〈パッシブ〉」で、パッシブ名と重なる）、
+// パルボックスの場所は行と同じ短い形（P4 · 2-5）。在庫は手元で読んだホストのデータ（data の items）のときだけ添える（参加者・在庫を読む前の
+// データは添えない）
+function surgeryLine({ pal, add, count }, data) {
+  const sex = pal.gender === 'M' ? '♂' : pal.gender === 'F' ? '♀' : '';
+  const adds = add.map((id) => {
+    const entry = implantOf(id);
+    const stock = entry?.item ? stockText(itemStock(data, entry.item), { short: true }) : '';
+    return `＋${passivesById.get(id)?.ja ?? id}（${[IMPLANT_KINDS[entry?.kind] ?? '', stock].filter(Boolean).join('・')}）`;
+  }).join('');
+  const where = pal.box ? `P${pal.box.page} · ${pal.box.row}-${pal.box.column}` : pal.placeLabel;
+  const head = `${pal.name}${sex} Lv${pal.level}${where ? `（${where}）` : ''}${adds}`;
+  return count > 1 ? `${head} · ほか ${count - 1} 体` : head;
+}
+// data は所持パルのデータ（在庫を添えるため。implants）
+function goalStatus(goal, pals, all = null, data = null) {
   if (pals === undefined || pals === null) return { done: false, text: '未確認', unknown: true };
-  // 完成品と、なければいちばん近い個体（種族ごとの索引で 1 回に求める。同じ種族の目標 100 件 × 20,000 行でも止まらない）
-  const { found, nearest } = goalProgress(goal, pals);
+  // 完成品と、なければいちばん近い個体、手術台で足りないパッシブを付ければ完成する個体（種族ごとの索引で 1 回に求める。同じ種族の目標 100 件 ×
+  // 20,000 行でも止まらない）。手術で完成できても完成の通知（ベル）は鳴らさない（完成の判定は ideals.js の goalMatches のまま）
+  const { found, nearest, addable } = goalProgress(goal, pals, { canAdd: canImplant });
   if (!found.length) {
     const hatching = all ? eggMatches(goal, all, pals).length : 0;
+    if (addable) {
+      return { done: false, surgery: true, text: `手術で完成できる${hatching ? `（孵化待ちに ${hatching} 個）` : ''}`, hatching, gap: surgeryLine(addable, data) };
+    }
     // 種族だけの目標は、持っていれば完成なので差は「未所持」だけ
     const gap = isSpeciesGoal(goal) ? '未所持' : goalGap(goal, nearest);
     return { done: false, text: hatching ? `未完成（孵化待ちに ${hatching} 個）` : '未完成', hatching, gap };
@@ -241,6 +266,8 @@ export function idealView(context, route) {
   let current = route;
   let to = '';
   let passives = [];
+  // パル手術台で付ける前提で、計画から除いた欲しいパッシブ（URL の s。implants の X-22）。目標の保存・history.state の条件には入れない
+  let surgery = [];
   // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）。登録した理想個体の条件を入れたら true を返す
   // goals=1（前のウィッシュリストの URL #/wishlist の読み替え）で開いたら、目標のダイアログを開いて URL から外す
   let openGoalsLater = false;
@@ -254,6 +281,16 @@ export function idealView(context, route) {
     to = validId(next, 'to', context);
     // 重複とマスターにない ID は除く（知らない ID のチップを出さない）
     passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => internalName(id)))].slice(0, MAX_WANTED);
+    // 手術で付ける前提のパッシブ（s）: パッシブ ID の形・手術台で付けられる・p と重ならない・p と合わせて 4 個まで（core/implants.js の
+    // cleanSurgery）。合わないものは捨てて URL を置き換える（履歴を増やさない）
+    const surgeryParam = next.params.get('s');
+    const checked = cleanSurgery(surgeryParam ?? '', passives);
+    surgery = checked.ids;
+    if (surgeryParam !== null && checked.changed) {
+      if (surgery.length) next.params.set('s', surgery.join(','));
+      else next.params.delete('s');
+      context.replace?.(buildHash('ideal', next.params));
+    }
     // 通知や一覧から開いたとき（g）は、登録した条件をそのまま使い（同じパルとパッシブでも条件が違う登録があるため）、URL から外す
     const goalId = next.params.get('g');
     if (!goalId) return false;
@@ -413,23 +450,25 @@ export function idealView(context, route) {
   });
   function renderSave() {
     if (!ideals) return;
-    const registered = Boolean(to) && ideals.has(goalConditions());
+    const registered = Boolean(to) && !surgery.length && ideals.has(goalConditions());
     const text = registered ? '★ 目標に保存済み' : '☆ 目標に保存';
     if (saveButton.textContent !== text) saveButton.textContent = text;
     saveButton.classList.toggle('is-placeholder', !to);
     // 目標がないときは押せない（見えないまま場所を残す）。保存済みは押せない印（aria-disabled）でフォーカスを残す。
     // title は押せない理由と、保存される条件の要約（I-20）
     if (!to) setDisabled(saveButton, true, '目標のパルを選ぶと保存できます');
+    // 手術で付ける分を除いて計画しているとき（s）は、目標を配合で作る条件のまま保存するため押せない（implants の X-22）
+    else if (surgery.length) setDisabled(saveButton, true, SURGERY_SAVE_REASON, { focusable: true });
     else {
       const summary = goalSummary(goalConditions());
       setDisabled(saveButton, registered, '同じ条件の目標があります', { focusable: true });
       saveButton.title = registered ? `同じ条件の目標があります\n${summary}` : summary;
     }
-    // 保存できなくなったら（目標を外した・保存済みになった）板を閉じる
-    if ((!to || registered) && saveBoard.isOpen()) saveBoard.close({ focus: Boolean(to) });
+    // 保存できなくなったら（目標を外した・保存済みになった・手術で付ける分を除いた）板を閉じる
+    if ((!to || registered || surgery.length) && saveBoard.isOpen()) saveBoard.close({ focus: Boolean(to) });
   }
   function saveGoal() {
-    if (!to || !ideals) return;
+    if (!to || !ideals || surgery.length) return;
     const goal = goalConditions();
     const name = nameInput.value.trim() || defaultName();
     const result = ideals.add({ ...goal, name });
@@ -467,6 +506,9 @@ export function idealView(context, route) {
   // 帯の高さは固定（判定が変わっても変わらない）。この目標の組を置いた牧場がない（保留でもない）ときは帯を出さず、場所も取らない（D30。
   // 前は「この目標の組を置いた牧場はありません」と出して場所を残していた。目標を変えたときに下が動くのは利用者の操作なのでよい）
   const missingBox = el('div', 'ideal-missing-note');
+  // 手術で付ける前提で計画しているとき（URL の s）の帯（implants の X-22。renderSurgeryBand）。s がなければ隠して場所も取らない
+  const surgeryBand = el('div', 'ideal-surgery-band');
+  surgeryBand.hidden = true;
   // 孵化させると完成するタマゴ（今の条件を満たすタマゴ。所持者で絞った個体のタマゴと、拠点に置かれた持ち主のないタマゴ。F048・N-16）。
   // 押すと所持パルをタマゴ・その種族・欲しいパッシブで開く。0 個なら出さない（目標を変えたときに下が動くのは利用者の操作なのでよい）
   const hatchBox = el('p', 'ideal-hatch');
@@ -597,14 +639,16 @@ export function idealView(context, route) {
       if (holding.textContent !== holdText) holding.textContent = holdText;
       holding.hidden = !holdText;
       row.classList.toggle('done', item.status.done);
-      setChipTone(state, item.status.done ? 'ready' : item.status.unknown ? 'warning' : 'neutral');
+      // 手術で完成できる（implants）は完成済みと未完成の間の色（info）
+      setChipTone(state, item.status.done ? 'ready' : item.status.surgery ? 'info' : item.status.unknown ? 'warning' : 'neutral');
       if (state.textContent !== item.status.text) state.textContent = item.status.text;
       // 完成済みは状態のピルをリンクの中へ（押すと所持パル）。それ以外はふつうのピル
       if (item.status.done && state.parentElement !== found) { found.append(state); stateCell.insertBefore(found, gap); }
       if (!item.status.done && state.parentElement === found) { stateCell.insertBefore(state, found); found.remove(); }
       // リンクの名前に行き先を入れる（見た目は状態のピル）
       if (item.status.done) found.setAttribute('aria-label', `${item.status.text}（所持パルで見る）`);
-      // 差は項目ごとに折らない（「·」の所でだけ折る）
+      // 差は項目ごとに折らない（「·」の所でだけ折る）。手術で完成できる個体の 1 行は長いので、項目の中でも折る（is-surgery）
+      gap.classList.toggle('is-surgery', Boolean(item.status.surgery));
       const gapText = item.status.gap ?? '';
       if (gap.textContent !== gapText) {
         gap.replaceChildren(...gapText.split(' · ').filter(Boolean).flatMap((part, i) => [...(i ? [el('span', 'ideal-goal-gap-sep', ' · ')] : []), el('span', 'ideal-goal-gap-part', part)]));
@@ -693,7 +737,7 @@ export function idealView(context, route) {
       reasonAction.href = reason.href;
     }
     const rows = goals.map((goal) => ({
-      goal, status: goalStatus(goal, pals, owned?.state?.owned?.pals ?? null),
+      goal, status: goalStatus(goal, pals, owned?.state?.owned?.pals ?? null, owned?.state?.owned ?? null),
       facts: { records: index ? findByChild(index, goal.palId).length : 0, holding: holdingOf(goal.palId) },
     }));
     // 未完成（まだ作るもの）を上に、完成済みは下に薄く（それぞれ保存の新しい順。判断事項 8・I-21）
@@ -704,7 +748,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, missingBox, hatchBox, farmStrip, farmBox, results);
+  element.append(heading, panel, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -771,6 +815,48 @@ export function idealView(context, route) {
     }
     return carryMemo.map.get(id);
   }
+  // パル手術台の案内の 1 行（implants の X-20）: 「[チップ]: パル手術台で付けられます（[アイコン]使い切りインプラント：神速） · 在庫 4（拠点 1 の箱）」。
+  // アイテムのない行は「（インプラント不要）」、インプラント（使い切りでないもの）は 1 個あれば何度でも使える旨を添える。付けられないものは
+  //「[チップ]: 手術台では付けられません」。在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
+  function surgeryItem(id) {
+    const entry = implantOf(id);
+    const item = el('li', `ideal-surgery-item${entry ? '' : ' is-none'}`);
+    item.append(passiveChip(id, { compact: true }));
+    if (!entry) {
+      item.append(el('span', '', ': 手術台では付けられません'));
+      return item;
+    }
+    item.append(el('span', '', ': パル手術台で付けられます（'));
+    if (IMPLANT_ICONS[entry.kind]) item.append(gameIcon(`item/${IMPLANT_ICONS[entry.kind]}.png`, { size: 16, className: 'ideal-surgery-icon' }));
+    item.append(el('span', '', `${implantNeed(id)}${entry.kind === 'reusable' ? '。1 個あれば何度でも使えます' : ''}）`));
+    const stock = entry.item ? itemStock(owned?.state?.owned, entry.item) : null;
+    if (stock) item.append(el('small', 'ideal-surgery-stock', ` · ${stockText(stock)}`));
+    return item;
+  }
+  // 手術で付ける前提で計画しているとき（URL の s。X-22）の結果の上の帯: 「[神速][勇敢] はパル手術台で付ける前提で計画しています。」と、
+  // パッシブごとの案内の行（必要なインプラントと在庫）、「手術を含めずに計画する」（s を p に戻す）。同じ内容なら作り直さない（10 秒ごとの読み直しで
+  // フォーカスを落とさない）
+  let surgeryKey = '';
+  function renderSurgeryBand() {
+    const show = Boolean(to && surgery.length);
+    const stocks = show ? surgery.map((id) => stockText(itemStock(owned?.state?.owned, implantOf(id)?.item ?? ''))).join('|') : '';
+    const key = show ? JSON.stringify([to, passives, surgery, stocks]) : '';
+    if (key === surgeryKey) return;
+    surgeryKey = key;
+    surgeryBand.hidden = !show;
+    if (!show) { surgeryBand.replaceChildren(); return; }
+    const focus = captureFocus(surgeryBand);
+    const head = el('p', 'ideal-surgery-head');
+    head.append(passiveList(surgery, { compact: true }), el('span', '', ' はパル手術台で付ける前提で計画しています。'));
+    const back = link('手術を含めずに計画する', buildHash('ideal', { to, p: [...passives, ...surgery].join(',') }), 'ideal-surgery-back');
+    back.title = '手術で付ける分も欲しいパッシブに戻して、配合だけで計画します';
+    back.setAttribute('data-focus-key', 'surgery-back');
+    head.append(back);
+    const list = el('ul', 'ideal-surgery-list');
+    list.append(...surgery.map(surgeryItem));
+    surgeryBand.replaceChildren(head, list);
+    restoreFocus(surgeryBand, focus);
+  }
   function renderMissing(result) {
     missingBox.replaceChildren();
     if (!result?.missing.length) {
@@ -787,6 +873,21 @@ export function idealView(context, route) {
     const warning = el('p', 'ideal-warning');
     warning.append(passiveList(result.missing, { compact: true, focusable: true }), el('span', '', ` を持つ親の候補がいません。${listed}`));
     missingBox.append(warning);
+    // パル手術台の案内（implants の X-20）: 足りないパッシブごとに、手術台で付けられるか・必要なインプラント・在庫（「別に手に入れてください」で
+    // 止めない）。付けられる分があれば、それを除いた計画へのリンク（X-22。計画の既定は配合だけ〔判断事項 3〕なので、リンクで移るだけ）
+    const surgeryList = el('ul', 'ideal-surgery-list');
+    surgeryList.append(...result.missing.map(surgeryItem));
+    missingBox.append(surgeryList);
+    const implantable = result.missing.filter(canImplant);
+    if (implantable.length) {
+      const names = implantable.map((id) => passivesById.get(id)?.ja ?? id).join('・');
+      const plan = link(`手術で付ける分（${names}）を除いて計画する →`,
+        buildHash('ideal', { to, p: passives.filter((id) => !implantable.includes(id)).join(','), s: [...surgery, ...implantable].join(',') }), 'ideal-surgery-plan');
+      plan.title = '欲しいパッシブから手術で付ける分を外して、配合の計画を立て直します（目標の条件は変えません）';
+      plan.setAttribute('data-focus-key', 'surgery-plan');
+      missingBox.append(plan);
+    }
+    // 運ぶ継承ルート（route-progress の R-32）は今までどおり並べる（手術と運ぶの両方を比べられる）
     const actions = el('div', 'ideal-missing');
     // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）。所持パルから運べれば最短の回数と開始を添え、
     // 運べなければリンクにせず文字だけ（R-32）。所持パルのデータ・記録がまだなければ今までどおりのリンク
@@ -1250,6 +1351,7 @@ export function idealView(context, route) {
     if (destroyed) return;
     const started = clock();
     renderSave();
+    renderSurgeryBand();
     const state = context.store.state;
     const pals = owned?.state?.owned?.pals ?? null;
     renderHatch(pals, pals ? ofHolder(pals) : null);
@@ -1371,9 +1473,11 @@ export function idealView(context, route) {
       plan: { ...plan, data: owned.state.owned, placedFarms: plan.placedFarms.map((farm) => ({ ...farm, male: swap(farm.male), female: swap(farm.female) })) },
     };
   }
-  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・全部の牧場〔名前・状態・使用中・空き〕と拠点の名前）。同じなら描き直さない
+  // 画面に出す、データから引く値（組と牧場の個体の行の署名・所持者の名前・全部の牧場〔名前・状態・使用中・空き〕と拠点の名前・足りないパッシブの
+  // 手術台の案内に添える在庫〔implants〕）。同じなら描き直さない
   const displayKey = ({ result, plan }) => [...result.pairs.flatMap((pair) => [pair.male, pair.female]), ...plan.placedFarms.flatMap((farm) => [farm.male, farm.female])]
-    .map((pal) => rowSignature(pal, [])).concat(holderName(), JSON.stringify([plan.data?.farms ?? null, (plan.data?.bases ?? []).map((base) => [base.id, base.label])]))
+    .map((pal) => rowSignature(pal, [])).concat(holderName(), JSON.stringify([plan.data?.farms ?? null, (plan.data?.bases ?? []).map((base) => [base.id, base.label])]),
+      result.missing.map((id) => stockText(itemStock(plan.data, implantOf(id)?.item ?? ''))).join('|'))
     .join('\u0003');
   // 描いている結果を、今のデータの個体で描き直す（データが変わっていて、出す値も変わったときだけ）
   function drawLatest(current) {

@@ -139,12 +139,24 @@
 
 ### 後のテーマが使う入れ物（--probe の [6]・[7]）
 
-- インプラント（`PalPassiveSkillChange_*`）とパルリバーサー（`PalGenderReverse`）: `ItemContainerSaveData` のスロット。入れ物の持ち主は、ギルド保管庫（`GuildExtraSaveDataMap` の `GuildItemStorage.RawData` の先頭 16 バイト）・プレイヤーの所持品（`Players/*.sav` の `InventoryInfo` の `*ContainerId`。`Essential` など）・拠点の MapObject（`ItemChest_04` などの `ModuleMap` の `ItemContainer`）・拠点の外の宝箱（`TreasureBox_*`。在庫に数えない）。手元のセーブでは 31 種・406 個（拠点の箱 288・拠点の外の宝箱 85・所持品 13・ギルド保管庫 12 ほか）。implants の在庫はここから。
+- インプラント（`PalPassiveSkillChange_*`）とパルリバーサー（`PalGenderReverse`）: `ItemContainerSaveData` のスロット。入れ物の持ち主は、ギルド保管庫（`GuildExtraSaveDataMap` の `GuildItemStorage.RawData` の先頭 16 バイト）・プレイヤーの所持品（`Players/*.sav` の `InventoryInfo` の `*ContainerId`。`Essential` など）・拠点の MapObject（`ItemChest_04` などの `ModuleMap` の `ItemContainer`）・拠点の外の宝箱（`TreasureBox_*`。在庫に数えない）。手元のセーブでは 31 種・406 個（拠点の箱 288・拠点の外の宝箱 85・所持品 13・ギルド保管庫 12 ほか）。implants の在庫はここから（下の「アイテムの在庫」）。
 - 捕獲数と図鑑: `Players/<uid>.sav` の `SaveData.RecordData` の `PalCaptureCount`（MapProperty<NameProperty, IntProperty>。キーはパル ID〔大文字小文字が違うことがある〕、`Human` などパルでないキーもある）・`PaldeckUnlockFlag`（MapProperty<NameProperty, BoolProperty>）。手元では 1 人 220〜250 件。paldex は `PLAYER_SKIP` に `RecordData` を足して読む。
 
 ### 解析の時間
 
 上の項目を足した前後で、同じセーブの写しを交互に 12 回ずつ読んだ中央値（1 回目を除く。2026-10-16、この PC）: 手元のワールド（個体 1,576 体・`Level.sav` 2.7 MB）で 582 → 613 ms（+5.4%）、別のワールド（1,032 体）で 111 → 118 ms（+6.7%）。
+
+## アイテムの在庫（implants。2026-10-16）
+
+インプラントとパルリバーサーの在庫（理想個体の足りないパッシブのパル手術台の案内・目標の一覧の「手術で完成できる」に添える。後のパルリバーサーの案内も使う）。**ホストの画面だけ**（手元でセーブを読んだときだけ。共有しない）。
+
+- 数えるアイテム: `ItemContainerSaveData` のスロットの `staticId` が `PalPassiveSkillChange_*`（インプラント `PalPassiveSkillChange_〈パッシブ〉`・使い切り `PalPassiveSkillChange_Consumable_〈パッシブ〉`）と `PalGenderReverse`（パルリバーサー）。`parseLevel` の牧場のケーキと同じスロットのループで、入れ物ごと・アイテムごとに数える（`itemCounts`。0 個のスロットは数えない）。
+- 入れ物の持ち主: 数えた入れ物を持つ MapObject（`ModuleMap` の `ItemContainer` の `RawData` の先頭 16 バイト）と、その `Model.RawData` の `baseCampId` を `itemOwners` に取る。**タマゴの入れ物の持ち主（`containerOwners`）とは別に持ち**、タマゴの場所の判定は前と同じ入れ物・同じ順（最初に見つかった MapObject）で決める（同じ箱にタマゴとインプラントが入っていても、タマゴの場所は変わらない。合成のセーブで、在庫のアイテムのないワールドとスナップショットの個体が同じことを `test/save/implants-stock.test.js` で、手元のワールド 4 つで前の版と個体・統計・牧場が同じことを確かめた）。
+- 在庫に数える入れ物（`buildSnapshot`）: ギルド保管庫（`GuildItemStorage`）・プレイヤーの所持品（`InventoryInfo` の `*ContainerId`。`Common`・`Essential` など全部）・`baseCampId` のある MapObject（拠点の箱 `ItemChest*`・配合牧場 `BreedFarm`・ほかの設備〔`AncientRelicRecycler` など〕）。**`baseCampId` が空の MapObject（拠点の外の宝箱 `TreasureBox_*`）と、持ち主の分からない入れ物は数えない**（数えると手元のセーブでパルリバーサーが 12 個から 97 個に化ける）。
+- スナップショット: `items: [{ itemId, count, where: 'base'|'guild'|'player', id: 拠点・ギルド・プレイヤーの ID, object: 'chest'|'farm'|'other'|'' }]`（アイテムと場所ごとに合わせる）。在庫を読む前のスナップショットにはない。
+- 画面（`web/js/core/owned.js` の `normalizeOwned`）: `items: { 〈アイテム ID〉: { total, places: [{ label, count }] } }`（場所は数の多い順に 3 つまで。呼び名は「拠点 1 の箱」「拠点 1 の配合牧場」「拠点 1 の設備」「ギルド保管庫」「Alice の所持品」）。在庫を読む前のスナップショットは `null`（分からない）。共有のデータ（`ownedFromShared`）はいつも `null`。引くのは `itemStock(owned, itemId)` → `{ total, places } | null`（読んだデータにないアイテムは `{ total: 0, places: [] }`＝在庫なし）、文は `stockText(stock)`（「在庫 5（拠点 1 の箱）」「在庫 7（拠点 1 の箱 5・ギルド保管庫 2）」「在庫なし」。`{ short: true }` は「在庫 5」）。
+- 手元のセーブ（2026-10-16）: 31 種・321 個（拠点の箱 288・拠点の設備 8・ギルド保管庫 12〔パルリバーサーだけ〕・所持品 13）。拠点の外の宝箱の 85 個（全部パルリバーサー）は数えない。`npm run check:save` の通常の出力に「アイテムの在庫（インプラント・パルリバーサー。拠点の外の宝箱は数えない）: 321 個・31 種（うちパルリバーサー 12 個）」の 1 行。
+- 解析の時間: 同じセーブの写しを前の版と交互に 12 回ずつ読んだ中央値で、手元のワールド（1,558 体）625 → 615 ms、別のワールド（1,032 体）115 → 114 ms（差は揺れの範囲。スロットのループは 1 回のまま）。
 
 ## 注意
 

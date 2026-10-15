@@ -12,6 +12,7 @@ import { ownedRowItem } from './owned.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { internalName } from '../core/boundary.js';
 import { farmNames } from '../core/ideal-farms.js';
+import { implantOf, canImplant, IMPLANT_KINDS } from '../core/implants.js';
 
 function holderSummary(carriers) {
   // 要約なので、パルボックスのページと位置までは出さない（開始の候補は親にできる個体だけなので、タマゴの分かれ道はない。R-15）
@@ -84,6 +85,10 @@ export function inheritanceView(context, route) {
   startNote.hidden = true;
   const startFilter = el('div', 'start-filter');
   startFilter.append(el('span', 'field-label', '開始'), startChips, startNote);
+  // パル手術台の 1 行（implants の X-24）: 選んだ運びたいパッシブのうち手術台で付けられるもの。開始の行（候補がないときの文）の下・経路の上に
+  // 1 行だけ。開始のチップ・探索の条件・個体の一覧は変えない
+  const surgeryNote = el('p', 'route-surgery');
+  surgeryNote.hidden = true;
   const results = el('div', 'route-result-slot');
   // 開始の所持個体（所持パルの行の部品 ownedRowItem。6 体以上は上の 5 体と「ほか N 体」）。作っておき、出さないときは隠す
   const ownedSection = el('section', 'route-owned');
@@ -112,7 +117,7 @@ export function inheritanceView(context, route) {
   // 選んだパッシブをすべて持つ個体がいないとき、パッシブ 1 つずつなら運べるかの行（R-30）
   const splitSlot = el('div', 'route-split');
   splitSlot.hidden = true;
-  element.append(heading, panel, hintSlot, startFilter, splitSlot, results, ownedSection);
+  element.append(heading, panel, hintSlot, startFilter, surgeryNote, splitSlot, results, ownedSection);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -371,6 +376,19 @@ export function inheritanceView(context, route) {
       link('理想個体で合わせる →', buildHash('ideal', { to, p: passives.join(',') }), 'button secondary small route-split-ideal'));
   }
 
+  // 「神速はパル手術台で付けられます（使い切りインプラント）。運ばずに、できた個体に付けることもできます。」（2 つ以上は「神速（使い切りインプラント）・
+  // 勇敢（インプラント不要）はパル手術台で付けられます。…」）。目標がないとき・付けられるものがないときは出さない
+  function renderSurgery() {
+    const ids = to ? passives.filter(canImplant) : [];
+    surgeryNote.hidden = !ids.length;
+    const kind = (id) => IMPLANT_KINDS[implantOf(id).kind];
+    const name = (id) => passivesById.get(id)?.ja ?? id;
+    const text = !ids.length ? ''
+      : ids.length === 1 ? `${name(ids[0])}はパル手術台で付けられます（${kind(ids[0])}）。運ばずに、できた個体に付けることもできます。`
+        : `${ids.map((id) => `${name(id)}（${kind(id)}）`).join('・')}はパル手術台で付けられます。運ばずに、できた個体に付けることもできます。`;
+    if (surgeryNote.textContent !== text) surgeryNote.textContent = text;
+  }
+
   // 段の進み具合（R-34）: 段の子の種族を、選んだパッシブをすべて持つタマゴでない個体で所持していれば ✓。パッシブを選んでいなければ出さない
   function progressFor(stats) {
     if (!stats || !passives.length) return undefined;
@@ -407,6 +425,7 @@ export function inheritanceView(context, route) {
     const starts = ready ? ownedRouteStarts({ graph: state.graph, pals, to, passives, shortestRoute, palOrder: state.index?.palOrder }) : [];
     renderStartFilter(starts, ready && !starts.length ? startNoteFor(pals) : '');
     renderSplit(state, pals, ready ? starts : [{}]);
+    renderSurgery();
     crossLink.hidden = !to;
     if (to) crossLink.href = buildHash('ideal', { to, p: passives.join(',') });
     renderPassives(pals);

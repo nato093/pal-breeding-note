@@ -592,7 +592,7 @@ test('継承ルート: 目標とパッシブの下に開始の候補を「すべ
   const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
   // 開始を切り替えても経路の先頭の位置が変わらないよう、所持個体は経路の下（R-07）
   assert.deepEqual(view.element.children.map((node) => node.className).slice(1),
-    ['selection-panel route-query', 'route-hint', 'start-filter', 'route-split', 'route-result-slot', 'route-owned']);
+    ['selection-panel route-query', 'route-hint', 'start-filter', 'route-surgery', 'route-split', 'route-result-slot', 'route-owned']);
   assert.equal(view.element.querySelector('.swap-button'), null);
   assert.deepEqual(chipStates(view), [['すべて', 'true'], [SHEEP, 'false']]);
   assert.match(view.element.querySelector('.start-chips').className, /has-starts/);
@@ -3267,4 +3267,25 @@ test('所持パル画面（種族の見出し）: 図鑑順のときだけ種族
   assert.equal(byLevel.element.querySelectorAll('.owned-species').length, 0);
   assert.equal(byLevel.element.querySelector('.owned-fold-all').hidden, true);
   byLevel.destroy();
+});
+
+test('継承ルート（implants）: 選んだ運びたいパッシブのうちパル手術台で付けられるものに 1 行（開始の行の下・経路の上）。開始のチップ・探索は変えない', (t) => {
+  installDom(t);
+  const records = [{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 }];
+  const app = context(fakeOwned(), records);
+  const note = (view) => view.element.querySelector('.route-surgery');
+  // 職人気質（インプラント）を運ぶ: 開始の候補（モコロン）はそのまま、1 行を足す
+  const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  assert.equal(note(view).hidden, false);
+  assert.equal(note(view).textContent, '職人気質はパル手術台で付けられます（インプラント）。運ばずに、できた個体に付けることもできます。');
+  assert.ok(view.element.querySelectorAll('.start-chip').length >= 2);
+  // 2 つ以上は種類を名前ごとに。付けられないもの（希少）は数えない
+  view.applyRoute(parseHash('#/route?to=CuteFox&p=CraftSpeed_up2,Rare,MoveSpeed_up_3,PAL_ALLAttack_up1'));
+  assert.equal(note(view).textContent, '職人気質（インプラント）・神速（使い切りインプラント）・勇敢（インプラント不要）はパル手術台で付けられます。運ばずに、できた個体に付けることもできます。');
+  // 付けられるものがない・目標がないときは出さない
+  view.applyRoute(parseHash('#/route?to=CuteFox&p=Rare'));
+  assert.equal(note(view).hidden, true);
+  view.applyRoute(parseHash('#/route?p=MoveSpeed_up_3'));
+  assert.equal(note(view).hidden, true);
+  view.destroy();
 });

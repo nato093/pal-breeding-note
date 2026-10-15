@@ -231,11 +231,79 @@ function cakesOf(value) {
   });
 }
 
+// ---- アイテムの在庫（implants。インプラントとパルリバーサー。ホストの画面だけ・共有しない） ----
+// 在庫に数えるアイテム（web/js/save/palworld.js の STOCK_ITEM と同じ）と、場所の数（多い順に 3 つまで）
+const STOCK_ITEM = /^(?:PalPassiveSkillChange_[A-Za-z0-9_]{1,100}|PalGenderReverse)$/i;
+const STOCK_PLACES = 3;
+const STOCK_ENTRIES_MAX = 5000;
+const STOCK_COUNT = { min: 0, max: 1000000, fallback: 0 };
+// 拠点の中の入れ物の呼び名（拠点 1 の箱・拠点 1 の配合牧場・拠点 1 の設備）
+const STOCK_OBJECTS = Object.freeze({ chest: '箱', farm: '配合牧場', other: '設備' });
+// 名前の後に文を続ける（英数字で終わる名前の後だけ空ける。「拠点 1 の箱」「Alice の所持品」）
+const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}${rest}`;
+/**
+ * スナップショットの items（buildSnapshot。アイテムと場所ごとの数）を、アイテム ID → { total, places: [{ label, count }] } にまとめる
+ *（places は数の多い順に 3 つまで）。items のない古いスナップショットは null（分からない）
+ */
+function stockOf(value, { baseLabel, players }) {
+  if (!Array.isArray(value)) return null;
+  const byItem = new Map();
+  for (const entry of list(value, { max: STOCK_ENTRIES_MAX, map: (item) => (isObject(item) ? item : null) })) {
+    const itemId = typeof entry.itemId === 'string' && STOCK_ITEM.test(entry.itemId) ? entry.itemId : '';
+    const count = int(entry.count, STOCK_COUNT);
+    const id = idText(entry.id, 40);
+    if (!itemId || !count) continue;
+    const label = entry.where === 'base' ? joinName(baseLabel(id), `の${STOCK_OBJECTS[entry.object] ?? STOCK_OBJECTS.other}`)
+      : entry.where === 'guild' ? 'ギルド保管庫'
+        : entry.where === 'player' && id ? joinName(playerName(players, id), 'の所持品') : '';
+    if (!label) continue;
+    let places = byItem.get(itemId);
+    if (!places) byItem.set(itemId, (places = new Map()));
+    places.set(label, (places.get(label) ?? 0) + count);
+  }
+  return Object.fromEntries([...byItem].map(([itemId, places]) => {
+    const sorted = [...places].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return [itemId, { total: sorted.reduce((sum, [, count]) => sum + count, 0), places: sorted.slice(0, STOCK_PLACES).map(([label, count]) => ({ label, count })) }];
+  }));
+}
+
+/**
+ * アイテムの在庫（implants）。手元で読んだホストのデータ（normalizeOwned）にだけある。参加者（共有のデータ）・在庫を読む前の
+ * スナップショットでは null（分からない）。読んだデータにないアイテムは { total: 0, places: [] }（在庫なし）
+ * @param {object | null | undefined} owned normalizeOwned / ownedFromShared の結果
+ * @param {string} itemId アイテム ID（PalPassiveSkillChange_*・PalGenderReverse。大文字小文字は問わない）
+ * @returns {{ total: number, places: { label: string, count: number }[] } | null}
+ */
+export function itemStock(owned, itemId) {
+  const items = owned?.items;
+  if (!items || typeof items !== 'object' || typeof itemId !== 'string' || !itemId) return null;
+  if (Object.hasOwn(items, itemId)) return items[itemId];
+  const lower = itemId.toLowerCase();
+  const found = Object.keys(items).find((key) => key.toLowerCase() === lower);
+  return found ? items[found] : { total: 0, places: [] };
+}
+
+/**
+ * 在庫の文（「在庫 5（拠点 1 の箱）」「在庫 7（拠点 1 の箱 5・ギルド保管庫 2）」「在庫なし」）。分からない（null）なら ''。
+ * short は場所を付けない（「在庫 5」。括弧の中に入れるとき）
+ */
+export function stockText(stock, { short = false } = {}) {
+  if (!stock) return '';
+  if (!stock.total) return '在庫なし';
+  if (short) return `在庫 ${stock.total}`;
+  // 1 か所なら場所だけ、2 か所以上は数の多い 2 か所と数（残りがあれば「ほか」）
+  const shown = stock.places.slice(0, 2);
+  if (!shown.length) return `在庫 ${stock.total}`;
+  if (shown.length === 1 && shown[0].count === stock.total) return `在庫 ${stock.total}（${shown[0].label}）`;
+  const more = shown.reduce((sum, place) => sum + place.count, 0) < stock.total;
+  return `在庫 ${stock.total}（${shown.map((place) => `${place.label} ${place.count}`).join('・')}${more ? ' ほか' : ''}）`;
+}
+
 /**
  * スナップショットを画面用の一覧にする。
  * @param {object} snapshot buildSnapshot の結果
  * @param {{ pals: object[], passives: object[] }} masters
- * @returns {{ world: object, players: object[], bases: object[], pals: object[], stats: object }}
+ * @returns {{ world: object, players: object[], bases: object[], pals: object[], items: object | null, stats: object }}
  */
 export function normalizeOwned(snapshot, { pals, passives, humans = humanList }) {
   const resolve = createSpeciesResolver(pals);
@@ -366,6 +434,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     //（共有で n のない古い形は false。空いて見える牧場が読めない牧場かもしれないので、空き牧場の判定をしない）
     farmsPartial: false,
     farmsCounted: true,
+    // アイテムの在庫（インプラント・パルリバーサー。itemStock で引く。implants）。在庫を読む前のスナップショットは null
+    items: stockOf(snapshot?.items, { baseLabel, players }),
     stats: snapshot?.stats ?? {},
   };
 }
@@ -1026,6 +1096,8 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
     ...farmData,
+    // アイテムの在庫は共有しない（ホストの画面だけ。implants）
+    items: null,
     stats: {},
   };
 }
