@@ -646,9 +646,9 @@ test('画面: 下書きタブで下書きを作って端末に保存し、登録
   assert.equal(tab.getAttribute('aria-current'), 'page');
   assert.ok(byClass('drafts-view'));
   const key = 'pal-note.drafts.test.架空データ';
-  await byText('＋ 下書きに登録').dispatch('click');
+  await byText('＋ 下書きに保存').dispatch('click');
   const dialog = find((node) => node.tagName === 'dialog' && node.open);
-  assert.equal(dialog.querySelector('h2').textContent, '下書きに登録');
+  assert.equal(dialog.querySelector('h2').textContent, '下書きに保存');
   dialog.querySelector('textarea').value = 'あとで確認';
   await byText('下書きに保存').dispatch('click');
   assert.equal(JSON.parse(values.get(key))[0].memo, 'あとで確認');

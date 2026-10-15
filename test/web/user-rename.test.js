@@ -57,6 +57,7 @@ test('端末内の移動: 変えた環境の分だけ移し、移し先と連結
   storage.setItem('pal-note.drafts.test.taro', JSON.stringify([{ id: 'd', registrant: 'Taro' }]));
   storage.setItem('pal-note.wishlist.prod.taro', JSON.stringify([{ palId: 'SheepBall' }]));
   storage.setItem('pal-note.autoBreeding.notices.prod.taro', JSON.stringify([{ id: 'n' }]));
+  storage.setItem('pal-note.autoBreeding.registered.prod.taro', JSON.stringify([{ id: 'ok' }]));
   storage.setItem('pal-note.notifications.read.taro', JSON.stringify(['r']));
   storage.setItem('pal-note.autoBreeding.players.prod.W1', JSON.stringify({ u1: 'ｔａｒｏ', u2: '花子' }));
   storage.setItem('pal-note.autoBreeding.players.test.W1', JSON.stringify({ u1: 'Taro' }));
@@ -69,6 +70,9 @@ test('端末内の移動: 変えた環境の分だけ移し、移し先と連結
   assert.deepEqual(read(storage, 'pal-note.drafts.test.taro'), [{ id: 'd', registrant: 'Taro' }]);
   assert.deepEqual(read(storage, 'pal-note.wishlist.prod.jiro'), [{ palId: 'SheepBall' }]);
   assert.deepEqual(read(storage, 'pal-note.autoBreeding.notices.prod.jiro'), [{ id: 'n' }]);
+  // 登録できた配合の通知（既存のキーとは別のキー）も同じく移して元を消す
+  assert.deepEqual(read(storage, 'pal-note.autoBreeding.registered.prod.jiro'), [{ id: 'ok' }]);
+  assert.equal(storage.getItem('pal-note.autoBreeding.registered.prod.taro'), null);
   assert.deepEqual(read(storage, 'pal-note.notifications.read.jiro'), ['r']);
   assert.deepEqual(read(storage, 'pal-note.notifications.read.taro'), ['r']);
   assert.deepEqual(read(storage, 'pal-note.autoBreeding.players.prod.W1'), { u1: 'Jiro', u2: '花子' });

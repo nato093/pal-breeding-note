@@ -41,6 +41,8 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     { prefix: `${namespace}.wishlist.${env}.` },
     { prefix: `${namespace}.ideals.${env}.` },
     { prefix: `${namespace}.autoBreeding.notices.${env}.` },
+    // 自動登録の、登録できた配合の通知（旧版のタブが知らない別のキー。auto-register.js）
+    { prefix: `${namespace}.autoBreeding.registered.${env}.` },
     // 既読は環境を含まないので、別の環境の同じ名前のために元を残す
     { prefix: `${namespace}.notifications.read.`, keep: true },
   ];

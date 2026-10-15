@@ -93,7 +93,7 @@
   --z-header: 6;     /* ヘッダー */
   --z-drawer: 30;    /* 右のドロワー（フェーズ 3） */
   --z-snackbar: 40;  /* 新しい版の案内（stable-render）。トーストより下 */
-  --z-toast: 50;     /* トースト */
+  --z-toast: 50;     /* トースト（本文の中の候補の板を開いている間は板の下。.has-inline-popover） */
   --z-popover: 60;   /* 本文の外（body・dialog）に浮かせる候補・メニュー */
   --z-skip: 70;      /* スキップリンク */
   --content-max: 1440px;
@@ -907,6 +907,10 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
   z-index: var(--z-toast);
   pointer-events: none;
 }
+/* 本文の中で候補の板（パッシブ・パル選択など。固定のパネル〔--z-panel〕の重なりの中にある）を開いている間は、トーストを板の下に下げる
+   （ui/popover.js が html に .has-inline-popover を付ける）。板はパネルの重なりの外へ z-index を上げられず、背の高い板の下の端が
+   トーストに隠れて押せなかった。重なり順「スナックバー ＜ トースト ＜ 候補の板」を、本文の中の板でも守る。ダイアログの中も同じ */
+.has-inline-popover .toast-region { z-index: calc(var(--z-panel) - 1); }
 /* ダイアログの中（top layer）では窓の下中央。ログイン画面（ナビなし）では窓の幅の下中央 */
 dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banner { left: 24px; }
 .toast-list, .toast-alerts { display: grid; gap: 8px; }
@@ -1339,7 +1343,9 @@ a.wishlist-main:hover .pal-tile { color: var(--accent); }
 /* チップの入れ物は 1 行分の高さで、はみ出しを隠すので、フォーカスの枠はチップの内側に描く（外側だと上下が切れる） */
 .filter-chip:focus-visible { outline-offset: -2px; }
 .filter-chip-text { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
-.filter-chip-x { padding: 0 4px; font-size: 14px; line-height: 1; color: var(--md-sys-color-on-surface-variant); }
+/* × は SVG のアイコン（ui/icons.js の close。.close-icon の 20px）で、パッシブのチップの × と同じ大きさ。前の文字の「×」（余白込み約 20px）と
+   同じ幅なので、チップの幅は変わらない */
+.filter-chip-x { display: inline-grid; place-items: center; flex: none; color: var(--md-sys-color-on-surface-variant); }
 .filter-chip:hover .filter-chip-x { color: var(--md-sys-color-on-surface); }
 /* 1 行に入り切らずに隠れたチップの「+n」（押すと隠れたチップの板）。隠れたチップがないときも場所を残す（状態の行の並びを動かさない） */
 .filter-more-slot { position: relative; flex: none; display: inline-flex; }

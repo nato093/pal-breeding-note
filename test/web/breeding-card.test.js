@@ -91,10 +91,13 @@ test('genderMark: 性別の印は文字の ♂♀ のまま（色の丸い地は
   const male = genderMark('M');
   assert.equal(male.tagName, 'span');
   assert.equal(male.className, 'gender gender-M');
-  assert.deepEqual([male.textContent, male.getAttribute('role'), male.getAttribute('aria-label'), male.title], ['♂', 'img', 'オス', 'オス']);
+  assert.deepEqual([male.textContent, male.getAttribute('role'), male.getAttribute('aria-label')], ['♂', 'img', 'オス']);
+  // ツールチップ（title）で画面に「オス」「メス」と出さない（README の表記の決まり。読み上げの名前 aria-label だけ）
+  assert.equal(male.title ?? '', '');
+  assert.equal(male.getAttribute('title'), null);
   const female = genderMark('F', { inline: true });
   assert.equal(female.className, 'gender gender-F gender-inline');
-  assert.deepEqual([female.textContent, female.getAttribute('role'), female.getAttribute('aria-label')], ['♀', 'img', 'メス']);
+  assert.deepEqual([female.textContent, female.getAttribute('role'), female.getAttribute('aria-label'), female.title ?? ''], ['♀', 'img', 'メス', '']);
   // 性別が分からない（空・知らない値）ときは印を作らない
   assert.equal(genderMark(''), null);
   assert.equal(genderMark('X'), null);

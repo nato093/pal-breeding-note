@@ -17,14 +17,19 @@ import { notificationTags } from './notifications.js';
 // 認証切れ（ログアウトされる）は記録せずに止める。ログインし直したら送り直す。
 const MUTATION_ERRORS = new Set(['DUPLICATE', 'PAIR_CONFLICT', 'ID_CONFLICT', 'VALIDATION', 'CONFLICT', 'NOT_FOUND']);
 const FLIP = { M: 'F', F: 'M' };
-// 残す通知の数。登録できた配合（成功）は新しい 20 件、それ以外（未設定・見送り・保留）は新しい 50 件で、別々に数える
-// （成功がいくら増えても、対応の必要な通知を追い出さない）
+// 未設定・見送り・保留の通知（既存のキー autoBreeding.notices）は新しい 50 件まで残す（前の版と同じ）
 const NOTICE_MAX = 50;
-const SUCCESS_MAX = 20;
-const SUCCESS = 'auto-registered';
-// 成功の通知の id（auto-breed:<環境>:registered:<レコードの ID>）。旧コードのタブが書き直して kind が消えても、id で成功と分かる
-const REGISTERED = /^auto-breed:[^:]*:registered:/;
 const PENDING_MAX = 200;
+// 登録できた配合（成功）の通知は別のキー（autoBreeding.registered）に持つ。既存のキーは旧版のまま開いているタブも読み、日時順に 50 件で
+// 切って kind・worldId・batchId を捨てて書き戻すので、成功を同じキーに入れると、成功の分だけ古い未設定・見送りが押し出され、まとめも消える。
+// 成功は新しい読み込み（batchId）20 回分を残す。1 回の読み込みの分は全部残し（通知欄の「ほか N 件」をトーストの件数と合わせる。
+// 1 回の読み込みで登録できるのは、まだ登録を終えていない候補の上限 PENDING_MAX 件まで）、全体でも REGISTERED_MAX 件まで
+// （入り切らない読み込みから先は丸ごと外す）
+const REGISTERED_BATCHES = 20;
+const REGISTERED_MAX = PENDING_MAX;
+const SUCCESS = 'auto-registered';
+// 成功の通知の id（auto-breed:<環境>:registered:<レコードの ID>）。既存のキーに残っている成功の形の通知（未配信の版が書いたもの）は読まない
+const REGISTERED = /^auto-breed:[^:]*:registered:/;
 const EVIDENCE_MAX = 10;
 // セーブのプレイヤーと登録者の対応（ワールドごと）。プレイヤーは共有と同じ 100 人まで、uid 40 字・ノートの ID 20 字
 const MAPPING_MAX = 100;
@@ -64,11 +69,31 @@ function cleanSavedNotice(value) {
 }
 
 const isSuccess = (notice) => notice.kind === SUCCESS || REGISTERED.test(notice.id);
-// 並び（新しい順）のまま、成功は SUCCESS_MAX 件・それ以外は NOTICE_MAX 件まで残す
-function capNotices(notices) {
-  let successes = 0;
-  let others = 0;
-  return notices.filter((notice) => (isSuccess(notice) ? ++successes <= SUCCESS_MAX : ++others <= NOTICE_MAX));
+const newestFirst = (a, b) => Date.parse(b.date) - Date.parse(a.date);
+// まとめの単位（通知欄の groupNotifications と同じく、ワールドと読み込んだ日時）。batchId がなければ 1 件ずつ
+const batchOf = (notice) => `${notice.worldId ?? ''}\n${notice.batchId ?? notice.id}`;
+
+/**
+ * 成功の通知（新しい順）を、新しい読み込み REGISTERED_BATCHES 回分・全体 REGISTERED_MAX 件までにする（並びは変えない）。
+ * 入り切らない読み込みから先は丸ごと外す（1 回の読み込みを途中で切ると、通知欄の「ほか N 件」が登録した件数より少なくなるため）。
+ * いちばん新しい読み込みだけは、REGISTERED_MAX 件を超えても REGISTERED_MAX 件までは残す
+ */
+function capRegistered(notices) {
+  const counts = new Map();
+  for (const notice of notices) counts.set(batchOf(notice), (counts.get(batchOf(notice)) ?? 0) + 1);
+  const left = new Map();
+  let total = 0;
+  for (const [batch, count] of counts) {
+    if (left.size >= REGISTERED_BATCHES || (left.size && total + count > REGISTERED_MAX)) break;
+    const kept = Math.min(count, REGISTERED_MAX - total);
+    left.set(batch, kept);
+    total += kept;
+  }
+  return notices.filter((notice) => {
+    const rest = left.get(batchOf(notice)) ?? 0;
+    left.set(batchOf(notice), rest - 1);
+    return rest > 0;
+  });
 }
 
 const genderMark = (gender) => (gender === 'M' ? '♂' : gender === 'F' ? '♀' : '');
@@ -131,6 +156,8 @@ export function createAutoRegister({
   // 牧場ごとの前に見た親とタマゴ・まだ登録を終えていない候補（ワールド・環境ごと。読み込み直しても続きから）
   const farmsKey = (env, worldId) => `${namespace}.autoBreeding.farms.${env}.${worldId}`;
   const noticeKey = (env, userId) => `${namespace}.autoBreeding.notices.${env}.${userIdKey(userId)}`;
+  // 登録できた配合の通知（旧版のタブが知らないキー。名前の変更では user-rename.js が既存のキーと同じく移す）
+  const registeredKey = (env, userId) => `${namespace}.autoBreeding.registered.${env}.${userIdKey(userId)}`;
   // 通信で失敗した候補と、そのとき読んでいたセーブ（importedAt）。
   // ログイン・環境・ID・連携しているワールド・役割が変わったら捨てる
   let seen = null;
@@ -274,24 +301,49 @@ export function createAutoRegister({
     writeFarms(ctx, { ...saved, pending: saved.pending.filter((c) => c.key !== key) });
   }
 
+  // 未設定・見送り・保留の通知（既存のキー）。成功の形の通知は読まない（成功は registeredKey にだけ持つ）
   function readNotices(env, userId) {
     const saved = env && userId ? readJson(noticeKey(env, userId), []) : [];
+    const map = (value) => {
+      const notice = cleanSavedNotice(value);
+      return notice && !isSuccess(notice) ? notice : null;
+    };
     // 保存し直しはせず、読み出すたびに直す（次に保存するときは、直した文で書き直す）。形を確かめてから、配合表の答えを外し、
     // 前の版の「未設定」の行き先を直す
-    return capNotices(list(saved, { max: NOTICE_MAX + SUCCESS_MAX, map: cleanSavedNotice })).map(safeAutoNotice).map(unmappedHref);
+    return list(saved, { max: NOTICE_MAX, map }).map(safeAutoNotice).map(unmappedHref);
   }
-
-  // 同じ ID の通知は足さない。新しい順に、成功は SUCCESS_MAX 件・それ以外は NOTICE_MAX 件まで残す
-  function saveNotices(ctx, added, removedIds = new Set()) {
-    const stored = readJson(noticeKey(ctx.env, ctx.userId), []);
-    const before = readNotices(ctx.env, ctx.userId);
-    const ids = new Set(before.map((n) => n.id));
-    const next = capNotices([...before.filter((n) => !removedIds.has(n.id)), ...added.filter((n) => !ids.has(n.id) && ids.add(n.id))]
-      .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)));
+  // 登録できた配合の通知（新しい順。capRegistered の数まで）
+  function readRegistered(env, userId) {
+    const saved = env && userId ? readJson(registeredKey(env, userId), []) : [];
+    const map = (value) => {
+      const notice = cleanSavedNotice(value);
+      return notice && REGISTERED.test(notice.id) ? notice : null;
+    };
+    // 1 件多く読む（REGISTERED_MAX 件目をまたぐ読み込みを、入り切らないと分かるように）
+    return capRegistered(list(saved, { max: REGISTERED_MAX + 1, map }).sort(newestFirst));
+  }
+  // 並び（id）が保存先と同じなら書かない
+  function writeNotices(key, next) {
+    const stored = readJson(key, []);
     const unchanged = Array.isArray(stored) && next.length === stored.length && next.every((n, i) => n.id === stored[i]?.id);
     if (unchanged) return;
-    storage.set(noticeKey(ctx.env, ctx.userId), JSON.stringify(next));
+    storage.set(key, JSON.stringify(next));
     onNotice();
+  }
+
+  // 未設定・見送り・保留の通知。同じ ID の通知は足さない。新しい順に NOTICE_MAX 件まで残す
+  function saveNotices(ctx, added, removedIds = new Set()) {
+    const before = readNotices(ctx.env, ctx.userId);
+    const ids = new Set(before.map((n) => n.id));
+    const next = [...before.filter((n) => !removedIds.has(n.id)), ...added.filter((n) => !ids.has(n.id) && ids.add(n.id))]
+      .sort(newestFirst).slice(0, NOTICE_MAX);
+    writeNotices(noticeKey(ctx.env, ctx.userId), next);
+  }
+  // 登録できた配合の通知を 1 件足す（同じ ID なら足さない）
+  function saveRegistered(ctx, notice) {
+    const before = readRegistered(ctx.env, ctx.userId);
+    if (before.some((n) => n.id === notice.id)) return;
+    writeNotices(registeredKey(ctx.env, ctx.userId), capRegistered([...before, notice].sort(newestFirst)));
   }
 
   // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」。前の版が保存した本文は「×」のまま読み替える＝OLD_ANOMALY・OLD_CONFLICT）
@@ -363,7 +415,7 @@ export function createAutoRegister({
         finish(ctx, candidate.key);
         registered++;
         // 確定した登録は、この後で止まっても（セーブ・ログイン・設定が変わった）失わないよう、すぐに始めたときの保存先へ残す
-        saveNotices(ctx, [registeredNotice(ctx, record, farmLabel(ctx, candidate))]);
+        saveRegistered(ctx, registeredNotice(ctx, record, farmLabel(ctx, candidate)));
         // 別の結果として送ると、サーバは食い違いを調べない。送るまでの間に、性別の並びまで同じ食い違う登録が
         // 増えていないかを、応答の全件で確かめ直す
         if (allowDifferentChild) {
@@ -462,10 +514,13 @@ export function createAutoRegister({
       changed();
       evaluate();
     },
-    /** 通知欄の元（createNotificationStore の sources に渡す） */
+    /**
+     * 通知欄の元（createNotificationStore の sources に渡す）。未設定・見送り・保留の通知と、登録できた配合の通知（別のキー）を
+     * 合わせて新しい順に返す（同じ日時なら、対応の要る未設定・見送り・保留が先）
+     */
     notices() {
       const { env, userId, passcode } = store.state;
-      return passcode ? readNotices(env, userId) : [];
+      return passcode ? [...readNotices(env, userId), ...readRegistered(env, userId)].sort(newestFirst) : [];
     },
   };
 }

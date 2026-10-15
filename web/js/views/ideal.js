@@ -591,7 +591,11 @@ export function idealView(context, route) {
     if (!wishlist?.scope?.()) return actions;
     const add = button('', () => {
       const added = wishlist.add(target);
-      if (added === null) { toast('配合を読み込んでから追加してください'); return; }
+      // 追加できない（null）のは、ID の変更中か、ログイン・配合の読み込みの前
+      if (added === null) {
+        toast(context.store.state.renaming ? 'ID の変更が終わってから追加してください' : '配合を読み込んでから追加してください');
+        return;
+      }
       if (added) toast(`${palName(target)}をウィッシュリストに追加しました`);
       // 押せなくするとフォーカスが外れるので、先に隣の「逆引きで親を探す」へ移す
       if (globalThis.document?.activeElement === add) reverse.focus();

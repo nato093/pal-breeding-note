@@ -205,3 +205,96 @@ test('トースト: ダイアログを閉じたら、ふつうの知らせは次
   tick(150);
   assert.equal(undo.isConnected, false);
 });
+
+test('トースト: ダイアログを閉じて本文へ移したときは、マウスが乗っているか（:hover）も確かめ直して、止める・再開するを決める', async (t) => {
+  const { body } = installDom(t);
+  const tick = clock(t);
+  // 乗っていたマウスが、移す前に離れていた（移すと pointerleave が届かないことがある）
+  let modal = openDialog('目標');
+  toast('外しました', { action() {} });
+  let node = body.querySelector('dialog').querySelector('.toast');
+  await node.dispatch('pointerenter');
+  assert.ok(hasClass(node, 'paused'));
+  node.matches = (query) => (query === ':hover' ? false : undefined);
+  await modal.close();
+  assert.equal(hasClass(node, 'paused'), false);
+  tick(6000);
+  assert.equal(node.isConnected, false);
+  // 移した先でマウスが乗っている（pointerenter が届いていない）なら止める
+  modal = openDialog('目標');
+  toast('外しました', { action() {} });
+  node = body.querySelector('dialog').querySelector('.toast');
+  node.matches = (query) => query === ':hover';
+  await modal.close();
+  assert.ok(hasClass(node, 'paused'));
+  tick(60_000);
+  assert.equal(node.isConnected, true);
+  // matches のない環境（テストの DOM）は乗っていないとみなす
+  delete node.matches;
+  await node.dispatch('pointerleave');
+  tick(6000);
+  assert.equal(node.isConnected, false);
+});
+
+test('トースト: キーボードで「元に戻す」・× を押して閉じたら、トーストに入る前にフォーカスがあった要素へ戻す（なければ本文の見出し）', async (t) => {
+  const { body } = installDom(t);
+  clock(t);
+  const main = document.createElement('main');
+  main.id = 'main';
+  const heading = document.createElement('h1');
+  const before = document.createElement('button');
+  main.append(heading, before);
+  body.append(main);
+  // 元に戻す: Tab で入る前の要素（relatedTarget）へ戻す
+  toast('削除しました', { action() {} });
+  let node = body.querySelector('.toast');
+  let undo = node.querySelector('.toast-action');
+  undo.focus();
+  await node.dispatch('focusin', { target: undo, relatedTarget: before });
+  await undo.dispatch('click');
+  assert.equal(node.isConnected, false);
+  assert.equal(document.activeElement, before);
+  // 押した「元に戻す」を押せなくすると、ブラウザはフォーカスを body に落とす（フォーカスの直し）ので、押せなくする前に戻す
+  toast('削除しました', { action() {} });
+  node = body.querySelector('.toast');
+  undo = node.querySelector('.toast-action');
+  let disabled = false;
+  Object.defineProperty(undo, 'disabled', {
+    get: () => disabled,
+    set(value) {
+      disabled = value;
+      if (value && document.activeElement === undo) document.activeElement = body;
+    },
+  });
+  undo.focus();
+  await node.dispatch('focusin', { target: undo, relatedTarget: before });
+  await undo.dispatch('click');
+  assert.equal(document.activeElement, before);
+  // エラーの ×: 入る前の要素がもう文書にない（行が消えた）ときは本文の見出しへ
+  toast('削除できませんでした', { kind: 'error' });
+  node = body.querySelector('.toast-alerts').children[0];
+  const close = node.querySelector('.toast-close');
+  close.focus();
+  await node.dispatch('focusin', { target: close, relatedTarget: before });
+  before.remove();
+  await close.dispatch('click');
+  assert.equal(document.activeElement, heading);
+  assert.equal(heading.tabIndex, -1);
+  // フォーカスがトーストの外にあるときは動かさない（マウスで押した・時間切れ）
+  const other = document.createElement('button');
+  main.append(other);
+  other.focus();
+  toast('外しました', { action() {} }).call();
+  assert.equal(document.activeElement, other);
+  // 中の要素どうしで動いたとき（relatedTarget がトーストの中）は、入る前の要素を書き換えない
+  const outside = document.createElement('button');
+  main.append(outside);
+  toast('削除しました', { action() {}, kind: 'error' });
+  node = body.querySelector('.toast-alerts').children[0];
+  undo = node.querySelector('.toast-action');
+  undo.focus();
+  await node.dispatch('focusin', { target: undo, relatedTarget: outside });
+  await node.dispatch('focusin', { target: node.querySelector('.toast-close'), relatedTarget: undo });
+  await undo.dispatch('click');
+  assert.equal(document.activeElement, outside);
+});

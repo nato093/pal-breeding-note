@@ -47,9 +47,32 @@ function currentRegion() {
 }
 
 /**
+ * 閉じるトーストの中にフォーカスがあれば（キーボードで「元に戻す」・× を押した）、トーストに入る直前にフォーカスがあった要素
+ * （まだ文書にあり、押せるもの）へ戻す。なければ表示先の見出し（ダイアログならその h2、本文なら main の h1。tabIndex -1 にする）へ。
+ * どれもなければ動かさない。中にフォーカスがなければ（マウスで押した・時間切れ）何もしない
+ */
+function returnFocus(node, before) {
+  const doc = globalThis.document;
+  if (!doc || !node.contains(doc.activeElement)) return;
+  const usable = (target) => Boolean(target?.isConnected) && typeof target.focus === 'function'
+    && !target.disabled && !target.hidden && !node.contains(target);
+  if (usable(before)) {
+    before.focus({ preventScroll: true });
+    return;
+  }
+  // .toast-list・.toast-alerts → .toast-region → 表示先（一番手前のダイアログか body）
+  const host = node.parentElement?.parentElement?.parentElement;
+  const heading = host && host !== doc.body ? host.querySelector('h2') : doc.getElementById?.('main')?.querySelector('h1');
+  if (!heading?.isConnected) return;
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+}
+
+/**
  * 画面の下中央に短い知らせを出す。戻り値は閉じる関数（何度呼んでもよい）。
  * 操作つき（action）とエラー（kind: 'error'）は 6 秒、文言だけは 3 秒。マウスが乗っている間とフォーカスがある間は止め、
- * 残り時間から再開する（WCAG 2.2.1）。エラーは role=alert で、右端の ×（閉じる）で閉じられる
+ * 残り時間から再開する（WCAG 2.2.1）。エラーは role=alert で、右端の ×（閉じる）で閉じられる。
+ * キーボードで中のボタンを押して閉じたときは、トーストに入る前の要素へフォーカスを戻す（returnFocus）
  * @param {string} message
  * @param {{ action?: () => any, actionLabel?: string, duration?: number, kind?: 'info'|'error' }} [options]
  */
@@ -68,10 +91,14 @@ export function toast(message, { action, actionLabel = '元に戻す', duration,
   let running = false;
   let pointer = false;
   let focused = false;
+  // トーストに入る直前にフォーカスがあった要素（閉じるときに戻す先）
+  let returnTo = null;
 
   function dismiss() {
     if (closed) return;
     closed = true;
+    // 消す・中のボタンを押せなくする前に、フォーカスを戻す（そのままだと body に落ちる）
+    returnFocus(node, returnTo);
     clearTimeout(timer);
     timer = null;
     // 動きを減らす設定か、matchMedia がない（テストの DOM）ときはすぐ消す
@@ -103,19 +130,26 @@ export function toast(message, { action, actionLabel = '元に戻す', duration,
 
   node.addEventListener('pointerenter', () => { pointer = true; pause(); });
   node.addEventListener('pointerleave', () => { pointer = false; resume(); });
-  node.addEventListener('focusin', () => { focused = true; pause(); });
+  node.addEventListener('focusin', (event) => {
+    // 外から入ったときだけ、入る前の要素を覚える（中の要素どうしで動いたときは書き換えない）
+    if (event.relatedTarget && !node.contains(event.relatedTarget)) returnTo = event.relatedTarget;
+    focused = true;
+    pause();
+  });
   node.addEventListener('focusout', (event) => {
     if (event.relatedTarget && node.contains(event.relatedTarget)) return;
     focused = false;
     resume();
   });
-  // ダイアログを閉じて表示先を移したとき: フォーカスは前の場所へ戻っているので確かめ直し、線は経った時間の分から続ける
-  // （付け直すと CSS の animation が初めからになるため）
+  // ダイアログを閉じて表示先を移したとき: フォーカスは前の場所へ戻っているので確かめ直す。マウスも、移した後に pointerleave・
+  // pointerenter が届かないことがあるので、乗っているか（:hover。matches がなければ乗っていない）で置き直す。
+  // 線は経った時間の分から続ける（付け直すと CSS の animation が初めからになるため）
   moved.set(node, () => {
     focused = node.contains(globalThis.document?.activeElement);
+    pointer = Boolean(node.matches?.(':hover'));
     const elapsed = total - (timer === null ? remaining : remaining - (Date.now() - startedAt));
     node.style.setProperty('--toast-delay', `-${Math.max(0, Math.round(elapsed))}ms`);
-    if (focused) pause();
+    if (focused || pointer) pause();
     else resume();
   });
 
@@ -123,6 +157,8 @@ export function toast(message, { action, actionLabel = '元に戻す', duration,
     const undo = button(actionLabel, async () => {
       if (running || closed) return;
       running = true;
+      // 押したボタンを押せなくするとフォーカスが body に落ちるので、その前に戻す（操作の中で別の所へ移すのは構わない）
+      returnFocus(node, returnTo);
       undo.disabled = true;
       clearTimeout(timer);
       timer = null;

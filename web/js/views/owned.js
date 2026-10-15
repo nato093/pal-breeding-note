@@ -7,6 +7,7 @@ import { talentInput } from '../ui/talent-input.js';
 import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
+import { icon } from '../ui/icons.js';
 import { ownedNotices, noticeList } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { withTransition } from '../ui/motion.js';
@@ -1097,8 +1098,10 @@ export function ownedView(context, route) {
   function chipButton(condition, onClear) {
     const chip = button('', onClear, 'filter-chip');
     const textNode = el('span', 'filter-chip-text');
-    const remove = el('span', 'filter-chip-x', '×');
+    // × は飾り（名前はチップの aria-label）。SVG のアイコンでパッシブのチップの × と同じ形・大きさ（ui/icons.js の close）
+    const remove = el('span', 'filter-chip-x');
     remove.setAttribute('aria-hidden', 'true');
+    remove.append(icon('close', { className: 'close-icon' }));
     chip.append(textNode, remove);
     const show = (next) => {
       if (textNode.textContent !== next.text) textNode.textContent = next.text;
