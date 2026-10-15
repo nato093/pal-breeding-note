@@ -810,6 +810,8 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   const path = dialog.querySelector('.owned-path');
   const status = () => dialog.querySelector('.owned-path-status');
   assert.equal(status().textContent, '');
+  // パスを貼る前も、チェックリストの各行に書き方（<Steam ID>・<ワールド ID>）を添える（貼ってもリストの高さが変わらない）
+  assert.equal(dialog.querySelector('.owned-draft-path').textContent, '…\\SaveGames\\<Steam ID>\\<ワールド ID>\\LocalData.sav');
   // 形の違うパスは赤字で直し方、読み取れたら ID の頭（C-24）
   path.value = '%LOCALAPPDATA%\\Pal\\Saved\\SaveGames\\7656';
   await path.dispatch('input');

@@ -60,13 +60,14 @@ export function downloadOwnedCsv(owned, importedAt) {
   downloadBlob(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }), `owned-pals-${dateStamp()}.csv`);
 }
 
-// 登録モーダルのチェックリストに添える、① に貼ったパスから作った実際のパス（長い ID は頭 4 字に縮める。F082）
+// 登録モーダルのチェックリストに添える、① に貼ったパスから作った実際のパス（長い ID は頭 4 字に縮める。F082）。パスがまだなければ
+// <Steam ID>・<ワールド ID> の書き方（どちらでも 1 行を取り、パスを貼ってもリストの高さが変わらない＝ダイアログが上下しない）
 const shortId = (id) => (id.length > 6 ? `${id.slice(0, 4)}…` : id);
 function actualPath(draft, path) {
-  if (!draft?.worldId) return '';
-  const world = `…\\SaveGames\\${shortId(draft.steamId ?? '')}\\${shortId(draft.worldId)}`;
-  if (path === '../GlobalPalStorage.sav') return `…\\SaveGames\\${shortId(draft.steamId ?? '')}\\GlobalPalStorage.sav`;
-  return `${world}\\${path.replace(/\//g, '\\')}`;
+  const steam = draft?.worldId ? shortId(draft.steamId ?? '') : '<Steam ID>';
+  const world = draft?.worldId ? shortId(draft.worldId) : '<ワールド ID>';
+  if (path === '../GlobalPalStorage.sav') return `…\\SaveGames\\${steam}\\GlobalPalStorage.sav`;
+  return `…\\SaveGames\\${steam}\\${world}\\${path.replace(/\//g, '\\')}`;
 }
 
 function dropZone(text, onDrop) {
