@@ -132,7 +132,12 @@ export function createDrawer({ context, render = {}, main = null, history: brows
     if (open) root.setAttribute('data-side-drawer', 'open');
     else root.removeAttribute?.('data-side-drawer');
   }
-  const usable = (node) => Boolean(node?.isConnected) && typeof node.focus === 'function' && !element.contains(node);
+  // 隠れている（自分か祖先が hidden。図鑑の絞り込みで隠れたマスなど）要素へはフォーカスを戻せない（body に落ちる）
+  const hiddenWithin = (node) => {
+    for (let current = node; current; current = current.parentElement) if (current.hidden) return true;
+    return false;
+  };
+  const usable = (node) => Boolean(node?.isConnected) && typeof node.focus === 'function' && !element.contains(node) && !hiddenWithin(node);
   // 開いた所（なければ本文の見出し、なければ本文）
   function focusTarget() {
     if (usable(opener)) return opener;

@@ -198,10 +198,11 @@ export function genderMark(gender, { inline = false } = {}) {
 }
 
 /**
- * genderFirst: 性別を名前の左に置く（所持パルの一覧）。elements: 名前の右に属性のアイコン（16px。2 属性なら 2 つ）を置く（オプトイン。
- * 配合カードなど既定の表示は変えない。game-assets）。true は img（alt・title「炎属性」。パル選択の候補）、'css' は要素を足さず、名前の行の
- * ::after に CSS の背景で描く（所持パルの 2,000 行。行の要素の数を変えない。名前の行〔なければ名前の strong〕に has-elements・
- * el1-〈属性〉・el2-〈属性〉のクラス。9 つの属性の画像が全部読めたとき〔html.game-elements〕だけ出す）
+ * genderFirst: 性別を名前の左に置く（所持パルの一覧）。elements: 属性のアイコン（2 属性なら 2 つ）を置く（オプトイン。
+ * 配合カードなど既定の表示は変えない。game-assets）。true は名前の右に img（16px。alt・title「炎属性」。パル選択の候補）、'css' は要素を
+ * 足さず、番号の行（No.〈番号〉の small）の ::after に CSS の背景で描く（所持パルの 2,000 行と理想個体の結果。行の要素の数を変えない。
+ * 番号の small に has-elements・el1-〈属性〉・el2-〈属性〉のクラス。9 つの属性の画像が全部読めたとき〔html.game-elements〕だけ出す）。
+ * 名前の行に置くと、狭い幅〔920px〕・拡大で名前が「…」で切れたため、番号の短い行へ移した（フェーズ 4 の終わりのレビュー）
  */
 export function palTile(id, { gender = '', clickable = true, large = false, genderFirst = false, elements = false } = {}) {
   const pal = palsById.get(id);
@@ -212,11 +213,10 @@ export function palTile(id, { gender = '', clickable = true, large = false, gend
   const label = el('span', 'pal-label');
   const name = el('strong', '', pal.ja);
   const mark = genderMark(gender);
-  label.append(el('small', 'dex-label', `No.${pal.label}`));
+  const dex = el('small', 'dex-label', `No.${pal.label}`);
+  label.append(dex);
   const icons = elements === true ? (pal.el ?? []).map((element) => elementIcon(element)) : [];
   const drawn = elements === 'css' ? (pal.el ?? []).filter((element) => ELEMENTS[element]).slice(0, 2) : [];
-  // 属性を CSS で描く要素（名前の行があれば行、なければ名前。要素を足さない）
-  let end = name;
   if ((mark && genderFirst) || icons.length) {
     const line = el('span', 'pal-name-line');
     if (mark && genderFirst) line.append(mark);
@@ -224,13 +224,13 @@ export function palTile(id, { gender = '', clickable = true, large = false, gend
     if (mark && !genderFirst) line.append(mark);
     line.append(...icons);
     label.append(line);
-    end = line;
   } else {
     label.append(name);
     if (mark) label.append(mark);
   }
+  // 属性を CSS で描く（番号の行。要素を足さない）
   if (drawn.length) {
-    end.classList.add('has-elements', ...drawn.map((element, i) => `el${i + 1}-${element}`));
+    dex.classList.add('has-elements', ...drawn.map((element, i) => `el${i + 1}-${element}`));
     checkElementImages();
   }
   wrapper.append(palIcon(pal, { large }), label);

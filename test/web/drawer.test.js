@@ -109,6 +109,23 @@ test('ドロワー: × で閉じると、自分で積んだエントリなら戻
   buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
   assert.equal(document.activeElement, title);
   assert.equal(title.tabIndex, -1);
+  // 開いた所が隠れていたら（祖先が hidden。図鑑の絞り込みで隠れたマスなど）も、本文の見出しへ（隠れた要素へ戻すと body に落ちる）
+  const grid = new FakeElement('div');
+  const cell = new FakeElement('a');
+  grid.append(cell);
+  document.body.append(grid);
+  drawer.open({ kind: 'pal', id: 'C' }, { opener: cell });
+  grid.hidden = true;
+  document.activeElement = byClass(drawer.element, 'side-drawer-title');
+  buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
+  assert.equal(document.activeElement, title);
+  // 自分が hidden でも同じ
+  grid.hidden = false;
+  drawer.open({ kind: 'pal', id: 'D' }, { opener: cell });
+  cell.hidden = true;
+  document.activeElement = byClass(drawer.element, 'side-drawer-title');
+  buttonOf(drawer.element, 'パネルを閉じる').dispatch('click');
+  assert.equal(document.activeElement, title);
 });
 
 test('ドロワー: 自分で積んでいないエントリ（読み込み直し・同じ画面の条件の変更で引き継いだ）で閉じると、戻らずに drawer だけを消す', (t) => {

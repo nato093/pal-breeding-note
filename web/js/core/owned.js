@@ -1,8 +1,8 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX } from './owned-shared.js';
-import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
+import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, ownedInGameDay } from './owned-shared.js';
+import { isObject, int, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
@@ -156,6 +156,14 @@ function workTerm(term) {
   return workTermCache.get(term);
 }
 const workMatches = (pal, { key, level }) => (pal.work?.[key] ?? 0) >= level;
+// 語の並び（keywordTerms の結果）ごとの workTerm の並び。検索の頭で 1 回だけ求める（個体ごとに引かない。2,000〜20,000 行で
+// 印のキーワードが 1.5〜2.4 倍になっていた。フェーズ 4 の終わりのレビュー）
+const termWorks = new WeakMap();
+function worksOf(terms) {
+  let works = termWorks.get(terms);
+  if (!works) termWorks.set(terms, works = terms.map(workTerm));
+  return works;
+}
 
 // セーブとゲームの表で、ID の大文字小文字が違うものがある（セーブの Railbolt と名前の表の RailBolt）
 const byLowerId = (object) => new Map(Object.entries(object).map(([id, text]) => [id.toLowerCase(), text]));
@@ -255,11 +263,9 @@ export function ownCaptures(players, uids) {
   }
   return total;
 }
-// ゲーム内の日数（1 以上。0・欠けている・読めなければ null）
-const cleanDay = (value) => {
-  const day = intOrNull(value, { min: 0, max: 1000000 });
-  return day > 0 ? day : null;
-};
+// ゲーム内の日数（1〜1000000 の整数。0・欠けている・読めない・範囲外〔'9e99' など〕は丸めずに null。共有側の ownedInGameDay と同じ。
+// 前は範囲外を 1000000 に丸め、「1000000 日目」と出して共有もした。フェーズ 4 の終わりのレビュー）
+const cleanDay = (value) => ownedInGameDay(value);
 // 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない。ホストの画面だけ）
 const CAKES_MAX = 16;
 function cakesOf(value) {
@@ -605,11 +611,11 @@ export function keywordTerms(query) {
  * 語がすべて、いずれかの項目に含まれるか。extra は個体の固定の文字ではない、画面が足す文字（目標の印など。keywordCache には入れない）。
  * 作業の名前の直後に数字の語（「採掘3」）は、その作業の Lv が数字以上の個体だけに当たる（文字の部分一致では見ない。game-assets）
  */
-export function matchesKeywords(pal, terms, extra) {
+export function matchesKeywords(pal, terms, extra, works = worksOf(terms)) {
   const texts = keywordTexts(pal);
   // 足す文字は、個体の文字で見つからなかった語のときだけ、1 つずつそろえて見る（印の多い個体で、入力のたびに配列を作らない）
-  return terms.every((term) => {
-    const work = workTerm(term);
+  return terms.every((term, index) => {
+    const work = works[index];
     if (work) return workMatches(pal, work);
     return texts.some((entry) => entry.text.includes(term)) || (extra?.length > 0 && extra.some((text) => normalizedText(text).includes(term)));
   });
@@ -663,9 +669,10 @@ export function keywordNotes(pal, terms, extra) {
     works ??= workEntries(pal.work);
     return works[index] ? `${works[index].name} Lv${works[index].level}` : '';
   };
-  for (const term of terms) {
+  const termWork = worksOf(terms);
+  for (const [termIndex, term] of terms.entries()) {
     // 「採掘3」は作業適性の Lv で当たった（その作業を Lv つきで出す）
-    const work = workTerm(term);
+    const work = termWork[termIndex];
     if (work) {
       if (!workMatches(pal, work)) continue;
       works ??= workEntries(pal.work);
@@ -715,6 +722,7 @@ export function filterOwned(pals, {
   extraTexts = null,
 } = {}) {
   const terms = keywordTerms(query);
+  const works = worksOf(terms);
   const minStars = Number(stars) || 0;
   const min = { hp: Number(talent.hp) || 0, shot: Number(talent.shot) || 0, defense: Number(talent.defense) || 0 };
   const placeSet = Array.isArray(places) ? new Set(places) : null;
@@ -732,7 +740,7 @@ export function filterOwned(pals, {
     if (palId && pal.palId !== palId) return false;
     if (none ? pal.passives.length > 0 : wanted.length && !hasPassives(pal, wanted)) return false;
     if (only && pal.passives.length !== wanted.length) return false;
-    if (terms.length && !matchesKeywords(pal, terms, extraTexts?.get(pal.id))) return false;
+    if (terms.length && !matchesKeywords(pal, terms, extraTexts?.get(pal.id), works)) return false;
     return true;
   });
 }

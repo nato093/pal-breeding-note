@@ -828,8 +828,9 @@ img, svg { max-width: 100%; }
 .pal-name-line .element-icon + .element-icon { margin-left: -3px; }
 .pal-name-line .element-chip { padding: 0 6px; font-size: 11px; line-height: 16px; }
 .pal-name-line > strong { min-width: 0; }
-/* 所持パルの行（palTile の elements: 'css'）: 要素を足さず、名前の行（なければ名前）の ::after に属性のアイコンを背景で描く（2,000 行の要素の
-   数を増やさない）。9 つの画像が全部読めたとき（html.game-elements。ui/pal-icon.js）だけ。2 属性なら 2 つを 3px 重ねて並べる */
+/* 所持パルの行・理想個体の結果（palTile の elements: 'css'）: 要素を足さず、番号の行（No.〈番号〉の small）の ::after に属性のアイコンを背景で
+   描く（2,000 行の要素の数を増やさない。名前の行に置くと 920px・拡大で名前が「…」で切れた）。9 つの画像が全部読めたとき（html.game-elements。
+   ui/pal-icon.js）だけ。14px（番号の字に合わせる。上下の余白を負にして行の高さを変えない）。2 属性なら 2 つを 3px 重ねて並べる */
 .el1-Neutral { --el1: url('../img/element/Neutral.png'); }
 .el1-Fire { --el1: url('../img/element/Fire.png'); }
 .el1-Water { --el1: url('../img/element/Water.png'); }
@@ -851,17 +852,15 @@ img, svg { max-width: 100%; }
 .game-elements .has-elements::after {
   content: '';
   display: inline-block;
-  flex: none;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  margin: -2px 0 -2px 5px;
   vertical-align: -3px;
-  background: var(--el1) 0 0 / 16px 16px no-repeat;
+  background: var(--el1) 0 0 / 14px 14px no-repeat;
 }
-/* 性別のない個体は名前の行がないので、名前（strong）の後ろに描く */
-.game-elements strong.has-elements::after { margin-left: 5px; }
 .game-elements .has-elements:is(.el2-Neutral, .el2-Fire, .el2-Water, .el2-Grass, .el2-Electric, .el2-Ice, .el2-Ground, .el2-Dark, .el2-Dragon)::after {
-  width: 29px;
-  background: var(--el1) 0 0 / 16px 16px no-repeat, var(--el2) 13px 0 / 16px 16px no-repeat;
+  width: 25px;
+  background: var(--el1) 0 0 / 14px 14px no-repeat, var(--el2) 11px 0 / 14px 14px no-repeat;
 }
 .pal-tile { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 64px; color: var(--md-sys-color-on-surface); }
 a.pal-tile:hover { color: var(--md-sys-color-primary); text-decoration: none; }
@@ -1293,6 +1292,8 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-work-list { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
 .pal-work-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .pal-work-item .work-icon { width: 16px; height: 16px; }
+/* 淡い色のアイコン（手作業・牧場など）がライトの地に溶けて見えないので、淡い影の縁を付ける（ダークでも邪魔にならない濃さ。フェーズ 4 の終わりのレビュー） */
+.work-icon { filter: drop-shadow(0 0 1px rgb(0 0 0 / .55)); }
 .pal-work-level { font-weight: 700; font-variant-numeric: tabular-nums; }
 .pal-owned-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; }
 .pal-owned-label { font-weight: 700; }
@@ -1328,6 +1329,9 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .paldex-stat { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .paldex-stat-label, .paldex-sep { color: var(--md-sys-color-on-surface-variant); }
 .paldex-stat strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+/* 絞り込みの左に、当たる数（「297 体」。aria-live） */
+.paldex-filter { display: flex; align-items: center; gap: 10px; }
+.paldex-shown { font-size: 13px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .paldex-filter .segmented-option { min-height: 30px; padding: 0 14px; font-size: 13px; }
 .paldex-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0 0 14px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
 .paldex-legend-item { display: inline-flex; align-items: center; gap: 6px; }
@@ -1378,6 +1382,12 @@ a.pal-tile.paldex-cell:hover { border-color: var(--md-sys-color-outline); backgr
 .pal-icon-silhouette > :is(img, svg) { filter: brightness(0) opacity(.35); }
 @media (prefers-color-scheme: dark) {
   .pal-icon-silhouette > :is(img, svg) { filter: brightness(0) invert(1) opacity(.3); }
+}
+/* 子としての登録はないが、所持・捕獲している種（is-known）は、影ではなく淡い白黒の絵（ゲームの図鑑の「影＝未捕獲」と逆の意味に読めないように。
+   点線の枠と件数なしは同じなので「登録なし」は変わらない。INV-2。フェーズ 4 の終わりのレビュー） */
+.paldex-cell.is-known .pal-icon-silhouette > :is(img, svg) { filter: grayscale(1) opacity(.6); }
+@media (prefers-color-scheme: dark) {
+  .paldex-cell.is-known .pal-icon-silhouette > :is(img, svg) { filter: grayscale(1) opacity(.5); }
 }
 .side-drawer .owned-row {
   grid-template-columns: 184px minmax(0, 1fr);
@@ -1435,6 +1445,8 @@ a.pal-tile.paldex-cell:hover { border-color: var(--md-sys-color-outline); backgr
 .farm-band-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
 /* 見出しの文字の左のゲームの配合牧場のアイコン（game-assets） */
 .farm-band-toggle .farm-icon { width: 20px; height: 20px; margin-right: -2px; }
+/* 閉じた 1 行の「ケーキ切れ n」（ケーキのない牧場があるとき。警告の色。views/owned.js の renderFarmBand） */
+.farm-band-alert { color: var(--md-sys-color-warning); font-weight: 700; }
 .farm-band-toggle:hover { background: var(--state-hover); }
 .farm-band-body { padding: 0 12px 12px; }
 .farm-board-note { margin: 0 0 8px; font-size: 13px; color: var(--md-sys-color-warning); }
@@ -2701,6 +2713,9 @@ a.ideal-holding[href] { color: var(--md-sys-color-primary); font-weight: 700; ba
 /* 理想個体のケーキの押しボタンの左のゲームのケーキのアイコン（views/ideal.js の CAKE_ICONS。game-assets）。ボタンの高さを変えない */
 .segmented-option .cake-icon { width: 18px; height: 18px; margin: -2px 3px -2px -2px; vertical-align: middle; }
 .segmented-option:last-child { border-radius: 0 8px 8px 0; }
+/* 末尾の押しボタンを隠したとき（segmented の setHidden。図鑑の「未所持」）は、見えている最後の押しボタンの右の角を丸める（:last-child は
+   隠した要素も数えるため） */
+.segmented-option:has(+ .segmented-option[hidden]:last-child) { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
 .segmented-option:hover:not([aria-checked="true"]) { background: var(--state-hover); }
 .segmented-option[aria-checked="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .segmented-option:focus-visible { position: relative; z-index: 1; }

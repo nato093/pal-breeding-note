@@ -42,9 +42,13 @@ export function cakeLine(cakes, { className = '' } = {}) {
   return line;
 }
 
+/** ケーキ切れの牧場か（入れ物にケーキがない。cakes が [] のときだけ。null〈読めない・ケーキを読む前・共有のデータ〉は分からないので違う） */
+export const cakesOut = (farm) => Array.isArray(farm?.cakes) && farm.cakes.length === 0;
+
 /**
- * 牧場の状態（チップの文と色）。読めない牧場・空き（親 0）・片親（1 体）・同性（同じ性別の 2 体）・配合中（♂♀）
- * @param {{ status?: string, parents: string[] }} farm
+ * 牧場の状態（チップの文と色）。読めない牧場・空き（親 0）・片親（1 体）・同性（同じ性別の 2 体）・ケーキ切れ（♂♀ だがケーキがない。
+ * タマゴを産まないので「配合中」の緑にしない。フェーズ 4 の終わりのレビュー）・配合中（♂♀）
+ * @param {{ status?: string, parents: string[], cakes?: object[] | null }} farm
  * @param {Map<string, object>} byId 個体 ID → 個体
  */
 export function farmState(farm, byId) {
@@ -53,6 +57,7 @@ export function farmState(farm, byId) {
   if (farm.parents.length === 1) return { text: '片親', tone: 'warning' };
   const genders = farm.parents.map((id) => byId.get(id)?.gender ?? '');
   if (genders.every(Boolean) && genders[0] === genders[1]) return { text: '同性', tone: 'warning' };
+  if (cakesOut(farm)) return { text: 'ケーキ切れ', tone: 'warning' };
   return { text: '配合中', tone: 'ready' };
 }
 

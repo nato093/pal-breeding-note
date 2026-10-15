@@ -673,8 +673,10 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
 
   // 配合牧場（自動登録の照合に使う）。ケーキの入れ物を下のスロットのループで読むので先に集める
   const breedFarms = parseBreedFarms(ws, malformed);
-  // 牧場の入れ物 ID → ケーキ（アイテム ID → 個数。スロットの順）。入れ物が見つからない牧場はケーキが分からない（null のまま）
+  // 牧場の入れ物 ID → ケーキ（アイテム ID → 個数。スロットの順）。入れ物が見つからない牧場はケーキが分からない（null のまま）。
+  // 読めないスロットがあった入れ物（unreadCakes）も数を確かめられないので分からない（null。「ケーキ切れ」と出さない）
   const farmCakes = new Map(breedFarms.filter((farm) => farm.cakeContainerId).map((farm) => [farm.cakeContainerId, null]));
+  const unreadCakes = new Set();
   // アイテムの在庫（implants）: 入れ物 ID → アイテム ID → 個数（インプラントとパルリバーサーだけ。どの入れ物を在庫に数えるかは buildSnapshot が
   // 持ち主で決める）
   const itemCounts = new Map();
@@ -689,7 +691,12 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
     if (cakes) farmCakes.set(containerId, cakes);
     for (const s of slots) {
       const raw = s && s.RawData;
-      if (!(raw instanceof Uint8Array) || raw.length === 0) continue;
+      if (!(raw instanceof Uint8Array) || raw.length === 0) {
+        // 牧場の入れ物の中身の分からないスロット（RawData がない・0 バイト）も、ケーキの数を確かめられない（実セーブの 13,464 スロットには
+        // なかった。2026-10-16 に確かめた。ほかの入れ物は今までどおり読み飛ばす）
+        if (cakes) unreadCakes.add(containerId);
+        continue;
+      }
       try {
         const slot = decodeItemSlot(raw);
         if (eggByLocalId.has(slot.localId) && !eggSlot.has(slot.localId)) {
@@ -704,11 +711,12 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
         }
       } catch {
         bump(malformed, 'itemSlots');
+        if (cakes) unreadCakes.add(containerId);
       }
     }
   }
   for (const farm of breedFarms) {
-    const cakes = farm.cakeContainerId ? farmCakes.get(farm.cakeContainerId) : null;
+    const cakes = farm.cakeContainerId && !unreadCakes.has(farm.cakeContainerId) ? farmCakes.get(farm.cakeContainerId) : null;
     farm.cakes = cakes ? [...cakes].map(([itemId, count]) => ({ itemId, count })) : null;
     delete farm.cakeContainerId;
   }

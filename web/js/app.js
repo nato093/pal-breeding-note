@@ -660,12 +660,17 @@ async function boot() {
     const anchor = anchorOf(event.target);
     const hash = hrefOf(anchor);
     if (!hash.startsWith('#/')) return;
-    if (hash === location.hash) {
+    // 同じ URL か（書き方だけ違う URL も同じとみなす。更新内容の通知の `#/pal` と、buildHash の `#/pal/` など）
+    const sameUrl = hash === location.hash || routeKey(parseHash(hash)) === routeKey(parseHash(location.hash));
+    if (sameUrl) {
       // ドロワーの中の、今の本文と同じ URL へのリンク（図鑑を開いたまま、ドロワーのパル詳細の「図鑑」を押したなど）は、移る先がないので
       // ドロワーを閉じて本文を見せる（× と同じ。paldex）
       if (drawer.isOpen() && drawer.element.contains?.(anchor)) {
         event.preventDefault();
         drawer.close({ reason: 'dismiss' });
+      } else if (hash !== location.hash) {
+        // 書き方だけ違う同じ URL へは移らない（移ると同じ画面を作り直し、履歴が 1 件増える。フェーズ 4 の終わりのレビュー）
+        event.preventDefault();
       }
       return;
     }

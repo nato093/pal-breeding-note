@@ -127,14 +127,17 @@ test('palTile: 既定では属性のアイコンを出さず（配合カード�
   // 性別つき（所持パルの行）は ♂♀ → 名前 → 属性（2 属性なら 2 つ。マスターの並び）
   const owned = palTile('BluePlatypus_Fire', { gender: 'M', genderFirst: true, elements: true });
   assert.deepEqual(owned.querySelector('.pal-name-line').children.map((node) => node.textContent || node.alt), ['♂', 'モモノスケ', '水属性', '炎属性']);
-  // 'css' は要素を足さず、名前の行（性別がなければ名前の strong）のクラス（CSS の ::after の背景）で描く（所持パルの 2,000 行の要素の数を変えない）
+  // 'css' は要素を足さず、番号の行（No. の small）のクラス（CSS の ::after の背景）で描く（所持パルの 2,000 行の要素の数を変えない。
+  // 名前の行に置くと 920px で名前が「…」で切れたので、名前の行は性別と名前だけ。フェーズ 4 の終わりのレビュー）
   const cssTile = palTile('BluePlatypus_Fire', { gender: 'M', genderFirst: true, elements: 'css' });
   const css = cssTile.querySelector('.pal-name-line');
-  assert.deepEqual([css.className, css.children.length], ['pal-name-line has-elements el1-Water el2-Fire', 2]);
+  assert.deepEqual([css.className, css.children.length], ['pal-name-line', 2]);
+  assert.deepEqual([cssTile.querySelector('.dex-label').className, cssTile.querySelector('.dex-label').textContent], ['dex-label has-elements el1-Water el2-Fire', 'No.5B']);
   assert.equal(descendants(cssTile).length, descendants(palTile('BluePlatypus_Fire', { gender: 'M', genderFirst: true })).length);
   const genderless = palTile('SheepBall', { elements: 'css' });
   assert.equal(genderless.querySelector('.pal-name-line'), null);
-  assert.equal(genderless.querySelector('strong').className, 'has-elements el1-Neutral');
+  assert.equal(genderless.querySelector('strong').className, '');
+  assert.equal(genderless.querySelector('.dex-label').className, 'dex-label has-elements el1-Neutral');
   assert.equal(descendants(genderless).length, descendants(palTile('SheepBall')).length);
 });
 

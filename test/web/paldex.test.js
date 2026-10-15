@@ -140,7 +140,8 @@ test('図鑑: 子として登録がある種は右上に件数、ない種は絵
   // 所持パル・捕獲数のデータがなければ、所持の点・捕獲数・「未所持」の絞り込みを出さない
   assert.deepEqual(stats(view), ['子として登録2 / 298']);
   assert.equal(cellsOf(view).some((node) => visible(node, 'paldex-owned') || visible(node, 'paldex-capture')), false);
-  assert.deepEqual(radios(view).map((node) => node.textContent), ['すべて', '未登録']);
+  // 「未所持」の押しボタンは作るが隠す（データが届いたら出す。作り直さない）
+  assert.deepEqual(radios(view).filter((node) => !node.hidden).map((node) => node.textContent), ['すべて', '未登録']);
   view.destroy();
 });
 
@@ -161,6 +162,12 @@ test('図鑑: 所持している種に点・目標の種族に星・自分の捕
   assert.equal(visible(cell(view, 'MoonQueen'), 'paldex-goal'), true);
   assert.equal(byClass(cell(view, 'Werewolf_Ice'), 'paldex-capture').textContent, '捕獲 2');
   assert.equal(cell(view, 'Anubis').getAttribute('aria-label'), `No.${pals.find((pal) => pal.id === 'Anubis').label} アヌビス（子としての登録なし・未所持）`);
+  // 子としての登録のない種のうち、所持・捕獲している種は影ではなく淡い絵（is-known。ゲームの「影＝未捕獲」と逆に読めないように）。
+  // 影の印（pal-icon-silhouette）と点線の枠（is-unregistered）は「子としての登録なし」のまま
+  assert.deepEqual([sheep, cat, cell(view, 'Werewolf_Ice'), cell(view, 'Anubis')].map((node) => [hasClass(node, 'is-unregistered'), hasClass(node, 'is-known'), hasClass(byClass(node, 'pal-icon'), 'pal-icon-silhouette')]), [
+    [true, true, true], [true, true, true], [true, true, true], [true, false, true],
+  ]);
+  assert.equal(byClass(view.element, 'paldex-legend').textContent.includes('影・淡い絵は、子として登録された配合がまだない種族'), true);
   assert.deepEqual(stats(view), ['子として登録0 / 298', '所持2 / 298', '捕獲（自分）2 種']);
   assert.equal(owned.loads, 1);
   // 見方の行: 所持と捕獲数は分かるときだけ
@@ -182,9 +189,13 @@ test('図鑑: 絞り込み「すべて／未登録／未所持」は viewState �
   const app = context({ store: fakeStore([record('r1', 'MoonQueen')]), owned: fakeOwned(), viewStates });
   const view = palView(app, parseHash('#/pal'));
   assert.equal(shownIds(view).length, 298);
+  // 絞り込みに当たる数（替えたら読み上げる。aria-live）
+  const count = byClass(view.element, 'paldex-shown');
+  assert.deepEqual([count.textContent, count.getAttribute('aria-live')], ['298 体', 'polite']);
   radio(view, '未登録').dispatch('click');
   assert.equal(viewStates.get('paldex').filter, 'unregistered');
   assert.equal(shownIds(view).length, 297);
+  assert.equal(count.textContent, '297 体');
   assert.equal(shownIds(view).includes('MoonQueen'), false);
   assert.equal(radio(view, '未登録').getAttribute('aria-checked'), 'true');
   view.destroy();
@@ -210,6 +221,69 @@ test('図鑑: 絞り込み「すべて／未登録／未所持」は viewState �
   assert.equal(byClass(full.element, 'paldex-none').hidden, false);
   assert.equal(byClass(full.element, 'paldex-none').textContent, '子として登録のないパルはいません。');
   full.destroy();
+});
+
+test('図鑑: 所持パルのデータが後から届いても絞り込みの押しボタンを作り直さず、押したばかりの押しボタンのフォーカスが残る。隠した「未所持」へは矢印で移らない', (t) => {
+  const { body } = installDom(t);
+  const owned = fakeOwned(null);
+  const view = palView(context({ owned }), parseHash('#/pal'));
+  body.append(view.element);
+  const before = radios(view);
+  assert.equal(radio(view, '未所持').hidden, true);
+  // 隠した「未所持」は飛ばす（未登録 → すべて へ回る）
+  const unregistered = radio(view, '未登録');
+  unregistered.dispatch('click');
+  unregistered.focus();
+  unregistered.dispatch('keydown', { key: 'ArrowRight', preventDefault() {} });
+  assert.equal(document.activeElement, radio(view, 'すべて'));
+  unregistered.dispatch('keydown', { key: 'End', preventDefault() {} });
+  assert.equal(document.activeElement, unregistered);
+  assert.equal(unregistered.getAttribute('aria-checked'), 'true');
+  // 開いたときの owned.load() が終わってデータが届く
+  owned.set(normalizeOwned(snapshot(), { pals, passives }));
+  assert.deepEqual(radios(view), before);
+  assert.equal(document.activeElement, unregistered);
+  assert.equal(radio(view, '未所持').hidden, false);
+  unregistered.dispatch('keydown', { key: 'ArrowRight', preventDefault() {} });
+  assert.equal(document.activeElement, radio(view, '未所持'));
+  view.destroy();
+});
+
+test('図鑑: 絞り込みで隠れるマスでも、フォーカスのあるマスとドロワーで開いているパルのマスは、データの更新では次の更新まで残す（絞り込みを替えたら隠す）', (t) => {
+  const { body } = installDom(t);
+  const store = fakeStore();
+  const drawer = { entry: null, isOpen() { return Boolean(this.entry); }, current() { return this.entry; } };
+  const app = context({ store, viewStates: new Map([['paldex', { filter: 'unregistered' }]]) });
+  app.drawer = drawer;
+  const view = palView(app, parseHash('#/pal'));
+  body.append(view.element);
+  const count = byClass(view.element, 'paldex-shown');
+  // フォーカスのあるマス（ドロワーを閉じた後の戻り先）: 仲間の登録が届いても隠さない（数は当たる数だけ）
+  const sheep = cell(view, 'SheepBall');
+  sheep.focus();
+  store.set({ records: [record('r1', 'SheepBall')] });
+  assert.equal(sheep.hidden, false);
+  assert.equal(hasClass(sheep, 'is-unregistered'), false);
+  assert.equal(count.textContent, '297 体');
+  // 右のドロワーで開いているパル（フォーカスはドロワーの中）: ドロワーから登録しても隠さない
+  body.focus?.();
+  document.activeElement = body;
+  drawer.entry = { kind: 'pal', id: 'PinkCat' };
+  store.set({ records: [record('r1', 'SheepBall'), record('r2', 'PinkCat')] });
+  assert.equal(cell(view, 'PinkCat').hidden, false);
+  // フォーカスの外れたマスは次の更新で隠す
+  assert.equal(cell(view, 'SheepBall').hidden, true);
+  // 前の更新で隠れていたマスは、ドロワーで開いても出し直さない
+  drawer.entry = { kind: 'pal', id: 'SheepBall' };
+  store.set({ records: [record('r1', 'SheepBall'), record('r2', 'PinkCat'), record('r3', 'MoonQueen')] });
+  assert.deepEqual(['SheepBall', 'PinkCat', 'MoonQueen'].map((id) => cell(view, id).hidden), [true, true, true]);
+  // 絞り込みを替えたら、残したマスも隠す
+  cell(view, 'PinkCat').focus();
+  radio(view, 'すべて').dispatch('click');
+  radio(view, '未登録').dispatch('click');
+  assert.equal(cell(view, 'PinkCat').hidden, true);
+  assert.equal(count.textContent, '295 体');
+  view.destroy();
 });
 
 test('図鑑: 記録・所持パル・目標・自分の更新では格子を作り直さず、印の変わったマスだけを直す', (t) => {

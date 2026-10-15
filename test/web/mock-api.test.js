@@ -19,6 +19,9 @@ test('モック: 初期データは空、seed を明示した場合だけマス�
   const master = new Set(pals.map((pal) => pal.id));
   assert.ok(seeded.records.every((record) => [record.parent1Id, record.parent2Id, record.childId].every((id) => master.has(id))));
   assert.ok(seeded.records.every((record) => record.memo.includes('ランダム')));
+  // 同じ件数なら毎回同じ配合（件数で決まる乱数。テストと画面の確かめを揺らさない）
+  const triple = (list) => list.map((record) => `${record.parent1Id}+${record.parent2Id}=${record.childId}`).sort();
+  assert.deepEqual(triple((await createDevelopmentApi({ seed: '12' })(request('snapshot'))).records), triple(seeded.records));
 });
 
 test('モック: 登録の正規化、ID 冪等性、ID の競合、重複、ペア競合を判定する', async () => {

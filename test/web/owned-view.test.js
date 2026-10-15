@@ -149,6 +149,8 @@ test('所持パル画面: タブを切り替えて作り直しても絞り込み
   const keyword = (view) => view.element.querySelectorAll('input').find((node) => node.type === 'search');
   const first = ownedView(memoryContext(), parseHash('#/owned'));
   const query = keyword(first);
+  // 「採掘3」が Lv3 以上の意味だと title に例を書く（フェーズ 4 の終わりのレビュー）
+  assert.match(query.title, /「採掘3」は採掘 Lv3 以上の種族/);
   query.value = 'もこ';
   await query.dispatch('input');
   await placeChip(first, 'egg').dispatch('click');
@@ -265,8 +267,10 @@ test('所持パル画面: 性別は名前の左に出し、パル濃縮と個体
   const view = ownedView(context(fakeOwned()), parseHash('#/owned'));
   const line = view.element.querySelectorAll('.owned-row')[0].querySelector('.pal-name-line');
   assert.deepEqual(line.children.map((node) => node.textContent), ['♀', 'モコロン']);
-  // 名前の右の属性のアイコンは要素を足さず、名前の行のクラス（CSS の ::after の背景）で描く（game-assets。モコロンは無属性。行の要素の数を増やさない）
-  assert.equal(line.className, 'pal-name-line has-elements el1-Neutral');
+  // 属性のアイコンは要素を足さず、番号の行のクラス（CSS の ::after の背景）で描く（game-assets。モコロンは無属性。行の要素の数を増やさない。
+  // 名前の行に置くと 920px で名前が切れたので番号の行へ。フェーズ 4 の終わりのレビュー）
+  assert.equal(line.className, 'pal-name-line');
+  assert.equal(view.element.querySelectorAll('.owned-row')[0].querySelector('.dex-label').className, 'dex-label has-elements el1-Neutral');
   const rows = () => view.element.querySelectorAll('.owned-row').length;
   const stars = view.element.querySelectorAll('select').find((node) => node.children.some((child) => child.textContent === '★1 以上'));
   stars.value = '2';
@@ -3130,6 +3134,18 @@ test('所持パル画面（配合牧場の帯）: 牧場の情報があれば「
   again.element.querySelector('.farm-band-open').dispatch('click');
   assert.deepEqual(opened, [{ kind: 'farms', id: '' }]);
   again.destroy();
+  // ケーキ切れの牧場（cakes が []。ホストの画面だけ）があれば、閉じた 1 行に「· ケーキ切れ n」（警告の色。分からない null は数えない）
+  owned.state.owned.farms = [
+    { id: 'F1', baseId: '', parents: ['a'], status: 'ok', eggs: [], eggCount: 2, cakes: [] },
+    { id: 'F2', baseId: '', parents: [], status: 'ok', eggs: [], eggCount: 0, cakes: null },
+    { id: 'F3', baseId: '', parents: [], status: 'ok', eggs: [], eggCount: 0, cakes: [{ itemId: 'Cake', count: 1 }] },
+  ];
+  memory.farmsOpen = false;
+  const cakes = ownedView(app, parseHash('#/owned'));
+  const line = cakes.element.querySelector('.farm-band-toggle');
+  assert.equal(line.textContent, '配合牧場（3 か所 · タマゴ 2 個 · ケーキ切れ 1）');
+  assert.equal(line.querySelector('.farm-band-alert').textContent, 'ケーキ切れ 1');
+  cakes.destroy();
   // 牧場の情報がないデータでは帯を出さない
   owned.state.owned.farms = null;
   const none = ownedView(context(owned), parseHash('#/owned'));
