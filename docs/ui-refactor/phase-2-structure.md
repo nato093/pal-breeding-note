@@ -402,25 +402,43 @@
 - id: `<実装日>-register-entry`／title: 「登録の入口を移しました」（11 字）／body: 「右上の「＋ 登録」は配合を探す・パル詳細のボタンへ。下書きは配合を探すの上の帯に移りました。」（46 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] ヘッダーに「＋ 登録」がない。配合を探すの全件表示・結果あり・0 件・パル詳細のそれぞれで、登録のボタンが 1 つ出る。
-- [ ] 下書き 0 件でも帯が出て「＋ 下書きに追加」で作れる。`#/drafts` で帯が開いた状態になる。
-- [ ] 実測: 下書きの一括登録で layout-shift が今（0.13・340px 伸びる）より小さい。
-- [ ] 入力欄・日本語変換中・モーダル中・長押しで N が反応しない（ブラウザで確かめる）。
-- [ ] レールのタブが 6 本。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 下書きの保存の形を変えていない（旧コードのタブと混ざっても壊れない）。`#/drafts` のブックマークが、履歴を増やさずに帯の開いた配合を探すに着く。セキュリティ — `test/static/security.test.js` が通る。INV-2 — 対象外。性能 — 帯の行は syncList の差分更新。
+- [x] `npm test` が通る。
+- [x] ヘッダーに「＋ 登録」がない。配合を探すの全件表示・結果あり・0 件・パル詳細のそれぞれで、登録のボタンが 1 つ出る。
+- [x] 下書き 0 件でも帯が出て「＋ 下書きに追加」で作れる。`#/drafts` で帯が開いた状態になる。
+- [x] 実測: 下書きの一括登録で layout-shift が今（0.13・340px 伸びる）より小さい。
+- [x] 入力欄・日本語変換中・モーダル中・長押しで N が反応しない（ブラウザで確かめる）。
+- [x] レールのタブが 6 本。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 下書きの保存の形を変えていない（旧コードのタブと混ざっても壊れない）。`#/drafts` のブックマークが、履歴を増やさずに帯の開いた配合を探すに着く。セキュリティ — `test/static/security.test.js` が通る。INV-2 — 対象外。性能 — 帯の行は syncList の差分更新。
 
 ### TODO
-- [ ] ヘッダーの「＋ 登録」と CSS を消す（テストを先に直す）
-- [ ] 配合を探すの文脈のボタン（全件・結果あり・0 件）
-- [ ] パル詳細の「この子の配合を登録」の強さを登録件数で変える
-- [ ] `ui/drafts-band.js` の帯（頭の行・中身・すべて登録・すべて削除）
-- [ ] 読み取り専用の下書きの行と syncList・フォーカスの移し先
-- [ ] `registerDrafts` を移し、`views/drafts.js` を消す
-- [ ] 配合を探すに帯を置き、`drafts=1` で開閉
-- [ ] `#/drafts` の読み替えとタブ・アイコン・keep-state の許可リスト
-- [ ] ショートカット N
-- [ ] drafts・app・views のテストの書き換えと release-notes
+- [x] ヘッダーの「＋ 登録」と CSS を消す（テストを先に直す）
+- [x] 配合を探すの文脈のボタン（全件・結果あり・0 件）
+- [x] パル詳細の「この子の配合を登録」の強さを登録件数で変える
+- [x] `ui/drafts-band.js` の帯（頭の行・中身・すべて登録・すべて削除）
+- [x] 読み取り専用の下書きの行と syncList・フォーカスの移し先
+- [x] `registerDrafts` を移し、`views/drafts.js` を消す
+- [x] 配合を探すに帯を置き、`drafts=1` で開閉
+- [x] `#/drafts` の読み替えとタブ・アイコン・keep-state の許可リスト
+- [x] ショートカット N
+- [x] drafts・app・views のテストの書き換えと release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/register-entry`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の register-dialog・goals-merge・settings と、フェーズ 3 の pal-detail・drawer はこちらを正とする）。
+
+1. **ヘッダー（手順 1）**: app.js の `register` ボタンと `register.hidden` の行、`.register-button` の CSS（色・ホバー・処理中・動き・押せないときの色の 6 か所）を消した。ヘッダーの並びは ロゴ → テスト環境 → 同期状況 → セーブ連携 → ベル → ID。
+2. **文脈のボタン（手順 2）**: **場所は文書と変えて、どの状態でも配合を探すの見出しの右（`div.view-heading-actions` の `button.find-register`。secondary small）にした**（件数の行は sticky の帯の 2 段目の右端にあり、「この組み合わせで別の結果を登録」〔約 200px〕を足すと所持の切り替えと合わせて 1100px で折り返すため。入口が 1 か所に決まる利点もある）。文言: 全件（親・子なし）「＋ 配合を登録」、親 2 体「この組み合わせで別の結果を登録」、親 1 体「この親で配合を登録」、子だけ「この子の配合を登録」。初期値は `registerInitial()`（親 2 体はその組、親 1 体は親1 に、親と子なら子も）。結果が 0 件・読み込み中は隠し、空の状態の primary のボタンだけにする。パル詳細の「この子の配合を登録」は、描くたびに産まれる配合の数で `button secondary`／`button primary` を切り替える。
+3. **帯（手順 3）**: `web/js/ui/drafts-band.js` の **`draftsBand(context, { open, onToggle }) → { element, update({ open }), destroy() }`** と **`registerDrafts(context, ids)`**（中身は前の views/drafts.js のまま。`prepare`・`submit` も移した）。`section.drafts-band`（aria-label「下書き」）の頭の行 `div.drafts-band-head` に `button.drafts-band-toggle`（aria-expanded・aria-controls。▸ の印〔CSS の三角〕と「下書き n 件（この端末だけ）」）と「すべて登録」（primary small。0 件・送信中・記録の読み込み前は押せない。理由は title）・「＋ 下書きに追加」（secondary small。`context.register({}, { draft: true })`。ログアウト中は押せない）。中身 `div.drafts-band-body`（閉じている間は hidden。行は閉じていても作っておく）に保存の失敗の警告・行の一覧（syncList。空なら「下書きはありません。「＋ 下書きに追加」から作れます。」）・「すべて削除」（**文書は「確認つき」だが、フェーズ 1d の delete-undo の決まり〔端末だけのものは確認なし＋元に戻す〕のまま**）。帯は drafts と store を購読して描き直す。
+4. **行（手順 3）**: 読み取り専用の式（`palTile(id, { clickable: false })`。選んでいない枠は破線の `span.draft-empty`「未選択」）。**2 行の形**にした: 1 行目は式（3 体の列は 1fr ずつ・最大 760px）、2 行目は 登録者 · メモ · 理由の文（`span.draft-message`。1 行で省略し全文は title）と右端の操作「登録」「編集」（`data-focus="edit"`）「削除」。**理由の文で行の高さが変わらない**（文書の完了の条件の「一括登録の layout-shift を今より小さく」のため。前は行の下に 1 行足していた）。登録が押せない理由は「親1・親2・子を「編集」で選ぶと登録できます」（行の中で選べなくなったため文を変えた）。行が消えたら syncList が次の行（なければ前の行）の「編集」へ、行がなくなったら「＋ 下書きに追加」（`fallbackFocus`）へ移す。ダブルクリックの 2 回目を次の行に当てない `singleClick` は残した。
+5. **配合を探すに置く（手順 4）**: 条件帯の下・子のチップの前の `div.find-drafts` に、親・子を選んでいない（全件表示の）ときだけ作る（登録者・キーワード・並べ替えで絞っていても出す）。`context.drafts` がない（ビューのテスト）ときは作らない。開閉は URL の `drafts=1`（`changeRoute(…, { replace: true })`。履歴は増やさない）。親・子を選ぶと帯を壊し、外すと作り直す。
+6. **読み替え（手順 5）**: router.js の `LEGACY` の値を `{ view, add }`（足すクエリ）にし、`drafts: { view: 'search', add: { drafts: '1' } }` を足した（`#/drafts?x=1` → `#/search?x=1&drafts=1`）。`views` から `drafts` を外し、`TABS`・app.js の import と対応・ICONS の `drafts` を消した（タブは 6 本）。最後のタブの許可リストは TABS から作るので、古い `lastView` の `drafts` は使われない。レールの区切りは `[data-view="drafts"]` のままで、下書きのタブがなくなったので区切りは所持パルの前だけ（ウィッシュリストは探すのグループに続く。goals-merge でウィッシュリストが消えれば 探す｜所持｜設定）。
+7. **ショートカット N（手順 6）**: app.js で `document.addEventListener('keydown', …)` を 1 回。`n`/`N` のとき、変換中・長押し（repeat）・Ctrl/Alt/Meta・ログイン画面・未ログイン・`dialog[open]` がある・フォーカスが input/select/textarea/contenteditable・フォーカスが `aria-expanded="true"` の要素なら何もしない。それ以外は `preventDefault` して `context.register(currentView.registerInitial?.())`（配合を探す以外の画面は初期値なし）。
+8. **テスト**: 1,521 → 1,527 件（`npm test` exit 0）。drafts.test.js は帯を相手に書き換えた（帯の開閉・0 件の追加・行が読み取り専用で「編集」のモーダルで選ぶ・名前の「すべて登録」「すべて削除」「＋ 下書きに追加」・フォーカスの移し先は「編集」・操作中の行を付け直さない）。app.test.js: ヘッダーの並びと `signedInParts` から `register-button` を外し、`#/drafts` から帯で下書きを作って登録するテスト・N のテスト（document の keydown を記録する偽物に変えた）を足し、更新の帯のテストは見出しの「＋ 配合を登録」でダイアログを開く。views.test.js: 文脈のボタンの 5 通りと 0 件、帯の出し入れと drafts=1、パル詳細のボタンの強さ。router.test.js: `#/drafts` の読み替え。
+9. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/find-merge/`）**: `#/drafts` → `#/search?drafts=1`（帯が開いて 6 件。ヘッダーに「＋ 登録」なし・タブ 6 本・見出しの右に「＋ 配合を登録」。`20-drafts-band-1100-light.png`）。基準の計測と同じ形（登録できる 1 行と空の 19 行）で「すべて登録」: layout-shift は **0.0413**（基準 0.1307。入力の直後）、ページの高さは +12px（基準 +340px。登録した 1 行が消え、結果のカードが 1 枚増えた分）。19 行の 2 行目に「未選択の項目があります。」（`24-drafts-after-register-20rows-1100-light.png`）。帯を閉じると URL から drafts が外れる。キーワードの欄で N を押すと文字が入るだけ、本文で N を押すと親1 にモコロンが入った登録のダイアログ（`25-shortcut-n-1100-light.png`）。
+10. **後のテーマへの申し送り**:
+    - register-dialog: 登録のモーダルを閉じたときに下書きへ退避するなら、帯は drafts の購読で自動で増える（帯の件数・行）。モーダルの「下書きに保存」は `context.register({}, { draft: true })` のまま。
+    - goals-merge: 配合を探すの空の状態・見出しの右に「目標に登録」を足すなら、見出しの右は `div.view-heading-actions`（今は登録のボタン 1 つ）。
+    - settings: 端末のデータの書き出しで下書きを扱うときも、保存の形は `<namespace>.drafts.<env>.<userIdKey>` のまま。
 
 ---
 
