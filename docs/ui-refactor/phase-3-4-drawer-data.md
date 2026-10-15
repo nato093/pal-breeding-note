@@ -46,7 +46,7 @@
 - **保存データ**: 新しく保存・共有する値は data-boundary の検証を通す。古い IndexedDB・古い共有データ・古い通知・古い sessionStorage・旧コードのタブが混ざっても壊れない。
 - **性能の予算**（Chrome で測る）: 所持パル 2,000 行で最初の 200 行が 100ms 以内・全行が 1 秒以内、DOM 80,000 ノード以下・JS ヒープの増加 150MB 以下。2,000 行を超えたら見えている範囲だけ描く。20,000 行・偏った種族の分布でも入力が 100ms 以上止まらない。**予算を超えたら、そのテーマを終えずに直す。**
 - **進め方**: 1 テーマ＝1 ブランチ（`feature/<テーマ key>`）→ 日本語のコミット → `main` に `--no-ff` でマージ。push と配信はユーザーの確認後。振る舞いが変わる所はテストを先に直す・足す → 実装 → `npm test` → モックで画面を確かめる → `web/js/release-notes.js` の先頭に 1 件（title 20 字・body 60 字以内。`web/js/notifications.js:6-7` の `TITLE_MAX`・`BODY_MAX`。超えると `npm test` が落ちる）。`id` は一度出したら変えない。release-notes の id の日付は、実装した日に置き換える（この文書では `YYYY-MM-DD` と書く）。
-- **GAS の変更**は、仲間に共有すると決めたデータ（farm-data・save-extras の一部）だけ。反映（`npm run gas:push`、列を足したときは GAS エディタで `setup()`）はユーザーの操作が要る。**クライアントを先に配信しても壊れない形にする**（下の 0-4）。
+- **GAS の変更**は、仲間に共有すると決めたデータ（farm-data・save-extras の一部）だけ。反映（`npm run gas:push` → `npx clasp update-deployment <deployment ID>` → `npx clasp list-deployments` で本番の URL の版が上がったことを確かめる。列を足したときは GAS エディタで `setup()`。ID は `docs/OPERATIONS.md` の「デプロイ情報」で、依頼の文には実際の ID を書く）はユーザーの操作が要る。`gas:push` と `setup()` はエディタの版（@HEAD）で動くので成功して見えるが、本番の URL は `update-deployment` までは古い版のまま（2026-10-15 のフェーズ 3 で `update-deployment` が届かないまま配信し、ホストの共有が断られた）。**クライアントを先に配信しても壊れない形にする**（下の 0-4）。
 - **フェーズ 4 の前提**: どのテーマも、先に実際のセーブ（`npm run check:save -- "<ワールドのフォルダ>"`。読み取りのみ）とゲーム本体で項目・形式を確かめてから作る。項目がない・テクスチャの形式が違うときは、その案を止めてユーザーに報告する。確かめた結果は `docs/SAVE_FORMAT.md` に書く。
 - **フェーズの終わり**: 観点別のエージェントと Codex（読み取り専用）で差分をレビューし、直してから次へ。`npm run test:perf` も流す。
 
@@ -1812,7 +1812,8 @@
 - [ ] モックで統合プランの「検証」の表の操作を繰り返し、基準（[measurements.md](appendix/measurements.md)）と比べた。とくに「配合検索 → パル詳細（scrollY=500）: 新しい画面が途中から表示 → ドロワーで開き、本文はそのまま」。
 - [ ] ブラウザでしか確かめられないこと（戻る／進む・日本語変換中の入力・20 秒の更新・幅 920px・1100px・拡大 125〜150%・ヘッダー／パネル／候補／トースト／ダイアログ／ドロワーの重なり）を確かめた。
 - [ ] 古い IndexedDB・古い共有データ（新しい鍵や列のないもの）・旧コードのタブが混ざった状態から起動して壊れない。
-- [ ] GAS の反映（`npm run gas:push`、列を足したテーマでは `setup()`）をユーザーに依頼した: farm-data（push のみ）・farm-board（`eggItemId` の列 → setup）・save-extras（入手時刻・お気に入りの列、Day を共有するならワールドの列 → setup）・任意の F047（新しいシート → setup）。
+- [ ] GAS の反映（`npm run gas:push` → `npx clasp update-deployment <deployment ID>`、列を足したテーマでは `setup()`）をユーザーに依頼した: farm-data（push のみ）・farm-board（`eggItemId` の列 → setup）・save-extras（入手時刻・お気に入りの列、Day を共有するならワールドの列 → setup）・任意の F047（新しいシート → setup）。
+- [ ] 配信（main の push）の前に、`npx clasp list-deployments` で本番の URL（`AKfycbwjWCwz…`）の版が上がったことを確かめた（ユーザーの「済んだ」だけで進めない。2026-10-15 のフェーズ 3 は版 8 のまま配信した）。
 - [ ] フェーズの区切りの報告（変更したファイル・実行したコマンド・画面の確かめ方）をした。
 
 ## テーマごとの TODO の数
