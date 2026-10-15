@@ -374,11 +374,25 @@ test('理想個体画面: 所持パルのデータがないときは 1 文と「
   loading.destroy();
 });
 
-test('理想個体画面: 目標のパルを ♂ と ♀ で持っていないときは、次の一手に「配合を探すで親を探す」と「ウィッシュリストに追加」（追加したら押せない「ウィッシュリストにあります」）', async (t) => {
+// 目標のストアの偽物（goalToggle が使う list・add・remove・restore・subscribe・scope）
+function fakeIdeals({ scope = 'test.仲間', add } = {}) {
+  const goals = [];
+  const listeners = new Set();
+  const emit = () => listeners.forEach((listener) => listener());
+  return {
+    goals, scope: () => scope, list: () => goals, mine: () => undefined, selfUids: () => new Set(), find: () => null, has: () => false,
+    saveFailed: false, migration: () => ({ status: 'none' }), observation: () => null, legacyWishes: () => [],
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    add: add ?? ((conditions) => { goals.push({ ...conditions, id: `g${goals.length + 1}`, worlds: {} }); emit(); return 'added'; }),
+    remove(id) { const index = goals.findIndex((goal) => goal.id === id); const [goal] = goals.splice(index, 1); emit(); return { goal, index, observation: null }; },
+    restore(goal, index) { goals.splice(index, 0, goal); emit(); return true; },
+  };
+}
+
+test('理想個体画面: 目標のパルを ♂ と ♀ で持っていないときは、次の一手に「配合を探すで親を探す」と「☆ 目標に登録」（押すと種族だけの目標になり「目標に登録済み」。前は「ウィッシュリストに追加」）', async (t) => {
   install(t);
-  const wishes = [];
-  const wishlist = { scope: () => 'test.仲間', list: () => wishes, add(palId) { wishes.push({ palId }); return true; } };
-  const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), wishlist };
+  const ideals = fakeIdeals();
+  const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), ideals };
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
   document.body.append(view.element);
   const emptyState = view.element.querySelector('.ideal-results').querySelector('.empty-state');
@@ -387,42 +401,41 @@ test('理想個体画面: 目標のパルを ♂ と ♀ で持っていない�
   const reverse = emptyState.querySelector('a');
   assert.equal(reverse.textContent, '配合を探すで親を探す');
   assert.equal(reverse.href, '#/search?c=SheepBall');
-  const add = emptyState.querySelector('button');
-  assert.equal(add.textContent, 'ウィッシュリストに追加');
-  add.focus();
+  const add = emptyState.querySelector('.goal-toggle');
+  assert.equal(add.textContent, '目標に登録');
+  assert.equal(add.getAttribute('aria-pressed'), 'false');
   await add.dispatch('click');
-  assert.deepEqual(wishes, [{ palId: 'SheepBall' }]);
-  assert.equal(add.textContent, 'ウィッシュリストにあります');
-  assert.equal(add.disabled, true);
-  // 押せなくする前に、隣の「配合を探すで親を探す」へフォーカスを移す
-  assert.equal(document.activeElement, reverse);
+  // 種族だけの目標（パッシブなし・個体値の条件なし）
+  assert.deepEqual(ideals.goals.map((goal) => [goal.palId, goal.passives, goal.mode, goal.targets]), [['SheepBall', [], 'include', { hp: 0, shot: 0, defense: 0 }]]);
+  assert.equal(add.textContent, '目標に登録済み');
+  assert.equal(add.getAttribute('aria-pressed'), 'true');
+  assert.ok(document.body.querySelectorAll('.toast').some((node) => node.textContent.startsWith('モコロンを目標に登録しました')));
+  // もう一度押すと外す（トーストに「元に戻す」）
+  await add.dispatch('click');
+  assert.deepEqual(ideals.goals, []);
+  assert.equal(add.textContent, '目標に登録');
   view.destroy();
-  // すでにあれば最初から押せない。ログインしていない（scope が空）ときは出さない
-  const listed = idealView({ ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), wishlist }, parseHash('#/ideal?to=SheepBall'));
-  assert.equal(listed.element.querySelector('.ideal-results').querySelector('button').disabled, true);
-  listed.destroy();
-  const guest = idealView({ ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), wishlist: { ...wishlist, scope: () => '' } }, parseHash('#/ideal?to=SheepBall'));
-  assert.equal(guest.element.querySelector('.ideal-results').querySelector('button'), null);
+  // ログインしていない（scope が空）ときは出さない
+  const guest = idealView({ ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), ideals: fakeIdeals({ scope: '' }) }, parseHash('#/ideal?to=SheepBall'));
+  assert.equal(guest.element.querySelector('.ideal-results').querySelector('.goal-toggle'), null);
   assert.ok(guest.element.querySelector('.ideal-results').querySelector('a'));
   guest.destroy();
 });
 
-test('理想個体画面: 「ウィッシュリストに追加」で追加できなかったとき、ID の変更中なら「ID の変更が終わってから追加してください」と出す', async (t) => {
+test('理想個体画面: 「☆ 目標に登録」で登録できなかったとき、ID の変更中なら「ID の変更が終わってから登録してください」と出す', async (t) => {
   const { body } = install(t);
-  const wishlist = { scope: () => 'test.仲間', list: () => [], add: () => null };
-  const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), wishlist };
+  const ctx = { ...context(fakeOwned([palworldPal('x1', 'PinkCat', 'Male', [], full)])), ideals: fakeIdeals({ add: () => null }) };
   const view = idealView(ctx, parseHash('#/ideal?to=SheepBall'));
   body.append(view.element);
-  const add = view.element.querySelector('.ideal-results').querySelector('.empty-state').querySelector('button');
+  const add = view.element.querySelector('.ideal-results').querySelector('.goal-toggle');
   const toasts = () => body.querySelectorAll('.toast').map((node) => node.textContent);
   ctx.store.state.renaming = true;
   await add.dispatch('click');
-  assert.deepEqual(toasts(), ['ID の変更が終わってから追加してください']);
-  // 変更中でなければ今までどおり（ログインの状態が変わった・配合をまだ読めていない）
+  assert.deepEqual(toasts(), ['ID の変更が終わってから登録してください']);
   ctx.store.state.renaming = false;
   await add.dispatch('click');
-  assert.deepEqual(toasts(), ['ID の変更が終わってから追加してください', '配合を読み込んでから追加してください']);
-  assert.equal(add.textContent, 'ウィッシュリストに追加');
+  assert.deepEqual(toasts(), ['ID の変更が終わってから登録してください', 'ログインしてから登録してください']);
+  assert.equal(add.textContent, '目標に登録');
   view.destroy();
 });
 
@@ -778,8 +791,8 @@ test('理想個体画面: 目標のダイアログから外す・元に戻す・
   body.append(view.element);
   assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（2）');
   const dialog = openGoals(view);
-  // 名前は .ideal-goal-title の最後の子（パルの絵の中にも strong がある）
-  const goalName = (row) => row.querySelector('.ideal-goal-title').children.at(-1).textContent;
+  // 名前は .ideal-goal-name の最初の子（パルの絵の中にも strong がある。名前の欄には「パルだけ」のタグと配合・所持の行も入る）
+  const goalName = (row) => row.querySelector('.ideal-goal-name').children[0].textContent;
   const titles = () => dialog.querySelectorAll('.ideal-goal').map(goalName);
   // 新しい順（完成済みがあれば上）。列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す
   assert.deepEqual(titles(), ['攻撃型', '古い目標']);
@@ -1068,7 +1081,7 @@ test('理想個体画面: 目標を外すとダイアログの行が消えて空
   remove.dispatch('click');
   assert.equal(ctx.ideals.list().length, 0);
   assert.equal(dialog.querySelector('.ideal-goal-empty').textContent,
-    '保存した目標はまだありません。条件を選んで「☆ 目標として保存」を押すと、ここに並び、完成したら右上のベルで知らせます。');
+    '目標はまだありません。条件を選んで「目標として保存」を押すか、パル詳細の「目標に登録」から足すと、完成や配合の登録をベルで知らせます。');
   view.destroy();
 });
 

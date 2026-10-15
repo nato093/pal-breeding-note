@@ -12,8 +12,10 @@ import { passiveSelector, passivesById, passiveList, passiveChip } from '../ui/p
 import { talentInput } from '../ui/talent-input.js';
 import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
-import { goalMatches, palsOfPlayers, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
-import { passiveCounts } from '../core/owned.js';
+import { goalMatches, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
+import { passiveCounts, ownedCounts } from '../core/owned.js';
+import { findByChild } from '../core/index.js';
+import { goalToggle } from '../ui/goal-toggle.js';
 import {
   idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
 } from '../core/ideal.js';
@@ -175,10 +177,11 @@ const sameProspect = (a, b) => a.group === 'talent' && b.group === 'talent'
   && Number.isFinite(a.talentGenerations) === Number.isFinite(b.talentGenerations) && sameNumber(prospect(a), prospect(b));
 
 const choiceLabel = (choices, value) => choices.find(([key]) => key === value)?.[1] ?? value;
-const goalHash = (goal) => buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id });
+const goalHash = (goal) => (isSpeciesGoal(goal) ? buildHash('ideal', { to: goal.palId }) : buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id }));
 
-/** 登録した条件の要約（個体値の目標・パッシブの条件・ケーキ）。個体値は「HP —・攻撃 100 以上」（保存の 0 は条件なし） */
+/** 登録した条件の要約（個体値の目標・パッシブの条件・ケーキ）。個体値は「HP —・攻撃 100 以上」（保存の 0 は条件なし）。種族だけの目標は「条件なし」 */
 function goalSummary(goal) {
+  if (isSpeciesGoal(goal)) return '条件なし（そのパルがいれば完成）';
   const targets = GOAL_STATS.map((key) => `${TALENT_LABELS[key]} ${goal.targets[key] ? `${goal.targets[key]} 以上` : '—'}`).join('・');
   return [targets, choiceLabel(PASSIVE_MODES, goal.mode), choiceLabel(CAKES, goal.cake).replace(/（.*）$/, '')].join(' · ');
 }
@@ -216,8 +219,15 @@ export function idealView(context, route) {
   let to = '';
   let passives = [];
   // URL から読む条件（作るときと、同じ画面のまま URL が変わったとき）。登録した理想個体の条件を入れたら true を返す
+  // goals=1（前のウィッシュリストの URL #/wishlist の読み替え）で開いたら、目標のダイアログを開いて URL から外す
+  let openGoalsLater = false;
   function readRoute(next) {
     current = next;
+    if (next.params.get('goals') === '1') {
+      next.params.delete('goals');
+      openGoalsLater = true;
+      context.replace?.(buildHash('ideal', next.params));
+    }
     to = validId(next, 'to', context);
     // 重複とマスターにない ID は除く（知らない ID のチップを出さない）
     passives = [...new Set((next.params.get('p') ?? '').split(',').filter((id) => internalName(id)))].slice(0, MAX_WANTED);
@@ -474,7 +484,7 @@ export function idealView(context, route) {
     if (!ideals || goalsModal) return;
     goalsModal = openDialog('目標', { className: 'ideal-goals-dialog', onClose: () => { goalsModal = null; goalsClose = null; clearList(goalsList); } });
     goalsClose = button('閉じる', goalsModal.close, 'button secondary');
-    goalsModal.body.append(goalsWarning, goalsList);
+    goalsModal.body.append(goalsWarning, migrationNote, goalsList);
     goalsModal.footer.append(goalsClose);
     renderGoals();
   }
@@ -486,14 +496,25 @@ export function idealView(context, route) {
       return;
     }
     toast(`「${goal.name}」を目標から外しました`, {
-      action: () => { if (!ideals.restore(removed.goal, removed.index, key)) toast('元に戻せませんでした', { kind: 'error' }); },
+      action: () => { if (!ideals.restore(removed.goal, removed.index, key, removed.observation)) toast('元に戻せませんでした', { kind: 'error' }); },
     });
   }
-  // 1 行（列: パル・名前／パッシブ／条件の要約／状態〔と「設定で選ぶ」〕／呼び出す・外す）。保存した目標の中身は変わらないので、update は状態だけ
-  function goalRow({ goal, status }) {
+  // 1 行（列: パル・名前〔パルだけの目標はタグ〕・配合と所持／パッシブ／条件の要約／状態〔と「設定で選ぶ」〕／呼び出す・外す）。
+  // 保存した目標の中身は変わらないので、update は状態と配合・所持の数だけ
+  function goalRow({ goal, status, facts }) {
     const row = el('li', 'ideal-goal');
     const title = el('div', 'ideal-goal-title');
-    title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), el('strong', '', goal.name));
+    const nameCell = el('div', 'ideal-goal-name');
+    nameCell.append(el('strong', '', goal.name));
+    if (isSpeciesGoal(goal)) nameCell.append(statusChip('パルだけ', 'info', 'ideal-goal-tag'));
+    // 配合の登録（画面のデータの登録済みの数。押すと配合を探すでその子）と、所持パルがあれば所持の数（親になれる数）
+    const records = link('', buildHash('search', { c: goal.palId }), 'ideal-goal-records');
+    records.addEventListener('click', () => goalsModal?.close());
+    const holding = el('span', 'ideal-goal-holding');
+    const facts1 = el('div', 'ideal-goal-facts');
+    facts1.append(records, holding);
+    nameCell.append(facts1);
+    title.append(palsById.has(goal.palId) ? palTile(goal.palId, { clickable: false }) : el('span', 'muted', goal.palId), nameCell);
     const state = statusChip('', 'neutral', 'ideal-goal-status');
     // 自分のプレイヤーが分からない（未確認）ときだけ、状態の下に設定への行き先（このワールドでの自分を選ぶ）を出す
     const action = link('', '#/settings', 'button secondary small ideal-goal-action');
@@ -513,6 +534,11 @@ export function idealView(context, route) {
     row.append(title, goal.passives.length ? passiveList(goal.passives, { compact: true }) : el('span', 'muted', '—'),
       el('small', 'muted ideal-goal-summary', goalSummary(goal)), stateCell, recall, remove);
     const update = (item) => {
+      const recordText = item.facts.records ? `配合: 登録済み ${item.facts.records} 件 →` : '配合: 未登録';
+      if (records.textContent !== recordText) records.textContent = recordText;
+      const holdText = item.facts.holding;
+      if (holding.textContent !== holdText) holding.textContent = holdText;
+      holding.hidden = !holdText;
       row.classList.toggle('done', item.status.done);
       setChipTone(state, item.status.done ? 'ready' : 'neutral');
       if (state.textContent !== item.status.text) state.textContent = item.status.text;
@@ -522,8 +548,44 @@ export function idealView(context, route) {
         action.href = item.status.action.href;
       }
     };
-    update({ status });
+    update({ status, facts });
     return { element: row, update };
+  }
+  // 所持の数（目標の種族の全数と親になれる数）は所持パルのデータごとに 1 回だけ数える
+  let countsFor = null;
+  let counts = null;
+  const holdingOf = (palId) => {
+    const data = owned?.state?.owned;
+    if (data !== countsFor) {
+      countsFor = data;
+      counts = Array.isArray(data?.pals) ? ownedCounts(data.pals) : null;
+    }
+    if (!counts) return '';
+    const entry = counts.get(palId);
+    return entry ? `所持 ${entry.total} 体（親になれる ${entry.male + entry.female}）` : '所持 0 体';
+  };
+  // 前のウィッシュリストを移せていないときの 1 行と、読み取り専用の一覧
+  const migrationNote = el('p', 'ideal-goal-migration');
+  migrationNote.setAttribute('role', 'status');
+  const migrationText = el('span');
+  const legacyButton = button('旧ウィッシュリストを見る', () => openLegacyWishes(), 'button secondary small');
+  migrationNote.append(migrationText, legacyButton);
+  migrationNote.hidden = true;
+  function openLegacyWishes() {
+    const wishes = ideals.legacyWishes();
+    const modal = openDialog('旧ウィッシュリスト（読み取り専用）', { className: 'ideal-legacy-dialog' });
+    const list = el('ul', 'ideal-legacy-list');
+    const index = context.store.state.index;
+    for (const wish of wishes) {
+      const item = el('li', 'ideal-legacy-item');
+      const made = index ? findByChild(index, wish.palId).length : 0;
+      item.append(palsById.has(wish.palId) ? palTile(wish.palId, { clickable: false }) : el('span', 'muted', wish.palId),
+        el('span', 'muted', made ? '配合あり' : '未登録'));
+      list.append(item);
+    }
+    modal.body.append(el('p', 'muted', '目標に移せていないパルも含めた、前のウィッシュリストです。ここでは追加・削除はできません。'),
+      wishes.length ? list : el('p', 'muted', '旧ウィッシュリストは空です。'));
+    modal.footer.append(button('閉じる', () => modal.close(), 'button secondary'));
   }
   function renderGoals() {
     if (!ideals) return;
@@ -533,14 +595,23 @@ export function idealView(context, route) {
     goalsButton.title = ideals.saveFailed ? 'この端末に保存できませんでした' : '';
     if (!goalsModal) return;
     goalsWarning.hidden = !ideals.saveFailed;
+    const migration = ideals.migration?.() ?? { status: 'none' };
+    migrationNote.hidden = !['partial', 'failed'].includes(migration.status);
+    migrationText.textContent = migration.status === 'partial'
+      ? `ウィッシュリストの ${migration.pending} 件をまだ目標に移せていません（目標が ${GOAL_LIMIT} 件の上限です）。`
+      : 'ウィッシュリストを目標に移せませんでした。';
     const pals = ideals.mine();
     const worldId = ownedWorldId(owned?.state?.meta?.worldId);
-    const rows = goals.map((goal) => ({ goal, status: goalStatus(goal, pals, worldId) }));
+    const index = context.store.state.index;
+    const rows = goals.map((goal) => ({
+      goal, status: goalStatus(goal, pals, worldId),
+      facts: { records: index ? findByChild(index, goal.palId).length : 0, holding: holdingOf(goal.palId) },
+    }));
     // 完成済みを上に（それぞれ保存の新しい順）
     const ordered = [...rows.filter((item) => item.status.done), ...rows.filter((item) => !item.status.done)];
     syncList(goalsList, ordered, {
       key: (item) => item.goal.id, create: goalRow, fallbackFocus: goalsClose,
-      empty: () => el('li', 'muted ideal-goal-empty', '保存した目標はまだありません。条件を選んで「☆ 目標として保存」を押すと、ここに並び、完成したら右上のベルで知らせます。'),
+      empty: () => el('li', 'muted ideal-goal-empty', '目標はまだありません。条件を選んで「目標として保存」を押すか、パル詳細の「目標に登録」から足すと、完成や配合の登録をベルで知らせます。'),
     });
   }
 
@@ -581,33 +652,17 @@ export function idealView(context, route) {
     if (holderName()) lines.push(`（所持者を「${holderName()}」に絞っています）`);
     return empty(lines.join(''), result.candidates ? null : missingActions(to), { icon: 'ideal' });
   }
-  // 目標のパルを ♂ と ♀ で持っていないときの次の一手: 配合を探すで親を探す・ウィッシュリストに追加（ログインしていなければ出さない。
-  // すでにあれば押せない「ウィッシュリストにあります」）。フェーズ 2 の goals-merge で「目標に登録」に替わる
+  // 目標のパルを ♂ と ♀ で持っていないときの次の一手: 配合を探すで親を探す・「☆ 目標に登録」（種族だけの目標。作れるようになったら
+  // ベルで知らせる。ログインしていなければ出さない。前は「ウィッシュリストに追加」。goals-merge）
+  let missingToggle = null;
   function missingActions(target) {
     const actions = el('div', 'empty-actions');
     const reverse = link('配合を探すで親を探す', buildHash('search', { c: target }), 'button secondary');
     actions.append(reverse);
-    const wishlist = context.wishlist;
-    if (!wishlist?.scope?.()) return actions;
-    const add = button('', () => {
-      const added = wishlist.add(target);
-      // 追加できない（null）のは、ID の変更中か、ログイン・配合の読み込みの前
-      if (added === null) {
-        toast(context.store.state.renaming ? 'ID の変更が終わってから追加してください' : '配合を読み込んでから追加してください');
-        return;
-      }
-      if (added) toast(`${palName(target)}をウィッシュリストに追加しました`);
-      // 押せなくするとフォーカスが外れるので、先に隣の「配合を探すで親を探す」へ移す
-      if (globalThis.document?.activeElement === add) reverse.focus();
-      mark();
-    }, 'button secondary');
-    const mark = () => {
-      const listed = wishlist.list().some((wish) => wish.palId === target);
-      add.textContent = listed ? 'ウィッシュリストにあります' : 'ウィッシュリストに追加';
-      add.disabled = listed;
-    };
-    mark();
-    actions.append(add);
+    if (!ideals?.scope?.()) return actions;
+    missingToggle?.destroy();
+    missingToggle = goalToggle(context, target);
+    actions.append(missingToggle.element);
     return actions;
   }
 
@@ -1304,6 +1359,13 @@ export function idealView(context, route) {
     syncPicker(toPicker, to);
     renderPassives(owned?.state?.owned?.pals);
     renderResults();
+    openPendingGoals();
+  }
+  // goals=1 で開いた・来たときは、目標のダイアログを開く（1 回だけ）
+  function openPendingGoals() {
+    if (!openGoalsLater) return;
+    openGoalsLater = false;
+    openGoals();
   }
 
   // 間引いて待っている個体値の入力をすぐ当てる（app.js が、移る前に履歴のエントリへ条件を書く前に呼ぶ）
@@ -1325,9 +1387,11 @@ export function idealView(context, route) {
       stopTracking();
       // ダイアログは画面の遷移で閉じないので、画面を閉じるときに閉じる
       goalsModal?.close();
+      missingToggle?.destroy();
     },
   };
   const view = watchView(context.store, element, update, [pickers]);
+  openPendingGoals();
   // 保存した目標が変わったら（別のタブ・完成の判定を含む）、目標の数・ダイアログの行・「保存済み」を描き直す
   const unsubscribeGoals = ideals?.subscribe(() => { renderSave(); renderGoals(); passive.update({ presets: passivePresets(ideals) }); }) ?? (() => {});
   if (!owned) return { element, update, applyRoute, flushInputs, destroy() { unsubscribeGoals(); view.destroy(); } };

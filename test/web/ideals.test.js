@@ -377,3 +377,98 @@ test('理想個体の登録（このワールドでの自分）: 古いセーブ
   assert.deepEqual(b.notices(), []);
   assert.deepEqual(a.notices(), []);
 });
+
+// ---- 目標の種族の配合の登録の観測（前のウィッシュリストの判定。goals-merge） ----
+import { goalObservationSource } from '../../web/js/ideals.js';
+import { speciesGoal } from '../../web/js/core/ideal-goals.js';
+
+const sec = (second) => new Date(Date.UTC(2026, 9, 4, 0, 0, second)).toISOString();
+const record = (childId, parent1Id = 'SheepBall', parent2Id = 'FlowerDoll') => ({ id: crypto.randomUUID(), parent1Id, parent2Id, childId });
+function observing({ records = [], storage = memoryStorage() } = {}) {
+  const store = fakeSubject({ env: 'test', userId: '仲間', passcode: '入力', renaming: false, users: ['仲間'], cached: false, serverTime: sec(1), confirmedRecords: records });
+  const owned = fakeSubject({ owned: null, meta: null });
+  let clock = Date.UTC(2026, 9, 4, 1, 0);
+  let ids = 0;
+  const ideals = createIdealStore({ store, owned, storage, now: () => clock, uuid: () => `obs-${++ids}` });
+  const receive = (next, second, { cached = false } = {}) => {
+    Object.assign(store.state, { confirmedRecords: next, serverTime: sec(second), cached });
+    clock += 1000;
+    store.emit();
+  };
+  const notices = () => goalObservationSource({ store, ideals })().map(cleanNotification);
+  return { store, storage, ideals, receive, notices };
+}
+const OBS_KEY = 'pal-note.goalsObs.test.仲間';
+
+test('目標の観測: 種族だけの目標を足した時点で作れても知らせず、作れるようになったら「配合が登録されました」（id は前のウィッシュリストと同じ形）', () => {
+  const app = observing({ records: [record('MoonQueen')] });
+  assert.equal(app.ideals.add(speciesGoal('MoonQueen', { name: 'セレムーン' })), 'added');
+  assert.equal(app.ideals.add(speciesGoal('CatMage', { name: 'クレメーオ' })), 'added');
+  // 観測は別のキー
+  assert.deepEqual(Object.keys(JSON.parse(app.storage.getItem(OBS_KEY)).species).sort(), ['CatMage', 'MoonQueen']);
+  assert.deepEqual(app.notices(), []);
+  app.receive([record('MoonQueen'), record('CatMage', 'PinkCat', 'Alpaca')], 2);
+  const [notice] = app.notices();
+  assert.equal(notice.id, `wishlist:test:CatMage:${new Date(Date.UTC(2026, 9, 4, 1, 0, 1)).toISOString()}`);
+  assert.equal(notice.title, 'クレメーオの配合が登録されました');
+  assert.equal(notice.body, 'メルパカ＋ツッパニャン で作れます。');
+  assert.equal(notice.href, '#/search?c=CatMage');
+  // 作れる間に別の組が増えたら「配合が増えました」
+  app.receive([record('MoonQueen'), record('CatMage', 'PinkCat', 'Alpaca'), record('CatMage', 'Boar', 'Deer')], 3);
+  assert.deepEqual(app.notices().map((item) => item.title), ['クレメーオの配合が登録されました', 'クレメーオの配合が増えました']);
+  assert.match(app.notices()[1].id, /^wishlist:test:CatMage:Boar\|Deer:/);
+  assert.equal(app.ideals.observation('CatMage').pairs.length, 2);
+});
+
+test('目標の観測: 通知は種族だけの目標がある種族だけ（パッシブつきの目標の種族は観測だけ）。最後の目標を外すと観測も消え、元に戻すと戻る', () => {
+  const app = observing();
+  app.ideals.add({ ...speciesGoal('CatMage'), passives: ['Rare'] });
+  app.receive([record('CatMage')], 2);
+  assert.equal(app.ideals.observation('CatMage').craftable, true);
+  assert.deepEqual(app.notices(), []);
+  const species = observing();
+  species.ideals.add(speciesGoal('CatMage'));
+  species.receive([record('CatMage')], 2);
+  assert.equal(species.notices().length, 1);
+  const [goal] = species.ideals.list();
+  const removed = species.ideals.remove(goal.id, species.ideals.scope());
+  assert.equal(species.ideals.observation('CatMage'), null);
+  assert.deepEqual(species.notices(), []);
+  assert.equal(species.ideals.restore(removed.goal, removed.index, species.ideals.scope(), removed.observation), true);
+  assert.equal(species.notices().length, 1);
+});
+
+test('目標の観測: 起動時のキャッシュ・名前の変更中・古いデータでは進めず、別のタブで観測のキーが変わったら読み直す', () => {
+  const app = observing();
+  app.ideals.add(speciesGoal('CatMage'));
+  app.receive([record('CatMage')], 5, { cached: true });
+  assert.equal(app.ideals.observation('CatMage').craftable, false);
+  app.store.state.renaming = true;
+  app.receive([record('CatMage')], 6);
+  assert.equal(app.ideals.observation('CatMage').craftable, false);
+  app.store.state.renaming = false;
+  app.receive([record('CatMage')], 7);
+  assert.equal(app.ideals.observation('CatMage').craftable, true);
+  // 古いデータ（時刻が前）では巻き戻さない
+  app.receive([], 6);
+  assert.equal(app.ideals.observation('CatMage').craftable, true);
+  // 別のタブが観測のキーを書いた
+  const other = JSON.parse(app.storage.getItem(OBS_KEY));
+  other.species.CatMage.found = [{ pair: 'Boar|Deer', at: sec(9) }];
+  app.storage.setItem(OBS_KEY, JSON.stringify(other));
+  app.ideals.reload(OBS_KEY);
+  assert.deepEqual(app.ideals.observation('CatMage').found, [{ pair: 'Boar|Deer', at: sec(9) }]);
+});
+
+test('目標の観測: ログインした環境・ID ごとに前のウィッシュリストを 1 回移し、旧キーが別のタブで書き戻されたらやり直す', () => {
+  const storage = memoryStorage();
+  storage.setItem('pal-note.wishlist.test.仲間', JSON.stringify([{ palId: 'CatMage', craftable: true, readyAt: sec(1), observedAt: sec(1), pairs: ['Alpaca|PinkCat'], found: [] }]));
+  const app = observing({ storage });
+  assert.deepEqual(app.ideals.list().map((goal) => goal.id), ['wish-CatMage']);
+  assert.deepEqual(app.ideals.migration(), { status: 'done', migrated: 1, pending: 0 });
+  // 移した観測の readyAt のまま、同じ id の通知（既読はそのまま引き継がれる）
+  assert.equal(app.notices()[0].id, `wishlist:test:CatMage:${sec(1)}`);
+  storage.setItem('pal-note.wishlist.test.仲間', JSON.stringify([{ palId: 'Alpaca' }]));
+  app.ideals.reload('pal-note.wishlist.test.仲間');
+  assert.deepEqual(app.ideals.list().map((goal) => goal.palId), ['CatMage', 'Alpaca']);
+});
