@@ -34,8 +34,9 @@ export function palIcon(pal, { large = false } = {}) {
   if (!pal.icon) { wrapper.append(avatar(pal)); return wrapper; }
   const image = el('img');
   image.alt = '';
-  image.width = large ? 160 : 64;
-  image.height = large ? 160 : 64;
+  // 大きい絵は CSS の表示（128px）と同じ大きさにする（S-10。前は 160 を CSS で縮めていた）
+  image.width = large ? 128 : 64;
+  image.height = large ? 128 : 64;
   image.loading = 'lazy';
   image.addEventListener('error', () => wrapper.replaceChildren(avatar(pal)), { once: true });
   image.src = new URL(`../../img/pals/${encodeURIComponent(pal.icon)}`, import.meta.url).href;
@@ -86,6 +87,8 @@ export function palTile(id, { gender = '', clickable = true, large = false, gend
   const pal = palsById.get(id);
   if (!pal) return el('span', 'muted', 'パルが見つかりません');
   const wrapper = clickable ? link('', buildHash('pal', {}, id), 'pal-tile') : el('span', 'pal-tile');
+  // ホバーの解説の対象（ui/hover-card.js。押せるタイルだけ。候補の行の中のタイルには出さない）
+  if (clickable) wrapper.setAttribute('data-pal-id', id);
   const label = el('span', 'pal-label');
   const name = el('strong', '', pal.ja);
   const mark = genderMark(gender);

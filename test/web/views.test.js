@@ -201,7 +201,8 @@ test('継承ルート: applyRoute で開始と目標を合わせる（選択欄�
 test('パル詳細: このパルを親に使う配合は相手 → 子を維持する', (t) => {
   installDom(t);
   const view = palView(context(), parseHash('#/pal/SheepBall'));
-  assert.ok(view.element.textContent.includes('このパルを親に使う配合（相手 → 子）'));
+  // 節の見出しは件数つき（pal-detail。上位 3 件と「すべて見る」）
+  assert.ok(view.element.textContent.includes('このパルを親に使う配合 1 件（相手 → 子）'));
   const equation = view.element.querySelector('.breeding-equation');
   assert.deepEqual(equation.querySelectorAll('strong').map((node) => node.textContent), ['フラリーナ', 'セレムーン']);
   assert.doesNotMatch(equation.textContent, /＋/);
@@ -533,14 +534,16 @@ test('見出し: 各画面の h1 はタブの名前（views/tabs.js の TABS）�
   }
 });
 
-test('パル詳細: 見出しは「No.〈番号〉 〈名前〉」で、hero は絵と属性だけ（名前を二重に出さない）。「産まれる」にそろえる', (t) => {
+test('パル詳細: 見出しは「No.〈番号〉 〈名前〉」で、hero は左に絵と属性・右に英名とパートナースキル（名前を二重に出さない）。「産まれる」にそろえる', (t) => {
   installDom(t);
   const view = palView(context(), parseHash('#/pal/MoonQueen'));
   const pal = pals.find((item) => item.id === 'MoonQueen');
   assert.equal(view.element.querySelector('h1').textContent, `No.${pal.label} ${pal.ja}`);
   const hero = view.element.querySelector('.pal-hero');
-  assert.deepEqual(hero.children.map((child) => child.className), ['pal-icon pal-icon-large', 'element-chips']);
+  assert.deepEqual(hero.children.map((child) => child.className), ['pal-hero-media', 'pal-hero-info']);
+  assert.deepEqual(hero.children[0].children.map((child) => child.className), ['pal-icon pal-icon-large', 'element-chips']);
   assert.doesNotMatch(hero.textContent, new RegExp(pal.ja));
+  assert.equal(hero.querySelector('.pal-en').textContent, pal.en);
   assert.ok(view.element.textContent.includes('このパルが産まれる配合'));
   view.destroy();
 });
@@ -861,10 +864,10 @@ test('パル詳細: 「この子の配合を登録」は、このパルが産ま
   installDom(t);
   const born = palView(context(), parseHash('#/pal/MoonQueen'));
   const button = (view) => view.element.querySelectorAll('button').find((node) => node.textContent === 'この子の配合を登録');
-  assert.equal(button(born).className, 'button secondary');
+  assert.equal(button(born).className, 'button small secondary');
   born.destroy();
   const none = palView(context(), parseHash('#/pal/SheepBall'));
-  assert.equal(button(none).className, 'button primary');
+  assert.equal(button(none).className, 'button small primary');
   none.destroy();
 });
 

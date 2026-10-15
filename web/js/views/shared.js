@@ -169,6 +169,39 @@ export function recordCountNotes(index, kind) {
   return cached[kind];
 }
 
+// palDataNotes の使い回し（記録の索引 → 所持パルのデータ〔なければ NO_OWNED〕→ 注記）
+const dataNotes = new WeakMap();
+const NO_INDEX = {};
+const NO_OWNED = {};
+/**
+ * パル詳細の切り替え・ヘッダーのパル検索の選択欄。検索語が空のときは「データあり」（子か親として登録がある種族・所持している種族）→
+ * 「その他」の 2 群に分け（F077）、行の右に「♂3 ♀2 · 登録 4」（所持していなければ「登録 4 件」）。記録の索引と所持パルのデータごとに 1 回だけ数える
+ */
+export function palDataNotes(index, ownedData) {
+  const indexKey = index?.byParent ? index : NO_INDEX;
+  const ownedKey = Array.isArray(ownedData?.pals) ? ownedData : NO_OWNED;
+  let inner = dataNotes.get(indexKey);
+  if (!inner) dataNotes.set(indexKey, inner = new WeakMap());
+  let notes = inner.get(ownedKey);
+  if (notes) return notes;
+  const counts = new Map();
+  if (index?.byParent) {
+    for (const [id, records] of index.byParent) if (records.length) counts.set(id, records.length);
+    for (const [id, records] of index.byChild) if (records.length) counts.set(id, (counts.get(id) ?? 0) + records.length);
+  }
+  const owned = ownedKey === NO_OWNED ? {} : ownedSpeciesNotes(ownedKey);
+  const has = new Set([...counts.keys(), ...(owned.badges?.keys() ?? [])].filter((id) => palsById.has(id)));
+  const badges = new Map();
+  for (const id of has) {
+    const mine = owned.badges?.get(id);
+    const records = counts.get(id) ?? 0;
+    badges.set(id, mine ? `${mine}${records ? ` · 登録 ${records}` : ''}` : `登録 ${records} 件`);
+  }
+  notes = { badges, groups: { has, label: 'データあり', rest: 'その他' } };
+  inner.set(ownedKey, notes);
+  return notes;
+}
+
 /** 継承ルートの開始の選択欄。登録済みの記録の graph で目標まで届くパルを、回数の少ない順に先へ（「N 回」）。届かないパルは薄く後ろに */
 export function routeDistanceNotes(graph, to) {
   if (!graph || !to) return {};
@@ -209,12 +242,13 @@ export const cardKey = ({ record, leftParent = '', focusParent = '' }) =>
 
 /**
  * 配合のカードを key で使い回して描く（同じ配合は同じ要素のまま。中身が変わった配合は key が変わって作り直す）。
- * items は [{ record, leftParent?, focusParent? }]。emptyNode（() => Element）は 0 件のときに出す要素
+ * items は [{ record, leftParent?, focusParent? }]。emptyNode（() => Element）は 0 件のときに出す要素。
+ * compact は 2 行の形のカード（式を幅いっぱいに。右のドロワーのパル詳細など狭い所）
  */
-export function renderCards(target, items, context, { empty: emptyNode } = {}) {
+export function renderCards(target, items, context, { empty: emptyNode, compact = false } = {}) {
   syncList(target, items, {
     key: cardKey,
-    create: ({ record, leftParent = '', focusParent = '' }) => ({ element: breedingCard(record, context, { leftParent, focusParent }) }),
+    create: ({ record, leftParent = '', focusParent = '' }) => ({ element: breedingCard(record, context, { leftParent, focusParent, compact }) }),
     empty: emptyNode,
   });
 }

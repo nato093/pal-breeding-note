@@ -683,7 +683,7 @@ export function idealView(context, route) {
     if (!result?.missing.length) return;
     const listed = result.total ? 'いまは個体値厳選組だけを出しています。' : '';
     const warning = el('p', 'ideal-warning');
-    warning.append(passiveList(result.missing, { compact: true }), el('span', '', ` を持つ親の候補がいません。${listed}`));
+    warning.append(passiveList(result.missing, { compact: true, focusable: true }), el('span', '', ` を持つ親の候補がいません。${listed}`));
     missingBox.append(warning);
     const actions = el('div', 'ideal-missing');
     // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）

@@ -763,7 +763,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 右のサイドドロワー（土台）
 
-- 状態: 済（2026-10-15） ／ ブランチ: `feature/drawer` ／ マージのコミット: （マージの後に書く）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/drawer` ／ マージのコミット: `4640a51`
 
 - [x] `web/js/ui/drawer.js` の `createDrawer`（open・close・current・restore・destroy、stack 5 件）を書く
 - [x] `<aside class="side-drawer">` の見出し行（h2・← 前へ・本文へ戻る・ページで開く・×）を作る
@@ -782,20 +782,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 パル詳細を種族のハブに
 
-- 状態: 未着手 ／ ブランチ: `feature/pal-detail` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/pal-detail` ／ マージのコミット: （マージの後に書く）
 
-- [ ] `web/js/ui/pal-detail.js` に `palDetail(context, palId, { mode, onSwitch })` を切り出し、`views/pal.js` を包むだけにする
-- [ ] 見出しをパル名にし、パル切り替えの `palPicker` を置く
-- [ ] ヒーロー 2 列（画像 128・属性チップ・英名・パートナースキル）
-- [ ] 所持の 1 行（owned-overlay の集計）と上位 5 体の `details`（`syncList`）
-- [ ] 行き先のボタン（継承ルート 2・理想個体・目標にする・この子の配合を登録）
-- [ ] 配合の 2 節を件数＋上位 3 件＋「すべて見る」に
-- [ ] ドロワーの中身の表に `pal` を足す
-- [ ] ヘッダーのパル検索と「/」のショートカット（N と共通の判定）
-- [ ] パル選択の群の見出し（F077）とキー操作・`suggested`（F078）
-- [ ] `web/js/ui/hover-card.js`（F059）と `data-pal-id`・`data-passive-id`
-- [ ] テスト（pal-detail・pal-picker・app）と `views.test.js:91` の期待値の更新
-- [ ] OPERATIONS.md と release-notes
+- [x] `web/js/ui/pal-detail.js` に `palDetail(context, palId, { mode, onSwitch })` を切り出し、`views/pal.js` を包むだけにする
+- [x] 見出しをパル名にし、パル切り替えの `palPicker` を置く
+- [x] ヒーロー 2 列（画像 128・属性チップ・英名・パートナースキル）
+- [x] 所持の 1 行（owned-overlay の集計）と上位 5 体の `details`（`syncList`）
+- [x] 行き先のボタン（継承ルート 2・理想個体・目標にする・この子の配合を登録）
+- [x] 配合の 2 節を件数＋上位 3 件＋「すべて見る」に
+- [x] ドロワーの中身の表に `pal` を足す
+- [x] ヘッダーのパル検索と「/」のショートカット（N と共通の判定）
+- [x] パル選択の群の見出し（F077）とキー操作・`suggested`（F078）
+- [x] `web/js/ui/hover-card.js`（F059）と `data-pal-id`・`data-passive-id`
+- [x] テスト（pal-detail・pal-picker・app）と `views.test.js:91` の期待値の更新
+- [x] OPERATIONS.md と release-notes
 
 ### 33. [owned-detail](phase-3-4-drawer-data.md#owned-detail-所持パルの個体の詳細をドロワーで)（S）
 

@@ -383,26 +383,47 @@
 - body: 「所持個体とパートナースキル、目標・理想個体へのボタンを出します。「/」でパルを探せます。」（44 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モックで、配合を探すの結果からパルを押すとドロワーにハブが出て、所持の 1 行・上位 5 体・件数と上位 3 件・ボタンがそろう（撮影 22 の右半分の空きがない）。
-- [ ] どの画面でも「/」→ 名前を打つ → ↓ → Enter でドロワーが開く。入力欄の中の「/」は文字として入る。
-- [ ] パル選択で、完全一致の行が強調されても Enter だけでは選ばれない。
-- [ ] パッシブのチップにフォーカスすると説明の板が出て、Esc で消える。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 件数とカードは登録済みの記録だけを数え、配合表・`core/ideal.js` を import しない（`test/import.test.js`）。互換 — `#/pal/<id>` の直リンクが今どおり開く。「目標にする」は goals-merge の種族だけの目標で、目標の保存の形（個体値は 0＝条件なし）を変えない。セキュリティ — 説明文・名前は textContent（`test/static/security.test.js`）。性能 — パル選択の件数と群はデータの更新時に 1 回の集計、ホバーの板は委譲のリスナー 1 組。
+- [x] `npm test` が通る。
+- [x] モックで、配合を探すの結果からパルを押すとドロワーにハブが出て、所持の 1 行・上位 5 体・件数と上位 3 件・ボタンがそろう（撮影 22 の右半分の空きがない）。
+- [x] どの画面でも「/」→ 名前を打つ → ↓ → Enter でドロワーが開く。入力欄の中の「/」は文字として入る。
+- [x] パル選択で、完全一致の行が強調されても Enter だけでは選ばれない。
+- [x] パッシブのチップにフォーカスすると説明の板が出て、Esc で消える。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 件数とカードは登録済みの記録だけを数え、配合表・`core/ideal.js` を import しない（`test/import.test.js`）。互換 — `#/pal/<id>` の直リンクが今どおり開く。「目標にする」は goals-merge の種族だけの目標で、目標の保存の形（個体値は 0＝条件なし）を変えない。セキュリティ — 説明文・名前は textContent（`test/static/security.test.js`）。性能 — パル選択の件数と群はデータの更新時に 1 回の集計、ホバーの板は委譲のリスナー 1 組。
 
 ### TODO
-- [ ] `web/js/ui/pal-detail.js` に `palDetail(context, palId, { mode, onSwitch })` を切り出し、`views/pal.js` を包むだけにする
-- [ ] 見出しをパル名にし、パル切り替えの `palPicker` を置く
-- [ ] ヒーロー 2 列（画像 128・属性チップ・英名・パートナースキル）
-- [ ] 所持の 1 行（owned-overlay の集計）と上位 5 体の `details`（`syncList`）
-- [ ] 行き先のボタン（継承ルート 2・理想個体・目標にする・この子の配合を登録）
-- [ ] 配合の 2 節を件数＋上位 3 件＋「すべて見る」に
-- [ ] ドロワーの中身の表に `pal` を足す
-- [ ] ヘッダーのパル検索と「/」のショートカット（N と共通の判定）
-- [ ] パル選択の群の見出し（F077）とキー操作・`suggested`（F078）
-- [ ] `web/js/ui/hover-card.js`（F059）と `data-pal-id`・`data-passive-id`
-- [ ] テスト（pal-detail・pal-picker・app）と `views.test.js:91` の期待値の更新
-- [ ] OPERATIONS.md と release-notes
+- [x] `web/js/ui/pal-detail.js` に `palDetail(context, palId, { mode, onSwitch })` を切り出し、`views/pal.js` を包むだけにする
+- [x] 見出しをパル名にし、パル切り替えの `palPicker` を置く
+- [x] ヒーロー 2 列（画像 128・属性チップ・英名・パートナースキル）
+- [x] 所持の 1 行（owned-overlay の集計）と上位 5 体の `details`（`syncList`）
+- [x] 行き先のボタン（継承ルート 2・理想個体・目標にする・この子の配合を登録）
+- [x] 配合の 2 節を件数＋上位 3 件＋「すべて見る」に
+- [x] ドロワーの中身の表に `pal` を足す
+- [x] ヘッダーのパル検索と「/」のショートカット（N と共通の判定）
+- [x] パル選択の群の見出し（F077）とキー操作・`suggested`（F078）
+- [x] `web/js/ui/hover-card.js`（F059）と `data-pal-id`・`data-passive-id`
+- [x] テスト（pal-detail・pal-picker・app）と `views.test.js:91` の期待値の更新
+- [x] OPERATIONS.md と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/pal-detail`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の owned-detail・route-progress・goals-detail・paldex はこちらを正とする）。
+
+1. **置き場所（手順 1）**: 文書の `web/js/ui/pal-detail.js` は **`web/js/views/pal-detail.js`** にした（所持個体の行 `ownedRowItem` は views/owned.js にあり、ui/ から views/ を読むモジュールがまだ 1 つもないため。views/route.js も views/owned.js を読んでいる）。**`palDetail(context, palId, { mode: 'page' | 'drawer', onSwitch })` → `{ element, title, registerInitial(), destroy() } | null`**、ほかに `PAL_RECORDS_SHOWN`（3）・`PAL_OWNED_SHOWN`（5）。views/pal.js は `palView`（ページ。null なら前の「パルが見つかりません。」）と `palDrawer(context, palId)`（`mode: 'drawer'`、`onSwitch` で同じドロワーに `context.drawer.open`）を包むだけ。app.js の `drawerContents.pal` は drawer のテーマのまま `palDrawer`。
+2. **見出しと切り替え（手順 2）**: ページは `header.view-heading.pal-detail-heading` に h1「No.〈label〉 〈ja〉」と右に `palPicker({ label: 'パルを切り替え', popupHost: body })`（見出しの文字は読み上げだけ。幅 240px）。**ドロワーは見出しをドロワーの h2 に任せ、中身の先頭に切り替えの選択だけ**を置き、節の見出しは h3。選んだのが今のパル・空なら何もしない（値を戻す）。
+3. **ヒーロー（手順 3）**: `div.pal-hero.element-<第 1 属性>` の 2 列（`div.pal-hero-media`〔絵と属性〕・`div.pal-hero-info`〔`p.pal-en`・`div.pal-partner`・`p.pal-owned-line`〕）。地は `color-mix` の第 1 属性の色 22% から本文の地へのグラデーション。パートナースキルの説明は **64 字を超えたら `details`**（summary は頭 60 字と「もっと見る」、開くと全文。summary は隠す）。今のマスターでは図鑑に出るパルはすべてパートナースキルの名前を持つ（ないときは行ごと出さない作りは残した）。大きい絵の `width/height` は 160 → **128**（pal-icon.js）、ドロワーでは CSS で 96px。
+4. **所持の 1 行と上位 5 体（手順 4）**: `owned.subscribe`（`state.owned` が変わったときだけ）と開いたときの `owned.load()`。所持パルのデータごとに 1 回 `ownedBySpecies`・`ownedCounts`（WeakMap）。文は「所持 n 体（うちタマゴ a・グローバル b）· 親になれる ♂c ♀d 所持パルで見る →」（文書の「所持 5 体（♂3 ♀2）」の全体の性別は、親になれる数と重なるので出さない。0 体は「所持 未所持」で上位の欄は出さない）。**リンクは `#/owned?pal=<ID>&place=<全部の場所>`**（所持者を付けないと所持パルは「すべて」で開く〔filterFromParams の決まり〕。場所も全部にして数と同じ集まり）。上位は `sortOwned(…, 'passives')` の 5 体、`details.pal-owned-top`（summary「所持個体（上位 5 体 / 7 体）」）は既定で閉じ、**行は開いている間だけ `syncList` で作り、閉じたら外す**（継承ルートの「ほか N 体」と同じ）。開閉は所持パルの読み直しでも保つ。ドロワーの行は 3 段（パルと Lv ／ パッシブ ／ 個体値と場所。`grid-auto-rows: auto`）。
+5. **行き先のボタン（手順 5）**: `div.pal-hero-actions` に「ここから継承ルート」「ここへの継承ルート」「理想個体で親を探す」（`navIcon` 16px つきのリンク）・`goalToggle`（small）・「この子の配合を登録」（産まれる配合があれば secondary、なければ primary。どちらも small）。ドロワーでは 2 列の格子。ページの登録のボタンだけ `aria-keyshortcuts="N"`。
+6. **配合の 2 節（手順 6）**: 見出しに件数（「このパルが産まれる配合 4 件」「このパルを親に使う配合 1 件（相手 → 子）」）、`recordComparator('updated')` の上位 3 件、4 件以上で「すべて見る →」（`#/search?c=`・`#/search?p1=`）。0 件は「まだ登録されていません。」。**ドロワーでは 2 行の形のカード**（views/shared.js の `renderCards(…, { compact })` を足した。前の形〔式・登録者と時刻・操作の 3 列〕では幅 364px で式の列が 100px を切り、名前が 1 文字ずつ縦に並んだ）。式の絵は 28px。記録は `store.subscribe` で `revision`・`env`・`error` が変わったときだけ描き直す。
+7. **ヘッダーのパル検索と「/」（手順 7）**: app.js で `palPicker({ label: 'パルを探す', triggerLabel: 'パルを探す（/）', popupHost: body, describe: palDataNotes })` を `header-pal-search` としてテスト環境のチップの後ろ（同期状況の前）に置いた。選ぶと `setValue('')` してから `drawer.open({ kind: 'pal', id }, { opener: トリガー })`。**pal-picker.js に `triggerLabel`（読み上げの名前を固定）と `open()` を足した**。見た目は 32px の丸い欄に虫めがね（CSS のマスク）と右の「/」の印、**幅 1240px 以下は文字を隠して 64px**（1100px のホストのとき〔「もふもふワールド」〕でもヘッダーのはみ出し 0。1300px は 156px）。ログイン画面では隠す。ショートカットは N と同じ判定の関数 `shortcutBlocked(event)` を共通にし、「/」は `palSearch.open()`。**ドロワーの中にフォーカスがあるときの N は、ドロワーの中身（パル詳細）の `registerInitial()`（そのパルを子に）**（文書にない。ドロワーの中で N を押したのに本文の画面の初期値で開くのは食い違うため）。
+8. **パル選択の群と印とキー操作（手順 8・9）**: describe の戻り値に **`groups: { has: Set, label, rest }`** を足した（検索語が空のときだけ has → それ以外の 2 群と、`div.picker-group`〔role=presentation〕の見出し「データあり（N）」「その他（N）」。矢印は見出しを飛ばす）。集計は views/shared.js の **`palDataNotes(index, ownedData)`**（記録の索引と所持パルのデータの組ごとに 1 回。行の右は「♂3 ♀2 · 登録 4」か「登録 4 件」）。**完全に一致（番号の頭の 0 を外す・和名・英名をそろえて比べる）した行が 1 つか、候補が 1 件の行に `.is-suggested`（枠の線）だけ**を付け、矢印の位置は動かさない（Enter は矢印で選んだときだけのまま）。閉じたトリガーの keydown: 1 文字（スペース・修飾キー・変換中を除く）で開いて検索欄にその文字、↓↑ で開く。検索欄の PageUp・PageDown は 10 行ずつ（端で止まる）、**Home・End は検索語が空か矢印で選んでいるときだけ**（文字を打っている間は検索欄のカーソルに任せる。文書は条件を書いていなかった）。開いたときに選んでいる行を真ん中に見せるのは、見出しを除いた行で数える。
+9. **解説の板（手順 10。F059）**: `web/js/ui/hover-card.js` の **`installHoverCards(root, { context, delay = 200 })` → `{ element, show, hide, current, destroy }`** と `palCardContent`・`passiveCardContent`・`HOVER_DELAY`。root（#app）に pointerover・pointerout・focusin・focusout・click と、**Esc を先に受ける capture の keydown**（板を出していればドロワーの Esc より先に板だけを外す。`preventDefault` でドロワーは閉じない）。板は body に 1 つ（`div.hover-card` role=tooltip・`--z-popover`・位置は `placeFloating` の `--picker-*`）。対象には `aria-describedby`、出している間は title を外して戻す（pointerover の時点で外す。ブラウザの説明は 1 秒ほどで出るため）。スクロール・窓の大きさの変更・固定した板の外の pointerdown で外す。タッチ（`pointerType: 'touch'`）では出さない。パルのタイルを押したら板を外す（ドロワーが開く）。app.js の render の頭でも外す（画面が替わると対象を見失う）。印: `palTile` の押せるタイルに `data-pal-id`、`passiveChip` に `data-passive-id`。**チップそのものを Tab で止まる所にするのは `passiveChip(id, { focusable: true })`（`passiveList` も）にし、使うのは継承ルートの「運ぶパッシブ」と理想個体の「…を持つ親の候補がいません」だけ**（文書の「固定できるチップには tabIndex = 0」をすべてのチップにすると、所持パルの 2,000 行で Tab の止まる所が 8,000 増えるため。パッシブの選択欄のチップは中の × にフォーカスすると板が出る）。中身: パル＝絵・No.・名前・属性・「所持 ♂a ♀b（全 n 体）」・「登録 産まれる x 件・親 y 件」、パッシブ＝名前・ランク・説明・「所持パルのうち n 体が持っています」（`passiveCounts`。タマゴを含む）。
+10. **テスト**: 1,601 → 1,612 件（`npm test` exit 0）。新規 test/web/pal-detail.test.js（6 件: 見出し・英名・パートナースキル・属性の地・ボタンの並びと登録の初期値・不正な ID／所持の 1 行と上位 5 体〔閉じている間は 0 行・開くと 5 行・読み直しても開いたまま〕と未所持／2 節の件数・新しい順の 3 件・「すべて見る」の出し分けと URL／目標の保存と外す〔order なし・個体値 0〕／ドロワーの h3・onSwitch とページの navigate／解説の板〔時間・title・Esc・固定・タッチ・フォーカスと Enter〕）。pal-picker.test.js（4 件: トリガーで打つと開く・PageUp/Down と Home/End・`is-suggested` と Enter・群の見出し）。app.test.js（「/」と選んだパルのドロワー・検索が空に戻る・ドロワーの中の N、ヘッダーの並びとログイン画面で隠す部品に `header-pal-search`）。views.test.js の期待値（節の見出しの件数・ヒーローの 2 列・登録のボタンの small）。
+11. **画面（モック・1100×900・所持パル 138 体。`Claude outputs/ui-audit-2026-10/shots/phase-3/p01-pal-detail.js`・`p02-drawer-rows.js`）**: 配合を探すのホルスでドロワーに英名・パートナースキル・「所持 6 体 · 親になれる ♂3 ♀3 所持パルで見る →」・ボタン 5 つ・「所持個体（上位 5 体 / 6 体）」・2 節（`p01-…`）、上位 5 体を開くと 3 段の行（`p02-…`・`p10-…`）、本文の見出しで「/」→「あぬびす」→ ↓ → Enter でアヌビスに差し替わり「←」が出る（`p04-…`）、キーワードの欄の「/」は文字として入る、親に使う配合 4 件のモリタロスで 2 行のカードと「すべて見る →」（`p11-…`）、所持パルのパッシブのチップで解説の板（「魔女 ランク 4 …所持パルのうち 10 体」）・離れると消える（`p06-…`）、タイルで「所持 ♂3 ♀2（全 7 体）· 登録 …」（`p07-…`）、全画面の `#/pal/Anubis`（`p08-…`・ダーク `p09-…`）。ヘッダーのはみ出しは 1100・1300・920px で 0。コンソールのエラー 0 件。
+    - **確かめていないこと**: パッシブの説明の板をキーボード（Tab でチップ → Enter）で開くのは、テストだけで確かめた（モックの継承ルートで運ぶパッシブを選ぶ画面は撮っていない）。
+12. **後のテーマへの申し送り**:
+    - owned-detail: 個体の詳細のドロワーは `drawerContents.owned` に。パル詳細の上位 5 体の行（`ownedRowItem`）も、所持パルの一覧と同じくセルを押すと個体の詳細を開く入口になる（委譲のリスナーを置く所は所持パルの一覧の入れ物と `.pal-owned-rows`）。
+    - route-progress: 相手親の「所持パルで見る」をドロワー（species）にするとき、パル詳細の所持の 1 行の数え方（`ownedCounts`）と同じにする。
+    - paldex: `#/pal`（ID なし）は今は「パルが見つかりません。」と配合を探すへ（views/pal.js）。図鑑にするときは palView の null の分かれ道。
 
 ---
 
