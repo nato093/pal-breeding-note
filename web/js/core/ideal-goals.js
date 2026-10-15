@@ -181,6 +181,32 @@ export function eggMatches(goal, pals, mine = null) {
   return pals.filter((pal) => pal.egg && pal.palId === goal.palId && (!own || own.has(pal.id) || !pal.holderUid) && meets(pal));
 }
 
+/**
+ * 未完成の目標に、いちばん近い自分の個体と、足りないもの（goals-detail の I-24）。種族が同じでタマゴでない個体だけ。
+ * 決め方: 欲しいパッシブを持つ数が多い順 → 目標に足りない個体値の合計が少ない順 → 個体 ID。個体値の目標 0（条件なし）の能力は不足 0
+ * @param {object} goal cleanGoal で整えたもの
+ * @param {object[]} pals 自分の個体
+ * @returns {{ pal: object, passives: { have: number, total: number }, short: { hp: number, shot: number, defense: number }, extra: number } | null}
+ *   extra は「欲しいものだけ」のときの余計なパッシブの数（それ以外は 0）。同じ種族がいなければ null
+ */
+export function goalNearest(goal, pals) {
+  if (!goal?.palId) return null;
+  const wanted = [...new Set(goal.passives)];
+  let best = null;
+  for (const pal of pals ?? []) {
+    if (pal.egg || pal.palId !== goal.palId) continue;
+    const have = wanted.filter((id) => pal.passives.includes(id)).length;
+    const short = Object.fromEntries(GOAL_STATS.map((key) => [key, goal.targets[key] > 0 ? Math.max(0, goal.targets[key] - pal.talent[key]) : 0]));
+    const lack = GOAL_STATS.reduce((sum, key) => sum + short[key], 0);
+    const extra = goal.mode === 'only' ? Math.max(0, distinctCount(pal.passives) - have) : 0;
+    const candidate = { pal, passives: { have, total: wanted.length }, short, extra, lack };
+    if (!best || have > best.passives.have || (have === best.passives.have && (lack < best.lack || (lack === best.lack && pal.id < best.pal.id)))) best = candidate;
+  }
+  if (!best) return null;
+  const { lack: _, ...result } = best;
+  return result;
+}
+
 // 個体のパッシブの種類の数（同じパッシブが重なっていても 1 つ）。パッシブは 4 個までなので、Set を作らずに数える
 function distinctCount(list) {
   let count = 0;

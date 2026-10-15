@@ -735,7 +735,8 @@ test('理想個体画面: 「☆ 目標に保存」の板で名前を付けて�
   assert.equal(view.element.querySelector('.ideal-goals-button').textContent, '目標（1）');
   // m1 は 3 つとも 100 で希少を持つので完成済み
   const dialog = openGoals(view);
-  assert.equal(dialog.querySelector('h2').textContent, '目標');
+  // 見出しに件数（表示しているワールドが分からないので完成の数は出さない。goals-detail）
+  assert.equal(dialog.querySelector('h2').textContent, '目標（1 件）');
   assert.match(dialog.querySelector('.ideal-goal').textContent, /最強モコロン.*希少.*HP 100 以上.*完成済み: Alice · パルボックス/);
   // 条件を変えると、また保存できる
   const attack = input(view, '攻撃の目標（以上）');
@@ -824,11 +825,16 @@ test('理想個体画面: 目標のダイアログから外す・元に戻す・
   // 閉じた後は行を描かない（開き直すと今の行）
   ctx.ideals.add({ name: '新しい目標', palId: 'PinkCat', passives: [], mode: 'include', targets: full, cake: 'none', order: 'next' });
   assert.equal(dialog.querySelectorAll('.ideal-goal').length, 0);
-  // 完成済み（モコロンの 2 つ。所持パルの f1 が満たす）を上に、未完成のツッパニャンは下
+  // 未完成（まだ作るもの。ツッパニャン）を上に、完成済み（モコロンの 2 つ。所持パルの f1 が満たす）は下（goals-detail。判断事項 8）
   const again = openGoals(view);
-  assert.deepEqual(again.querySelectorAll('.ideal-goal').map(goalName), ['攻撃型', '古い目標', '新しい目標']);
+  assert.deepEqual(again.querySelectorAll('.ideal-goal').map(goalName), ['新しい目標', '攻撃型', '古い目標']);
   // 状態は状態のチップ（完成済みは ready、未完成は neutral。前のクラス名 ideal-goal-status は残す）
-  assert.deepEqual(again.querySelectorAll('.ideal-goal-status').map((node) => node.className.split(' ').filter((name) => name.startsWith('is-'))), [['is-ready'], ['is-ready'], ['is-neutral']]);
+  assert.deepEqual(again.querySelectorAll('.ideal-goal-status').map((node) => node.className.split(' ').filter((name) => name.startsWith('is-'))), [['is-neutral'], ['is-ready'], ['is-ready']]);
+  // 未完成の行には近い個体との差（ツッパニャンは同じ種族の自分の個体がいないので「未所持」）、完成済みの状態は所持パルへのリンク
+  assert.equal(again.querySelectorAll('.ideal-goal')[0].querySelector('.ideal-goal-gap').textContent, '未所持');
+  const found = again.querySelectorAll('.ideal-goal')[1].querySelector('.ideal-goal-found');
+  assert.equal(found.href, '#/owned?pal=SheepBall&p=Rare&place=party%2Cpalbox%2Cbase%2Cdps%2Cglobal%2Cunknown');
+  assert.match(found.textContent, /^完成済み: /);
   assert.ok(again.querySelectorAll('.ideal-goal-status').every((node) => node.className.split(' ').includes('status-chip')));
   view.destroy();
 });

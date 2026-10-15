@@ -7,6 +7,15 @@ import { mergeGoals, mergeObservationSpecies } from './device-data.js';
 import { parseObservations, firstObservation, observeSpecies, cleanEntry } from './core/goal-observations.js';
 import { migrateWishlist, parseWishes, wishlistKey } from './goals-migration.js';
 import { buildHash } from './router.js';
+import { PLACE_ORDER } from './core/owned.js';
+
+/**
+ * 目標の種族とパッシブで所持パルを開く URL（完成した個体を見る。goals-detail の I-25）。場所はタマゴ以外の全部（完成の判定はグローバルパルボックスの
+ * 個体も数えるので、グローバルを含める）。所持者は付けない（すべて）。個体値は URL に入れない
+ */
+export function goalOwnedHash(goal) {
+  return buildHash('owned', { pal: goal.palId, p: goal.passives.join(','), place: PLACE_ORDER.filter((group) => group !== 'egg').join(',') });
+}
 
 const palsById = new Map(pals.map((pal) => [pal.id, pal]));
 const palName = (id) => palsById.get(id)?.ja ?? '不明なパル';
@@ -404,7 +413,8 @@ export function idealNotificationSource({ store, ideals }) {
       date: world.completedAt,
       title: '理想個体が完成しました',
       body: `「${goal.name}」の条件を満たす個体が${world.worldName ? `「${world.worldName}」` : ''}の所持パルにいます。`,
-      href: buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id }),
+      // 完成した個体のいる所持パルへ（id・本文は変えない。既読を保つ。goals-detail）
+      href: goalOwnedHash(goal),
       // 通知欄の行の画像（目標の種族）
       palId: goal.palId,
     })));

@@ -1,5 +1,5 @@
 import { el, field, empty, loadingState, button, link, syncList, listKeys, clearList, anchorOf, restoreAnchor, onTextInput, trackHeight, setDisabled } from '../ui/dom.js';
-import { palTile, humanIcon, palsById, genderMark } from '../ui/pal-icon.js';
+import { palTile, palIcon, humanIcon, palsById, genderMark } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { passiveChip, passiveList, passiveSelector, passivesById } from '../ui/passive-picker.js';
 import { hint } from '../ui/hint.js';
@@ -625,6 +625,38 @@ export function openDetailOnClick(container, drawer, { query = () => '' } = {}) 
   });
 }
 
+/**
+ * 図鑑順のとき、種族が変わる所に見出しの行を入れる（F068。goals-detail）。見出しは { id: 'species:<palId>', heading: true, palId, count, male,
+ * female, eggs, maxLevel, collapsed }。畳んだ種族（collapsed の palId。パルのマスターにない個体は 'other'）の個体の行は出さない。
+ * 数は絞り込んだ後の一覧の数（見出しの下に並ぶ個体の数）
+ */
+export function withSpeciesHeads(list, collapsed = new Set()) {
+  const groups = new Map();
+  for (const pal of list) {
+    const key = pal.palId || 'other';
+    let group = groups.get(key);
+    if (!group) groups.set(key, group = { id: `species:${key}`, heading: true, palId: pal.palId || '', key, count: 0, male: 0, female: 0, eggs: 0, maxLevel: 0 });
+    group.count++;
+    if (pal.egg) group.eggs++;
+    else {
+      if (pal.gender === 'M') group.male++;
+      else if (pal.gender === 'F') group.female++;
+      group.maxLevel = Math.max(group.maxLevel, pal.level);
+    }
+  }
+  const items = [];
+  let current = null;
+  for (const pal of list) {
+    const key = pal.palId || 'other';
+    if (key !== current) {
+      current = key;
+      items.push({ ...groups.get(key), collapsed: collapsed.has(key) });
+    }
+    if (!collapsed.has(key)) items.push(pal);
+  }
+  return items;
+}
+
 /** 所持パルの 1 行の要素（理想個体の組のカード・テストで使う薄い包み）。オプションは ownedRowItem と同じ */
 export const ownedRow = (pal, options) => ownedRowItem(pal, options).element;
 
@@ -903,8 +935,34 @@ export function ownedView(context, route) {
   const sortCaption = el('span', 'field-label', '並べ替え');
   sortCaption.setAttribute('aria-hidden', 'true');
   sortField.append(sortCaption, sort);
+  // 図鑑順のときの種族の見出しの畳み（F068）。畳んだ種族は viewState に残す（タブを替えても残る）。「種族を畳む／開く」は全部の種族
+  const collapsed = new Set(Array.isArray(memory?.collapsed) ? memory.collapsed : []);
+  const saveCollapsed = () => { if (memory) memory.collapsed = [...collapsed]; };
+  let speciesKeys = [];
+  const foldAll = button('', () => {
+    const all = speciesKeys.length && speciesKeys.every((key) => collapsed.has(key));
+    if (all) collapsed.clear();
+    else for (const key of speciesKeys) collapsed.add(key);
+    saveCollapsed();
+    renderResults({ keepPosition: true });
+  }, 'button secondary small owned-fold-all');
+  foldAll.hidden = true;
+  const renderFoldAll = () => {
+    const show = filter.sort === 'dex' && speciesKeys.length > 1;
+    foldAll.hidden = !show;
+    if (!show) return;
+    const text = speciesKeys.every((key) => collapsed.has(key)) ? '種族を開く' : '種族を畳む';
+    if (foldAll.textContent !== text) foldAll.textContent = text;
+    foldAll.title = text === '種族を開く' ? '畳んだ種族をすべて開く' : '図鑑順の種族の見出しをすべて畳む';
+  };
+  function toggleSpecies(key) {
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    saveCollapsed();
+    renderResults({ keepPosition: true });
+  }
   const statusRow = el('div', 'owned-status-row');
-  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, sortField);
+  statusRow.append(count, chipBox, chipMoreSlot, marksToggle, resetButton, foldAll, sortField);
   panel.append(panelMain, panelSub, statusRow);
   // ---- 列見出し（F069。押すとその並べ替え、もう一度で向きを反対に）。syncList の行の入れ物とは別の要素で、列の幅は CSS の
   // --owned-cols を行と共有する。パネルの下に貼り付く。並べ替えの選択（状態の行）と同じ filter.sort・filter.dir を使う ----
@@ -1436,7 +1494,34 @@ export function ownedView(context, route) {
   // 一覧の 1 行（ownedRowItem を、区切った書き換えに乗せる）。作ったばかりの行と、先頭から決まった数（FILL_NOW）の行はすぐ書き換え、
   // 残りは区切って書き換える（区切る行は、一致の理由・印を求めるのも書き換えるときにする）。中身は変わったセルだけを書き換える
   //（一致の理由だけが変わったら理由の行だけ）
+  // 種族の見出しの行（F068）: 畳むボタン（絵・名前・「5 体 · ♂3 ♀2 · タマゴ 1 · 最高 Lv 37」）と、その種族の理想個体・継承ルート・配合を探すへの小さなリンク
+  function speciesHead(item) {
+    const element = el('div', 'owned-species');
+    const toggle = button('', () => toggleSpecies(item.key), 'owned-species-toggle');
+    toggle.setAttribute('data-focus-key', `species:${item.key}`);
+    const master = palsById.get(item.palId);
+    const name = el('strong', 'owned-species-name', master ? `No.${master.label} ${master.ja}` : 'パル以外（人間など）');
+    const facts = el('span', 'owned-species-facts');
+    toggle.append(...(master ? [palIcon(master)] : []), name, facts);
+    element.append(toggle);
+    if (master) {
+      const links = el('span', 'owned-species-links');
+      links.append(link('理想個体', buildHash('ideal', { to: master.id }), 'owned-species-link'), link('継承ルート', buildHash('route', { to: master.id }), 'owned-species-link'),
+        link('配合を探す', buildHash('search', { c: master.id }), 'owned-species-link'));
+      element.append(links);
+    }
+    const update = (next) => {
+      const text = `${next.count} 体 · ♂${next.male} ♀${next.female}${next.eggs ? ` · タマゴ ${next.eggs}` : ''}${next.maxLevel ? ` · 最高 Lv ${next.maxLevel}` : ''}`;
+      if (facts.textContent !== text) facts.textContent = text;
+      toggle.setAttribute('aria-expanded', String(!next.collapsed));
+      toggle.setAttribute('aria-label', `${master?.ja ?? 'パル以外'}（${text}）を${next.collapsed ? '開く' : '畳む'}`);
+      element.classList.toggle('is-collapsed', next.collapsed);
+    };
+    update(item);
+    return { element, update, fill: update, destroy() {} };
+  }
   function listRow(pal) {
+    if (pal.heading) return speciesHead(pal);
     let last = pal;
     let lastTerms = termsKey;
     let lastMarks = marksStamp;
@@ -1558,6 +1643,10 @@ export function ownedView(context, route) {
     head.hidden = !list.length;
     renderCount(state, list.length, totals);
     shownCount = list.length;
+    // 図鑑順のときは種族の見出しを混ぜる（F068。ほかの並べ替えでは出さない）。以後の描き方は見出しを含めた items で行う
+    const items = filter.sort === 'dex' ? withSpeciesHeads(list, collapsed) : list;
+    speciesKeys = filter.sort === 'dex' ? items.filter((item) => item.heading).map((item) => item.key) : [];
+    renderFoldAll();
     // 見ていた行を同じ位置に戻す: データの更新のときと、行の高さが変わる（下の段の出し入れ）のに一覧の先頭が固定の部分の下に隠れているとき
     //（上の行の高さが変わって、見ていた行が動く。条件を変えたときは、この後で一覧の先頭を見せるので戻さない）。高さを変える前に覚える
     const holdRow = keepPosition || (bandChanged && !reveal && scrolledTop() !== null);
@@ -1568,7 +1657,7 @@ export function ownedView(context, route) {
     }
     const estimate = band ? ROW_ESTIMATE_BAND : ROW_ESTIMATE;
     // 2,000 行を超えたら、見えている範囲だけを描く
-    if (list.length > VIRTUAL_OVER) {
+    if (items.length > VIRTUAL_OVER) {
       if (!virtual) {
         clearList(results);
         virtual = virtualRows(results, { key: rowOptions.key, create: listRow, estimate, topOffset: fixedBottom });
@@ -1576,7 +1665,7 @@ export function ownedView(context, route) {
       // 行の高さが変わったら、測って覚えた高さを捨てて見積もりを変える（全部の行が同じ高さ）
       virtual.setEstimate(estimate);
       // 見ていた行の位置で先に描く（今の位置より前に多数の行が増えても戻せる）。測った高さとのずれは restoreAnchor で直す
-      virtual.render(list, { anchor });
+      virtual.render(items, { anchor });
       restoreAnchor(virtual.rows, anchor);
       flushDeferred();
       return;
@@ -1584,10 +1673,10 @@ export function ownedView(context, route) {
     leaveVirtual();
     const existing = listKeys(results);
     let fresh = 0;
-    for (const pal of list) if (!existing.has(pal.id)) fresh++;
+    for (const pal of items) if (!existing.has(pal.id)) fresh++;
     // 件数が多くても、最初からすべて出す（もっと見るはない）。まだ無い行が多いときだけ、先頭の 200 行をすぐ出して残りを区切って足す
     if (fresh <= FIRST_ROWS) {
-      syncList(results, list, rowOptions);
+      syncList(results, items, rowOptions);
       restoreAnchor(results, anchor);
       flushDeferred();
       return;
@@ -1595,8 +1684,8 @@ export function ownedView(context, route) {
     // 出す行 = 残る既存の行 ∪ 先頭の 200 行。既存の行は消さずに使い回し（一覧が縮んで位置が飛ばない）、
     // まだ無い行を並び順に step 件ずつ足していく
     const present = new Set();
-    list.forEach((pal, i) => { if (i < FIRST_ROWS || existing.has(pal.id)) present.add(pal.id); });
-    const inPresent = () => list.filter((pal) => present.has(pal.id));
+    items.forEach((pal, i) => { if (i < FIRST_ROWS || existing.has(pal.id)) present.add(pal.id); });
+    const inPresent = () => items.filter((pal) => present.has(pal.id));
     let next = FIRST_ROWS;
     let step = 100;
     syncList(results, inPresent(), rowOptions);
@@ -1604,16 +1693,16 @@ export function ownedView(context, route) {
     const tick = () => {
       if (job !== jobSeq || destroyed) return;
       const start = clock();
-      for (let added = 0; next < list.length && added < step; next++) {
-        if (present.has(list[next].id)) continue;
-        present.add(list[next].id);
+      for (let added = 0; next < items.length && added < step; next++) {
+        if (present.has(items[next].id)) continue;
+        present.add(items[next].id);
         added++;
       }
       syncList(results, inPresent(), rowOptions);
       if (!anchored) anchored = restoreAnchor(results, anchor);
       const spent = clock() - start;
       step = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.round(spent > 0 ? step * (SLICE_MS * 0.75) / spent : STEP_MAX)));
-      if (next < list.length) nextFrame(tick);
+      if (next < items.length) nextFrame(tick);
       else flushDeferred();
     };
     nextFrame(tick);
