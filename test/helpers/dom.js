@@ -138,6 +138,45 @@ export function installResizeObserver(t) {
   };
 }
 
+/**
+ * history の代わり（エントリの並びと今の位置を持つ）。pushState は今より先を捨てて足し、replaceState は今のエントリを書き換える。
+ * back()・forward() はブラウザと同じく state を移してから onPop（popstate の代わり）を呼ぶ。calls に呼ばれた順を残す
+ */
+export function fakeHistory({ state = null, url = '/Pal/#/search' } = {}) {
+  const entries = [{ state, url }];
+  let index = 0;
+  const history = {
+    calls: [],
+    onPop: null,
+    get state() { return entries[index].state; },
+    get url() { return entries[index].url; },
+    get length() { return entries.length; },
+    get index() { return index; },
+    pushState(next, title, nextUrl) {
+      history.calls.push('push');
+      entries.splice(index + 1, Infinity, { state: next, url: nextUrl ?? entries[index].url });
+      index += 1;
+    },
+    replaceState(next, title, nextUrl) {
+      history.calls.push('replace');
+      entries[index] = { state: next, url: nextUrl ?? entries[index].url };
+    },
+    back() {
+      history.calls.push('back');
+      if (index === 0) return;
+      index -= 1;
+      history.onPop?.(entries[index].state);
+    },
+    forward() {
+      history.calls.push('forward');
+      if (index >= entries.length - 1) return;
+      index += 1;
+      history.onPop?.(entries[index].state);
+    },
+  };
+  return history;
+}
+
 export function installDom(t) {
   for (const name of ['document', 'window']) {
     const before = Object.getOwnPropertyDescriptor(globalThis, name);
@@ -155,8 +194,10 @@ export function installDom(t) {
   icon.setAttribute('rel', 'icon');
   icon.setAttribute('href', 'favicon.svg');
   head.append(icon);
+  // documentElement は html の属性（右のドロワーの data-side-drawer・候補の板の .has-inline-popover）を見るテストのため
+  const documentElement = new FakeElement('html');
   globalThis.document = {
-    body, head, title: 'パル配合ノート', activeElement: body,
+    body, head, documentElement, title: 'パル配合ノート', activeElement: body,
     createElement: (name) => new FakeElement(name),
     createElementNS: (namespace, name) => {
       const node = new FakeElement(name);

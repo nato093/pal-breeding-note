@@ -229,7 +229,7 @@
 - [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — history.state は `{ ...history.state, drawer }` の形で書き、keep-state の鍵を消さない。環境・利用者の違う state では開かない（`drawer.test.js`）。セキュリティ — 見出しは textContent、位置は `style.setProperty`（`test/static/security.test.js`）。性能 — ドロワーを開いても本文を作り直さない（`app.test.js` の 1 件）。INV-2 — 入れ物だけ（中身の決まりは各テーマ）。
 
 ### TODO
-- [ ] `web/js/ui/drawer.js` の `createDrawer`（open・close・current・restore・destroy、stack 5 件）を書く
+- [x] `web/js/ui/drawer.js` の `createDrawer`（open・close・current・restore・destroy、stack 5 件）を書く
 - [ ] `<aside class="side-drawer">` の見出し行（h2・← 前へ・本文へ戻る・ページで開く・×）を作る
 - [ ] CSS: `--side-drawer-width`、固定配置、`--z-drawer`、開閉の動き、減らす設定、トースト・スナックバーのずれ
 - [ ] history: 開くとき pushState（URL 不変）・差し替えは replaceState・× は back・popstate で閉じる/開き直す
@@ -241,6 +241,24 @@
 - [ ] `test/helpers/dom.js` に history の偽物、`test/web/drawer.test.js` と `app.test.js` の 1 件
 - [ ] ブラウザで重なりと戻る/進むを確かめる
 - [ ] OPERATIONS.md の 1 項目と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/drawer`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の pal-detail・owned-detail・farm-board・route-progress はこちらを正とする）。
+
+1. **部品（手順 1）**: `web/js/ui/drawer.js` の **`createDrawer({ context, render, main, history, doc, scope, url })`** → **`{ element, open(entry, { opener }), close({ reason }), sync(state?), carry(), current(), restore(state), isOpen(), content(), destroy() }`**。`render` は種類ごとの表で、中身は **`{ title, element, destroy?, href? }`**（`href` は「ページで開く」の行き先。省くと pal は `#/pal/<id>`、ほかは出さない）か `null`（「見つかりません。…」と「閉じる」）。`main` は閉じたときのフォーカスの戻し先の本文（`main h1` は偽の document の querySelector が読めないので要素で渡す）、`scope()` はログイン中の `{ env, user: userIdKey }`（ログインしていなければ null で開かない）。ほかに `cleanEntry`・`cleanDrawerState`・`DRAWER_VERSION`（1）・`DRAWER_STACK_MAX`（5）・`DRAWER_KINDS`（pal・owned・farms・species。farms だけ id を省ける）。
+2. **リスナーは app.js の既存のものから呼ぶ（手順 6・4・7）**: app.test.js の偽の window と document は、イベントの名前ごとにリスナーを 1 つしか持てない（2 つ目で前のが消える。document の click は app.js がダイアログの中のリンクに使っている）。また偽のイベントは `preventDefault()` しても `defaultPrevented` が変わらない。そのため、**文書の `installPalLinks(root, drawer)`（document に委譲のリスナー）は、app.js の root の click の先頭で呼ぶ `handlePalLink(event, root, drawer)` → 引き取ったら true にした**（普通の左クリックで `a.pal-tile[href^="#/pal/"]`・dialog の中でないときだけ。修飾キー・中クリック・`defaultPrevented` は今までどおり）。popstate も app.js の既存のリスナーの先頭で `drawer.sync()`（URL もエントリの ID も同じドロワーの開閉は、その後の早期 return で本文に触れない）。Esc は aside の keydown（フォーカスがドロワーの中のとき。中に `aria-expanded="true"` の部品〔開いている候補〕があるか、`dialog[open]` があれば何もしない。候補の Esc は document で受けるので、先に呼ばれるここで避ける）。
+3. **履歴（手順 4）**: 開くとき `pushState({ ...history.state, drawer: { v: 1, env, user, entry, stack, pushed: true } }, '', 今の URL)`（keep-state の `palEntry` を引き継ぐので、同じ ID のエントリが 2 つになる。本文の条件と位置は同じなので共有でよい）。開いたまま差し替えは replaceState（`pushed` は保つ）。×・Esc は `pushed` なら `history.back()`、そうでなければ replaceState で drawer を消す（どちらも先に DOM を閉じる）。**同じ画面の条件の変更（`context.update` の pushState）は、開いているドロワーを `drawer.carry()`（`pushed: false` の印つき）で新しいエントリに引き継ぐ**（文書で「このテーマで決める」とした点。条件を変えても開いたまま、そこで × を押しても前の条件のエントリへ戻らない）。描くとき（app.js の `placeDrawer(reason)`）: `navigate`・`tab`・`auth` は閉じる（`close({ reason: 'route' })`。今のエントリに drawer があれば消す。履歴は戻さない）、`history`・`boot` は `sync()`（版・環境・利用者が違えば開かずに消す）、`update` は開いたまま。**タブで移った後に戻ると、前の画面のエントリの drawer で開き直す**（戻る・進むは history.state に合わせる決まりのとおり）。ブラウザはリンクのハッシュの移動でも popstate（state なし）を出すので、そのときも sync で閉じる。ログアウトは render の中、ID の変更は store の購読（`memoryUser` が変わったとき）、表示するワールドの切り替えは owned の購読（`forgetHolders` と同じ所）で `close`。
+4. **見出しの行（手順 2）**: 文書の [h2・← 前へ・本文へ戻る・ページで開く・×] を、**[本文へ戻る][←][h2][ページで開く][×] にし、「←」「ページで開く」はアイコンのボタン**（ui/icons.js に `back`・`open-page` を足した。名前は aria-label「前の内容へ戻る」「ページで開く」と title）。文字のボタンにすると 1100px（幅 396px）で「← 前へ」があるとき題名が「No.188…」と切れたため。**「本文へ戻る」はスキップリンクと同じく普段は見えず、フォーカスが来たら見出しの行のすぐ下に出す**（`.side-drawer-skip:not(:focus)` を clip。文書の「普段は小さく、フォーカスで目立つ」）。「←」は積み上げがあるときだけ。
+5. **重なり順（手順 2）**: **`--z-header` を 6 → 35 にし、ドロワー（30）より上にした**（文書の並び「ヘッダー ＜ ドロワー」から変えた）。ヘッダーとドロワーは場所が重ならない（ドロワーは `top: var(--header-h)`）が、ヘッダーの中のベル・セーブ連携・ID のパネルはヘッダーの重なりの中にあり、ドロワーの上に開かないと右端でドロワーに隠れたため。並びは 固定の条件のパネル（3）＜ 左のナビ（5）＜ ドロワー（30）＜ ヘッダー（35）＜ 新しいバージョンの案内（40）＜ トースト（50）＜ 浮かせた候補（60）。
+6. **見た目（手順 2）**: `--side-drawer-width: clamp(360px, 36vw, 480px)`（1100px で 396px・920px と 733px で 360px）。開くときだけ右から 24px 入る（`@starting-style`。動きを減らす設定では動かさない。終わった後に transform を残さないので、中の固定配置の候補の基準は変わらない）。閉じるのはすぐ。開いている間は html の `data-side-drawer="open"` で、**`body > .toast-region` と `.update-banner` の right をドロワーの幅＋24px**（ダイアログの中のトーストは今までどおり窓の下中央）。中はスクロールし（`overscroll-behavior: contain`）、本文には `inert` を付けない。
+7. **中身（このテーマ）**: views/pal.js の **`palDrawer(context, palId)`**（パルの絵と属性だけ。不正な ID は null）を `drawerContents.pal` にした。pal-detail で中身を作る。
+8. **テスト**: 1,589 → 1,601 件（`npm test` exit 0）。新規 test/web/drawer.test.js（11 件: 開く・差し替えと「←」と 5 件・× と戻る/進む・フォーカスの戻し先・自分で積んでいないエントリ・Esc の 3 通り・画面の移動とログアウト・版/環境/利用者の検査とログインしていないとき・見つからないとき・`handlePalLink` の 6 通り・トーストが aside に入らない・「本文へ戻る」）。test/helpers/dom.js に **`fakeHistory({ state, url })`**（エントリの並び・`back`/`forward` で `onPop`）と `document.documentElement` を足した。app.test.js: ルートの子の並びに `side-drawer`、配合を探すでパルを押すと本文を作り直さずに開き・履歴を 1 件積み（URL 不変・palEntry を引き継ぐ）・戻るで閉じ・タブで閉じる 1 件、前の「本文のリンクでパル詳細へ移ると先頭から」は、タイルでドロワーが開いて位置が動かず、ドロワーの「ページで開く」で全画面へ移ると先頭から、に書き換えた。
+9. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/phase-3/d01-drawer.js`）**: scrollY=500 の配合を探すでヤミトバリを押すと、ドロワー（left 689・幅 396・top 56）が開き、scrollY は 500 のまま・見出しにフォーカス・URL は `#/search` のまま・履歴 +1（`d01-open-1100-light.png`。基準は全画面に替わり scrollY=364 から表示）。Esc で閉じてフォーカスは押したタイル・scrollY 500。戻るで閉じ、進むで開き直す。開いたままのトーストは right 623（ドロワーの left 689 より左）。ベルのパネルはドロワーの上（`d02-…`）。タブを替えると閉じ、data-side-drawer も外れる。Ctrl+クリックは新しいタブで `#/pal/Horus`。幅 920px で幅 360・横のはみ出しなし（`d03-…`）、ダーク（`d04-…`）、拡大 150% 相当（CSS の幅 733px）で幅 360・ヘッダーの下から（`d05-…`）。
+   - **確かめていないこと**: 本物のブラウザの拡大（Ctrl＋）での見た目は CSS の幅を狭めて代えた。ドロワーの中のパル選択の候補がドロワーより上に出ることは、中身にパル選択がまだないので pal-detail で確かめる。
+10. **後のテーマへの申し送り**:
+    - pal-detail: `drawerContents.pal` を `palDetail(context, palId, { mode: 'drawer' })` に替える。中身の `destroy` で購読を外す。ドロワーの中のタイルを押すと同じドロワーで差し替わる（「←」で戻る）。ドロワーの中の「ページで開く」は今のパル。登録モーダルの参照の列のリンク（フェーズ 2 の記録 31）は dialog の中なので `handlePalLink` は引き取らない（今までどおり）。
+    - owned-detail・farm-board・route-progress: `context.drawer.open({ kind: 'owned' | 'farms' | 'species', id, params }, { opener })` と `drawerContents` に 1 行。開いている中身を描き直すときは中身が自分で購読する（drawer.js は描き直さない）。
 
 ---
 

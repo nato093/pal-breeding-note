@@ -28,6 +28,7 @@ import { openRecordEditor } from './ui/record-editor.js';
 import { notificationMenu } from './ui/notifications.js';
 import { updateBanner } from './ui/update-banner.js';
 import { navIcon } from './ui/nav-icons.js';
+import { createDrawer, handlePalLink } from './ui/drawer.js';
 import { palsById } from './ui/pal-icon.js';
 import { installRipple } from './ui/ripple.js';
 import { runningVersion, createVersionWatcher, servedVersion, CHECK_INTERVAL } from './version.js';
@@ -36,7 +37,7 @@ import { searchView } from './views/search.js';
 import { inheritanceView } from './views/route.js';
 import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
-import { palView } from './views/pal.js';
+import { palView, palDrawer } from './views/pal.js';
 import { settingsView, RIGHTS_NOTE } from './views/settings.js';
 import { TABS, tabLabel } from './views/tabs.js';
 import { ownedWorldId } from './core/owned-shared.js';
@@ -367,7 +368,8 @@ async function boot() {
       saveEntry();
       if (replace) history.replaceState(history.state, '', urlOf(hash));
       // 新しいエントリには新しい ID を付ける（条件と位置は、次に離れるときに書く）
-      else if (typeof history.pushState === 'function') history.pushState({ palEntry: memory.newEntryId() }, '', urlOf(hash));
+      // 開いているドロワーは引き継ぐ（同じ画面の条件の変更では閉じない。引き継いだエントリはドロワーが積んだものではない印つき）
+      else if (typeof history.pushState === 'function') history.pushState({ palEntry: memory.newEntryId(), ...drawer.carry() }, '', urlOf(hash));
       // pushState の無い環境。後で hashchange が来ても、applyRoute は同じ route では結果が変わらない
       else location.hash = hash;
       route = next;
@@ -414,6 +416,14 @@ async function boot() {
   };
 
   const views = { search: searchView, route: inheritanceView, owned: ownedView, ideal: idealView, pal: palView, settings: settingsView };
+  // 右のサイドドロワー（D3。本文に重ねる・1 度に 1 つ）。中身は種類ごとの表で渡す（drawer.js は中身を知らない）。本文の画面とは別に持ち、
+  // 画面を作り直してもドロワーは壊さない
+  const drawerContents = {
+    pal: (entry) => palDrawer(context, entry.id),
+  };
+  const drawer = createDrawer({ context, render: drawerContents, main, url: () => urlOf(location.hash) });
+  context.drawer = drawer;
+  root.append(drawer.element);
 
   function loginView(signup = false, previousId = store.state.userId) {
     // 見出しは「ログイン」「新規登録」だけ（キャッチコピーはなくした）。説明は新規登録のときだけ
@@ -522,6 +532,7 @@ async function boot() {
       currentView.applyRoute(route, { reason, restored: Boolean(entry?.cond) });
       placeScroll(reason, previous, entry);
       ensureEntry();
+      placeDrawer(reason);
       markShown();
       return;
     }
@@ -546,6 +557,7 @@ async function boot() {
     sync.update(store.state);
     if (showingLogin) {
       attention.setScreen('');
+      drawer.close({ reason: 'logout' });
       bell.close(); save.close(); account.close(); forget(); loginView();
       shownEntry = '';
       shownHash = '';
@@ -562,7 +574,14 @@ async function boot() {
     restoreFocus(main, focus);
     placeScroll(reason, previous, entry);
     ensureEntry();
+    placeDrawer(reason);
     markShown();
+  }
+  // ドロワー: リンク・タブで移った（新しいエントリ）・ログインの切り替えでは閉じる。戻る・進む・起動は、そのエントリの history.state に合わせる
+  //（版・環境・利用者が違えば開かない）。同じ画面の条件の変更（update）は開いたまま
+  function placeDrawer(reason) {
+    if (reason === 'history' || reason === 'boot') drawer.sync();
+    else if (reason !== 'update') drawer.close({ reason: 'route' });
   }
   // 描いた後の今のエントリと URL を覚える（ensureEntry の後）
   function markShown() {
@@ -593,6 +612,8 @@ async function boot() {
     return true;
   }
   root.addEventListener('click', (event) => {
+    // パルのタイルの普通のクリックは、画面を移らずに右のドロワーで開く（Ctrl・中クリックは今までどおり全画面のパル詳細）
+    if (!showingLogin && handlePalLink(event, root, drawer)) return;
     if (!plainClick(event)) return;
     const anchor = anchorOf(event.target);
     const hash = hrefOf(anchor);
@@ -659,7 +680,11 @@ async function boot() {
   owned.subscribe((state) => {
     const world = worldId(state.meta?.worldId);
     if (!world || world === conditionWorld) return;
-    if (conditionWorld) forgetHolders();
+    if (conditionWorld) {
+      forgetHolders();
+      // 別のワールドに替わったら、前のワールドの個体・牧場を出しているドロワーは閉じる
+      drawer.close({ reason: 'world' });
+    }
     conditionWorld = world;
   });
   // ID が替わったら（名前の変更・別の ID でのログイン）、前の ID のエントリと保存を消す
@@ -676,6 +701,8 @@ async function boot() {
   // hashchange が来ない。popstate で URL が表示中のまま、エントリだけが替わったときは、ここで戻る・進むとして描く。
   // URL が替わったときは、続けて来る hashchange（ルーター）に任せる（2 回描かない。リンクの移動でも popstate を出すブラウザでも同じ）
   window.addEventListener('popstate', () => {
+    // ドロワーを開いた・閉じたエントリどうし（URL もエントリの ID も同じ）は、ドロワーだけを合わせる
+    if (booted && !showingLogin) drawer.sync();
     if (!booted || showingLogin || location.hash !== shownHash || entryId() === shownEntry) return;
     intent = null;
     route = parseHash(location.hash);
@@ -685,6 +712,8 @@ async function boot() {
     envChip.hidden = state.env !== 'test';
     const userKey = state.userId ? userIdKey(state.userId) : '';
     if (userKey !== memoryUser) {
+      // ID が替わったら（名前の変更・別の ID）、前の ID で開いたドロワーは閉じる
+      if (memoryUser) drawer.close({ reason: 'user' });
       if (memoryUser && userKey) memory.clear();
       memoryUser = userKey;
     }
