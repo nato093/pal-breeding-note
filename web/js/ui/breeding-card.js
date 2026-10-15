@@ -14,34 +14,44 @@ export function actionIcon(label, name, action, className = '') {
 
 /**
  * 配合の式。focusParent があれば「相手 → 子」（その親から見た形）、leftParent があればその親を左に出す。
- * omitChild なら子を出さない（「親 ＋ 親」。子ごとの見出しの下に並べるとき）
+ * omitChild なら子を出さない（「親 ＋ 親」。子ごとの見出しの下に並べるとき）。
+ * annotate(palId, role)（role は 'parent'・'child'）が要素を返せば、そのパルの絵の下に置く（所持の印など。タイルと印を div.equation-slot で包む）
  */
-export function breedingEquation(record, { focusParent = '', leftParent = '', omitChild = false } = {}) {
+export function breedingEquation(record, { focusParent = '', leftParent = '', omitChild = false, annotate = null } = {}) {
   const equation = el('div', 'breeding-equation');
+  const tile = (palId, role, options = {}) => {
+    const node = palTile(palId, options);
+    const note = annotate?.(palId, role) ?? null;
+    if (!note) return node;
+    const slot = el('div', 'equation-slot');
+    slot.append(node, note);
+    return slot;
+  };
   if (focusParent) {
     const first = record.parent1Id === focusParent;
-    equation.append(palTile(first ? record.parent2Id : record.parent1Id, {
+    equation.append(tile(first ? record.parent2Id : record.parent1Id, 'parent', {
       gender: first ? record.parent2Gender : record.parent1Gender,
     }));
   } else {
     const swapped = leftParent && record.parent1Id !== leftParent && record.parent2Id === leftParent;
     const [left, right] = swapped ? ['parent2', 'parent1'] : ['parent1', 'parent2'];
-    equation.append(palTile(record[`${left}Id`], { gender: record[`${left}Gender`] }), el('span', 'equation-symbol', '＋'),
-      palTile(record[`${right}Id`], { gender: record[`${right}Gender`] }));
+    equation.append(tile(record[`${left}Id`], 'parent', { gender: record[`${left}Gender`] }), el('span', 'equation-symbol', '＋'),
+      tile(record[`${right}Id`], 'parent', { gender: record[`${right}Gender`] }));
   }
   if (omitChild) return equation;
-  equation.append(el('span', 'equation-symbol arrow', '→'), palTile(record.childId));
+  equation.append(el('span', 'equation-symbol arrow', '→'), tile(record.childId, 'child'));
   return equation;
 }
 
 /**
  * 登録済みの配合のカード。compact なら 2 行（1 行目: 式と操作、2 行目: 登録者 · 更新 · メモ。メモは 1 行で省略し、title に全文）。
- * 配合を探すの一覧だけが compact にする（削除・統合・重複の確認のプレビューはメモを全文で出す）。isNew なら「新」の印
+ * 配合を探すの一覧だけが compact にする（削除・統合・重複の確認のプレビューはメモを全文で出す）。isNew なら「新」の印。
+ * annotate は breedingEquation と同じ（所持の印）
  */
-export function breedingCard(record, context = {}, { preview = false, focusParent = '', leftParent = '', omitChild = false, compact = false, isNew = false } = {}) {
+export function breedingCard(record, context = {}, { preview = false, focusParent = '', leftParent = '', omitChild = false, compact = false, isNew = false, annotate = null } = {}) {
   const card = el('article', compact ? 'breeding-card is-compact' : 'breeding-card');
   card.setAttribute('aria-label', '登録済みの配合');
-  const equation = breedingEquation(record, { focusParent, leftParent, omitChild });
+  const equation = breedingEquation(record, { focusParent, leftParent, omitChild, annotate });
   const metadata = el('div', 'card-meta');
   if (isNew) metadata.append(statusChip('新', 'info', 'new-chip'));
   metadata.append(el('span', 'card-registrant', record.registrant || '登録者未指定'), el('time', 'updated-time', `更新 ${formatTime(record.updatedAt, true)}`));

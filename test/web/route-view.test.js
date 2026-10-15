@@ -75,3 +75,18 @@ test('継承ルート表示: multiChild の警告と最短先頭を保ち、他�
   assert.equal(view.children[0].querySelector('.route-warning').textContent, '性別条件は未検証');
   assert.equal(view.children[0].querySelector('.route-options'), null);
 });
+
+test('継承ルート表示: badge(route) を渡すと見出しの右に置き、渡さなければ見出しだけ（前の形のまま）', (t) => {
+  installDom(t);
+  const records = [Object.freeze({ id: 'b', parent1Id: 'PinkCat', parent2Id: 'SheepBall', childId: 'CatMage', confirmCount: 1 })];
+  const index = buildIndex(records, pals);
+  const { routes } = findRoutes(buildCarrierGraph(index), index, 'SheepBall', 'CatMage');
+  const plain = routeView(routes);
+  assert.equal(plain.querySelector('.route-card').children[0].tagName, 'h2');
+  assert.equal(plain.querySelector('.route-card-head'), null);
+  const withBadge = routeView(routes, { badge: (route) => { const node = document.createElement('span'); node.textContent = `${route.steps.length} 段`; return node; } });
+  const head = withBadge.querySelector('.route-card-head');
+  assert.deepEqual(head.children.map((node) => node.textContent), ['最短 1 回の配合', '1 段']);
+  // null を返せば何も足さない
+  assert.equal(routeView(routes, { badge: () => null }).querySelector('.route-card-head'), null);
+});

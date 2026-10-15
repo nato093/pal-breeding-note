@@ -6,10 +6,11 @@ import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
-  ownedRouteStarts, partnerOwnership, ownedBySpecies, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
+  ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
   keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
+import { isParentCandidate } from '../../web/js/core/ideal.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const P2 = 'abcd1234-0000-0000-0000-000000000000';
@@ -422,14 +423,17 @@ test('継承ルート: パッシブを持つ所持パルから、登録済みの
   const index = buildIndex(records, pals);
   const graph = buildCarrierGraph(index);
   const starts = ownedRouteStarts({ graph, pals: owned.pals, to: 'Kitsunebi', passives: ['CraftSpeed_up2'], shortestRoute });
-  // SheepBall（2 回）と PinkCat（タマゴ、1 回）。経路のないパルは出さない
+  // SheepBall（2 回）。PinkCat はタマゴ（d）なので運び手にしない（親にできる個体だけ。R-15）。経路のないパルは出さない
   assert.deepEqual(starts.map((s) => [s.palId, s.length, s.carriers.map((p) => p.id).sort()]), [
-    ['PinkCat', 1, ['d']], ['SheepBall', 2, ['a', 'b']],
+    ['SheepBall', 2, ['a', 'b']],
   ]);
-  assert.deepEqual(ownedRouteStarts({ graph, pals: owned.pals, to: 'PinkCat', passives: [], shortestRoute }).map((s) => [s.palId, s.length]), [['PinkCat', 0]]);
+  // PinkCat はタマゴ（d）とグローバルパルボックス（f）だけなので、目標そのものでも候補にしない
+  assert.deepEqual(ownedRouteStarts({ graph, pals: owned.pals, to: 'PinkCat', passives: [], shortestRoute }), []);
+  assert.deepEqual(ownedRouteStarts({ graph, pals: owned.pals, to: 'SheepBall', passives: [], shortestRoute }).map((s) => [s.palId, s.length]), [['SheepBall', 0]]);
   const bySpecies = ownedBySpecies(owned.pals);
   assert.deepEqual(partnerOwnership(bySpecies, 'SheepBall', ['CraftSpeed_up2']), { total: 3, matching: 2 });
-  assert.deepEqual(partnerOwnership(bySpecies, 'PinkCat', []), { total: 1, matching: 0 });
+  // 相手親もタマゴ・グローバルパルボックスの個体は数えない（前はグローバルを数えて 1）
+  assert.deepEqual(partnerOwnership(bySpecies, 'PinkCat', []), { total: 0, matching: 0 });
   assert.equal(bySpecies.has(''), false);
 });
 
@@ -562,4 +566,52 @@ test('所持パル: 種族ごとの性別の数は、タマゴとマスター外
   assert.ok(![...counts.keys()].some((id) => !id));
   const unknown = speciesGenderCounts([{ palId: 'SheepBall', gender: '', egg: false }, { palId: 'SheepBall', gender: 'M', egg: false }]);
   assert.deepEqual(unknown.get('SheepBall'), { M: 1, F: 0, total: 2 });
+});
+
+test('所持の集計: 親にできる個体（タマゴ・グローバルパルボックス・マスター外を除く）は理想個体の isParentCandidate と同じ規則で、種族ごとに性別の数を数える', () => {
+  // 親にできるか: 理想個体（core/ideal.js）と同じ結果（INV-2 の制限で core/owned.js は core/ideal.js を読まないので、テストで突き合わせる）
+  for (const pal of owned.pals) {
+    if (!pal.palId) { assert.equal(canBeParent(pal), false, pal.id); continue; }
+    assert.equal(canBeParent(pal), isParentCandidate(pal), pal.id);
+  }
+  assert.deepEqual(owned.pals.filter(canBeParent).map((pal) => pal.id).sort(), ['a', 'b', 'c']);
+  const counts = ownedCounts(owned.pals);
+  assert.deepEqual(counts.get('SheepBall'), { total: 3, eggs: 0, globals: 0, male: 1, female: 2, unknown: 0 });
+  assert.deepEqual(counts.get('PinkCat'), { total: 2, eggs: 1, globals: 1, male: 0, female: 0, unknown: 0 });
+  assert.deepEqual(counts.get('ChickenPal'), { total: 1, eggs: 1, globals: 0, male: 0, female: 0, unknown: 0 });
+  // マスター外（人間）は数えない
+  assert.equal([...counts.keys()].includes(''), false);
+  assert.equal(counts.size, 3);
+  // 性別の分からない個体は unknown（親にはできるが ♂♀ の組には数えない）
+  assert.deepEqual(ownedCounts([{ palId: 'Alpaca', gender: '', egg: false, place: 'palbox' }]).get('Alpaca'), { total: 1, eggs: 0, globals: 0, male: 0, female: 0, unknown: 1 });
+  assert.equal(ownedCounts(null).size, 0);
+});
+
+test('所持の集計: 記録の両親を今の所持で組めるか（別々の個体の ♂ と ♀。記録の性別があればその向きだけ、空欄なら両方の向き）', () => {
+  const counts = new Map([
+    ['A', { total: 2, eggs: 0, globals: 0, male: 1, female: 1, unknown: 0 }],
+    ['M', { total: 1, eggs: 0, globals: 0, male: 1, female: 0, unknown: 0 }],
+    ['F', { total: 1, eggs: 0, globals: 0, male: 0, female: 1, unknown: 0 }],
+    ['E', { total: 3, eggs: 2, globals: 1, male: 0, female: 0, unknown: 0 }],
+  ]);
+  const record = (parent1Id, parent2Id, parent1Gender = '', parent2Gender = '') => ({ parent1Id, parent2Id, parent1Gender, parent2Gender, childId: 'X' });
+  // 同じ種族どうしは ♂ と ♀ が 1 体ずつ
+  assert.equal(canPairRecord(counts, record('A', 'A')), true);
+  assert.equal(canPairRecord(counts, record('M', 'M')), false);
+  // 違う種族で性別なし: どちらかの向きで組めればよい
+  assert.equal(canPairRecord(counts, record('M', 'F')), true);
+  assert.equal(canPairRecord(counts, record('F', 'M')), true);
+  assert.equal(canPairRecord(counts, record('M', 'M2')), false);
+  // 性別あり: その向きだけ
+  assert.equal(canPairRecord(counts, record('M', 'F', 'M', 'F')), true);
+  assert.equal(canPairRecord(counts, record('M', 'F', 'F', 'M')), false);
+  assert.equal(canPairRecord(counts, record('M', 'F', 'M', '')), true);
+  assert.equal(canPairRecord(counts, record('M', 'F', '', 'M')), false);
+  assert.equal(canPairRecord(counts, record('A', 'M', 'F', '')), true);
+  // 両親が同じ性別の記録（不正）は組めない
+  assert.equal(canPairRecord(counts, record('A', 'A', 'M', 'M')), false);
+  assert.equal(canPairRecord(counts, record('M', 'F', 'M', 'M')), false);
+  // タマゴ・グローバルパルボックスだけの種族は組めない
+  assert.equal(canPairRecord(counts, record('E', 'A')), false);
+  assert.equal(canPairRecord(new Map(), record('A', 'A')), false);
 });

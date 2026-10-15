@@ -673,3 +673,87 @@ test('配合を探す: 親を 1 体だけ選んで結果が 6 件以上なら、
   assert.equal(chips().hidden, true);
   view.destroy();
 });
+
+// 所持パルのデータ（ownedCounts が読む形の個体だけ）を持つ偽物
+function ownedStore(pals) {
+  const listeners = new Set();
+  return {
+    state: { owned: pals ? { pals } : null },
+    loads: 0,
+    load() { this.loads++; return Promise.resolve(); },
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    set(next) { this.state = { owned: next ? { pals: next } : null }; listeners.forEach((listener) => listener(this.state)); },
+  };
+}
+const ownedPal = (id, palId, gender, extra = {}) => ({ id, palId, gender, egg: false, place: 'palbox', ...extra });
+
+test('配合を探す: 所持パルのデータがあれば、カードの親に「♂n ♀m／未所持」、子に「所持 N」を出し（押すと所持パル）、データが変わったら描き直す。なければ何も出さない', async (t) => {
+  installDom(t);
+  const none = context();
+  none.owned = ownedStore(null);
+  const plain = searchView(none, parseHash('#/search'));
+  assert.equal(plain.element.querySelector('.owned-count'), null);
+  assert.equal(plain.element.querySelector('.find-owned').hidden, true);
+  assert.equal(none.owned.loads, 1);
+  plain.destroy();
+  const app = context();
+  // フラリーナ ♀1（親）・モコロンはタマゴだけ・セレムーン 2 体（子）
+  app.owned = ownedStore([
+    ownedPal('a', 'FlowerDoll', 'F'), ownedPal('b', 'SheepBall', 'M', { egg: true }),
+    ownedPal('c', 'MoonQueen', 'F'), ownedPal('d', 'MoonQueen', 'M', { place: 'global' }),
+  ]);
+  const view = searchView(app, parseHash('#/search'));
+  const badges = () => view.element.querySelector('.breeding-card').querySelectorAll('.owned-count').map((node) => [node.className, node.textContent, node.href ?? '']);
+  // 親の印は「♂0 ♀1」（性別の記号は色だけの genderMark）。タマゴ等だけなら「タマゴ等のみ」、子は「所持 N」
+  assert.deepEqual(badges(), [
+    ['owned-count', '♂0♀1', '#/owned?pal=FlowerDoll'],
+    ['owned-count is-blocked', 'タマゴ等のみ', '#/owned?pal=SheepBall'],
+    ['owned-count is-child', '所持 2', '#/owned?pal=MoonQueen'],
+  ]);
+  assert.match(view.element.querySelector('.is-blocked').title, /うちタマゴ 1・グローバルパルボックス 0・性別不明 0 は親にできません/);
+  assert.equal(view.element.querySelector('.find-owned').hidden, false);
+  // データが変わったら描き直す（所持していなければ「未所持」・子は何も出さない）
+  app.owned.set([]);
+  assert.deepEqual(badges().map(([className, text]) => [className, text]), [['owned-count is-none', '未所持'], ['owned-count is-none', '未所持']]);
+  view.destroy();
+});
+
+test('配合を探す: 「両親を持つ組を上へ」は組める記録を群の中で先に（安定に）、「今の所持で作れる」は組めて子を持っていない記録だけ。所持パルがなければ効かない', async (t) => {
+  installDom(t);
+  const source = context().store.state.records[0];
+  const records = [
+    { ...source, id: '組めない', parent1Id: 'PinkCat', parent2Id: 'CatMage', childId: 'Kitsunebi', updatedAt: '2026-10-09T00:00:00Z' },
+    { ...source, id: '組める・子あり', childId: 'MoonQueen', updatedAt: '2026-10-08T00:00:00Z' },
+    { ...source, id: '組める・子なし', childId: 'Alpaca', updatedAt: '2026-10-07T00:00:00Z' },
+  ];
+  const app = context(records);
+  app.owned = ownedStore([ownedPal('a', 'FlowerDoll', 'F'), ownedPal('b', 'SheepBall', 'M'), ownedPal('c', 'MoonQueen', 'F')]);
+  let view = null;
+  const updates = updating(app, () => view);
+  view = searchView(app, parseHash('#/search'));
+  const children = () => view.element.querySelectorAll('.breeding-card').map((card) => card.querySelector('.breeding-equation').querySelectorAll('strong').at(-1).textContent);
+  const ja = (id) => pals.find((pal) => pal.id === id).ja;
+  assert.deepEqual(children(), [ja('Kitsunebi'), ja('MoonQueen'), ja('Alpaca')]);
+  const [first, make] = view.element.querySelector('.find-toggles').querySelectorAll('button');
+  assert.equal(first.textContent, '両親を持つ組を上へ');
+  await first.dispatch('click');
+  assert.equal(updates.at(-1), '#/search?ownedfirst=1');
+  assert.equal(first.getAttribute('aria-pressed'), 'true');
+  // 組める 2 件が今の並び（更新日の新しい順）のまま先へ
+  assert.deepEqual(children(), [ja('MoonQueen'), ja('Alpaca'), ja('Kitsunebi')]);
+  await make.dispatch('click');
+  assert.equal(updates.at(-1), '#/search?ownedfirst=1&make=1');
+  assert.deepEqual(children(), [ja('Alpaca')]);
+  // 作れる配合がなければ、切り替えを外す案内
+  app.owned.set([]);
+  const emptyState = view.element.querySelector('.empty-state');
+  assert.equal(emptyState.querySelector('p').textContent, '今の所持パルで作れる配合はありません。');
+  await emptyState.querySelector('button').dispatch('click');
+  assert.equal(updates.at(-1), '#/search?ownedfirst=1');
+  // 所持パルのデータがなければ、URL にあっても効かない（切り替えも出さない）
+  app.owned.set(null);
+  view.applyRoute(parseHash('#/search?make=1'), { reason: 'history' });
+  assert.equal(view.element.querySelectorAll('.breeding-card').length, 3);
+  assert.equal(view.element.querySelector('.find-owned').hidden, true);
+  view.destroy();
+});
