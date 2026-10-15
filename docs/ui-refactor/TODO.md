@@ -22,11 +22,11 @@
 | 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 3 |
 | 1d | 6 | 74 | 6 |
-| 2 | 10 | 119 | 7 |
+| 2 | 10 | 119 | 8 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **28** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **29** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -689,17 +689,17 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 自動登録の状況を見えるように
 
-- 状態: 未着手 ／ ブランチ: `feature/autoreg-visibility` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/autoreg-visibility` ／ マージのコミット: （統合ブランチ `integrate/phase-2` へのマージ。下の「次にやること」）
 
-- [ ] `permissionNotice` を作り、3 か所で使う（テストを先に）
-- [ ] `state.auto.stoppedAt` と短い文
-- [ ] 許可されなかったときのトースト
-- [ ] `attention.js`（題名・ファビコン）とテスト、テストの偽の DOM の拡張
-- [ ] レールの所持パルの「!」
-- [ ] 自動登録のトーストに「見る」
-- [ ] 異常の通知の href
-- [ ] `pendingSummary`・`discardPending` と設定の「登録待ち」の行（子を出さない）
-- [ ] OPERATIONS.md:83 と release-notes
+- [x] `permissionNotice` を作り、3 か所で使う（テストを先に）
+- [x] `state.auto.stoppedAt` と短い文
+- [x] 許可されなかったときのトースト
+- [x] `attention.js`（題名・ファビコン）とテスト、テストの偽の DOM の拡張
+- [x] レールの所持パルの「!」
+- [x] 自動登録のトーストに「見る」
+- [x] 異常の通知の href
+- [x] `pendingSummary`・`discardPending` と設定の「登録待ち」の行（子を出さない）
+- [x] OPERATIONS.md:83 と release-notes
 
 ### 29. [settings](phase-2-structure.md#settings-設定の整理)（M）
 
