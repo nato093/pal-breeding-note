@@ -5,6 +5,17 @@ import { buildHash } from '../router.js';
 import { viewHeading, renderCards, watchView, dataPending } from './shared.js';
 import { goalToggle } from '../ui/goal-toggle.js';
 
+/** 右のドロワーで開くパル詳細（見出しはドロワーの h2。パル ID が不正なら null で、ドロワーが「見つかりません」を出す） */
+export function palDrawer(context, palId) {
+  const pal = palsById.get(palId);
+  if (!pal) return null;
+  const element = el('div', 'pal-drawer');
+  const hero = el('div', 'pal-hero');
+  hero.append(palIcon(pal, { large: true }), elementChips(pal));
+  element.append(hero);
+  return { title: `No.${pal.label} ${pal.ja}`, element, destroy() {} };
+}
+
 export function palView(context, route) {
   const element = el('section', 'view');
   const pal = palsById.get(route.id);

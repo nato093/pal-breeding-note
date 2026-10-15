@@ -323,9 +323,11 @@ test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状�
   assert.equal(byClass('register-button'), undefined);
   assert.equal(byClass('header-actions'), undefined);
   assert.equal(byClass('environment-banner'), undefined);
-  // ベル・登録はヘッダーの中（main より前）にあり、ルートの子はスキップリンク・ヘッダー・ナビ・更新の帯・本文だけ
+  // ベル・登録はヘッダーの中（main より前）にあり、ルートの子はスキップリンク・ヘッダー・ナビ・更新の帯・本文と、本文の後ろの右のドロワーだけ
   assert.deepEqual(document.getElementById('app').children.map((node) => node.className.split(' ')[0]),
-    ['skip-link', 'app-header', 'navigation', 'update-banner', 'app-main']);
+    ['skip-link', 'app-header', 'navigation', 'update-banner', 'app-main', 'side-drawer']);
+  assert.equal(byClass('side-drawer').tagName, 'aside');
+  assert.equal(byClass('side-drawer').hidden, true);
   // ログインした後はログイン画面の並び（.is-login）を外す
   assert.equal(document.getElementById('app').className.split(' ').includes('is-login'), false);
   // 開発 API はテスト環境なので、ロゴの右にチップを出す
@@ -997,15 +999,59 @@ test('画面: タブで戻るとその画面を離れたときの位置に、本
   assert.equal(scrolls.at(-1), 2500);
   await tab('配合を探す');
   assert.equal(scrolls.at(-1), 400);
-  // 本文のリンク（カードのパル名）で詳細へ移ると先頭から
+  // カードのパル名は右のドロワーで開き、本文の位置は動かさない（drawer）
   window.scrollY = 500;
   const palLink = find((node) => node.tagName === 'a' && String(node.href).startsWith('#/pal/'));
   assert.ok(palLink);
+  const moves = scrolls.length;
   await clickLink(palLink);
-  go(palLink.href);
+  await frame();
+  assert.equal(scrolls.length, moves);
+  assert.equal(byClass('side-drawer').hidden, false);
+  assert.equal(document.getElementById('main').querySelector('.pal-hero'), null);
+  // ドロワーの「ページで開く」（本文のリンク）でパル詳細の画面へ移ると先頭から。ドロワーは閉じる
+  const page = byClass('side-drawer-page');
+  await clickLink(page);
+  go(page.href);
   await frame();
   assert.equal(scrolls.at(-1), 0);
   assert.ok(document.getElementById('main').querySelector('.pal-hero'));
+  assert.equal(byClass('side-drawer').hidden, true);
+});
+
+test('画面: パルのタイルを押すと右のドロワーで開き、本文の画面は作り直さない。戻るで閉じ、タブを替えると閉じる', async (t) => {
+  const development = createDevelopmentApi();
+  await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
+  await development({ action: 'create', passcode: '入力', opId: crypto.randomUUID(), record: {
+    id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
+    parent1Gender: '', parent2Gender: '', registrant: '架空データ', memo: '',
+  } });
+  const { go, back, pushes } = await boot(t, { initial: signedIn, api: development, hash: '#/search', pushState: true });
+  for (let i = 0; i < 20 && !find(isCard); i++) await flush();
+  const view = document.getElementById('main').children[0];
+  const before = history.state;
+  const tile = find((node) => node.tagName === 'a' && node.className.split(' ').includes('pal-tile') && node.href === '#/pal/MoonQueen');
+  assert.ok(tile);
+  await clickLink(tile.children[1]);
+  const drawer = byClass('side-drawer');
+  assert.equal(drawer.hidden, false);
+  assert.match(byClass('side-drawer-title').textContent, /セレムーン/);
+  // 本文は同じ画面のまま（作り直していない）。URL は変えずに履歴を 1 件積む（keep-state のエントリの ID は引き継ぐ）
+  assert.equal(document.getElementById('main').children[0], view);
+  assert.equal(location.hash, '#/search');
+  assert.deepEqual(pushes, ['/Pal/#/search']);
+  assert.equal(history.state.palEntry, before.palEntry);
+  assert.equal(history.state.drawer.entry.id, 'MoonQueen');
+  // 戻る（同じ URL・同じエントリの ID）でドロワーだけ閉じる
+  back('#/search', before);
+  assert.equal(drawer.hidden, true);
+  assert.equal(document.getElementById('main').children[0], view);
+  // もう一度開いてタブを替えると閉じる
+  await clickLink(tile.children[1]);
+  assert.equal(drawer.hidden, false);
+  await clickLink(navTab('継承ルート'));
+  go(navTab('継承ルート').href);
+  assert.equal(drawer.hidden, true);
 });
 
 test('画面: 戻る・進むでは、そのときの履歴のエントリの条件と位置に戻し、別の利用者・別のワールドのエントリは使わない', async (t) => {

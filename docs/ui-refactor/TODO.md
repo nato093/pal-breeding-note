@@ -763,20 +763,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 右のサイドドロワー（土台）
 
-- 状態: 未着手 ／ ブランチ: `feature/drawer` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/drawer` ／ マージのコミット: （マージの後に書く）
 
-- [ ] `web/js/ui/drawer.js` の `createDrawer`（open・close・current・restore・destroy、stack 5 件）を書く
-- [ ] `<aside class="side-drawer">` の見出し行（h2・← 前へ・本文へ戻る・ページで開く・×）を作る
-- [ ] CSS: `--side-drawer-width`、固定配置、`--z-drawer`、開閉の動き、減らす設定、トースト・スナックバーのずれ
-- [ ] history: 開くとき pushState（URL 不変）・差し替えは replaceState・× は back・popstate で閉じる/開き直す
-- [ ] 読み込み直したときの復元（版・環境・利用者の検査）
-- [ ] `route.view` が変わる遷移・ログアウト・名前の変更・ワールドの切り替えで閉じる
-- [ ] `installPalLinks`（普通のクリックだけ引き取る。修飾キーと dialog の中は除く）
-- [ ] Esc・フォーカスの戻し先・「本文へ戻る」
-- [ ] app.js に組み込む（`context.drawer`、種類ごとの中身の表）
-- [ ] `test/helpers/dom.js` に history の偽物、`test/web/drawer.test.js` と `app.test.js` の 1 件
-- [ ] ブラウザで重なりと戻る/進むを確かめる
-- [ ] OPERATIONS.md の 1 項目と release-notes
+- [x] `web/js/ui/drawer.js` の `createDrawer`（open・close・current・restore・destroy、stack 5 件）を書く
+- [x] `<aside class="side-drawer">` の見出し行（h2・← 前へ・本文へ戻る・ページで開く・×）を作る
+- [x] CSS: `--side-drawer-width`、固定配置、`--z-drawer`、開閉の動き、減らす設定、トースト・スナックバーのずれ
+- [x] history: 開くとき pushState（URL 不変）・差し替えは replaceState・× は back・popstate で閉じる/開き直す
+- [x] 読み込み直したときの復元（版・環境・利用者の検査）
+- [x] `route.view` が変わる遷移・ログアウト・名前の変更・ワールドの切り替えで閉じる
+- [x] `installPalLinks`（普通のクリックだけ引き取る。修飾キーと dialog の中は除く）（app.js の root の click から呼ぶ `handlePalLink` にした。phase-3-4 の drawer の「実装の記録」2）
+- [x] Esc・フォーカスの戻し先・「本文へ戻る」
+- [x] app.js に組み込む（`context.drawer`、種類ごとの中身の表）
+- [x] `test/helpers/dom.js` に history の偽物、`test/web/drawer.test.js` と `app.test.js` の 1 件
+- [x] ブラウザで重なりと戻る/進むを確かめる
+- [x] OPERATIONS.md の 1 項目と release-notes
 
 ### 32. [pal-detail](phase-3-4-drawer-data.md#pal-detail-パル詳細を種族のハブに)（M）
 

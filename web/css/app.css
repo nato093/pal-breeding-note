@@ -85,13 +85,15 @@
   --drawer: 96px;
   /* ヘッダーの高さ（1 行・固定）。固定する帯の top と scroll-padding-top はこの変数を使う */
   --header-h: 56px;
+  /* 右のサイドドロワーの幅（ui/drawer.js。左のナビの幅 --drawer とは別。1100px で 396px） */
+  --side-drawer-width: clamp(360px, 36vw, 480px);
   /* 重なり順（小さい順）。各テーマはこの変数だけを使い、数字を直接書かない。
      ダイアログ（showModal）は top layer なので z-index は要らない */
   --z-sticky: 2;     /* 2 段目の固定（所持パルの列見出し・理想個体の牧場の帯） */
   --z-panel: 3;      /* 画面の条件パネル（sticky）と、本文の中で開く候補 */
   --z-rail: 5;       /* 左のナビ（.navigation） */
-  --z-header: 6;     /* ヘッダー */
-  --z-drawer: 30;    /* 右のドロワー（フェーズ 3） */
+  --z-drawer: 30;    /* 右のドロワー（ui/drawer.js。ヘッダーの下から窓の下まで） */
+  --z-header: 35;    /* ヘッダー。ドロワーと場所は重ならないが、中のパネル（ベル・セーブ連携・ID）はドロワーの上に開く */
   --z-snackbar: 40;  /* 新しい版の案内（stable-render）。トーストより下 */
   --z-toast: 50;     /* トースト（本文の中の候補の板を開いている間は板の下。.has-inline-popover） */
   --z-popover: 60;   /* 本文の外（body・dialog）に浮かせる候補・メニュー */
@@ -985,6 +987,9 @@ summary { cursor: pointer; min-height: 44px; padding: 10px 0; font-weight: 700; 
 .has-inline-popover .toast-region { z-index: calc(var(--z-panel) - 1); }
 /* ダイアログの中（top layer）では窓の下中央。ログイン画面（ナビなし）では窓の幅の下中央 */
 dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banner { left: 24px; }
+/* 右のドロワーを開いている間は、本文の下中央のトースト・新しい版の案内をドロワーの左の幅の中へ（ドロワーに重ねない。ui/drawer.js が html に
+   data-side-drawer を付ける）。ダイアログの中のトーストは窓の下中央のまま */
+:root[data-side-drawer="open"] body > .toast-region, :root[data-side-drawer="open"] .update-banner { right: calc(var(--side-drawer-width) + 24px); }
 .toast-list, .toast-alerts { display: grid; gap: 8px; }
 .toast-list:not(:empty) + .toast-alerts:not(:empty) { margin-top: 8px; }
 .toast {
@@ -1078,6 +1083,58 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .route-step-notes { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 2px 0 4px; }
 .route-warning:hover { text-decoration: underline; }
 .route-note { cursor: help; }
+/* 右のサイドドロワー（ui/drawer.js。非モーダル・本文に重ねて押し出さない・1 度に 1 つ。D3）。ヘッダーの下から窓の下まで、中だけスクロールする。
+   重なりはヘッダー・固定のパネルより上、新しい版の案内・トースト・body に浮かせた候補より下（--z-drawer） */
+.side-drawer {
+  position: fixed;
+  top: var(--header-h);
+  right: 0;
+  bottom: 0;
+  width: var(--side-drawer-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface-container-low);
+  border-left: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--elevation-3);
+  z-index: var(--z-drawer);
+}
+.side-drawer[hidden] { display: none; }
+.side-drawer-header {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px 6px 6px 16px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+}
+.side-drawer-back { margin-left: -8px; }
+.side-drawer-back, .side-drawer-page, .side-drawer-close { display: inline-grid; place-items: center; }
+.side-drawer-page:hover { text-decoration: none; }
+.side-drawer-icon { display: block; width: 20px; height: 20px; }
+.side-drawer-title { flex: 1; min-width: 0; margin: 0 4px 0 0; font-size: 17px; font-weight: 700; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-drawer-title:focus:not(:focus-visible) { outline: 0; }
+/* 「本文へ戻る」は普段は見えない（スキップリンクと同じ）。フォーカスが来たら見出しの行のすぐ下に出す（キーボードでドロワーから本文へ戻る手段） */
+.side-drawer-skip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 12px;
+  z-index: 1;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 13px;
+  box-shadow: var(--elevation-2);
+}
+.side-drawer-skip:not(:focus) { clip-path: inset(50%); width: 1px; height: 1px; min-height: 0; padding: 0; overflow: hidden; white-space: nowrap; }
+.side-drawer-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+.side-drawer-missing { display: grid; gap: 12px; justify-items: start; }
+.side-drawer-missing p { margin: 0; color: var(--md-sys-color-on-surface-variant); }
 .pal-hero {
   background: var(--md-sys-color-surface-container-low);
   border-radius: 16px;
@@ -1233,6 +1290,11 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   .dialog[open]::backdrop {
     transition: background-color .25s linear;
     @starting-style { background-color: transparent; }
+  }
+  /* 右のドロワーは右から入る（閉じるときはすぐ消す）。終わった後は transform を残さない（中の固定配置の候補の位置の基準を変えない） */
+  .side-drawer:not([hidden]) {
+    transition: transform .16s var(--ease-decelerate), opacity .12s linear;
+    @starting-style { opacity: 0; transform: translateX(24px); }
   }
   .toast {
     transition: opacity .15s linear, transform .3s var(--ease-decelerate);
