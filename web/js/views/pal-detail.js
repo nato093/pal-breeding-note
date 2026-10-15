@@ -7,7 +7,8 @@ import { goalToggle } from '../ui/goal-toggle.js';
 import { navIcon } from '../ui/nav-icons.js';
 import { findByChild, findByParent } from '../core/index.js';
 import { recordComparator } from '../core/record-sort.js';
-import { ownedBySpecies, ownedCounts, sortOwned, PLACE_ORDER, workEntries } from '../core/owned.js';
+import { ownedBySpecies, ownedCounts, sortOwned, PLACE_ORDER, workEntries, ownCaptures } from '../core/owned.js';
+import { icon } from '../ui/icons.js';
 import { PARTNER_SKILLS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
 import palWork from '../../data/work.js';
 import { buildHash } from '../router.js';
@@ -86,11 +87,17 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
     },
   });
   picker.element.classList.add('pal-switch');
-  if (drawer) element.append(picker.element);
+  // パル切り替えの横に「図鑑」（`#/pal` の格子。paldex）。ドロワーから押すとドロワーを閉じて本文が図鑑になる
+  const dex = link('', buildHash('pal'), 'button secondary small pal-dex-link');
+  dex.append(icon('grid', { className: 'pal-dex-icon' }), el('span', '', '図鑑'));
+  dex.title = '全部のパルを図鑑順に並べた一覧';
+  const nav = el('div', 'pal-detail-nav');
+  nav.append(picker.element, dex);
+  if (drawer) element.append(nav);
   else {
     const heading = viewHeading(title);
     heading.classList.add('pal-detail-heading');
-    heading.append(picker.element);
+    heading.append(nav);
     element.append(heading);
   }
 
@@ -124,7 +131,10 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
   // 所持の 1 行（所持パルのデータがある人だけ。O-41・F075）
   const ownedLine = el('p', 'pal-owned-line');
   ownedLine.hidden = true;
-  info.append(ownedLine);
+  // 自分の捕獲数（ホストの画面で、自分のプレイヤーのセーブに捕獲数があるときだけ。参加者・共有・古いデータでは出さない。paldex）
+  const captureLine = el('p', 'pal-capture-line');
+  captureLine.hidden = true;
+  info.append(ownedLine, captureLine);
   hero.append(media, info);
 
   // 行き先のボタン（パル詳細のヒーローだけ。S-09・S-12・I-57）
@@ -219,6 +229,21 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
     renderTop();
   }
 
+  // 「捕獲 N」（自分のプレイヤーの分を合わせた数。0 回も出す）。自分が分からない・捕獲数のないデータでは隠す
+  let captureShown = '';
+  function renderCapture() {
+    const data = context.owned?.state?.owned;
+    const captures = data ? ownCaptures(data.players, context.ideals?.selfUids?.() ?? new Set()) : null;
+    const text = captures ? String(captures.get(pal.id) ?? 0) : '';
+    if (text === captureShown) return;
+    captureShown = text;
+    captureLine.hidden = !captures;
+    captureLine.replaceChildren();
+    if (!captures) return;
+    captureLine.title = 'このワールドで自分のプレイヤーが捕まえた数（ホストのセーブから。仲間の分は数えません）';
+    captureLine.append(el('span', 'pal-owned-label', '捕獲'), el('span', 'pal-capture-count', `${text} 回`), el('span', 'pal-capture-note', '（自分）'));
+  }
+
   const newest = recordComparator('updated');
   function renderRecords(state) {
     if (dataPending(born.cards, state, () => context.store.refresh())) {
@@ -267,12 +292,16 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
       if (state.owned === lastData) return;
       lastData = state.owned;
       renderOwned();
+      renderCapture();
       picker.update();
     };
     subscriptions.push(owned.subscribe(onOwned));
     onOwned(owned.state);
     owned.load?.()?.catch?.(() => {});
   }
+  // 自分のプレイヤーが変わったら（このワールドでの自分・プレイヤーの対応。ideals も本人の変更を知らせる）捕獲数を引き直す
+  if (context.self?.subscribe) subscriptions.push(context.self.subscribe(renderCapture));
+  if (context.ideals?.subscribe) subscriptions.push(context.ideals.subscribe(renderCapture));
 
   return {
     element,

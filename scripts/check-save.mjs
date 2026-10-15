@@ -48,6 +48,16 @@ async function main() {
   // プレイ中（この保存の時点で接続していた。save-extras）とゲーム内の日数
   console.log(`プレイヤー: ${owned.players.map((p) => `${p.name}（Lv${p.level}${p.online === true ? '・プレイ中' : ''}）`).join(', ')}`);
   console.log(`ゲーム内: ${owned.world.inGameDay ?? '不明'} 日目`);
+  // 捕獲数（paldex。Players/<uid>.sav の RecordData の PalCaptureCount。画面は自分のプレイヤーの分だけを図鑑とパル詳細に出す）。
+  // 種は画面で引けたパルの数、引けないキーは人間などマスターにないキー（画面では捨てる）
+  const resolveCapture = createSpeciesResolver(pals);
+  console.log(`捕獲数: ${owned.players.map((player) => {
+    const raw = snapshot.players.find((item) => item.uid === player.uid)?.captures;
+    if (!player.captures || !Array.isArray(raw)) return `${player.name}（なし）`;
+    const counts = Object.values(player.captures);
+    const unknown = raw.filter((entry) => !resolveCapture(entry.id).palId).map((entry) => entry.id);
+    return `${player.name} ${counts.length} 種・合計 ${counts.reduce((sum, count) => sum + count, 0)}${unknown.length ? `（引けないキー ${unknown.length}: ${unknown.slice(0, 4).join(', ')}）` : ''}`;
+  }).join(', ') || 'プレイヤーなし'}`);
   console.log(`パル（タマゴ含む）: ${owned.pals.length} 体`);
   for (const group of PLACE_ORDER) {
     const list = owned.pals.filter((p) => p.placeGroup === group);

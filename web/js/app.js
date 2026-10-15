@@ -518,8 +518,8 @@ async function boot() {
       if (active) tab.setAttribute('aria-current', 'page');
       else tab.removeAttribute('aria-current');
     }
-    // 題名の画面名（タブの名前。パル詳細はパルの名前。attention.js）
-    attention.setScreen(current.view === 'pal' ? palsById.get(current.id)?.ja ?? '' : tabLabel(current.view));
+    // 題名の画面名（タブの名前。パル詳細はパルの名前、ID のない・不正な `#/pal` は図鑑。attention.js）
+    attention.setScreen(current.view === 'pal' ? palsById.get(current.id)?.ja ?? '図鑑' : tabLabel(current.view));
   }
 
   // 位置: 同じ画面の条件の変更はそのまま、リンクで違う画面へは先頭、タブで違う画面へはその画面を離れたときの位置、
@@ -659,7 +659,16 @@ async function boot() {
     if (!plainClick(event)) return;
     const anchor = anchorOf(event.target);
     const hash = hrefOf(anchor);
-    if (!hash.startsWith('#/') || hash === location.hash) return;
+    if (!hash.startsWith('#/')) return;
+    if (hash === location.hash) {
+      // ドロワーの中の、今の本文と同じ URL へのリンク（図鑑を開いたまま、ドロワーのパル詳細の「図鑑」を押したなど）は、移る先がないので
+      // ドロワーを閉じて本文を見せる（× と同じ。paldex）
+      if (drawer.isOpen() && drawer.element.contains?.(anchor)) {
+        event.preventDefault();
+        drawer.close({ reason: 'dismiss' });
+      }
+      return;
+    }
     if (sameScreenDestination(event, hash)) return;
     saveEntry();
     intent = String(anchor.className).split(' ').includes('nav-tab') ? 'tab' : 'navigate';

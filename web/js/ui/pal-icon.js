@@ -95,15 +95,20 @@ function avatar(pal) {
   return svg;
 }
 
-export function palIcon(pal, { large = false } = {}) {
-  const wrapper = el('span', `pal-icon${large ? ' pal-icon-large' : ''}`);
+/**
+ * パルの絵（web/img/pals/ の webp。読めなければ属性の色の丸に頭文字のアバター）。large は 128px、size は絵の width・height
+ *（図鑑のマスは 48。枠の大きさは CSS で同じにして、読み込む前・アバターでも配置を揺らさない）。silhouette は絵を影にする印のクラス
+ *（.pal-icon-silhouette。CSS の filter だけで描き、画像は足さない。図鑑の「子としての登録なし」。paldex）
+ */
+export function palIcon(pal, { large = false, size = 0, silhouette = false } = {}) {
+  const wrapper = el('span', `pal-icon${large ? ' pal-icon-large' : ''}${silhouette ? ' pal-icon-silhouette' : ''}`);
   if (!pal) return wrapper;
   if (!pal.icon) { wrapper.append(avatar(pal)); return wrapper; }
   const image = el('img');
   image.alt = '';
   // 大きい絵は CSS の表示（128px）と同じ大きさにする（S-10。前は 160 を CSS で縮めていた）
-  image.width = large ? 128 : 64;
-  image.height = large ? 128 : 64;
+  image.width = size || (large ? 128 : 64);
+  image.height = size || (large ? 128 : 64);
   image.loading = 'lazy';
   // 読めなければ絵だけを代わりのアバターに替える（右下に重ねたタマゴのアイコンなどは残す。game-assets）
   image.addEventListener('error', () => {

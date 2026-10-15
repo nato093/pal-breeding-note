@@ -1261,7 +1261,12 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
    地は第 1 属性の色（--element）の淡いグラデーション */
 .pal-detail-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .pal-detail-heading .pal-switch, .pal-detail.is-drawer .pal-switch { width: 240px; max-width: 100%; }
-.pal-detail.is-drawer .pal-switch { margin: 0 0 12px; }
+/* パル切り替えと「図鑑」のリンク（paldex） */
+.pal-detail-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.pal-detail.is-drawer .pal-detail-nav { margin: 0 0 12px; }
+.pal-dex-link { display: inline-flex; align-items: center; gap: 6px; }
+.pal-dex-link:hover { text-decoration: none; }
+.pal-dex-icon { width: 16px; height: 16px; stroke-width: 2; }
 .pal-detail .pal-hero {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1294,6 +1299,10 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-owned-none, .pal-owned-sep { color: var(--md-sys-color-on-surface-variant); }
 .pal-owned-parents { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .pal-owned-link { white-space: nowrap; }
+/* 自分の捕獲数の 1 行（ホストの画面だけ。paldex） */
+.pal-capture-line { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; font-size: 13px; }
+.pal-capture-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+.pal-capture-note { color: var(--md-sys-color-on-surface-variant); font-size: 12px; }
 .pal-detail .pal-hero-actions { gap: 8px; margin: 12px 0; }
 .pal-action { display: inline-flex; align-items: center; gap: 6px; }
 .pal-action .tab-icon { width: 16px; height: 16px; stroke-width: 2; }
@@ -1311,6 +1320,65 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-detail.is-drawer .pal-hero-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .pal-detail.is-drawer .pal-hero-actions > * { justify-content: center; min-width: 0; }
 .pal-detail.is-drawer .pal-records-head h3 { font-size: 14px; }
+/* 図鑑（views/paldex.js。`#/pal` の格子。paldex）: 1 マスは幅 84px 以上・高さ 108px に固定し、絵は 48px の枠（読み込む前・アバターでも
+   配置を揺らさない）。上の段に番号と子としての登録の件数、下の段に所持の点・自分の捕獲数・目標の星（段の中の位置は固定。隠しても動かない）。
+   子として登録のない種は、絵を filter で影にし（画像は足さない。ライトは黒の 35%、ダークは白の 30%）、マスの地を抜いて枠を点線にする */
+.paldex-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 8px; }
+.paldex-summary { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
+.paldex-stat { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.paldex-stat-label, .paldex-sep { color: var(--md-sys-color-on-surface-variant); }
+.paldex-stat strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.paldex-filter .segmented-option { min-height: 30px; padding: 0 14px; font-size: 13px; }
+.paldex-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0 0 14px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.paldex-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.paldex-legend-shadow { width: 14px; height: 14px; border-radius: 50%; background: color-mix(in srgb, var(--md-sys-color-on-surface) 35%, transparent); }
+.paldex-none { margin: 0 0 12px; color: var(--md-sys-color-on-surface-variant); }
+.paldex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.pal-tile.paldex-cell {
+  position: relative;
+  display: grid;
+  grid-template-rows: 16px 48px 16px 14px;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  height: 108px;
+  min-height: 0;
+  padding: 4px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+a.pal-tile.paldex-cell:hover { border-color: var(--md-sys-color-outline); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface); }
+.pal-tile.paldex-cell.is-unregistered { border-style: dashed; background: transparent; }
+.paldex-head { display: flex; align-items: center; justify-content: space-between; gap: 2px; width: 100%; padding: 0 2px; }
+.paldex-no { font-size: 10px; line-height: 16px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.paldex-count {
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pal-icon.paldex-icon { width: 48px; height: 48px; }
+.paldex-name { justify-self: stretch; min-width: 0; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; line-height: 16px; }
+.paldex-foot { display: grid; grid-template-columns: 10px minmax(0, 1fr) 12px; align-items: center; gap: 2px; width: 100%; height: 14px; padding: 0 2px; }
+.paldex-owned { grid-column: 1; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--md-sys-color-primary); }
+.paldex-capture { grid-column: 2; overflow: hidden; text-align: center; white-space: nowrap; font-size: 10px; line-height: 14px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
+.paldex-goal { grid-column: 3; display: inline-flex; color: var(--md-sys-color-warning); }
+.paldex-star { width: 12px; height: 12px; stroke-width: 2; }
+.paldex-star path { fill: currentColor; }
+.paldex-legend :is(.paldex-count, .paldex-capture) { grid-column: auto; }
+.pal-icon-silhouette > :is(img, svg) { filter: brightness(0) opacity(.35); }
+@media (prefers-color-scheme: dark) {
+  .pal-icon-silhouette > :is(img, svg) { filter: brightness(0) invert(1) opacity(.3); }
+}
 .side-drawer .owned-row {
   grid-template-columns: 184px minmax(0, 1fr);
   grid-template-rows: auto;
