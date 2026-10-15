@@ -7,10 +7,11 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
-  keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
+  keywordTerms, keywordNotes, workEntries, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 import { isParentCandidate } from '../../web/js/core/ideal.js';
+import palWork from '../../web/data/work.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const P2 = 'abcd1234-0000-0000-0000-000000000000';
@@ -696,4 +697,44 @@ test('所持パル（配合牧場ボード）: 牧場の親と牧場の上のタ
   const legacy = byIdOf(ownedFromShared({ world: { worldName: 'テスト', farms: [{ id: 'F1', baseId: BASE, parents: ['a', 'b'], n: 2 }] },
     columns: upload.columns.slice(0, width), rows: upload.rows.map((row) => row.slice(0, width)) }, { pals, passives }));
   assert.deepEqual([legacy.egg1.eggItemId, legacy.egg1.farm, legacy.a.farm?.role], ['', null, 'parent']);
+});
+
+// game-assets: 作業適性（web/data/work.js。ゲーム本体の表）を種族から引き、キーワードで探す。「採掘3」は採掘 Lv 3 以上（名前の直後の数字は Lv の下限）
+test('所持パル: 作業適性を種族から引き、キーワード「採掘」で作業の名前、「採掘3」で Lv 3 以上に絞る。一致の理由は「作業適性：採掘 Lv6」', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('a', 'Anubis', { kind: 'party' }),
+    pal('b', 'PinkCat', { kind: 'party' }),
+    pal('c', 'SheepBall', { kind: 'party' }),
+    pal('h', 'Male_Soldier01', { kind: 'party' }),
+  ] }, { pals, passives }).pals;
+  const [a, b, c, h] = list;
+  // 種族の値をそのまま指す（共有の列は要らない）。マスターにないもの（人間）は作業適性なし
+  assert.equal(a.work, palWork.Anubis);
+  assert.deepEqual(h.work, {});
+  assert.deepEqual(workEntries(a.work).map(({ name, level }) => `${name}${level}`), ['手作業6', '採掘6', '運搬4']);
+  assert.deepEqual(workEntries(undefined), []);
+  const ids = (query) => filterOwned(list, { query }).map((p) => p.id).sort();
+  assert.deepEqual(ids('採掘'), ['a', 'b']);
+  assert.deepEqual(ids('採掘3'), ['a']);
+  // 全角の数字・ひらがなもそろえる。Lv が足りなければ当たらない
+  assert.deepEqual(ids('採掘６'), ['a']);
+  assert.deepEqual(ids('ひおこし'), []);
+  assert.deepEqual(ids('採掘7'), []);
+  // 数字は何桁でも Lv の下限（文字の部分一致には戻さない）
+  assert.deepEqual(ids('採掘100'), []);
+  assert.deepEqual(ids('採掘06'), ['a']);
+  assert.deepEqual(ids('運搬1'), ['a', 'b', 'c']);
+  assert.deepEqual(ids('運搬 手作業2'), ['a']);
+  // 作業の名前でない語＋数字は、今までどおり文字の部分一致
+  assert.deepEqual(ids('アヌビス3'), []);
+  const notes = (item, query) => keywordNotes(item, keywordTerms(query));
+  assert.deepEqual(notes(a, '採掘3'), [{ label: '作業適性', name: '採掘 Lv6', desc: '' }]);
+  assert.deepEqual(notes(b, '採掘'), [{ label: '作業適性', name: '採掘 Lv1', desc: '' }]);
+  // 語の順に。作業適性は属性の次（同じ語の中の並び）
+  assert.deepEqual(notes(a, '運搬3 アヌビス').map((note) => `${note.label}：${note.name}`), ['作業適性：運搬 Lv4', 'パル名：アヌビス', 'パートナースキル：砂漠の守護神']);
+  // 「牧場」は作業の名前（モコロンは牧場 Lv1）とパートナースキルの説明（家畜牧場）の両方に当たる
+  assert.deepEqual(notes(c, '牧場').map((note) => `${note.label}：${note.name}`), ['作業適性：牧場 Lv1', 'パートナースキル：モコモコの盾']);
+  // 共有の個体も種族から引く
+  const shared = ownedFromShared(sharedUpload(normalizeOwned({ ...snapshot, pals: [pal('a', 'Anubis', { kind: 'party' })] }, { pals, passives })), { pals, passives });
+  assert.equal(shared.pals[0].work, palWork.Anubis);
 });

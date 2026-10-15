@@ -10,6 +10,7 @@ import { palDetail, PAL_RECORDS_SHOWN } from '../../web/js/views/pal-detail.js';
 import { installHoverCards } from '../../web/js/ui/hover-card.js';
 import { passiveChip } from '../../web/js/ui/passive-picker.js';
 import { palTile } from '../../web/js/ui/pal-icon.js';
+import palWork, { WORKS } from '../../web/data/work.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const hasClass = (node, name) => node.className.split(' ').includes(name);
@@ -269,4 +270,41 @@ test('解説の板: パルのタイル・パッシブのチップに止まると
   assert.equal(cards.current().pinned, true);
   cards.destroy();
   assert.equal(cards.current(), null);
+});
+
+// game-assets: 属性はゲームのアイコンと名前（読めなければ前の文字のチップ）、作業適性の行（ゲームの表の列の順に、アイコン・名前・Lv）
+test('パル詳細: 属性はゲームのアイコン＋名前で、アイコンが読めなければ文字のチップに戻る。ヒーローに作業適性の行（持たない種族は出さない）', async (t) => {
+  installDom(t);
+  const detail = palDetail(context(), 'BluePlatypus_Fire');
+  const items = descendants(byClass(detail.element, 'element-chips')).filter((node) => hasClass(node, 'element-item'));
+  assert.deepEqual(items.map((node) => [node.className, node.textContent, node.children[0].tagName, node.children[0].alt]), [
+    ['element-item element-Water', '水', 'img', ''],
+    ['element-item element-Fire', '炎', 'img', ''],
+  ]);
+  assert.match(items[1].children[0].src, /\/img\/element\/Fire\.png$/);
+  // 画像が読めない（撤回で消した・取り出す前）→ その属性だけ、前の文字のチップ（地の色に白い文字）
+  await items[1].children[0].dispatch('error');
+  assert.deepEqual([items[1].className, items[1].textContent, items[1].children.length], ['element-chip element-Fire', '炎', 0]);
+  assert.equal(items[0].className, 'element-item element-Water');
+  // 作業適性: ゲームの表の列の順（WORKS）に、アイコン・名前・Lv
+  const work = byClass(detail.element, 'pal-work');
+  assert.equal(byClass(work, 'pal-work-label').textContent, '作業適性');
+  const expected = Object.keys(WORKS).filter((key) => palWork.BluePlatypus_Fire[key]).map((key) => `${WORKS[key].ja}Lv${palWork.BluePlatypus_Fire[key]}`);
+  assert.ok(expected.length >= 2);
+  const rows = descendants(work).filter((node) => hasClass(node, 'pal-work-item'));
+  assert.deepEqual(rows.map((node) => node.textContent), expected);
+  assert.ok(rows.every((node) => node.children[0].tagName === 'img' && node.children[0].alt === '' && /\/img\/work\/\w+\.png$/.test(node.children[0].src)));
+  // 一覧の名前は見出し（aria-labelledby）
+  const list = byClass(work, 'pal-work-list');
+  assert.equal(list.getAttribute('aria-labelledby'), byClass(work, 'pal-work-label').id);
+  // アイコンが読めなければ、名前と Lv だけ
+  await rows[0].children[0].dispatch('error');
+  assert.equal(rows[0].textContent, expected[0]);
+  assert.equal(rows[0].children[0].className, 'pal-work-name');
+  detail.destroy();
+  // 作業適性を持たない種族（ホエーラー）は行を出さない
+  const none = palDetail(context(), 'KingWhale');
+  assert.deepEqual(palWork.KingWhale, {});
+  assert.equal(byClass(none.element, 'pal-work'), undefined);
+  none.destroy();
 });

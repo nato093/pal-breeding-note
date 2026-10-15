@@ -1,14 +1,15 @@
 // パル 1 種の詳細（全画面のパル詳細のページと、右のドロワーで共通。pal-detail）。その種族について知りたいこと（英名・パートナースキル・
 // 所持・登録済みの配合）と、次にすること（継承ルート・理想個体・目標・登録）の入口。配合の件数とカードは登録済みの記録を数えるだけ（INV-2）
 import { el, link, empty, syncList, clearList, loadingState } from '../ui/dom.js';
-import { palsById, palIcon, elementChips, genderMark } from '../ui/pal-icon.js';
+import { palsById, palIcon, elementChips, genderMark, workIcon } from '../ui/pal-icon.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { goalToggle } from '../ui/goal-toggle.js';
 import { navIcon } from '../ui/nav-icons.js';
 import { findByChild, findByParent } from '../core/index.js';
 import { recordComparator } from '../core/record-sort.js';
-import { ownedBySpecies, ownedCounts, sortOwned, PLACE_ORDER } from '../core/owned.js';
+import { ownedBySpecies, ownedCounts, sortOwned, PLACE_ORDER, workEntries } from '../core/owned.js';
 import { PARTNER_SKILLS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
+import palWork from '../../data/work.js';
 import { buildHash } from '../router.js';
 import { dataPending, renderCards, palDataNotes, viewHeading } from './shared.js';
 import { ownedRowItem, openDetailOnClick } from './owned.js';
@@ -26,6 +27,29 @@ function statsOf(pals) {
   let stats = statsCache.get(pals);
   if (!stats) statsCache.set(pals, stats = { bySpecies: ownedBySpecies(pals), counts: ownedCounts(pals) });
   return stats;
+}
+
+/**
+ * 作業適性の行（ヒーロー。ゲームの表の列の順に、作業のアイコン・名前・Lv。game-assets）。作業適性を持たない種族は null
+ * （アイコンが読めなければ名前と Lv だけ）
+ */
+export function workLine(palId) {
+  const entries = workEntries(palWork[palId]);
+  if (!entries.length) return null;
+  const line = el('div', 'pal-work');
+  const list = el('ul', 'pal-work-list');
+  for (const { key, name, level } of entries) {
+    const item = el('li', 'pal-work-item');
+    const icon = workIcon(key);
+    if (icon) item.append(icon);
+    item.append(el('span', 'pal-work-name', name), el('span', 'pal-work-level', `Lv${level}`));
+    list.append(item);
+  }
+  const label = el('span', 'pal-work-label', '作業適性');
+  label.id = `pal-work-${palId}-${Math.random().toString(36).slice(2, 8)}`;
+  list.setAttribute('aria-labelledby', label.id);
+  line.append(label, list);
+  return line;
 }
 
 // 行き先のボタン（リンク。navIcon を 16px で添える）
@@ -94,6 +118,9 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
     } else if (desc) partner.append(el('p', 'pal-partner-desc', desc));
     info.append(partner);
   }
+  // 作業適性（パートナースキルの下。持たない種族は出さない。game-assets）
+  const work = workLine(pal.id);
+  if (work) info.append(work);
   // 所持の 1 行（所持パルのデータがある人だけ。O-41・F075）
   const ownedLine = el('p', 'pal-owned-line');
   ownedLine.hidden = true;

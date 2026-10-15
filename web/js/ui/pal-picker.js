@@ -184,7 +184,8 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder:
       option.id = `${listId}-${index}`;
       option.tabIndex = -1;
       option.setAttribute('role', 'option');
-      option.append(choice.id ? palTile(choice.id, { clickable: false }) : el('span', '', 'パルを選択'));
+      // 候補の行は名前の右に属性のアイコン（game-assets。選んだ後の欄〔trigger〕には出さない）
+      option.append(choice.id ? palTile(choice.id, { clickable: false, elements: true }) : el('span', '', 'パルを選択'));
       if (choice.note) option.append(el('span', 'picker-note', choice.note));
       const badge = choice.id ? info.badges?.get(choice.id) : '';
       if (badge) option.append(el('span', 'picker-badge', badge));
