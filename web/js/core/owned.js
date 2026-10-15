@@ -217,23 +217,25 @@ const PLAYER_LEVEL = { min: 0, max: 999, fallback: 0 };
 const playerExtras = (player) => ({ level: int(player.level, PLAYER_LEVEL), online: typeof player.online === 'boolean' ? player.online : null });
 
 // ---- 捕獲数（paldex。Players/<uid>.sav の RecordData の PalCaptureCount。ホストの画面だけ・共有しない） ----
-const CAPTURE_COUNT = { min: 0, max: 10000000, fallback: 0 };
+const CAPTURE_COUNT_MAX = 10000000;
 const CAPTURE_ENTRIES_MAX = 2000;
 /**
  * スナップショットのプレイヤーの捕獲数（[{ id: キャラクター ID, count }]）を { パル ID: 回数 } にする。キャラクター ID はマスターの ID に
  * 引き（大文字小文字の違い・BOSS_ などの接頭辞もそろえ、同じ種族は合わせる）、人間などマスターにないキーと 0 回は捨てる。
- * 捕獲数のない古いスナップショット・形の違う値は null（分からない）
+ * 捕獲数のない古いスナップショット・形の違う値（配列でない、空でないのに形の合う項目が 1 つもない）は null（分からない。「捕獲 0 回」と
+ * 区別する）。空の配列は「捕まえていない」（{}）
  */
 function capturesOf(value, resolve) {
   if (!Array.isArray(value)) return null;
   const total = new Map();
+  let valid = 0;
   for (const entry of value.slice(0, CAPTURE_ENTRIES_MAX)) {
-    if (!isObject(entry) || typeof entry.id !== 'string') continue;
+    if (!isObject(entry) || typeof entry.id !== 'string' || !Number.isInteger(entry.count) || entry.count < 0) continue;
+    valid++;
     const palId = resolve(entry.id).palId;
-    const count = int(entry.count, CAPTURE_COUNT);
-    if (palId && count > 0) total.set(palId, Math.min(CAPTURE_COUNT.max, (total.get(palId) ?? 0) + count));
+    if (palId && entry.count > 0) total.set(palId, Math.min(CAPTURE_COUNT_MAX, (total.get(palId) ?? 0) + entry.count));
   }
-  return Object.fromEntries(total);
+  return value.length && !valid ? null : Object.fromEntries(total);
 }
 
 /**

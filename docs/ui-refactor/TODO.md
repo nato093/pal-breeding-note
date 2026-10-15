@@ -939,7 +939,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 パル手術台とインプラント・パルリバーサー
 
-- 状態: 前半・後半とも実装済（2026-10-16。前半はパル手術台の表・在庫・案内・`s`・継承ルートの 1 行・「手術で完成できる」、後半はパルリバーサーの案内〔D17〕。実装の記録は phase-3-4-drawer-data.md の implants の節）。完了の条件のうち、実セーブ（ホストの画面）での手術台の案内の確認が残り。統合ブランチへのマージは親の確認の後 ／ ブランチ: `feature/implants` ／ マージのコミット: （未）
+- 状態: 前半・後半とも実装済（2026-10-16。前半はパル手術台の表・在庫・案内・`s`・継承ルートの 1 行・「手術で完成できる」、後半はパルリバーサーの案内〔D17〕。実装の記録は phase-3-4-drawer-data.md の implants の節）。完了の条件のうち、実セーブ（ホストの画面）での手術台の案内の確認が残り。統合ブランチ `integrate/phase-4` へマージした ／ ブランチ: `feature/implants` ／ マージのコミット: `471712b`
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 
 - [x] `scripts/extract-implants.mjs` で手術台の表を取り出し、`web/data/implants.js` を生成（パッシブ ID の照合）（→ v1.0.5 で 54 行。パルリバーサーの名前 `GENDER_REVERSE_NAME` も）
@@ -959,17 +959,17 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 パルの図鑑（`#/pal` の格子）
 
-- 状態: 未着手 ／ ブランチ: `feature/paldex` ／ マージのコミット: （未）
+- 状態: 実装済（2026-10-16。実装の記録は phase-3-4-drawer-data.md の paldex の節。完了の条件のうち、実セーブをホストの画面〔ブラウザ〕で読んだ捕獲数の表示は `check:save` の出力で代えた）。統合ブランチへのマージは親の確認の後 ／ ブランチ: `feature/paldex` ／ マージのコミット: （未）
 
-- [ ] `web/js/views/paldex.js` と、`views/pal.js` の ID なしの分岐
-- [ ] 見出し・「子として登録 N / 298」・絞り込み（viewState）
-- [ ] 格子（48px 固定・lazy・件数・影・点・星・`syncList` で印だけ更新）
-- [ ] `palIcon(pal, { silhouette })` と CSS の filter（ライト・ダークの濃さの調整）
-- [ ] パル詳細に「図鑑」のリンク
-- [ ] `check-save --probe` で RecordData を確かめる
-- [ ] 捕獲数の読み取り（PLAYER_SKIP・parsePlayer・失敗しても続く）と自分の分の表示
-- [ ] テスト（paldex・save）と性能の計測
-- [ ] SAVE_FORMAT.md・OPERATIONS.md・release-notes
+- [x] `web/js/views/paldex.js` と、`views/pal.js` の ID なしの分岐（→ 不正な ID も「パルが見つかりません」と知らせて図鑑）
+- [x] 見出し・「子として登録 N / 298」・絞り込み（viewState）（→ `viewState('paldex').filter`。「未所持」は所持パルのデータがあるときだけ）
+- [x] 格子（48px 固定・lazy・件数・影・点・星・`syncList` で印だけ更新）（→ 絞り込みも hidden で、マスは作り直さない）
+- [x] `palIcon(pal, { silhouette })` と CSS の filter（ライト・ダークの濃さの調整）（→ `size` も。ライトは黒の 35%・ダークは白の 30%）
+- [x] パル詳細に「図鑑」のリンク（→ ページとドロワーのパル切り替えの横。ヘッダーのパル検索の「図鑑を開く」〔任意〕は入れていない）
+- [x] `check-save --probe` で RecordData を確かめる（→ Map<Name, Int>。246 件・224 件、引けないのは Human だけ）
+- [x] 捕獲数の読み取り（PLAYER_SKIP・parsePlayer・失敗しても続く）と自分の分の表示（→ パル ID には normalizeOwned で引く。PaldeckUnlockFlag は読まない）
+- [x] テスト（paldex・save）と性能の計測
+- [x] SAVE_FORMAT.md・OPERATIONS.md・release-notes
 
 ### フェーズ 4 の終わり
 

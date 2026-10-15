@@ -104,9 +104,19 @@ test('捕獲数: スナップショットは読めたプレイヤーだけに ca
   assert.deepEqual([...ownCaptures(owned.players, new Set([P1]))], [['SheepBall', 12], ['Werewolf_Ice', 3], ['Anubis', 7]]);
   assert.equal(ownCaptures(owned.players, new Set()), null);
   assert.equal(ownCaptures(owned.players, new Set([P2])), null);
-  // 形の違う値（古いスナップショットの壊れた値）は捨てる
-  const odd = normalizeOwned({ ...snap, players: [{ uid: P1, name: 'Alice', captures: 'x' }, { uid: P2, name: 'Bob', captures: [{ id: 3, count: 1 }, { id: 'PinkCat', count: -2 }, null, { id: 'PinkCat', count: 4 }] }] }, { pals, passives });
-  assert.deepEqual(odd.players.map((p) => p.captures ?? null), [null, { PinkCat: 4 }]);
+  // 形の違う値（壊れた値）: 配列でない・空でないのに形の合う項目が 1 つもないものは分からない（null。「捕獲 0 回」と区別する）。
+  // 混ざっていれば形の合う項目だけ。空の配列は「捕まえていない」
+  const P3 = '00000000-0000-0000-0000-000000000003';
+  const P4 = '00000000-0000-0000-0000-000000000004';
+  const odd = normalizeOwned({ ...snap, players: [
+    { uid: P1, name: 'Alice', captures: 'x' },
+    { uid: P2, name: 'Bob', captures: [{ id: 3, count: 1 }, { id: 'PinkCat', count: -2 }, null, { id: 'PinkCat', count: 4 }, { id: 'SheepBall', count: 1.5 }] },
+    { uid: P3, name: 'Carol', captures: [{ id: 'SheepBall', count: 'broken' }, null] },
+    { uid: P4, name: 'Dave', captures: [] },
+  ] }, { pals, passives });
+  assert.deepEqual(odd.players.map((p) => p.captures ?? null), [null, { PinkCat: 4 }, null, {}]);
+  assert.equal(ownCaptures(odd.players, new Set([P3])), null);
+  assert.deepEqual([...ownCaptures(odd.players, new Set([P4]))], []);
 });
 
 test('捕獲数は共有しない: 送る形（sharedUpload）に入れず、共有から作る画面のデータ（ownedFromShared）にもない', () => {

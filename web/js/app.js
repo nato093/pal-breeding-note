@@ -659,7 +659,16 @@ async function boot() {
     if (!plainClick(event)) return;
     const anchor = anchorOf(event.target);
     const hash = hrefOf(anchor);
-    if (!hash.startsWith('#/') || hash === location.hash) return;
+    if (!hash.startsWith('#/')) return;
+    if (hash === location.hash) {
+      // ドロワーの中の、今の本文と同じ URL へのリンク（図鑑を開いたまま、ドロワーのパル詳細の「図鑑」を押したなど）は、移る先がないので
+      // ドロワーを閉じて本文を見せる（× と同じ。paldex）
+      if (drawer.isOpen() && drawer.element.contains?.(anchor)) {
+        event.preventDefault();
+        drawer.close({ reason: 'dismiss' });
+      }
+      return;
+    }
     if (sameScreenDestination(event, hash)) return;
     saveEntry();
     intent = String(anchor.className).split(' ').includes('nav-tab') ? 'tab' : 'navigate';
