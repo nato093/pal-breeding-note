@@ -1676,7 +1676,7 @@ test('所持パル画面: 絞り込みは sticky のパネル（2 段＋状態�
   assert.deepEqual(panel.children.map((node) => node.className), ['owned-panel-main', 'owned-panel-sub', 'owned-status-row']);
   // 並び: 見出し → 案内の帯 → パネル → 一覧（件数の行はパネルの中）
   // 列見出しは一覧の入れ物の前の別の要素（owned-rows）
-  assert.deepEqual(view.element.children.map((node) => node.className), ['view-heading', 'owned-summary', 'owned-panel', 'owned-list-head', 'owned-list']);
+  assert.deepEqual(view.element.children.map((node) => node.className), ['view-heading', 'owned-summary', 'farm-band', 'owned-panel', 'owned-list-head', 'owned-list']);
   assert.ok(panel.querySelector('.owned-status-row').querySelector('.result-note'));
   // 状態の行は [件数][条件のチップ][+n][目標の印][すべて解除][並べ替え]（D31 で「リンクをコピー」は機能ごとなくした）
   assert.deepEqual(panel.querySelector('.owned-status-row').children.map((node) => node.className.split(' ').at(-1)),
@@ -3088,4 +3088,36 @@ test('ワールドの登録（roles）: 背景のクリックでは閉じず、�
   assert.match(host.className, /is-dim/);
   assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストの PC だけ（参加として登録できます）');
   assert.equal(register.disabled, false);
+});
+
+test('所持パル画面（配合牧場の帯）: 牧場の情報があれば「配合牧場（N か所 · タマゴ M 個）」の帯を出し、既定は閉じてカードを作らない。開閉は viewState に残し、「右に開く」はドロワー', (t) => {
+  installDom(t);
+  const owned = fakeOwned();
+  owned.state.owned.farms = [{ id: 'F1', baseId: '', parents: ['a'], status: 'ok', eggs: [], eggCount: 2 }, { id: 'F2', baseId: '', parents: [], status: 'ok', eggs: [], eggCount: 0 }];
+  const memory = {};
+  const opened = [];
+  const app = { ...context(owned), viewState: () => memory, drawer: { open: (entry) => opened.push(entry), current: () => null, subscribe: () => () => {} } };
+  const view = ownedView(app, parseHash('#/owned'));
+  const band = view.element.querySelector('.farm-band');
+  assert.equal(band.hidden, false);
+  const toggle = band.querySelector('.farm-band-toggle');
+  assert.equal(toggle.textContent, '配合牧場（2 か所 · タマゴ 2 個）');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(band.querySelectorAll('.farm-card').length, 0);
+  toggle.dispatch('click');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(band.querySelectorAll('.farm-card').length, 2);
+  assert.equal(memory.farmsOpen, true);
+  view.destroy();
+  // 開いたまま作り直しても開いている（タブを替えて戻ったとき）
+  const again = ownedView(app, parseHash('#/owned'));
+  assert.equal(again.element.querySelector('.farm-band-toggle').getAttribute('aria-expanded'), 'true');
+  again.element.querySelector('.farm-band-open').dispatch('click');
+  assert.deepEqual(opened, [{ kind: 'farms', id: '' }]);
+  again.destroy();
+  // 牧場の情報がないデータでは帯を出さない
+  owned.state.owned.farms = null;
+  const none = ownedView(context(owned), parseHash('#/owned'));
+  assert.equal(none.element.querySelector('.farm-band').hidden, true);
+  none.destroy();
 });

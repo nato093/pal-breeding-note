@@ -1,7 +1,9 @@
-// ゲーム本体（Pal-Windows.pak）から、アクティブスキルとパートナースキルの日本語名と説明を取り出す。
+// ゲーム本体（Pal-Windows.pak）から、アクティブスキルとパートナースキルの日本語名と説明、タマゴの日本語名を取り出す。
 // 所持パルのキーワード検索で、覚えているアクティブスキルとパートナースキルを名前と説明で探すのに使う。
 //   web/data/skills.js … アクティブスキルの ID（セーブの EquipWaza・MasteredWaza から EPalWazaID:: を外したもの）→ 日本語名・説明、
 //                        パル ID → パートナースキルの日本語名・説明
+//   web/data/items.js  … タマゴのアイテム ID（セーブのタマゴの itemId。PalEgg_Fire_01 など）→ 日本語名（DT_ItemNameText_Common の
+//                        ITEM_NAME_PalEgg_*。所持パルのタマゴの行と配合牧場のカード。farm-board）
 // 使い方: npm run extract:skills -- "<Palworld のインストール先>"（省略時は環境変数 PALWORLD_DIR か既定の場所）
 // 読み取りのみ。使う表（名前のない行は「-」）:
 //   DT_SkillNameText_Common（ACTION_SKILL_〈ID〉・PARTNERSKILL_〈パル ID〉の名前）、DT_SkillDescText_Common（ACTION_SKILL_〈ID〉の説明）、
@@ -106,6 +108,26 @@ export function buildSkills(tables, palIds) {
   };
 }
 
+/**
+ * アイテムの名前の表から、タマゴ（ITEM_NAME_PalEgg_*）の日本語名を取り出す（名前のない行は捨てる）。
+ * @param {Map<string, string>} itemNames 行名 → 文字列
+ * @returns {Record<string, string>} アイテム ID → 名前（ID の順）
+ */
+export function buildEggNames(itemNames) {
+  const eggs = {};
+  for (const [key, value] of itemNames ?? []) {
+    const match = /^ITEM_NAME_(PalEgg_\w+)$/i.exec(key);
+    if (match && named(value)) eggs[match[1]] = String(value).trim();
+  }
+  return sorted(eggs);
+}
+
+export function renderEggNames(eggs) {
+  return '// タマゴのアイテム ID → 日本語名（ゲーム本体の DT_ItemNameText_Common から npm run extract:skills で生成。手で直さない）\n'
+    + '// セーブのタマゴの itemId と大文字小文字が違うことがあるので、引く側は小文字にそろえて比べる\n'
+    + `export const EGG_NAMES = {\n${Object.entries(eggs).map(([id, text]) => `  ${JSON.stringify(id)}: ${JSON.stringify(text)},`).join('\n')}\n};\n`;
+}
+
 export function renderSkills({ active, partner, activeDescs, partnerDescs }) {
   const block = (name, object) => `export const ${name} = {\n${Object.entries(object).map(([id, text]) => `  ${JSON.stringify(id)}: ${JSON.stringify(text)},`).join('\n')}\n};\n`;
   return '// アクティブスキルとパートナースキルの日本語名と説明（ゲーム本体から npm run extract:skills で生成。手で直さない）\n'
@@ -127,6 +149,9 @@ function main() {
     }));
     const skills = buildSkills(tables, pals.map((pal) => pal.id));
     fs.writeFileSync(path.join(root, 'web', 'data', 'skills.js'), renderSkills(skills));
+    const eggs = buildEggNames(tables.itemNames);
+    fs.writeFileSync(path.join(root, 'web', 'data', 'items.js'), renderEggNames(eggs));
+    console.log(`タマゴの名前: ${Object.keys(eggs).length} 件`);
     const count = (object) => Object.keys(object).length;
     const lacking = pals.filter((pal) => !skills.partner[pal.id] || !skills.partnerDescs[pal.id]).map((pal) => pal.id);
     console.log(`アクティブスキル: 名前 ${count(skills.active)} 件・説明 ${count(skills.activeDescs)} 件、`

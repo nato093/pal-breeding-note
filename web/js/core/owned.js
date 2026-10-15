@@ -8,6 +8,7 @@ import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
 import passiveList from '../../data/passives.js';
 import { ACTIVE_SKILLS, PARTNER_SKILLS, ACTIVE_SKILL_DESCS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
+import { EGG_NAMES } from '../../data/items.js';
 
 // 野生のボス（アルファ）などは CharacterID に接頭辞が付く（例: BOSS_IceHorse）。
 const PREFIXES = ['BOSS_', 'GYM_', 'RAID_', 'PREDATOR_'];
@@ -245,6 +246,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       ...skillInfo(source.skills),
       talent: isObject(source.talent) ? talentOf(source.talent.hp, source.talent.shot, source.talent.defense) : talentOf(),
       lucky: source.isRare === true,
+      // タマゴのアイテム ID（PalEgg_Fire_01・突然変異は PalEgg_MutationPal_*。タマゴの名前と突然変異の印。farm-board）
+      eggItemId: egg ? text(location.itemId, 64) : '',
       place: kind,
       placeGroup: placeGroup(kind),
       placeLabel: text(placeDetail, 200),
@@ -257,6 +260,16 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       baseId: location.baseId ?? '',
     });
   }
+  const farms = Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).map((farm) => {
+    const eggs = list(farm.eggs, { max: FARM_EGGS_MAX, map: (egg) => (isObject(egg) && idText(egg.localId) ? {
+      id: egg.localId, palId: resolve(text(egg.characterId, 200)).palId, mutant: isMutationEggItem(text(egg.itemId, 200)),
+    } : null) });
+    return {
+      id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
+      status: farm.status === 'uncertain' ? 'uncertain' : 'ok', eggs, eggCount: eggs.length,
+    };
+  }) : null;
+  attachFarms(entries, farms);
   return {
     world: snapshot?.world ?? {},
     // 一覧に出すプレイヤーと拠点は、共有と同じ件数まで（所持者の名前は、上ですべてのプレイヤーから引いている）
@@ -269,15 +282,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     //（core/ideal-farms.js の readyFarms・farmCompleteness）。状態のない古い解析結果は ok。
     // eggs は牧場の上のタマゴ（{ id: タマゴの個体 ID, palId: 中身〔マスターにないものは ''〕, mutant: 突然変異 }。セーブの順。64 個まで）、
     // eggCount はその数（farm-data。共有で中身を省いたときは eggs が null で、数だけが分かる）
-    farms: Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).map((farm) => {
-      const eggs = list(farm.eggs, { max: FARM_EGGS_MAX, map: (egg) => (isObject(egg) && idText(egg.localId) ? {
-        id: egg.localId, palId: resolve(text(egg.characterId, 200)).palId, mutant: isMutationEggItem(text(egg.itemId, 200)),
-      } : null) });
-      return {
-        id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
-        status: farm.status === 'uncertain' ? 'uncertain' : 'ok', eggs, eggCount: eggs.length,
-      };
-    }) : null,
+    farms,
     // 牧場そのものが一部だけか（共有で牧場を切ったとき。手元のセーブはいつも全部）。farmsCounted は牧場の数とタマゴの数が分かる形か
     //（共有で n のない古い形は false。空いて見える牧場が読めない牧場かもしれないので、空き牧場の判定をしない）
     farmsPartial: false,
@@ -294,6 +299,27 @@ const GENDER_WORDS = { M: ['オス', '♂'], F: ['メス', '♀'] };
 
 // キーワードで探す項目。数値（レベル・★・個体値）は専用の絞り込みがあるので含めない。
 // スキルとパッシブは、名前と説明を同じ順番で並べる（一致した理由を出すときに、説明から名前を引く。NOTE_SPECS）
+// タマゴのアイテム ID → 日本語名（ゲーム本体の表。セーブの ID と大文字小文字が違うことがあるので、小文字にそろえて引く）
+const eggNames = new Map(Object.entries(EGG_NAMES).map(([id, name]) => [id.toLowerCase(), name]));
+/** タマゴの名前（「暗黒デカタマゴ」など。表にない ID・空なら ''。farm-board） */
+export const eggName = (itemId) => eggNames.get(String(itemId ?? '').toLowerCase()) ?? '';
+
+/** 突然変異のタマゴか（アイテム ID か、牧場の上のタマゴの印で見る） */
+export const isMutantEgg = (pal) => Boolean(pal?.egg && (isMutationEggItem(pal.eggItemId) || pal.farm?.mutant));
+
+/**
+ * 個体に配合牧場の印を付ける（farm: { id, baseId, role: 'parent' | 'egg', mutant } | null。farm-board）。牧場の親と、牧場の上のタマゴ
+ *（共有で中身を省いた牧場〔eggs: null〕のタマゴには付かない）。読めない牧場の親も、引けた分は親として付ける
+ */
+function attachFarms(entries, farms) {
+  const byId = new Map();
+  for (const farm of farms ?? []) {
+    for (const id of farm.parents) if (!byId.has(id)) byId.set(id, { id: farm.id, baseId: farm.baseId, role: 'parent', mutant: false });
+    for (const egg of farm.eggs ?? []) if (!byId.has(egg.id)) byId.set(egg.id, { id: farm.id, baseId: farm.baseId, role: 'egg', mutant: egg.mutant });
+  }
+  for (const entry of entries) entry.farm = byId.get(entry.id) ?? null;
+}
+
 function keywordFields(pal) {
   return {
     name: [pal.name, pal.en, pal.characterId],
@@ -306,7 +332,8 @@ function keywordFields(pal) {
     passives: pal.passiveNames,
     passiveDescs: pal.passiveDescs ?? [],
     gender: GENDER_WORDS[pal.gender] ?? [],
-    status: [pal.egg && 'タマゴ', pal.lucky && 'ラッキー', pal.alpha && 'アルファ'],
+    // 配合牧場の親と牧場の上のタマゴは「配合牧場」、突然変異のタマゴは「突然変異」でも探せる（farm-board）
+    status: [pal.egg && 'タマゴ', pal.egg && eggName(pal.eggItemId), pal.lucky && 'ラッキー', pal.alpha && 'アルファ', pal.farm && '配合牧場', isMutantEgg(pal) && '突然変異'],
     holder: [pal.holder],
     place: [pal.placeLabel],
     // 預けた人は拠点の個体にだけ出しているので、探すのもそれに合わせる
@@ -754,6 +781,7 @@ export function sharedUpload(owned) {
       passiveIds: pal.passives.join('|'), talentHp: String(pal.talent.hp), talentShot: String(pal.talent.shot), talentDefense: String(pal.talent.defense),
       lucky: pal.lucky ? '1' : '', alpha: pal.alpha ? '1' : '', egg: pal.egg ? '1' : '', place: pal.place, placeLabel: pal.placeLabel,
       holderUid: pal.holderUid, holder: pal.holder, baseId: pal.baseId, lastOwner: pal.lastOwner, skillIds: pal.skills.join('|'),
+      eggItemId: pal.eggItemId ?? '',
     };
     for (let i = 0; i < 4; i++) value[`passive${i + 1}`] = pal.passiveNames[i] ?? '';
     return OWNED_FIELDS.map((field) => value[field] ?? '');
@@ -803,9 +831,9 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   const index = new Map(columns.map((field, i) => [field, i]));
   // 列の位置は 1 回だけ引き、行ごとには位置で読む（20,000 行で列名を何度も探さない）
   const at = (field) => index.get(field) ?? -1;
-  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS] = [
+  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS, EGG_ITEM] = [
     'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars', 'passiveIds', 'talentHp', 'talentShot', 'talentDefense',
-    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds',
+    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds', 'eggItemId',
   ].map(at);
   const PASSIVE_NAMES = [at('passive1'), at('passive2'), at('passive3'), at('passive4')];
   const entries = [];
@@ -844,19 +872,24 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       // skillIds は後から足した列。スキルを送らない古い画面から共有されたときは空
       ...skillInfo(skillText ? skillText.split('|') : []),
       talent: talentOf(get(HP), get(SHOT), get(DEFENSE)),
-      lucky: get(LUCKY) === '1', place: kind, placeGroup: placeGroup(kind), placeLabel,
+      lucky: get(LUCKY) === '1',
+      // eggItemId は後から足した列（farm-board）。列のない共有（GAS の setup() の前・古い画面）では空
+      eggItemId: egg ? text(get(EGG_ITEM), 64) : '',
+      place: kind, placeGroup: placeGroup(kind), placeLabel,
       // 共有には位置の列がないので、placeLabel の文字から読む（書式の違う古い共有は null で、文字だけを出す）
       box: kind === 'palbox' ? parseBoxLabel(placeLabel) : null,
       holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
     });
   }
+  const farmData = sharedFarms(world.farms, palsById);
+  attachFarms(entries, farmData.farms);
   return {
     world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50) },
     players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
-    ...sharedFarms(world.farms, palsById),
+    ...farmData,
     stats: {},
   };
 }

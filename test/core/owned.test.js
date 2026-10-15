@@ -7,7 +7,7 @@ import { buildCarrierGraph, shortestRoute } from '../../web/js/core/route.js';
 import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
-  keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel,
+  keywordTerms, keywordNotes, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
 } from '../../web/js/core/owned.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
 import { isParentCandidate } from '../../web/js/core/ideal.js';
@@ -388,16 +388,17 @@ test('所持パル共有: 覚えているアクティブスキルを skillIds �
     pal('b', 'PinkCat', { kind: 'party' }),
   ] }, { pals, passives });
   const upload = sharedUpload(host);
-  assert.equal(upload.columns.at(-1), 'skillIds');
-  assert.deepEqual(upload.rows.map((row) => row.at(-1)), ['Unique_SheepBall_Roll|AirCanon', '']);
+  const skillAt = upload.columns.indexOf('skillIds');
+  assert.equal(skillAt, OWNED_FIELDS.length - 2);
+  assert.deepEqual(upload.rows.map((row) => row[skillAt]), ['Unique_SheepBall_Roll|AirCanon', '']);
   const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...upload }, { pals, passives });
   assert.deepEqual(shared.pals.map((p) => [p.skills, p.skillNames, p.partnerSkill, p.elements]), [
     [['Unique_SheepBall_Roll', 'AirCanon'], ['コロコロモコロン', 'エアーキャノン'], 'モコモコの盾', ['無']],
     [[], [], '猫の手も借りたい', ['無']],
   ]);
   assert.deepEqual(filterOwned(shared.pals, { query: 'エアーキャノン' }).map((p) => p.id), ['a']);
-  // skillIds 列を足す前に共有されたデータ（GAS が列を返さない）
-  const width = upload.columns.length - 1;
+  // skillIds 列を足す前に共有されたデータ（GAS が列を返さない。その後に足した eggItemId 列もない）
+  const width = skillAt;
   const legacy = ownedFromShared({ world: { worldName: 'テスト' }, columns: upload.columns.slice(0, width), rows: upload.rows.map((row) => row.slice(0, width)) }, { pals, passives });
   assert.deepEqual(legacy.pals.map((p) => p.skills), [[], []]);
 });
@@ -408,7 +409,11 @@ test('所持パル共有: 後から足した列のない古い画面からの共
   });
   const row = (id, extra = {}) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : extra[field] ?? ''));
   const legacyFields = OWNED_FIELDS.slice(0, OWNED_FIELDS.length - OWNED_ADDED_FIELDS.length);
-  assert.deepEqual(OWNED_ADDED_FIELDS, ['skillIds']);
+  assert.deepEqual(OWNED_ADDED_FIELDS, ['skillIds', 'eggItemId']);
+  // skillIds だけを知っている画面（eggItemId を足す前の版）からの共有も受け付ける
+  const withSkills = upload(OWNED_FIELDS.slice(0, -1), [row('p1', { skillIds: 'A' }).slice(0, -1)]);
+  assert.equal(withSkills.ok, true);
+  assert.deepEqual([withSkills.value.rows[0][OWNED_FIELDS.indexOf('skillIds')], withSkills.value.rows[0].at(-1)], ['A', '']);
   const current = upload(OWNED_FIELDS, [row('p1', { skillIds: 'A|B' })]);
   assert.equal(current.ok, true);
   assert.equal(current.value.rows[0][OWNED_FIELDS.indexOf('skillIds')], 'A|B');
@@ -420,7 +425,7 @@ test('所持パル共有: 後から足した列のない古い画面からの共
   assert.deepEqual(upload(legacyFields, [row('p1')]).errors, [{ field: 'rows', code: 'INVALID_ROWS' }]);
   assert.deepEqual(upload([...legacyFields].reverse(), [row('p1').slice(0, legacyFields.length)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
   assert.deepEqual(upload([...OWNED_FIELDS, 'extra'], [[...row('p1'), '']]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
-  assert.deepEqual(upload(OWNED_FIELDS.slice(0, -2), [row('p1').slice(0, -2)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
+  assert.deepEqual(upload(OWNED_FIELDS.slice(0, -3), [row('p1').slice(0, -3)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
   // スキルの ID はほかの列より長く持てる（ほかの列は 200 字まで）
   const long = upload(OWNED_FIELDS, [row('p1', { skillIds: 'x'.repeat(1200), nickname: 'y'.repeat(300) })]).value.rows[0];
   assert.deepEqual([long[OWNED_FIELDS.indexOf('skillIds')].length, long[OWNED_FIELDS.indexOf('nickname')].length], [1000, 200]);
@@ -653,4 +658,42 @@ test('所持の集計: 記録の両親を今の所持で組めるか（別々の
   // タマゴ・グローバルパルボックスだけの種族は組めない
   assert.equal(canPairRecord(counts, record('E', 'A')), false);
   assert.equal(canPairRecord(new Map(), record('A', 'A')), false);
+});
+
+test('所持パル（配合牧場ボード）: 牧場の親と牧場の上のタマゴに印（farm）、タマゴのアイテム ID（eggItemId）と名前、キーワード「配合牧場」「突然変異」・タマゴの名前で探せ、共有でも往復する', () => {
+  const eggs = [
+    pal('egg1', 'SheepBall', { kind: 'egg-ground', playerUid: '', baseId: BASE, itemId: 'PalEgg_Dark_03' }),
+    pal('egg2', 'PinkCat', { kind: 'egg-ground', playerUid: '', baseId: BASE, itemId: 'paleGG_mutationPal_01' }),
+  ];
+  const host = normalizeOwned({ ...snapshot, pals: [...snapshot.pals, ...eggs], breedFarms: [
+    { id: 'F1', baseId: BASE, status: 'ok', parents: [{ instanceId: 'a' }, { instanceId: 'b' }], eggs: [
+      { localId: 'egg1', characterId: 'SheepBall', itemId: 'PalEgg_Dark_03' }, { localId: 'egg2', characterId: 'PinkCat', itemId: 'paleGG_mutationPal_01' },
+    ] },
+  ] }, { pals, passives });
+  const byIdOf = (data) => Object.fromEntries(data.pals.map((p) => [p.id, p]));
+  const own = byIdOf(host);
+  assert.deepEqual(own.a.farm, { id: 'F1', baseId: BASE, role: 'parent', mutant: false });
+  assert.deepEqual(own.egg2.farm, { id: 'F1', baseId: BASE, role: 'egg', mutant: true });
+  assert.equal(own.c.farm, null);
+  // タマゴのアイテム ID（タマゴでない個体は空）と名前（大文字小文字は違っても引ける。表にない ID は空）
+  assert.deepEqual([own.egg1.eggItemId, own.a.eggItemId], ['PalEgg_Dark_03', '']);
+  assert.equal(eggName('PalEgg_Dark_03'), '暗黒デカタマゴ');
+  assert.equal(eggName('paleGG_mutationPal_01'), '突然変異タマゴ');
+  assert.equal(eggName('NoSuchEgg'), '');
+  assert.deepEqual([isMutantEgg(own.egg1), isMutantEgg(own.egg2), isMutantEgg(own.a)], [false, true, false]);
+  const ids = (data, query) => filterOwned(data.pals, { query }).map((p) => p.id).sort();
+  assert.deepEqual(ids(host, '配合牧場'), ['a', 'b', 'egg1', 'egg2']);
+  assert.deepEqual(ids(host, '突然変異'), ['egg2']);
+  assert.deepEqual(ids(host, 'デカタマゴ'), ['egg1']);
+  // 共有: eggItemId の列で往復し、牧場の印も付く
+  const upload = sharedUpload(host);
+  const shared = ownedFromShared({ world: { worldName: 'テスト', farms: upload.farms }, ...upload }, { pals, passives });
+  const theirs = byIdOf(shared);
+  assert.deepEqual([theirs.egg1.eggItemId, theirs.egg2.farm?.role, isMutantEgg(theirs.egg2)], ['PalEgg_Dark_03', 'egg', true]);
+  assert.deepEqual(ids(shared, '配合牧場'), ['a', 'b', 'egg1', 'egg2']);
+  // eggItemId の列のない共有（GAS の setup() の前・前の版の画面）では空。牧場の中身を省いた共有では、タマゴに牧場の印は付かない
+  const width = OWNED_FIELDS.indexOf('eggItemId');
+  const legacy = byIdOf(ownedFromShared({ world: { worldName: 'テスト', farms: [{ id: 'F1', baseId: BASE, parents: ['a', 'b'], n: 2 }] },
+    columns: upload.columns.slice(0, width), rows: upload.rows.map((row) => row.slice(0, width)) }, { pals, passives }));
+  assert.deepEqual([legacy.egg1.eggItemId, legacy.egg1.farm, legacy.a.farm?.role], ['', null, 'parent']);
 });

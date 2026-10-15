@@ -10,6 +10,7 @@ import { createPopover } from '../ui/popover.js';
 import { icon } from '../ui/icons.js';
 import { ownedNotices, noticeList, grantWithReport } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
+import { farmBoard } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
 import {
   viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
@@ -20,7 +21,7 @@ import { openWorldDialog } from './owned-settings.js';
 import { toast } from '../ui/toast.js';
 import { buildHash, settingsHash } from '../router.js';
 import {
-  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel,
+  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, eggName, isMutantEgg,
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
@@ -209,7 +210,7 @@ function baseSignature(pal) {
   if (signature === undefined) {
     signature = [pal.palId, pal.known, pal.name, pal.human?.icon ?? '', pal.level, pal.rank, pal.stars,
       pal.passives.join(','), pal.talent.hp, pal.talent.shot, pal.talent.defense, pal.holder, pal.place, pal.placeLabel, boxText(pal.box), pal.nickname,
-      pal.gender, pal.egg, pal.lucky, pal.alpha, pal.lastOwner].join('\u0001');
+      pal.gender, pal.egg, pal.lucky, pal.alpha, pal.lastOwner, pal.eggItemId ?? '', pal.farm?.role ?? '', isMutantEgg(pal)].join('\u0001');
     baseSignatures.set(pal, signature);
   }
   return signature;
@@ -258,10 +259,13 @@ const MARK_SLOTS = 4;
 
 // 名前の下のバッジ（ニックネーム・タマゴ・ラッキー・アルファと、理想個体のカードの「別の配合牧場で使用中」など badges の文）。
 // 1 行（入り切らない分は隠し、title に全部）。バッジがなければ null
+// タマゴはゲームのタマゴの名前（表にあれば。「暗黒デカタマゴ」）、配合牧場の親と牧場の上のタマゴは「配合牧場」、突然変異のタマゴは「突然変異」（farm-board）
 function palCellBadges(pal, badges) {
   const fixed = [];
   if (pal.nickname) fixed.push(['owned-badge badge-nickname', `「${pal.nickname}」`]);
-  if (pal.egg) fixed.push(['owned-badge badge-egg', 'タマゴ']);
+  if (pal.egg) fixed.push(['owned-badge badge-egg', eggName(pal.eggItemId) || 'タマゴ']);
+  if (isMutantEgg(pal)) fixed.push(['owned-badge badge-mutant', '突然変異']);
+  if (pal.farm) fixed.push(['owned-badge badge-farm', pal.farm.role === 'egg' ? '配合牧場のタマゴ' : '配合牧場']);
   if (pal.lucky) fixed.push(['owned-badge badge-lucky', 'ラッキー']);
   if (pal.alpha) fixed.push(['owned-badge badge-alpha', 'アルファ']);
   for (const text of badges) fixed.push(['owned-badge badge-mark', text]);
@@ -524,7 +528,7 @@ export function ownedRowItem(pal, options) {
         tileNode?.remove();
         tileNode = tile;
       }) || changed;
-      changed = write('badges', [next.nickname, next.egg, next.lucky, next.alpha, badges.join('\u0001')].join('\u0002'), () => {
+      changed = write('badges', [next.nickname, next.egg, next.eggItemId ?? '', isMutantEgg(next), next.farm?.role ?? '', next.lucky, next.alpha, badges.join('\u0001')].join('\u0002'), () => {
         const line = palCellBadges(next, badges);
         if (line) cells.pal.insertBefore(line, badgeLine);
         badgeLine?.remove();
@@ -961,7 +965,57 @@ export function ownedView(context, route) {
     applySort();
   }
   const results = el('div', 'owned-list');
-  element.append(summary, panel, head, results);
+  // ---- 配合牧場の帯（farm-board。N-06）。全部の牧場の親・タマゴ・預けた人。既定は閉じる（開閉は viewState。タブを替えても残る）。
+  // カードは開いている間だけ作り、閉じたら外す（所持パルの 2,000 行の予算に入れない）。「右に開く」は同じボードを右のドロワーで。
+  // 固定の条件のパネルより上（スクロールで流れる位置）。牧場の情報がないデータ（牧場を読む前のセーブ・共有する前のデータ）では出さない ----
+  const farmBand = el('section', 'farm-band');
+  farmBand.setAttribute('aria-label', '配合牧場');
+  farmBand.hidden = true;
+  const farmHead = el('div', 'farm-band-head');
+  const farmToggle = button('', () => setFarmsOpen(!farmsOpen), 'farm-band-toggle');
+  const farmBody = el('div', 'farm-band-body');
+  farmBody.id = `farm-band-${Math.random().toString(36).slice(2, 10)}`;
+  farmBody.hidden = true;
+  farmToggle.setAttribute('aria-controls', farmBody.id);
+  const farmOpenDrawer = button('右に開く', () => context.drawer?.open({ kind: 'farms', id: '' }, { opener: farmOpenDrawer }), 'button secondary small farm-band-open');
+  farmOpenDrawer.title = '配合牧場を右のパネルで開く（一覧を見たまま確かめる）';
+  farmHead.append(farmToggle, farmOpenDrawer);
+  farmBand.append(farmHead, farmBody);
+  let farmsOpen = Boolean(memory?.farmsOpen);
+  let board = null;
+  function setFarmsOpen(open) {
+    farmsOpen = open;
+    if (memory) memory.farmsOpen = open;
+    renderFarmBand();
+  }
+  function renderFarmBand() {
+    const data = owned.state.owned;
+    const farms = Array.isArray(data?.farms) ? data.farms : null;
+    farmBand.hidden = !farms;
+    farmOpenDrawer.hidden = !context.drawer;
+    if (!farms) {
+      board?.destroy();
+      board = null;
+      farmBody.replaceChildren();
+      return;
+    }
+    const eggs = data.farmsCounted === false ? null : farms.reduce((sum, farm) => sum + farm.eggCount, 0);
+    const text = `配合牧場（${farms.length} か所${eggs === null ? '' : ` · タマゴ ${eggs} 個`}）`;
+    if (farmToggle.textContent !== text) farmToggle.textContent = text;
+    farmToggle.setAttribute('aria-expanded', String(farmsOpen));
+    farmBody.hidden = !farmsOpen;
+    if (farmsOpen && !board) {
+      board = farmBoard(context, { mode: 'band' });
+      farmBody.append(board.element);
+    } else if (!farmsOpen && board) {
+      board.destroy();
+      board = null;
+      farmBody.replaceChildren();
+    }
+  }
+  renderFarmBand();
+  const stopFarms = owned.subscribe(() => renderFarmBand());
+  element.append(summary, farmBand, panel, head, results);
   // ---- 個体の詳細（右のドロワー。owned-detail）。行の Lv・★のボタンと、パッシブ・個体値・場所のセル・下の段を押すと開く。リスナーは一覧の
   // 入れ物に 1 つだけ（行ごとに付けない）。パル名のリンク（パル詳細）・「+N」などのボタン・パッシブのチップ（押すと解説の板を固定）と、
   // 文字を選んでいるときは開かない。開いている個体の行に aria-current と淡い地 ----
@@ -1652,6 +1706,8 @@ export function ownedView(context, route) {
       jobSeq++;
       warmSeq++;
       unsubscribe();
+      stopFarms();
+      board?.destroy();
       stopDrawer();
       picker.destroy();
       passive.destroy();

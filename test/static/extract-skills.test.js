@@ -63,3 +63,17 @@ test('スキル名のデータ: マスターのパルすべてにパートナー
   assert.ok(Object.keys(ACTIVE_SKILL_DESCS).length >= 300);
   for (const text of [...Object.values(ACTIVE_SKILL_DESCS), ...Object.values(PARTNER_SKILL_DESCS)]) assert.doesNotMatch(text, /[<>{}|\r\n]/, text);
 });
+
+test('タマゴの名前の取り出し: ITEM_NAME_PalEgg_* の行だけを、名前のない行を捨てて ID の順に。書き出しは EGG_NAMES', async () => {
+  const { buildEggNames, renderEggNames } = await import('../../scripts/extract-skills.mjs');
+  const eggs = buildEggNames(new Map([
+    ['ITEM_NAME_PalEgg_Fire_01', '炎のタマゴ'], ['ITEM_NAME_PalEgg_MutationPal_01', '突然変異タマゴ'], ['ITEM_NAME_PalEgg_Dark_09', '-'],
+    ['ITEM_NAME_Wool', '羊毛'], ['ITEM_DESC_PalEgg_Fire_01', '説明'],
+  ]));
+  assert.deepEqual(eggs, { PalEgg_Fire_01: '炎のタマゴ', PalEgg_MutationPal_01: '突然変異タマゴ' });
+  assert.match(renderEggNames(eggs), /export const EGG_NAMES = \{\n {2}"PalEgg_Fire_01": "炎のタマゴ",\n {2}"PalEgg_MutationPal_01": "突然変異タマゴ",\n\};/);
+  // 配信する表は取り出したもの（突然変異のタマゴも名前がある）
+  const { EGG_NAMES } = await import('../../web/data/items.js');
+  assert.ok(Object.keys(EGG_NAMES).length >= 40);
+  assert.ok(Object.keys(EGG_NAMES).every((id) => /^PalEgg_\w+$/.test(id)));
+});

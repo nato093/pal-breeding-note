@@ -166,6 +166,21 @@ export function goalMatches(goal, pals) {
   return pals.filter((pal) => pal.palId === goal.palId && meets(pal));
 }
 
+/**
+ * 目標の条件を満たすタマゴ（孵化させれば完成。farm-board の F048・N-16）。goalMatches と同じ条件をタマゴだけに当てる（goalMatches・完成の
+ * 判定・通知・親の候補は変えない。95423e5 の「タマゴは孵化するまで使わない」のまま）。mine（自分の個体）を渡すと、そのうちのタマゴと、
+ * 拠点に置かれた持ち主のないタマゴ（孵化させた人の個体になる）だけ。中身の分からないタマゴ（palId が空）は種族が合わないので外れる
+ * @param {object} goal cleanGoal で整えたもの
+ * @param {object[]} pals 全部の個体
+ * @param {object[] | null} [mine] 自分の個体（省くと全部のタマゴ）
+ */
+export function eggMatches(goal, pals, mine = null) {
+  if (!goal.palId) return [];
+  const meets = goalTest(goal, { egg: true });
+  const own = Array.isArray(mine) ? new Set(mine.map((pal) => pal.id)) : null;
+  return pals.filter((pal) => pal.egg && pal.palId === goal.palId && (!own || own.has(pal.id) || !pal.holderUid) && meets(pal));
+}
+
 // 個体のパッシブの種類の数（同じパッシブが重なっていても 1 つ）。パッシブは 4 個までなので、Set を作らずに数える
 function distinctCount(list) {
   let count = 0;
@@ -175,13 +190,14 @@ function distinctCount(list) {
 
 // 目標の完成の条件（種族は見ない）を、目標ごとに 1 回だけ組み立てる。個体ごとに Set や配列を作らない
 //（同じ種族の目標 100 件 × 同じ種族の 20,000 行で、個体ごとに Set を作ると 1 秒以上止まったため）
-function goalTest(goal) {
+function goalTest(goal, { egg = false } = {}) {
   const wanted = [...new Set(goal.passives)];
   const only = goal.mode === 'only';
   // 個体値の目標（GOAL_STATS の hp・shot・defense。0 以下は条件なし）
   const [hp, shot, defense] = GOAL_STATS.map((key) => (goal.targets[key] > 0 ? goal.targets[key] : 0));
   return (pal) => {
-    if (pal.egg) return false;
+    // 完成の判定はタマゴを数えない（egg: true は孵化待ちのタマゴだけを見る eggMatches）
+    if (Boolean(pal.egg) !== egg) return false;
     const own = pal.passives;
     for (let i = 0; i < wanted.length; i++) if (!own.includes(wanted[i])) return false;
     if (only && distinctCount(own) !== wanted.length) return false;

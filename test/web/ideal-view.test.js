@@ -150,7 +150,7 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const children = view.element.children;
   // 並び: 見出し → パネル → 足りないパッシブ → 牧場の帯 → 牧場の詳細 → 結果（登録の行・登録した一覧の折りたたみはない。
   // データ元の 1 行は上のバーのセーブ連携の表示と重なるのでなくした〔D29〕。要約の行もなくした〔D30〕）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-missing-note', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-missing-note', 'ideal-hatch', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
   assert.equal(view.element.querySelector('.ideal-register'), null);
   const panel = view.element.querySelector('.ideal-panel');
@@ -2700,4 +2700,20 @@ test('理想個体画面: 共有で牧場が一部だけ（farmsPartial）なら
   const counted = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
   assert.ok(counted.element.querySelector('.ideal-farm-empty'));
   counted.destroy();
+});
+
+test('理想個体画面: 今の条件を満たすタマゴがあれば「孵化させると完成: タマゴ n 個（場所）」の 1 行を出し、押すと所持パルのタマゴに着く。なければ出さない（farm-board）', (t) => {
+  install(t);
+  const states = new Map([['ideal', { conditions: { holder: '', mode: 'include', targets: { ...full }, cake: 'none' } }]]);
+  const view = idealView(context(fakeOwned(), [], states), parseHash('#/ideal?to=SheepBall&p=CraftSpeed_up2,Rare'));
+  const hatch = view.element.querySelector('.ideal-hatch');
+  assert.equal(hatch.hidden, false);
+  const link = hatch.querySelector('a');
+  assert.match(link.textContent, /^孵化させると完成: タマゴ 1 個（タマゴ（地面）/);
+  assert.equal(link.href, '#/owned?pal=SheepBall&place=egg&p=CraftSpeed_up2%2CRare');
+  view.destroy();
+  // 条件を満たすタマゴがなければ出さない（欲しいパッシブが違う）
+  const none = idealView(context(fakeOwned(), [], states), parseHash('#/ideal?to=SheepBall&p=Noukin'));
+  assert.equal(none.element.querySelector('.ideal-hatch').hidden, true);
+  none.destroy();
 });
