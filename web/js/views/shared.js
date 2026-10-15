@@ -23,10 +23,11 @@ export function validId(route, key, context) {
 
 /**
  * 画面の中の条件の変更（パル・パッシブを選ぶなど）で URL を変える。同じ画面なら作り直さず、ビューの applyRoute で合わせる
- * （context.update）。ビューのテストの context は update を持たないので、そのときは navigate に落とす。
+ * （context.update）。options の replace: true は履歴を増やさない変更（文字の入力など）。
+ * ビューのテストの context は update を持たないので、そのときは navigate に落とす。
  */
-export function changeRoute(context, hash) {
-  if (context.update) context.update(hash);
+export function changeRoute(context, hash, options) {
+  if (context.update) context.update(hash, options);
   else context.navigate(hash);
 }
 

@@ -134,6 +134,8 @@ test('自動登録: 同じ組み合わせで別の子が登録済みなら、登
   assert.match(notice.body, /^(モコロン＋オオタチウオ|オオタチウオ＋モコロン)：登録済みの配合（子 ツッパニャン）と食い違うため、保留しました$/);
   assert.doesNotMatch(`${notice.title}${notice.body}`, /ヤクモマル|表は/);
   assert.match(notice.id, /^auto-breed:test:conflict:f1:/);
+  // 押すと配合を探すでその組の登録を出す（前は一覧〔#/list〕）
+  assert.match(notice.href, /^#\/search\?p1=(SheepBall&p2=SwordCutlassfish|SwordCutlassfish&p2=SheepBall)$/);
   assert.ok(Number.isFinite(Date.parse(notice.date)));
   assert.equal(t.noticed, 1);
 });

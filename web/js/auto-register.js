@@ -356,12 +356,13 @@ export function createAutoRegister({
     title: AUTO_NOTICE_TITLES.anomaly, body: anomalyText(pairText(...m.parents), palName(m.actual)),
   });
   // 登録済みと食い違う候補（対応や登録が変わったら、次の判定でやり直す）。候補の子は表の子
-  // （突然変異タマゴならタマゴの中身とも違う）なので出さず、登録済みの子だけを出す
+  // （突然変異タマゴならタマゴの中身とも違う）なので出さず、登録済みの子だけを出す。押すと配合を探すでその組の登録を出す
+  //（前は一覧〔#/list〕。前に保存した通知の #/list は、ルーターが配合を探すに読み替える）
   const conflictNotice = (ctx, candidate, existing) => ({
     id: `auto-breed:${ctx.env}:conflict:${candidate.evidence[0].farmId}:${candidate.evidence[0].eggLocalId}`, date: ctx.importedAt,
     title: AUTO_NOTICE_TITLES.conflict,
     body: conflictText(pairText(candidate.record.parent1Id, candidate.record.parent2Id), [...new Set(existing.map((e) => palName(e.childId)))].join('・')),
-    href: '#/list',
+    href: buildHash('search', { p1: candidate.record.parent1Id, p2: candidate.record.parent2Id }),
   });
   const unmappedId = (ctx, uid) => `auto-breed:${ctx.env}:unmapped:${ctx.worldId}:${uid}`;
   const unmappedNotice = (ctx, uid, players) => ({

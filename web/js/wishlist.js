@@ -181,13 +181,13 @@ export function createWishlistStore({ store, storage, namespace = 'pal-note', no
 export function wishlistNotificationSource({ store, wishlist }) {
   return () => wishlist.list().flatMap((wish) => {
     const name = palsById.get(wish.palId).ja;
-    const href = buildHash('reverse', { c: wish.palId });
+    const href = buildHash('search', { c: wish.palId });
     // 既読の保存先は環境共通のため、環境を含める。
     const ready = wish.readyAt ? [{
       id: `wishlist:${store.state.env}:${wish.palId}:${wish.readyAt}`,
       date: wish.readyAt,
       title: `${name}が作成可能になりました`,
-      body: 'ウィッシュリストのパルです。押すと逆引きで、産まれる配合を確認できます。',
+      body: 'ウィッシュリストのパルです。押すと配合を探すで、産まれる配合を確認できます。',
       href,
     }] : [];
     return [...ready, ...wish.found.map(({ pair, at }) => {
@@ -196,7 +196,7 @@ export function wishlistNotificationSource({ store, wishlist }) {
         id: `wishlist:${store.state.env}:${wish.palId}:${pair}:${at}`,
         date: at,
         title: `${name}の配合が増えました`,
-        body: `${parent1}＋${parent2}でも作れるようになりました。押すと逆引きで確認できます。`,
+        body: `${parent1}＋${parent2}でも作れるようになりました。押すと配合を探すで確認できます。`,
         href,
       };
     })];

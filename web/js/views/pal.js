@@ -9,7 +9,7 @@ export function palView(context, route) {
   const pal = palsById.get(route.id);
   if (!pal) {
     context.replace(buildHash('pal'));
-    element.append(empty('パルが見つかりません。', link('配合検索へ', buildHash('search'), 'button primary')));
+    element.append(empty('パルが見つかりません。', link('配合を探すへ', buildHash('search'), 'button primary')));
     return { element, destroy() {} };
   }
   // 見出しはパル名（「No.117 ソルレイス」）。名前が二重に出ないよう、hero は絵と属性だけにする

@@ -6,6 +6,7 @@ import { createWishlistStore, wishlistNotificationSource } from './wishlist.js';
 import { createIdealStore, idealNotificationSource } from './ideals.js';
 import { createSelfStore } from './self-player.js';
 import { createPlanMemory } from './ideal-plan-memory.js';
+import { createSearchSeen } from './search-seen.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
 import { createRenamer } from './user-rename.js';
@@ -31,9 +32,7 @@ import { installRipple } from './ui/ripple.js';
 import { runningVersion, createVersionWatcher, servedVersion, CHECK_INTERVAL } from './version.js';
 import releaseNotes from './release-notes.js';
 import { searchView } from './views/search.js';
-import { reverseView } from './views/reverse.js';
 import { inheritanceView } from './views/route.js';
-import { listView, LIST_MEMORY } from './views/list.js';
 import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { draftsView } from './views/drafts.js';
@@ -47,7 +46,8 @@ const SAVE_POLL_INTERVAL = 60 * 1000;
 // スクロールした位置を今の履歴のエントリに書くまでの間引き
 const SCROLL_SAVE_DELAY = 300;
 // 画面ごとに保存する条件（viewState の中の入れ物の名前。'' は viewState そのもの）と、その形（各画面が export する）
-const CONDITIONS = { owned: ['filter', OWNED_MEMORY], ideal: ['conditions', IDEAL_MEMORY], list: ['', LIST_MEMORY] };
+// （配合を探すの条件は URL にあるので、ここには持たない）
+const CONDITIONS = { owned: ['filter', OWNED_MEMORY], ideal: ['conditions', IDEAL_MEMORY] };
 // 条件がワールドに依存する画面（所持者がワールドのプレイヤー）
 const WORLD_VIEWS = ['owned', 'ideal'];
 
@@ -116,7 +116,7 @@ async function boot() {
   const header = el('header', 'app-header');
   const brand = link('', buildHash('search'), 'brand');
   // 狭い窓では文字を隠してマークだけにする（CSS）ので、名前は aria-label で持つ
-  brand.setAttribute('aria-label', 'パル配合ノート（配合検索へ）');
+  brand.setAttribute('aria-label', 'パル配合ノート（配合を探すへ）');
   // 菱形の印は CSS のマスクで描く（中身の文字は持たない。読み上げで「◇」と読まれないよう aria-hidden）
   const mark = el('span', 'brand-mark');
   mark.setAttribute('aria-hidden', 'true');
@@ -316,6 +316,8 @@ async function boot() {
     self,
     // 理想個体の配合の計画の基準（配合牧場の中身が最後に変わったときのおすすめ）
     planMemory: createPlanMemory({ storage: browserStorage, namespace }),
+    // 配合を探すの「新」の印の基準（前にその画面を離れた時刻。この端末に環境・ID ごと）
+    seen: createSearchSeen({ storage: browserStorage, namespace }),
     notifications,
     owned,
     autoRegister,
@@ -385,7 +387,7 @@ async function boot() {
     },
   };
 
-  const views = { search: searchView, reverse: reverseView, route: inheritanceView, list: listView, owned: ownedView, ideal: idealView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
+  const views = { search: searchView, route: inheritanceView, owned: ownedView, ideal: idealView, drafts: draftsView, wishlist: wishlistView, pal: palView, settings: settingsView };
 
   function loginView(signup = false, previousId = store.state.userId) {
     // 見出しは「ログイン」「新規登録」だけ（キャッチコピーはなくした）。説明は新規登録のときだけ

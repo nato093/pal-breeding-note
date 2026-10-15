@@ -8,7 +8,7 @@ import { buildHash } from '../router.js';
 import { viewHeading, watchView, dataPending } from './shared.js';
 import { tabLabel } from './tabs.js';
 
-// 一覧の「作成可能」は、逆引きと同じく画面に出ているデータ（送信待ちを含む）で判定する。通知の判定は wishlist.js が確定データで行う。
+// 一覧の「作成可能」は、配合を探すと同じく画面に出ているデータ（送信待ちを含む）で判定する。通知の判定は wishlist.js が確定データで行う。
 export function wishlistView(context) {
   const { store, wishlist } = context;
   const element = el('section', 'view wishlist-view');
@@ -48,9 +48,9 @@ export function wishlistView(context) {
 
   function row(palId, craftable) {
     const item = el('li', `wishlist-row${craftable ? ' craftable' : ''}`);
-    const main = craftable ? link('', buildHash('reverse', { c: palId }), 'wishlist-main') : el('div', 'wishlist-main');
+    const main = craftable ? link('', buildHash('search', { c: palId }), 'wishlist-main') : el('div', 'wishlist-main');
     main.append(palTile(palId, { clickable: false }), statusChip(craftable ? '作成可能' : 'まだ作れません', craftable ? 'ready' : 'neutral', 'wishlist-status'));
-    if (craftable) main.append(el('span', 'wishlist-hint', '逆引きで見る →'));
+    if (craftable) main.append(el('span', 'wishlist-hint', '配合を見る →'));
     item.append(main, actionIcon(`${palsById.get(palId).ja}をウィッシュリストから外す`, 'remove', () => remove(palId), 'danger-text'));
     return item;
   }

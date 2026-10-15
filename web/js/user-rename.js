@@ -74,6 +74,23 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     if (!entries.some(([, userId]) => isOld(userId))) continue;
     ok = writeJson(storage, key, Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId]))) && ok;
   }
+  // 配合を探すの「新」の印の基準の時刻（search-seen.js。文字列 1 つ）。移し先に値があれば、新しい方（新着を少なく出す方）を残す
+  const seenFrom = `${namespace}.search.seenAt.${env}.${oldKey}`;
+  const seenTo = `${namespace}.search.seenAt.${env}.${newKey}`;
+  if (seenFrom !== seenTo) {
+    let value = null;
+    let current = null;
+    try {
+      value = storage.getItem(seenFrom);
+      current = storage.getItem(seenTo);
+    } catch { /* 読めなければ移さない（新しい名前で開いたときに今の時刻から始まるだけ）。 */ }
+    if (typeof value === 'string') {
+      try {
+        if (typeof current !== 'string' || !(Date.parse(current) >= Date.parse(value))) storage.setItem(seenTo, value);
+        storage.removeItem(seenFrom);
+      } catch { ok = false; }
+    }
+  }
   // このワールドでの自分（self-player.js。ワールドごとに UID の文字列 1 つ）。移し先に値があっても、改名した本人の設定で上書きする
   const selfFrom = `${namespace}.ideals.self.${env}.${oldKey}.`;
   const selfTo = `${namespace}.ideals.self.${env}.${newKey}.`;

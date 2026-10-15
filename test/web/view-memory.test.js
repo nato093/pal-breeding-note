@@ -12,8 +12,9 @@ function memoryStorage(initial = {}) {
   return { values, getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key) };
 }
 
+// 画面の名前は例（条件を保存する画面と、タブの行き先を確かめる。統合した旧画面〔list など〕は parseHash が別の画面に読み替えるので使わない）
 const schemas = {
-  list: { registrant: (value) => text(value, 30), sort: (value) => oneOf(value, ['updated', 'parent-dex'], '') },
+  route: { registrant: (value) => text(value, 30), sort: (value) => oneOf(value, ['updated', 'parent-dex'], '') },
   owned: { sort: (value) => oneOf(value, ['dex', 'level'], 'dex') },
 };
 
@@ -22,7 +23,7 @@ function setup({ scope = { env: 'test', user: 'Alice', world: WORLD }, session =
   const current = { ...scope };
   const memory = createViewMemory({
     storage: safeStorage(session), local: safeStorage(local), namespace: 'ns', scope: () => current,
-    schemas, views: ['search', 'list', 'owned'], worldViews: ['owned'], now: () => clock++,
+    schemas, views: ['search', 'route', 'owned'], worldViews: ['owned'], now: () => clock++,
   });
   return { memory, session, local, current };
 }
@@ -32,29 +33,29 @@ test('位置と条件の保持: エントリは版・環境・利用者・ワー
   const id = memory.newEntryId();
   assert.match(id, /^[0-9a-z]+$/);
   assert.notEqual(memory.newEntryId(), id);
-  memory.writeEntry(id, { view: 'list', key: '#/list', cond: { registrant: '  ボブ ', sort: 'xxx', extra: 1 }, scrollY: 2500.6 });
-  assert.deepEqual(memory.readEntry(id, { view: 'list', key: '#/list' }), { cond: { registrant: 'ボブ', sort: '' }, scrollY: 2500, world: WORLD });
+  memory.writeEntry(id, { view: 'route', key: '#/route', cond: { registrant: '  ボブ ', sort: 'xxx', extra: 1 }, scrollY: 2500.6 });
+  assert.deepEqual(memory.readEntry(id, { view: 'route', key: '#/route' }), { cond: { registrant: 'ボブ', sort: '' }, scrollY: 2500, world: WORLD });
   // 画面・URL が違う
-  assert.equal(memory.readEntry(id, { view: 'search', key: '#/list' }), null);
-  assert.equal(memory.readEntry(id, { view: 'list', key: '#/list?x=1' }), null);
-  assert.equal(memory.readEntry('ない', { view: 'list', key: '#/list' }), null);
+  assert.equal(memory.readEntry(id, { view: 'search', key: '#/route' }), null);
+  assert.equal(memory.readEntry(id, { view: 'route', key: '#/route?x=1' }), null);
+  assert.equal(memory.readEntry('ない', { view: 'route', key: '#/route' }), null);
   // 利用者（ID の大小・全半角は同じとみなす）・環境・ワールド
   current.user = 'ａｌｉｃｅ';
-  assert.ok(memory.readEntry(id, { view: 'list', key: '#/list' }));
+  assert.ok(memory.readEntry(id, { view: 'route', key: '#/route' }));
   current.user = 'Bob';
-  assert.equal(memory.readEntry(id, { view: 'list', key: '#/list' }), null);
+  assert.equal(memory.readEntry(id, { view: 'route', key: '#/route' }), null);
   current.user = 'Alice';
   current.env = 'prod';
-  assert.equal(memory.readEntry(id, { view: 'list', key: '#/list' }), null);
+  assert.equal(memory.readEntry(id, { view: 'route', key: '#/route' }), null);
   current.env = 'test';
   current.world = OTHER;
-  assert.equal(memory.readEntry(id, { view: 'list', key: '#/list' }), null);
+  assert.equal(memory.readEntry(id, { view: 'route', key: '#/route' }), null);
   // 今のワールドがまだ分からない（読み込み前）ときは比べない
   current.world = '';
-  assert.equal(memory.readEntry(id, { view: 'list', key: '#/list' }).world, WORLD);
+  assert.equal(memory.readEntry(id, { view: 'route', key: '#/route' }).world, WORLD);
   // ログインしていなければ読まない・書かない
   current.user = '';
-  assert.equal(memory.readEntry(id, { view: 'list', key: '#/list' }), null);
+  assert.equal(memory.readEntry(id, { view: 'route', key: '#/route' }), null);
 });
 
 test('位置と条件の保持: エントリは新しい方の 50 件まで。版の違う・壊れた要素は捨て、条件の無い画面は cond が null', () => {
@@ -83,21 +84,21 @@ test('位置と条件の保持: エントリは新しい方の 50 件まで。�
 
 test('位置と条件の保持: 読み込み直し用の保存は項目ごとに整え、版・環境・利用者が違えば使わず、ワールドが違えばワールドに依存する画面を捨てる', () => {
   const { memory, session, current } = setup();
-  memory.saveViews({ views: { list: { registrant: 'ボブ', sort: 'updated' }, owned: { sort: 'level' } }, tabs: { list: '#/list', owned: '#/owned?x=1' } });
+  memory.saveViews({ views: { route: { registrant: 'ボブ', sort: 'updated' }, owned: { sort: 'level' } }, tabs: { route: '#/route', owned: '#/owned?x=1' } });
   assert.deepEqual(memory.loadViews(), {
-    views: { list: { registrant: 'ボブ', sort: 'updated' }, owned: { sort: 'level' } }, tabs: { list: '#/list', owned: '#/owned?x=1' }, world: WORLD,
+    views: { route: { registrant: 'ボブ', sort: 'updated' }, owned: { sort: 'level' } }, tabs: { route: '#/route', owned: '#/owned?x=1' }, world: WORLD,
   });
   // 形の合わない項目は既定に戻し、タブの行き先は #/ で始まりその画面のものだけ
   const saved = JSON.parse(session.values.get('ns.views'));
-  saved.views = { list: { registrant: 7, sort: 'xxx' }, owned: 'x', settings: { a: 1 } };
-  saved.tabs = { list: 'https://example.com/#/list', owned: '#/search', search: '#/search?p1=SheepBall', pal: '#/pal/SheepBall' };
+  saved.views = { route: { registrant: 7, sort: 'xxx' }, owned: 'x', settings: { a: 1 } };
+  saved.tabs = { route: 'https://example.com/#/route', owned: '#/search', search: '#/search?p1=SheepBall', pal: '#/pal/SheepBall' };
   session.values.set('ns.views', JSON.stringify(saved));
-  assert.deepEqual(memory.loadViews(), { views: { list: { registrant: '', sort: '' } }, tabs: { search: '#/search?p1=SheepBall' }, world: WORLD });
+  assert.deepEqual(memory.loadViews(), { views: { route: { registrant: '', sort: '' } }, tabs: { search: '#/search?p1=SheepBall' }, world: WORLD });
   // ワールドが違えば、ワールドに依存する画面（owned）の条件は使わない
-  saved.views = { list: { registrant: 'ボブ' }, owned: { sort: 'level' } };
+  saved.views = { route: { registrant: 'ボブ' }, owned: { sort: 'level' } };
   session.values.set('ns.views', JSON.stringify(saved));
   current.world = OTHER;
-  assert.deepEqual(memory.loadViews().views, { list: { registrant: 'ボブ', sort: '' } });
+  assert.deepEqual(memory.loadViews().views, { route: { registrant: 'ボブ', sort: '' } });
   current.world = WORLD;
   // アプリの版（runningVersion）は見ない。保存の形の版・環境・利用者が違えば使わない
   session.values.set('ns.views', JSON.stringify({ ...saved, appVersion: '古い版' }));

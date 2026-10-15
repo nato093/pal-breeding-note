@@ -283,3 +283,19 @@ test('名前の変更: 別の端末で大小だけ変えたら、次の取得で
   // 大小だけ違う全角も同じ名前としてそろう（キーが同じなので下書きは同じ保存先）
   assert.equal(phone.storage.values.has('pal-note.drafts.test.taro'), true);
 });
+
+test('端末内の移動: 配合を探すの「新」の基準の時刻も新しい名前へ移して元を消し、移し先にあれば新しい方を残す', () => {
+  const storage = memoryStorage();
+  storage.setItem('pal-note.search.seenAt.prod.taro', '2026-10-05T00:00:00Z');
+  storage.setItem('pal-note.search.seenAt.test.taro', '2026-10-01T00:00:00Z');
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
+  assert.equal(storage.getItem('pal-note.search.seenAt.prod.jiro'), '2026-10-05T00:00:00Z');
+  assert.equal(storage.getItem('pal-note.search.seenAt.prod.taro'), null);
+  // 別の環境の分は移さない
+  assert.equal(storage.getItem('pal-note.search.seenAt.test.taro'), '2026-10-01T00:00:00Z');
+  // 移し先の方が新しければ移し先のまま（新着を少なく出す）
+  storage.setItem('pal-note.search.seenAt.prod.hanako', '2026-10-01T00:00:00Z');
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Hanako', 'Jiro'), true);
+  assert.equal(storage.getItem('pal-note.search.seenAt.prod.jiro'), '2026-10-05T00:00:00Z');
+  assert.equal(storage.getItem('pal-note.search.seenAt.prod.hanako'), null);
+});

@@ -12,12 +12,7 @@ const byClass = (name) => find((node) => node.className.split(' ').includes(name
 const byText = (text) => find((node) => node.tagName === 'button' && node.textContent === text);
 const input = (autocomplete) => find((node) => node.autocomplete === autocomplete);
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-// 親の並び順は 1 件を親ごとに展開するため、1 件 1 枚で数えたい確認では更新日順に切り替える。
-async function sortOneCardPerRecord() {
-  const sort = find((node) => node.tagName === 'select');
-  sort.value = 'updated';
-  await sort.dispatch('input');
-}
+const isCard = (node) => node.className.split(' ').includes('breeding-card');
 let imports = 0;
 
 // pushState を true にすると、history に pushState を足す（足さないときは、無い環境として動くことを確かめる）。
@@ -207,13 +202,12 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   assert.equal(values.get('pal-note.userId'), 'ＡｂＣ');
 });
 
-test('画面: 一覧の削除アイコンから確認・キャンセル・削除・元に戻すを行う', async (t) => {
+test('画面: 配合を探すの削除アイコンから確認・キャンセル・削除・元に戻すを行う', async (t) => {
   const { calls } = await boot(t, {
     initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' },
-    api: createDevelopmentApi({ seed: '2' }), hash: '#/list',
+    api: createDevelopmentApi({ seed: '2' }), hash: '#/search',
   });
-  const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
-  await sortOneCardPerRecord();
+  const cards = () => descendants(document.body).filter((node) => isCard(node));
   const remove = () => find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除');
   assert.equal(cards().length, 2);
   assert.equal(byClass('app-footer'), undefined);
@@ -259,8 +253,7 @@ test('画面: 元に戻す前に他の人が同じ配合を登録していたら
     }
     return development(request);
   };
-  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
-  await sortOneCardPerRecord();
+  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/search' });
   const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
   await byText('削除').dispatch('click');
   await deletion;
@@ -273,12 +266,11 @@ test('画面: 元に戻す前に他の人が同じ配合を登録していたら
   assert.deepEqual(calls.map((call) => call.action), ['snapshot', 'delete', 'restore']);
 });
 
-test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元に戻すは出さずに失敗だけを知らせる', async (t) => {
+test('画面: 削除が失敗したら結果に戻し、削除の知らせと元に戻すは出さずに失敗だけを知らせる', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   const api = async (request) => request.action === 'delete' ? { ok: false, code: 'INTERNAL' } : development(request);
-  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
-  const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
-  await sortOneCardPerRecord();
+  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/search' });
+  const cards = () => descendants(document.body).filter((node) => isCard(node));
   const deletion = find((node) => node.tagName === 'button' && node.getAttribute('aria-label') === '削除').dispatch('click');
   await byText('削除').dispatch('click');
   await deletion;
@@ -292,16 +284,15 @@ test('画面: 削除が失敗したら一覧に戻し、削除の知らせと元
   assert.deepEqual(calls.map((call) => call.action), ['snapshot', 'delete', 'snapshot']);
 });
 
-test('画面: 削除は応答前に一覧から消し、送信待ちの間だけページを閉じる前に確認する', async (t) => {
+test('画面: 削除は応答前に結果から消し、送信待ちの間だけページを閉じる前に確認する', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   let release;
   const api = async (request) => {
     if (request.action === 'delete') await new Promise((resolve) => { release = resolve; });
     return development(request);
   };
-  const { events } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
-  const cards = () => descendants(document.body).filter((node) => node.className === 'breeding-card');
-  await sortOneCardPerRecord();
+  const { events } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/search' });
+  const cards = () => descendants(document.body).filter((node) => isCard(node));
   const leave = () => {
     const event = { prevented: false, preventDefault() { this.prevented = true; } };
     events.get('beforeunload')(event);
@@ -323,7 +314,7 @@ test('画面: 削除は応答前に一覧から消し、送信待ちの間だけ
 });
 
 test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状況 → セーブ連携 → ベル → 登録 → ID の順で並ぶ（Tab の順）', async (t) => {
-  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/list' });
+  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const header = byClass('app-header');
   assert.deepEqual(header.children.map((node) => node.className.split(' ')[0]),
     ['brand', 'env-chip', 'header-status', 'save-status', 'notification-menu', 'register-button', 'account-chip']);
@@ -350,7 +341,7 @@ test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状�
 });
 
 test('画面: ヘッダーのパネル（ベル・セーブ連携・ID）は、どれかを開くとほかを閉じ、ボタンの aria-controls は開いている間だけ付ける', async (t) => {
-  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/list' });
+  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const panels = ['notification-panel', 'save-status-panel', 'account-panel'];
   const opened = () => panels.filter((name) => byClass(name));
   const [bell, save, account] = ['notification-button', 'save-status-button', 'account-button'].map(byClass);
@@ -380,7 +371,7 @@ test('画面: 同期状況を押すと記録を取り直してトーストを出
   const development = createDevelopmentApi({ seed: '2' });
   let fail = false;
   const api = async (request) => (fail && request.action === 'snapshot' ? { ok: false, code: 'INTERNAL' } : development(request));
-  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
+  const { calls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/search' });
   const status = byClass('sync-status');
   const failure = byClass('sync-error');
   const before = status.textContent;
@@ -415,8 +406,7 @@ test('画面: 裏で送っている間はヘッダーに保存中の件数とバ
     if (request.action === 'delete') await new Promise((resolve) => { release = resolve; });
     return development(request);
   };
-  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/list' });
-  await sortOneCardPerRecord();
+  await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api, hash: '#/search' });
   const status = byClass('sync-status');
   const bar = byClass('sync-progress');
   assert.equal(bar.hidden, true);
@@ -448,7 +438,7 @@ test('画面: 裏で送っている間はヘッダーに保存中の件数とバ
 
 for (const [hash, next, label] of [
   ['#/search?p1=SheepBall&p2=FlowerDoll', '#/search?p2=FlowerDoll', '親1'],
-  ['#/reverse?c=SheepBall', '#/reverse', '産まれる子'],
+  ['#/search?c=SheepBall', '#/search', '子'],
   ['#/route?from=SheepBall&to=MoonQueen', '#/route?to=MoonQueen', '開始'],
 ]) {
   test(`画面: ${label} の × で URL を変えても画面を作り直さず、同じトリガーにフォーカスを残す`, async (t) => {
@@ -503,7 +493,7 @@ test('画面: 同じ画面で親を選ぶと、作り直さずに結果と URL �
   assert.equal(first.querySelector('.picker-trigger'), firstTrigger);
   assert.equal(view.querySelectorAll('.breeding-card').length, 0);
   assert.match(view.textContent, /この組み合わせはまだ登録されていません/);
-  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall&p2=PinkCat');
+  assert.equal(navTab('配合を探す').href, '#/search?p1=SheepBall&p2=PinkCat');
   // 戻る（hashchange だけが来る）と、同じ画面のまま前の選択と結果に戻る
   changeHash('#/search?p1=SheepBall');
   assert.equal(main.children[0], view);
@@ -516,10 +506,17 @@ test('画面: 別の画面へ移るときと、パル詳細で別のパルを開
   const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
   const main = document.getElementById('main');
   const search = main.children[0];
-  changeHash('#/reverse?c=SheepBall');
+  changeHash('#/route?to=SheepBall');
   assert.notEqual(main.children[0], search);
   assert.equal(search.isConnected, false);
-  assert.equal(main.querySelector('h1').textContent, '逆引き');
+  assert.equal(main.querySelector('h1').textContent, '継承ルート');
+  // 旧 URL（逆引き）は、配合を探すの画面のまま（同じ画面なので作り直さない）
+  changeHash('#/search');
+  const merged = main.children[0];
+  changeHash('#/reverse?c=SheepBall');
+  assert.equal(location.hash, '#/search?c=SheepBall');
+  assert.equal(main.children[0], merged);
+  assert.equal(main.querySelector('h1').textContent, '配合を探す');
   changeHash('#/pal/SheepBall');
   const sheep = main.children[0];
   changeHash('#/pal/FlowerDoll');
@@ -537,34 +534,34 @@ test('画面: ログアウトしてから同じ URL でログインし直すと�
   const before = main.children[0];
   await choosePal(before.querySelectorAll('.picker')[1], 'ツッパニャン');
   assert.equal(main.children[0], before);
-  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall&p2=PinkCat');
+  assert.equal(navTab('配合を探す').href, '#/search?p1=SheepBall&p2=PinkCat');
   changeHash('#/settings');
   const logout = byText('ログアウト').dispatch('click');
   await descendants(find((node) => node.tagName === 'dialog')).find((node) => node.tagName === 'button' && node.textContent === 'ログアウト').dispatch('click');
   await logout;
   assertLoginOnly();
-  assert.equal(navTab('配合検索').href, '#/search');
+  assert.equal(navTab('配合を探す').href, '#/search');
   changeHash('#/search?p1=SheepBall');
   assertLoginOnly();
   input('current-password').value = '入力';
   await byText('ログイン').dispatch('click');
   const after = main.children[0];
   assert.notEqual(after, before);
-  assert.deepEqual(after.querySelectorAll('.picker-trigger').map((node) => node.getAttribute('aria-label')), ['親1: No.1 モコロン', '親2: パルを選択']);
-  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall');
+  assert.deepEqual(after.querySelectorAll('.picker-trigger').map((node) => node.getAttribute('aria-label')), ['親1: No.1 モコロン', '親2: パルを選択', '子: パルを選択']);
+  assert.equal(navTab('配合を探す').href, '#/search?p1=SheepBall');
 });
 
 test('画面: 不正な ID を URL から外すときは履歴の state を消さず、外した後の URL から同じ画面のまま選び直せる', async (t) => {
   const { changeHash, replaceStates } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   history.state = { palEntry: '前のエントリ' };
-  changeHash('#/reverse?c=存在しない');
-  assert.equal(location.hash, '#/reverse');
+  changeHash('#/search?c=存在しない');
+  assert.equal(location.hash, '#/search');
   assert.deepEqual(replaceStates.at(-1), { palEntry: '前のエントリ' });
   assert.equal(history.state.palEntry, '前のエントリ');
-  assert.equal(navTab('逆引き').href, '#/reverse');
+  assert.equal(navTab('配合を探す').href, '#/search');
   const view = document.getElementById('main').children[0];
-  await choosePal(view.querySelector('.picker'), 'モコロン');
-  assert.equal(location.hash, '#/reverse?c=SheepBall');
+  await choosePal(view.querySelectorAll('.picker')[2], 'モコロン');
+  assert.equal(location.hash, '#/search?c=SheepBall');
   assert.equal(document.getElementById('main').children[0], view);
 });
 
@@ -574,33 +571,35 @@ test('画面: タブを切り替えても選んだパルと絞り込みを残し
     api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall',
   });
   const tab = (label) => find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.endsWith(label));
-  const registrant = () => find((node) => node.placeholder === '登録者名で絞り込む');
-  changeHash(tab('一覧').href);
-  assert.equal(location.hash, '#/list');
-  registrant().value = '該当なし';
-  await registrant().dispatch('input');
-  // 登録者名の入力は間引くので、確定（change）で絞り込む
-  await registrant().dispatch('change');
-  assert.match(document.body.textContent, /「該当なし」に合う登録はありません。/);
-  // 配合検索のタブとロゴは、前に選んだ親のままの画面へ戻る
-  assert.equal(tab('配合検索').href, '#/search?p1=SheepBall');
-  assert.equal(byClass('brand').href, '#/search?p1=SheepBall');
-  changeHash(tab('配合検索').href);
+  const keyword = () => find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）');
+  // キーワードは URL（q）に入れ、タブの行き先にも覚える（テストの history に pushState が無いので、location.hash で入る）
+  keyword().value = '該当なし';
+  await keyword().dispatch('input');
+  // キーワードの入力は間引くので、確定（change）で絞り込む
+  await keyword().dispatch('change');
+  assert.equal(location.hash, `#/search?p1=SheepBall&q=${encodeURIComponent('該当なし')}`);
+  // モコロンの親の登録がないので、親の案内（キーワードを外しても 0 件）
+  assert.match(document.body.textContent, /この親を使う配合はまだ登録されていません。/);
+  changeHash(tab('継承ルート').href);
+  assert.equal(location.hash, '#/route');
+  // 配合を探すのタブとロゴは、前に選んだ親とキーワードのままの画面へ戻る
+  assert.equal(tab('配合を探す').href, `#/search?p1=SheepBall&q=${encodeURIComponent('該当なし')}`);
+  assert.equal(byClass('brand').href, tab('配合を探す').href);
+  changeHash(tab('配合を探す').href);
   assert.ok(find((node) => node.getAttribute('aria-label') === '親1の選択を解除'));
-  changeHash(tab('一覧').href);
-  assert.equal(registrant().value, '該当なし');
-  assert.match(document.body.textContent, /「該当なし」に合う登録はありません。/);
+  assert.equal(keyword().value, '該当なし');
+  assert.match(document.body.textContent, /この親を使う配合はまだ登録されていません。/);
   // 不正な ID を URL から消したら、タブにも消した後の URL を覚える
-  changeHash('#/reverse?c=存在しない');
-  assert.equal(tab('逆引き').href, '#/reverse');
+  changeHash('#/search?c=存在しない');
+  assert.equal(tab('配合を探す').href, '#/search');
   changeHash('#/settings');
   const logout = byText('ログアウト').dispatch('click');
   const confirm = find((node) => node.tagName === 'dialog');
   await descendants(confirm).find((node) => node.tagName === 'button' && node.textContent === 'ログアウト').dispatch('click');
   await logout;
   assertLoginOnly();
-  assert.equal(tab('配合検索').href, '#/search');
-  assert.equal(tab('一覧').href, '#/list');
+  assert.equal(tab('配合を探す').href, '#/search');
+  assert.equal(tab('継承ルート').href, '#/route');
 });
 
 for (const signup of [false, true]) {
@@ -625,7 +624,7 @@ for (const signup of [false, true]) {
     assert.equal(byClass('form-errors').textContent, '表示中のエラー');
     assert.equal(location.hash, '#/settings?filter=%E6%AE%8B%E3%81%99');
     assert.equal(replacements.length, 2);
-    changeHash('#/list');
+    changeHash('#/route');
     assert.equal(byClass('login-form'), form);
     assert.equal(calls.length, 0);
     if (signup) {
@@ -703,7 +702,7 @@ test('画面: 右上のベルに未読の数を出し、開くと既読にして
   assert.equal(dialog.open, false);
 });
 
-test('画面: ウィッシュリストに追加したパルが作れるようになったらベルで知らせ、通知と一覧から逆引きへのリンクを出す', async (t) => {
+test('画面: ウィッシュリストに追加したパルが作れるようになったらベルで知らせ、通知と一覧から配合を探すへのリンクを出す', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   let second = 0;
   // 同じミリ秒の応答で判定が止まらないよう、サーバ時刻を 1 秒ずつ進める。
@@ -743,14 +742,14 @@ test('画面: ウィッシュリストに追加したパルが作れるように
   const panel = byClass('notification-panel');
   const link = panel.querySelector('.notification-link');
   assert.equal(link.querySelector('.notification-title').textContent, `${target.ja}が作成可能になりました`);
-  assert.equal(link.href, `#/reverse?c=${target.id}`);
+  assert.equal(link.href, `#/search?c=${target.id}`);
   // fake DOM はリンクの既定動作（ハッシュの切り替え）を持たないため、閉じることまでを確かめ、遷移は実ブラウザで確かめる。
   await link.dispatch('click');
   assert.equal(byClass('notification-panel'), undefined);
   changeHash('#/wishlist');
   const row = byClass('wishlist-row');
   assert.match(row.textContent, /作成可能/);
-  assert.equal(row.querySelector('a').href, `#/reverse?c=${target.id}`);
+  assert.equal(row.querySelector('a').href, `#/search?c=${target.id}`);
 });
 
 test('画面: 設定から ID を変えると、ログイン中の ID・登録者名が新しい ID になり、前の ID のエントリと保存を消す', async (t) => {
@@ -881,15 +880,15 @@ test('画面: タブで戻るとその画面を離れたときの位置に、本
     go(navTab(label).href);
     await frame();
   };
-  await tab('一覧');
+  await tab('継承ルート');
   assert.deepEqual(scrolls, [0]);
   window.scrollY = 2500;
-  await tab('配合検索');
+  await tab('配合を探す');
   assert.deepEqual(scrolls, [0, 0]);
   window.scrollY = 400;
-  await tab('一覧');
+  await tab('継承ルート');
   assert.equal(scrolls.at(-1), 2500);
-  await tab('配合検索');
+  await tab('配合を探す');
   assert.equal(scrolls.at(-1), 400);
   // 本文のリンク（カードのパル名）で詳細へ移ると先頭から
   window.scrollY = 500;
@@ -914,15 +913,15 @@ test('画面: 戻る・進むでは、そのときの履歴のエントリの条
     await input.dispatch('input');
     await input.dispatch('change');
   };
-  // 条件 X（所持者「すべて」・HP 50）で 300px まで読んでから、配合検索へ（所持パルのデータがないので、所持者の選択肢は「すべて」だけ。
+  // 条件 X（所持者「すべて」・HP 50）で 300px まで読んでから、配合を探すへ（所持パルのデータがないので、所持者の選択肢は「すべて」だけ。
   // 自分の選択肢は自分のプレイヤーが分かるときだけ出す。D29）
   const holder = selectHaving('');
   holder.value = '';
   await holder.dispatch('change');
   await setTarget('HPの目標（以上）', '50');
   window.scrollY = 300;
-  await clickLink(navTab('配合検索'));
-  go(navTab('配合検索').href);
+  await clickLink(navTab('配合を探す'));
+  go(navTab('配合を探す').href);
   const second = history.state.palEntry;
   assert.notEqual(second, first);
   assert.deepEqual(entriesOf(sessionValues).find((entry) => entry.id === first).cond, { holder: '', mode: 'include', targets: { hp: 50, shot: 100, defense: 100 }, cake: 'none' });
@@ -1086,27 +1085,27 @@ test('画面: 設定を開いたまま設定の行き先のリンク（ヘッダ
   // 登録したワールドがないので、セーブ連携のカードの見出しへ
   assert.equal(document.activeElement, byClass('owned-settings').querySelector('h2'));
   // 別の画面からの行き先・設定への行き先でないリンクは、今までどおりブラウザが移る（印だけ付ける）
-  const toList = new FakeElement('a');
-  toList.href = '#/list';
-  assert.equal((await clickLink(toList)).defaultPrevented, false);
+  const toSearch = new FakeElement('a');
+  toSearch.href = '#/search';
+  assert.equal((await clickLink(toSearch)).defaultPrevented, false);
 });
 
 test('画面: 戻る・進むのエントリは、表示中のワールドと違うワールドで書いたものを使わない', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   await shareWorld(development, WORLD_B);
-  const { back, sessionValues } = await boot(t, { initial: signedIn, api: development, hash: '#/owned', session: {} });
+  const { back, sessionValues } = await boot(t, { initial: signedIn, api: development, hash: '#/ideal', session: {} });
   await untilShared();
-  const entry = (world, registrant) => ({ v: 1, id: `list-${world}`, env: 'test', user: '架空データ', world, view: 'list', key: '#/list', cond: { registrant, sort: '' }, scrollY: 0, at: 1 });
+  const entry = (world, query) => ({ v: 1, id: `owned-${world}`, env: 'test', user: '架空データ', world, view: 'owned', key: '#/owned', cond: { query }, scrollY: 0, at: 1 });
   sessionValues.set('pal-note.entries', JSON.stringify([entry(WORLD_A, '別のワールド'), entry(WORLD_B, '同じワールド')]));
-  const registrant = () => find((node) => node.placeholder === '登録者名で絞り込む');
-  back('#/list', { palEntry: `list-${WORLD_A}` });
-  assert.equal(registrant().value, '');
-  back('#/owned', { palEntry: 'x' });
-  back('#/list', { palEntry: `list-${WORLD_B}` });
-  assert.equal(registrant().value, '同じワールド');
+  const keyword = () => byClass('owned-keyword').querySelector('input');
+  back('#/owned', { palEntry: `owned-${WORLD_A}` });
+  assert.equal(keyword().value, '');
+  back('#/ideal', { palEntry: 'x' });
+  back('#/owned', { palEntry: `owned-${WORLD_B}` });
+  assert.equal(keyword().value, '同じワールド');
 });
 
-test('画面: 読み込み直したら、同じタブで保存した所持パルの絞り込み・理想個体の条件・一覧の並べ替えに戻し、形の合わない項目は既定に戻す', async (t) => {
+test('画面: 読み込み直したら、同じタブで保存した所持パルの絞り込み・理想個体の条件・タブの行き先に戻し、形の合わない項目と、なくなった画面（一覧）の保存は使わない', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   const saved = {
     v: 1, env: 'test', user: '架空データ', world: '',
@@ -1132,25 +1131,27 @@ test('画面: 読み込み直したら、同じタブで保存した所持パル
   // パッシブは文字列の ID だけ
   assert.ok(find((node) => node.getAttribute('data-focus-key') === 'passive-chip:パッシブ:Legend'));
   assert.equal(descendants(document.getElementById('main')).filter((node) => String(node.getAttribute('data-focus-key')).startsWith('passive-chip:')).length, 1);
-  assert.equal(navTab('配合検索').href, '#/search?p1=SheepBall');
-  assert.equal(navTab('一覧').href, '#/list');
+  assert.equal(navTab('配合を探す').href, '#/search?p1=SheepBall');
+  assert.equal(navTab('一覧'), undefined);
   go('#/ideal?to=SheepBall');
   assert.deepEqual(['HPの目標（以上）', '攻撃の目標（以上）', '防御の目標（以上）'].map((label) => inputLabeled(label).value), ['90', '100', '80']);
   assert.equal(radioChecked('パッシブの条件'), 'only');
   assert.equal(radioChecked('ケーキ'), 'talent');
   // 所持者（保存は自分）は、所持パルのデータがなく自分のプレイヤーが分からないので「すべて」として出す（D29）
   assert.equal(selectHaving('').value, '');
+  // 旧一覧の保存（list）は使わない（配合を探すの条件は URL にある）
   go('#/list');
-  assert.equal(find((node) => node.placeholder === '登録者名で絞り込む').value, 'ボブ');
+  assert.equal(location.hash, '#/search');
+  assert.equal(find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）').value, '');
   assert.equal(selectHaving('updated').value, 'updated');
 });
 
 for (const change of [{ v: 2 }, { env: 'prod' }, { user: '別の人' }]) {
   test(`画面: 読み込み直したときの保存は、${JSON.stringify(change)} が違えば使わない`, async (t) => {
     const development = createDevelopmentApi({ seed: '2' });
-    const saved = { v: 1, env: 'test', user: '架空データ', world: '', views: { list: { registrant: 'ボブ', sort: 'updated' } }, tabs: {}, ...change };
-    await boot(t, { initial: await cachedSignIn(development), api: development, hash: '#/list', session: { 'pal-note.views': JSON.stringify(saved) } });
-    assert.equal(find((node) => node.placeholder === '登録者名で絞り込む').value, '');
+    const saved = { v: 1, env: 'test', user: '架空データ', world: '', views: { owned: { query: 'ボブ' } }, tabs: {}, ...change };
+    await boot(t, { initial: await cachedSignIn(development), api: development, hash: '#/owned', session: { 'pal-note.views': JSON.stringify(saved) } });
+    assert.equal(byClass('owned-keyword').querySelector('input').value, '');
   });
 }
 
@@ -1168,8 +1169,8 @@ for (const [world, expected] of [[WORLD_A, ''], [WORLD_B, `player:${PLAYER}`]]) 
 }
 
 const lastView = 'pal-note.lastView.架空データ';
-for (const [hash, last, expected] of [['', 'owned', '#/owned'], ['#/', 'list', '#/list'], ['#/settings', 'owned', '#/settings'], ['', 'pal', ''], ['', '知らない', '']]) {
-  test(`画面: 最後に開いたタブが ${last} で「${hash}」を開くと ${expected || 'ハッシュなし（配合検索）'} から始める`, async (t) => {
+for (const [hash, last, expected] of [['', 'owned', '#/owned'], ['#/', 'route', '#/route'], ['#/settings', 'owned', '#/settings'], ['', 'pal', ''], ['', '知らない', ''], ['', 'list', ''], ['#/', 'reverse', '#/']]) {
+  test(`画面: 最後に開いたタブが ${last} で「${hash}」を開くと ${expected || 'ハッシュなし（配合を探す）'} から始める`, async (t) => {
     await boot(t, { initial: { ...signedIn, [lastView]: last }, api: createDevelopmentApi({ seed: '2' }), hash });
     assert.equal(location.hash, expected);
   });
@@ -1191,19 +1192,19 @@ test('画面: ハッシュのない URL で開くと、保存したタブの行�
 });
 
 test('画面: ページを離れるときに今のエントリと読み込み直し用の保存を書き、ログアウトで消す（最後のタブは残す）', async (t) => {
-  const { values, sessionValues, events, changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list', session: {} });
-  const registrant = find((node) => node.placeholder === '登録者名で絞り込む');
-  registrant.value = 'ボブ';
-  await registrant.dispatch('input');
-  await registrant.dispatch('change');
+  const { values, sessionValues, events, changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/owned', session: {} });
+  const keyword = byClass('owned-keyword').querySelector('input');
+  keyword.value = 'ボブ';
+  await keyword.dispatch('input');
+  await keyword.dispatch('change');
   events.get('pagehide')();
   const saved = JSON.parse(sessionValues.get('pal-note.views'));
-  assert.deepEqual([saved.v, saved.env, saved.user, saved.views.list], [1, 'test', '架空データ', { registrant: 'ボブ', sort: 'parent-dex' }]);
-  assert.equal(saved.tabs.list, '#/list');
+  assert.deepEqual([saved.v, saved.env, saved.user, saved.views.owned.query], [1, 'test', '架空データ', 'ボブ']);
+  assert.equal(saved.tabs.owned, '#/owned');
   // 保存するのは条件と位置だけ（パスワード・記録の中身は入れない）
   assert.doesNotMatch(sessionValues.get('pal-note.views') + sessionValues.get('pal-note.entries'), /入力|動作確認用/);
   const [entry] = entriesOf(sessionValues);
-  assert.deepEqual([entry.id, entry.view, entry.key, entry.cond], [history.state.palEntry, 'list', '#/list', { registrant: 'ボブ', sort: 'parent-dex' }]);
+  assert.deepEqual([entry.id, entry.view, entry.key, entry.cond.query], [history.state.palEntry, 'owned', '#/owned', 'ボブ']);
   changeHash('#/settings');
   const logout = byText('ログアウト').dispatch('click');
   await descendants(find((node) => node.tagName === 'dialog')).find((node) => node.tagName === 'button' && node.textContent === 'ログアウト').dispatch('click');
@@ -1216,9 +1217,9 @@ test('画面: ページを離れるときに今のエントリと読み込み直
 
 test('画面: 画面を作り直すときは、同じ役目の部品（data-focus-key）があればフォーカスを引き継ぎ、無ければ何もしない', async (t) => {
   const { back } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search?p1=SheepBall' });
-  // 配合検索の親 1 の選択欄 → 逆引き（同じ役目の部品がない）
+  // 配合を探すの親 1 の選択欄 → 設定（同じ役目の部品がない）
   find((node) => node.getAttribute('aria-label') === '親1: No.1 モコロン').focus();
-  back('#/reverse?c=SheepBall', null);
+  back('#/settings', null);
   assert.equal(document.activeElement, document.body);
   // 継承ルートの目標の選択欄 → 戻るで理想個体へ（目標の選択欄がある）
   back('#/route?to=MoonQueen', null);
@@ -1323,18 +1324,21 @@ test('画面: 作り直す画面へ戻って進むと、離れたときの最新
 });
 
 test('画面: 打ってから間引きの間（150ms）にタブを押しても、離れるエントリには打った後の条件を書き、閉じた画面は後から描かない', async (t) => {
-  const { go, sessionValues } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list', session: {} });
+  const { go, sessionValues } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search', session: {} });
   const first = history.state.palEntry;
-  const registrant = find((node) => node.placeholder === '登録者名で絞り込む');
-  const list = byClass('card-stack');
-  assert.ok(list.querySelectorAll('.breeding-card').length > 0);
-  registrant.value = '該当なし';
-  await registrant.dispatch('input');
-  await clickLink(navTab('配合検索'));
-  go(navTab('配合検索').href);
+  const keyword = find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）');
+  const list = byClass('find-results');
+  const shown = list.querySelectorAll('.breeding-card').length;
+  assert.ok(shown > 0);
+  keyword.value = '該当なし';
+  await keyword.dispatch('input');
+  await clickLink(navTab('継承ルート'));
+  go(navTab('継承ルート').href);
   assert.equal(list.isConnected, false);
-  assert.deepEqual(entriesOf(sessionValues).find((entry) => entry.id === first).cond, { registrant: '該当なし', sort: 'parent-dex' });
-  // 間引きの時間が過ぎても、閉じた一覧は描き直さない
+  // 離れる前に、間引いて待っていたキーワードを当てる（URL とタブの行き先に入る）
+  assert.equal(navTab('配合を探す').href, `#/search?q=${encodeURIComponent('該当なし')}`);
+  assert.equal(entriesOf(sessionValues).find((entry) => entry.id === first).key, `#/search?q=${encodeURIComponent('該当なし')}`);
+  // 間引きの時間が過ぎても、閉じた画面は描き直さない
   const left = list.querySelectorAll('.breeding-card').length;
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.equal(list.querySelectorAll('.breeding-card').length, left);
@@ -1379,8 +1383,8 @@ test('画面: 戻る・進むで popstate と hashchange が続けて来ても�
   const main = document.getElementById('main');
   const search = main.children[0];
   const start = history.state.palEntry;
-  await clickLink(navTab('一覧'));
-  go(navTab('一覧').href);
+  await clickLink(navTab('継承ルート'));
+  go(navTab('継承ルート').href);
   const list = main.children[0];
   assert.notEqual(list, search);
   history.state = { palEntry: start };
@@ -1390,28 +1394,28 @@ test('画面: 戻る・進むで popstate と hashchange が続けて来ても�
   events.get('hashchange')();
   const shown = main.children[0];
   assert.notEqual(shown, list);
-  assert.equal(shown.querySelector('h1').textContent, '配合検索');
+  assert.equal(shown.querySelector('h1').textContent, '配合を探す');
   // 同じエントリ・同じ URL の popstate（読み込んだときなど）では描き直さない
   events.get('popstate')?.();
   assert.equal(main.children[0], shown);
 });
 
 test('画面: 中身の無いエントリ（50 件の上限・名前の変更で消えた）へ戻る・進むで違う画面に移ると先頭から、同じ画面なら動かさない', async (t) => {
-  const { go, back, scrolls, sessionValues } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list', session: {}, scroll: true });
+  const { go, back, scrolls, sessionValues } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search', session: {}, scroll: true });
   const listEntry = history.state.palEntry;
-  await clickLink(navTab('配合検索'));
-  go(navTab('配合検索').href);
+  await clickLink(navTab('継承ルート'));
+  go(navTab('継承ルート').href);
   await frame();
   window.scrollY = 800;
   sessionValues.delete('pal-note.entries');
   const before = scrolls.length;
-  back('#/list', { palEntry: listEntry });
+  back('#/search', { palEntry: listEntry });
   await frame();
   assert.deepEqual(scrolls.slice(before), [0]);
   // 同じ画面の中（URL だけ違う）では動かさない
   window.scrollY = 300;
   sessionValues.delete('pal-note.entries');
-  back('#/list?x=1', { palEntry: '消えたエントリ' });
+  back('#/search?x=1', { palEntry: '消えたエントリ' });
   await frame();
   assert.deepEqual(scrolls.slice(before), [0]);
 });
@@ -1442,7 +1446,7 @@ test('画面: 前の ID が残っている端末のログイン画面は、パ�
   assert.equal(document.activeElement, input('current-password'));
 });
 
-test('画面: 9 本のタブの見出し（h1）はタブの名前と同じ（views/tabs.js の TABS から引く。ナビのタブも同じ名前と並び）', async (t) => {
+test('画面: タブの見出し（h1）はタブの名前と同じ（views/tabs.js の TABS から引く。ナビのタブも同じ名前と並び）', async (t) => {
   const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const main = document.getElementById('main');
   const tabs = descendants(byClass('navigation')).filter((node) => node.className.split(' ').includes('nav-tab'));
@@ -1479,7 +1483,7 @@ test('画面: キャッシュのない初回の取得に失敗したら、画面
   const development = createDevelopmentApi({ seed: '2' });
   let fail = true;
   const api = (request) => (request.action === 'snapshot' && fail ? { ok: false, code: 'INTERNAL' } : development(request));
-  const { calls } = await boot(t, { initial: signedIn, api, hash: '#/list' });
+  const { calls } = await boot(t, { initial: signedIn, api, hash: '#/search' });
   await flush();
   const main = document.getElementById('main');
   const failed = main.querySelector('.error-state');
@@ -1495,7 +1499,7 @@ test('画面: キャッシュのない初回の取得に失敗したら、画面
   await flush();
   assert.equal(snapshots(), before + 1);
   assert.equal(main.querySelector('.error-state'), null);
-  assert.match(main.querySelector('.result-note').textContent, /^2 件の配合/);
+  assert.equal(main.querySelector('.find-count-text').textContent, '2 件');
   assert.ok(main.querySelectorAll('.breeding-card').length > 0);
 });
 
@@ -1503,8 +1507,10 @@ test('画面: 前回の配合を出しているときの取得の失敗は、エ
   const development = createDevelopmentApi({ seed: '2' });
   const initial = await cachedSignIn(development);
   const api = (request) => (request.action === 'snapshot' ? { ok: false, code: 'INTERNAL' } : development(request));
-  await boot(t, { initial, api, hash: '#/list' });
+  await boot(t, { initial, api, hash: '#/search' });
   await flush();
+  // 旧 URL（一覧）は配合を探すに読み替える
+  assert.equal(location.hash, '#/search');
   const main = document.getElementById('main');
   // 画面は前回の配合のまま（errorState は出さない）
   assert.equal(main.querySelector('.error-state'), null);
@@ -1518,12 +1524,17 @@ test('画面: 前回の配合を出しているときの取得の失敗は、エ
   assert.equal(byClass('toast-alerts').children.length, 0);
 });
 
-test('画面: 一覧の「親の順」の行を削除するとき、確認のカードの親の左右を押した行とそろえる', async (t) => {
-  await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/list' });
+test('画面: 親 2 だけを選んだ配合を探すの行を削除するとき、確認のカードの親の左右を押した行とそろえる', async (t) => {
+  const { changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const names = (card) => card.querySelector('.breeding-equation').querySelectorAll('.pal-tile').map((tile) => tile.querySelector('strong').textContent);
-  const cards = descendants(document.getElementById('main')).filter((node) => node.className === 'breeding-card');
-  // 親の順では 1 件を親ごとに展開するので、右の親を左にした行がある
-  assert.ok(cards.some((card) => cards.some((other) => other !== card && names(other).join() === [names(card)[1], names(card)[0], names(card)[2]].join())));
+  const cardsNow = () => descendants(document.getElementById('main')).filter(isCard);
+  // 同じ親どうしでない最初の配合の左の親を、親 2 に選ぶ（その親が右に出る）
+  const first = cardsNow().find((card) => names(card)[0] !== names(card)[1]);
+  const [left, right] = names(first);
+  const leftId = pals.find((pal) => pal.ja === left).id;
+  changeHash(`#/search?p2=${leftId}`);
+  const cards = cardsNow();
+  assert.ok(cards.some((card) => names(card)[0] === right && names(card)[1] === left));
   for (const card of cards) {
     const removing = card.querySelector('button[aria-label="削除"]').dispatch('click');
     const dialog = find((node) => node.tagName === 'dialog' && node.open);

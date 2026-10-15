@@ -44,7 +44,7 @@ export function field(label, input) {
 
 /**
  * 空の状態（結果がない・まだ選んでいない）。文の p と、あれば次の操作（ボタン・リンク。2 つ以上なら入れ物の div）。
- * icon にタブの名前（'list'・'owned' など。ui/nav-icons.js の navIcon）を渡すと、文の上にそのタブのアイコンを出す
+ * icon にタブの名前（'search'・'owned' など。ui/nav-icons.js の navIcon）を渡すと、文の上にそのタブのアイコンを出す
  *（読み上げない。読み込み中・エラーには付けない＝loadingState・errorState）
  */
 export function empty(text, action, { icon = '' } = {}) {

@@ -374,7 +374,7 @@ test('理想個体画面: 所持パルのデータがないときは 1 文と「
   loading.destroy();
 });
 
-test('理想個体画面: 目標のパルを ♂ と ♀ で持っていないときは、次の一手に「逆引きで親を探す」と「ウィッシュリストに追加」（追加したら押せない「ウィッシュリストにあります」）', async (t) => {
+test('理想個体画面: 目標のパルを ♂ と ♀ で持っていないときは、次の一手に「配合を探すで親を探す」と「ウィッシュリストに追加」（追加したら押せない「ウィッシュリストにあります」）', async (t) => {
   install(t);
   const wishes = [];
   const wishlist = { scope: () => 'test.仲間', list: () => wishes, add(palId) { wishes.push({ palId }); return true; } };
@@ -385,8 +385,8 @@ test('理想個体画面: 目標のパルを ♂ と ♀ で持っていない�
   assert.match(emptyState.querySelector('p').textContent, /^モコロンの ♂ と ♀（または登録済みの配合でモコロンが産まれる親の組）を所持していません。/);
   assert.ok(emptyState.querySelector('.empty-icon'));
   const reverse = emptyState.querySelector('a');
-  assert.equal(reverse.textContent, '逆引きで親を探す');
-  assert.equal(reverse.href, '#/reverse?c=SheepBall');
+  assert.equal(reverse.textContent, '配合を探すで親を探す');
+  assert.equal(reverse.href, '#/search?c=SheepBall');
   const add = emptyState.querySelector('button');
   assert.equal(add.textContent, 'ウィッシュリストに追加');
   add.focus();
@@ -394,7 +394,7 @@ test('理想個体画面: 目標のパルを ♂ と ♀ で持っていない�
   assert.deepEqual(wishes, [{ palId: 'SheepBall' }]);
   assert.equal(add.textContent, 'ウィッシュリストにあります');
   assert.equal(add.disabled, true);
-  // 押せなくする前に、隣の「逆引きで親を探す」へフォーカスを移す
+  // 押せなくする前に、隣の「配合を探すで親を探す」へフォーカスを移す
   assert.equal(document.activeElement, reverse);
   view.destroy();
   // すでにあれば最初から押せない。ログインしていない（scope が空）ときは出さない

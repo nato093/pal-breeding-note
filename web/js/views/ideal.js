@@ -581,11 +581,11 @@ export function idealView(context, route) {
     if (holderName()) lines.push(`（所持者を「${holderName()}」に絞っています）`);
     return empty(lines.join(''), result.candidates ? null : missingActions(to), { icon: 'ideal' });
   }
-  // 目標のパルを ♂ と ♀ で持っていないときの次の一手: 逆引きで親を探す・ウィッシュリストに追加（ログインしていなければ出さない。
+  // 目標のパルを ♂ と ♀ で持っていないときの次の一手: 配合を探すで親を探す・ウィッシュリストに追加（ログインしていなければ出さない。
   // すでにあれば押せない「ウィッシュリストにあります」）。フェーズ 2 の goals-merge で「目標に登録」に替わる
   function missingActions(target) {
     const actions = el('div', 'empty-actions');
-    const reverse = link('逆引きで親を探す', buildHash('reverse', { c: target }), 'button secondary');
+    const reverse = link('配合を探すで親を探す', buildHash('search', { c: target }), 'button secondary');
     actions.append(reverse);
     const wishlist = context.wishlist;
     if (!wishlist?.scope?.()) return actions;
@@ -597,7 +597,7 @@ export function idealView(context, route) {
         return;
       }
       if (added) toast(`${palName(target)}をウィッシュリストに追加しました`);
-      // 押せなくするとフォーカスが外れるので、先に隣の「逆引きで親を探す」へ移す
+      // 押せなくするとフォーカスが外れるので、先に隣の「配合を探すで親を探す」へ移す
       if (globalThis.document?.activeElement === add) reverse.focus();
       mark();
     }, 'button secondary');

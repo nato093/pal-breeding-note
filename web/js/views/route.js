@@ -235,7 +235,7 @@ export function inheritanceView(context, route) {
     if (dataPending(results, state, () => context.store.refresh())) return;
     const { routes } = findRoutes(state.graph, state.index, from, to, { k: 5, slack: 3 });
     if (!routes.length) {
-      results.replaceChildren(empty('登録済みの配合ではたどり着けません。', link('目標の逆引きを見る', buildHash('reverse', { c: to }), 'button secondary')));
+      results.replaceChildren(empty('登録済みの配合ではたどり着けません。', link('目標の配合を見る', buildHash('search', { c: to }), 'button secondary')));
       return;
     }
     results.replaceChildren(routeView(routes, { annotate: annotateFor(pals) }));
