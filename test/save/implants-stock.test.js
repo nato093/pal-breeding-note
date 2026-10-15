@@ -198,6 +198,16 @@ test('在庫（画面）: アイテムごとの合計と、数の多い場所 3 
   assert.equal(stockText(itemStock(old, SPEED)), '');
   const broken = normalizeOwned({ version: 1, players: [], bases: [], pals: [], items: [null, 'x', { itemId: '__proto__', count: 3, where: 'guild' }, { itemId: SPEED, count: -1, where: 'guild' }, { itemId: SPEED, count: 2, where: 'mars' }] }, { pals, passives });
   assert.deepEqual(broken.items, {});
+  // 入れ物の種類が壊れた値・組み込みの名前でも読み込みを止めず、ほかの設備にする（Codex のレビュー 1）。
+  // 大文字小文字の違う同じアイテムは合わせる（表の ID は最初に見えた書き方。Codex のレビュー 3）
+  const bases = [{ id: 'b1', number: 1, guildId: 'g1' }];
+  const odd = normalizeOwned({ version: 1, players: [], bases, pals: [], items: [
+    { itemId: REVERSER, count: 3, where: 'base', id: 'b1', object: { toString: 0 } },
+    { itemId: REVERSER.toLowerCase(), count: 2, where: 'base', id: 'b1', object: '__proto__' },
+    { itemId: REVERSER, count: 1, where: 'base', id: 'b1', object: 'constructor' },
+  ] }, { pals, passives });
+  assert.deepEqual(odd.items, { [REVERSER]: { total: 6, places: [{ label: '拠点 1 の設備', count: 6 }] } });
+  assert.equal(itemStock(odd, REVERSER.toLowerCase()).total, 6);
   const shared = ownedFromShared({ world: { worldName: 'W' }, columns: OWNED_FIELDS, rows: [] }, { pals, passives });
   assert.equal(shared.items, null);
   assert.equal(itemStock(shared, SPEED), null);

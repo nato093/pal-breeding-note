@@ -857,7 +857,10 @@ export function idealView(context, route) {
     surgeryBand.replaceChildren(head, list);
     restoreFocus(surgeryBand, focus);
   }
+  // renderMissing で描いたときの s（s だけが変わると計画は同じなので、案内のリンクだけを描き直す。renderResults）
+  let missingSurgery = null;
   function renderMissing(result) {
+    missingSurgery = surgery.join(',');
     missingBox.replaceChildren();
     if (!result?.missing.length) {
       // 欲しいパッシブが 2 つ以上でどれも候補にいるときは、継承ルートで運ぶ（目標とパッシブを写した明示のリンク。I-58）
@@ -1402,6 +1405,13 @@ export function idealView(context, route) {
       setComputing(false);
       if (shown) {
         drawLatest(shown);
+        // s（手術で付ける前提のパッシブ）だけが変わった（計画は同じ）ときは、足りないパッシブの案内（「手術で付ける分を除いて計画する」の
+        // リンクの s）だけを描き直す（implants）
+        if (missingSurgery !== surgery.join(',')) {
+          const focus = captureFocus(missingBox);
+          renderMissing(shown.result);
+          restoreFocus(missingBox, focus);
+        }
         // 今の計画の計算で止めていたケーキの比べ方を、残りから続ける
         compareCakes(shown.plan, shown.result, clock() - started);
       }

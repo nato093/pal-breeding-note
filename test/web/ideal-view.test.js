@@ -2845,6 +2845,19 @@ test('理想個体画面（implants）: 不正な s（付けられない・形�
   view.destroy();
 });
 
+test('理想個体画面（implants）: 同じ画面で s だけを変えても（計画は同じ）、「手術で付ける分を除いて計画する」のリンクの s を今の s に合わせる', (t) => {
+  install(t);
+  const view = idealView(context(fakeOwned()), parseHash(`#/ideal?to=SheepBall&p=${SPEED}&s=Noukin`));
+  const plan = () => view.element.querySelector('.ideal-surgery-plan').href;
+  assert.equal(plan(), buildHash('ideal', { to: 'SheepBall', s: `Noukin,${SPEED}` }));
+  // 前の s（脳筋）を残さない（Codex のレビュー 2）
+  view.applyRoute(parseHash(`#/ideal?to=SheepBall&p=${SPEED}&s=PAL_ALLAttack_up1`));
+  assert.equal(plan(), buildHash('ideal', { to: 'SheepBall', s: `PAL_ALLAttack_up1,${SPEED}` }));
+  view.applyRoute(parseHash(`#/ideal?to=SheepBall&p=${SPEED}`));
+  assert.equal(plan(), buildHash('ideal', { to: 'SheepBall', s: SPEED }));
+  view.destroy();
+});
+
 test('理想個体画面（implants）: 目標の一覧で、足りないパッシブを手術台で付ければ完成する目標は「手術で完成できる」（info の色）と、最初の 1 体＋付けるもの・在庫・ほか n 体', (t) => {
   install(t);
   const owned = fakeOwned([

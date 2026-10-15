@@ -247,21 +247,25 @@ const joinName = (name, rest) => `${name}${/[0-9A-Za-z]$/.test(name) ? ' ' : ''}
  */
 function stockOf(value, { baseLabel, players }) {
   if (!Array.isArray(value)) return null;
+  // アイテムは大文字小文字をそろえて合わせる（セーブの ID の書き方が違っても同じアイテム。表の ID は最初に見えた書き方）
   const byItem = new Map();
   for (const entry of list(value, { max: STOCK_ENTRIES_MAX, map: (item) => (isObject(item) ? item : null) })) {
     const itemId = typeof entry.itemId === 'string' && STOCK_ITEM.test(entry.itemId) ? entry.itemId : '';
     const count = int(entry.count, STOCK_COUNT);
     const id = idText(entry.id, 40);
     if (!itemId || !count) continue;
-    const label = entry.where === 'base' ? joinName(baseLabel(id), `の${STOCK_OBJECTS[entry.object] ?? STOCK_OBJECTS.other}`)
+    // 入れ物の種類は知っている名前だけ（壊れた値・組み込みの名前〔constructor など〕はほかの設備）
+    const object = typeof entry.object === 'string' && Object.hasOwn(STOCK_OBJECTS, entry.object) ? entry.object : 'other';
+    const label = entry.where === 'base' ? joinName(baseLabel(id), `の${STOCK_OBJECTS[object]}`)
       : entry.where === 'guild' ? 'ギルド保管庫'
         : entry.where === 'player' && id ? joinName(playerName(players, id), 'の所持品') : '';
     if (!label) continue;
-    let places = byItem.get(itemId);
-    if (!places) byItem.set(itemId, (places = new Map()));
-    places.set(label, (places.get(label) ?? 0) + count);
+    const key = itemId.toLowerCase();
+    let item = byItem.get(key);
+    if (!item) byItem.set(key, (item = { itemId, places: new Map() }));
+    item.places.set(label, (item.places.get(label) ?? 0) + count);
   }
-  return Object.fromEntries([...byItem].map(([itemId, places]) => {
+  return Object.fromEntries([...byItem.values()].map(({ itemId, places }) => {
     const sorted = [...places].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     return [itemId, { total: sorted.reduce((sum, [, count]) => sum + count, 0), places: sorted.slice(0, STOCK_PLACES).map(([label, count]) => ({ label, count })) }];
   }));
