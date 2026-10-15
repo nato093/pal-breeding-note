@@ -65,6 +65,12 @@ test('配合牧場ボード: 拠点の順・同じ拠点の中は A／B の順�
   assert.deepEqual(ctx.opened, [{ kind: 'owned', id: 'm' }]);
   board.destroy();
   assert.equal(farmState({ status: 'ok', parents: ['a', 'b'] }, new Map([['a', { gender: 'F' }], ['b', { gender: 'F' }]])).text, '同性');
+  // ♂♀ でもケーキがない（[]）ならタマゴを産まないので、緑の「配合中」にせず警告の「ケーキ切れ」。分からない（null・ない）は「配合中」のまま
+  const pair = new Map([['a', { gender: 'M' }], ['b', { gender: 'F' }]]);
+  assert.deepEqual(farmState({ status: 'ok', parents: ['a', 'b'], cakes: [] }, pair), { text: 'ケーキ切れ', tone: 'warning' });
+  for (const cakes of [null, undefined, [{ itemId: 'Cake02', count: 3 }]]) assert.deepEqual(farmState({ status: 'ok', parents: ['a', 'b'], cakes }, pair), { text: '配合中', tone: 'ready' });
+  // 片親・空きは前のまま（ケーキの 1 行が「ケーキ切れ」を出す）
+  assert.equal(farmState({ status: 'ok', parents: ['a'], cakes: [] }, pair).text, '片親');
 });
 
 test('配合牧場ボード: タマゴの数と中身の絵（突然変異は印）、20 個を超えたら「ほか n 個」。中身の分からない共有・古い形の共有の文', (t) => {

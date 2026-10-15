@@ -581,6 +581,10 @@ test('画面: タブを切り替えても選んだパルと絞り込みを残し
   });
   const tab = (label) => find((node) => node.className.split(' ').includes('nav-tab') && node.textContent.endsWith(label));
   const keyword = () => find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）');
+  // 架空の配合 2 件（seed は件数で決まる並び。dev/mock-api.js）を読んで一覧を描くまで待つ。2 件はモコロンを親に使わないので、
+  // キーワードの前から親の案内（前は Math.random で、たまにモコロンが親の配合ができて「条件に合う登録はありません」になり落ちた）
+  for (let i = 0; i < 20 && !/この親を使う配合はまだ登録されていません。/.test(document.body.textContent); i++) await flush();
+  assert.match(document.body.textContent, /この親を使う配合はまだ登録されていません。/);
   // キーワードは URL（q）に入れ、タブの行き先にも覚える（テストの history に pushState が無いので、location.hash で入る）
   keyword().value = '該当なし';
   await keyword().dispatch('input');
@@ -1128,24 +1132,37 @@ test('画面: `#/pal`（ID なし）は図鑑の格子（題名も「図鑑」�
   assert.equal(dex.href, '#/pal/');
 });
 
-test('画面: 図鑑（`#/pal/`）の上で開いたドロワーの「図鑑」は、今の本文と同じ URL なのでドロワーを閉じて本文を見せる（× と同じ）', async (t) => {
-  const development = createDevelopmentApi();
-  await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
-  const { pushes } = await boot(t, { initial: signedIn, api: development, hash: '#/pal/', pushState: true });
-  const isSheep = (node) => node.tagName === 'a' && node.getAttribute('data-pal-id') === 'SheepBall' && node.className.split(' ').includes('paldex-cell');
-  for (let i = 0; i < 20 && !find(isSheep); i++) await flush();
-  const view = document.getElementById('main').children[0];
-  await clickLink(find(isSheep).children[1]);
-  assert.equal(byClass('side-drawer').hidden, false);
-  assert.deepEqual(pushes, ['/Pal/#/pal/']);
-  const dex = find((node) => node.className.split(' ').includes('pal-dex-link') && byClass('side-drawer').contains(node));
-  const clicked = await clickLink(dex);
-  assert.equal(clicked.defaultPrevented, true);
-  assert.equal(byClass('side-drawer').hidden, true);
-  assert.equal(history.state.drawer, undefined);
-  assert.equal(location.hash, '#/pal/');
-  assert.equal(document.getElementById('main').children[0], view);
-});
+// 更新内容の通知の href は `#/pal`、ドロワーの「図鑑」は buildHash の `#/pal/`（書き方だけ違う同じ URL。フェーズ 4 の終わりのレビュー）
+for (const start of ['#/pal/', '#/pal']) {
+  test(`画面: 図鑑（${start}）の上で開いたドロワーの「図鑑」は、今の本文と同じ URL なのでドロワーを閉じて本文を見せる（× と同じ）`, async (t) => {
+    const development = createDevelopmentApi();
+    await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
+    const { pushes } = await boot(t, { initial: signedIn, api: development, hash: start, pushState: true });
+    const isSheep = (node) => node.tagName === 'a' && node.getAttribute('data-pal-id') === 'SheepBall' && node.className.split(' ').includes('paldex-cell');
+    for (let i = 0; i < 20 && !find(isSheep); i++) await flush();
+    const view = document.getElementById('main').children[0];
+    await clickLink(find(isSheep).children[1]);
+    assert.equal(byClass('side-drawer').hidden, false);
+    assert.deepEqual(pushes, [`/Pal/${start}`]);
+    const dex = find((node) => node.className.split(' ').includes('pal-dex-link') && byClass('side-drawer').contains(node));
+    assert.equal(dex.href, '#/pal/');
+    const clicked = await clickLink(dex);
+    assert.equal(clicked.defaultPrevented, true);
+    assert.equal(byClass('side-drawer').hidden, true);
+    assert.equal(history.state.drawer, undefined);
+    assert.equal(location.hash, start);
+    assert.equal(document.getElementById('main').children[0], view);
+    // ドロワーの外（本文）の、書き方だけ違う同じ URL へのリンクも移らない（同じ画面を作り直さず、履歴も増やさない）
+    const other = document.createElement('a');
+    other.href = start === '#/pal' ? '#/pal/' : '#/pal';
+    view.append(other);
+    const plain = await clickLink(other);
+    assert.equal(plain.defaultPrevented, true);
+    assert.equal(location.hash, start);
+    assert.equal(document.getElementById('main').children[0], view);
+    assert.deepEqual(pushes, [`/Pal/${start}`]);
+  });
+}
 
 test('画面: ドロワーを開いたまま本文にフォーカスを移しても Esc で閉じる（入力欄では閉じない）。開いたまま検索語を打ったエントリは、× で前のエントリへ戻らない印になる', async (t) => {
   const development = createDevelopmentApi();

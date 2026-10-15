@@ -46,7 +46,9 @@ const guildBlob = (members) => {
   return w.u32(0).u32(0).toBytes();
 };
 
-function level({ gameTime = true, members = [[P1, REAL, 'Alice'], [P2, REAL - 14310 * 1e7, 'Bob']] } = {}) {
+// farm1Slots・farm2Slots は牧場 1・2 の入れ物のスロット（[アイテム ID, 個数]、または読めない生のバイト列の Uint8Array）
+function level({ gameTime = true, members = [[P1, REAL, 'Alice'], [P2, REAL - 14310 * 1e7, 'Bob']],
+  farm1Slots = [['Cake02', 30], ['Cake03', 18], ['Cake02', 21], ['Wood', 5], ['Cake05', 0]], farm2Slots = [] } = {}) {
   const lv = gvasWithHeader({ className: '/Script/Pal.PalWorldSaveGame' });
   lv.structProps('worldSaveData', 'PalWorldSaveData', (ws) => {
     const chars = [
@@ -91,9 +93,10 @@ function level({ gameTime = true, members = [[P1, REAL, 'Alice'], [P2, REAL - 14
       (v, b) => v.enumProp('GroupType', 'EPalGroupType', 'EPalGroupType::Guild').byteArray('RawData', b).none());
     // 牧場 1 はケーキ 2 種（同じ種類は合わせる）とケーキ以外のアイテム、牧場 2 は空の入れ物、牧場 3 は入れ物が見つからない
     ws.map('ItemContainerSaveData', 'StructProperty', 'StructProperty',
-      [[IC_FARM1, [['Cake02', 30], ['Cake03', 18], ['Cake02', 21], ['Wood', 5], ['Cake05', 0]]], [IC_FARM2, []]],
+      [[IC_FARM1, farm1Slots], [IC_FARM2, farm2Slots]],
       (k, c) => k.nativeStruct('ID', 'Guid', (x) => x.guid(c)).none(),
-      (v, slots) => v.structArray('Slots', 'PalItemSlotSaveData', slots.map((slot, i) => [i, ...slot]), (e, [i, item, count]) => e.byteArray('RawData', itemSlot(i, item, count)).none()).none());
+      (v, slots) => v.structArray('Slots', 'PalItemSlotSaveData', slots.map((slot, i) => [i, slot]),
+        (e, [i, slot]) => e.byteArray('RawData', slot instanceof Uint8Array ? slot : itemSlot(i, ...slot)).none()).none());
     const mapObjects = [
       ['DisplayCharacter', modelBlob(id(201), id(202), BASE1), new Uint8Array(0), [['EPalMapObjectConcreteModelModuleType::CharacterContainer', C_DISPLAY]]],
       ['BreedFarm', modelBlob(id(301), id(302), BASE1), farmBlob(id(302), id(301)), [['EPalMapObjectConcreteModelModuleType::ItemContainer', IC_FARM1]]],
@@ -209,4 +212,20 @@ test('save-extras: 配合牧場のケーキは入れ物（ModuleMap の ItemCont
     null,
   ]);
   assert.deepEqual(farms.map((farm) => farm.status), ['ok', 'ok', 'ok', 'ok']);
+});
+
+test('save-extras: 牧場の入れ物に読めないスロットがあれば、ケーキの数を確かめられないので分からない（null）。「ケーキ切れ」（[]）にしない', () => {
+  const broken = new Uint8Array([1, 2, 3]);
+  // 牧場 1 はケーキの間に読めないスロット、牧場 2 は全部のスロットが読めない（前は [] になり、画面が「ケーキ切れ」と出した）
+  const lv = parseLevel(level({ farm1Slots: [['Cake02', 30], broken], farm2Slots: [broken, broken, broken] }));
+  assert.equal(lv.malformed.itemSlots, 4);
+  const farms = buildSnapshot({ level: lv }).breedFarms;
+  assert.deepEqual(farms.map((farm) => farm.cakes), [null, null, null, null]);
+  // 読めないスロットのない入れ物は今までどおり（空ならケーキ切れ）
+  const ok = buildSnapshot({ level: parseLevel(level({ farm1Slots: [broken], farm2Slots: [] })) }).breedFarms;
+  assert.deepEqual(ok.map((farm) => farm.cakes), [null, [], null, null]);
+  // 中身の分からない 0 バイトのスロット（RawData の空のバイト列）も分からない（Codex のレビュー。実セーブにはなかった形）
+  const empty = parseLevel(level({ farm1Slots: [['Cake02', 30]], farm2Slots: [new Uint8Array(0)] }));
+  assert.equal(empty.malformed.itemSlots, undefined);
+  assert.deepEqual(buildSnapshot({ level: empty }).breedFarms.map((farm) => farm.cakes), [[{ itemId: 'Cake02', count: 30 }], null, null, null]);
 });

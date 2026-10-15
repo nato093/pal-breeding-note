@@ -127,14 +127,23 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
   }
 
   // 明示された件数だけ架空のランダム配合を用意し、既定では一件も作らない。
+  // 乱数は件数から決まる並び（mulberry32）。同じ件数なら毎回同じ配合になり、テスト（「この親の配合はまだ登録されていません」など、
+  // たまたまその親の配合ができると落ちる確かめ）と画面の確かめが揺れない（フェーズ 4 の終わりのレビュー。前は Math.random）
   const count = Number(seed);
   if (seed !== null && seed !== undefined && Number.isSafeInteger(count) && count > 0) {
     users.push('架空データ');
     const available = pals.filter((pal) => pal.active);
     const max = available.length * (available.length + 1) / 2 * available.length;
     const identities = new Set();
+    let state = (0x5eed0000 + count) | 0;
+    const random = () => {
+      state = (state + 0x6D2B79F5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
     while (records.size < Math.min(count, max)) {
-      const randomId = () => available[Math.floor(Math.random() * available.length)].id;
+      const randomId = () => available[Math.floor(random() * available.length)].id;
       const input = normalizeRecord({ parent1Id: randomId(), parent2Id: randomId(), childId: randomId() });
       if (identities.has(identityKey(input))) continue;
       identities.add(identityKey(input));

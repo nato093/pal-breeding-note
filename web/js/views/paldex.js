@@ -115,8 +115,10 @@ function paldexCell(initial) {
     cell.hidden = !state.shown;
     count.hidden = !state.count;
     count.textContent = state.count ? (state.count > COUNT_SHOWN_MAX ? `${COUNT_SHOWN_MAX}+` : String(state.count)) : '';
-    // 子としての登録がない種は、実物の絵を CSS の filter で影にする（画像は足さない。X-14）
+    // 子としての登録がない種は、実物の絵を CSS の filter で影にする（画像は足さない。X-14）。所持・捕獲している種は、影ではなく淡い白黒の絵に
+    //（is-known。ゲームの図鑑の「影＝未捕獲」と逆の意味に読めないように。影・淡い絵・点線の枠の意味は「子としての登録なし」のまま。INV-2）
     cell.classList.toggle('is-unregistered', !state.count);
+    cell.classList.toggle('is-known', !state.count && Boolean(state.owned || state.capture));
     picture.classList.toggle('pal-icon-silhouette', !state.count);
     owned.hidden = !state.owned;
     capture.hidden = !state.capture;
@@ -142,8 +144,9 @@ function paldexLegend() {
     return node;
   };
   item(el('span', 'paldex-count', '3'), '子としての登録の件数');
+  // 影の意味（ゲームの図鑑の「影＝未捕獲」とは違う）をはっきり書く。所持・捕獲している種は影ではなく淡い絵（is-known）
   const shadow = el('span', 'paldex-legend-shadow');
-  item(shadow, '影は登録なし');
+  item(shadow, '影・淡い絵は、子として登録された配合がまだない種族（所持・捕獲していれば淡い絵）');
   const owned = item(el('span', 'paldex-owned'), '所持');
   const star = el('span', 'paldex-goal');
   star.append(icon('star', { className: 'paldex-star' }));
@@ -173,6 +176,10 @@ export function paldexView(context) {
 
   const summary = el('p', 'paldex-summary');
   const filterSlot = el('div', 'paldex-filter');
+  // 絞り込みに当たる数（「297 体」。替えたら読み上げる。aria-live。矢印キーで動く格子は作らない〔298 マスと大きいため〕）
+  const shownCount = el('span', 'paldex-shown');
+  shownCount.setAttribute('aria-live', 'polite');
+  filterSlot.append(shownCount);
   const bar = el('div', 'paldex-bar');
   bar.append(summary, filterSlot);
   const legend = paldexLegend();
@@ -183,23 +190,40 @@ export function paldexView(context) {
   grid.setAttribute('aria-label', 'パルの一覧（図鑑順）');
   element.append(viewHeading('図鑑'), bar, legend.element, status, none, grid);
 
-  // 絞り込みの押しボタン（所持パルのデータの有無で「未所持」を出し入れするときだけ作り直す）
-  let filter = null;
-  let filterKey = '';
+  // 絞り込みの押しボタン（1 つだけ作り、作り直さない。「未所持」は所持パルのデータがあるときだけ出す。作り直すと、データが届いたときに
+  // 押したばかりの押しボタンのフォーカスが落ちた。フェーズ 4 の終わりのレビュー）
+  const filter = segmented({
+    label: '図鑑の絞り込み', value: memory.filter, choices: PALDEX_FILTERS,
+    onChange: (next) => {
+      memory.filter = next;
+      refresh({ filterChanged: true });
+    },
+  });
+  filterSlot.append(filter.element);
   function renderFilter(hasOwned, value) {
-    const key = hasOwned ? 'owned' : 'none';
-    if (key === filterKey) { filter.update(value); return; }
-    filter?.destroy();
-    filterKey = key;
-    filter = segmented({
-      label: '図鑑の絞り込み', value,
-      choices: PALDEX_FILTERS.filter(([choice]) => hasOwned || choice !== 'unowned'),
-      onChange: (next) => {
-        memory.filter = next;
-        refresh();
-      },
-    });
-    filterSlot.replaceChildren(filter.element);
+    filter.update(value);
+    filter.setHidden('unowned', !hasOwned);
+  }
+  let shownText = '';
+  function renderShown(count) {
+    const text = `${count} 体`;
+    if (text === shownText) return;
+    shownText = text;
+    shownCount.textContent = text;
+  }
+
+  // 絞り込みで隠れるマスでも、フォーカスのあるマスと、右のドロワーで開いているパルのマス（ドロワーを閉じたときの戻り先）は、データの更新では
+  // 隠さずに次の更新まで残す（「未登録」で開いたパルをドロワーから登録したときなど。隠すとフォーカス・戻り先が body に落ちる）。
+  // 絞り込みを替えたときは残さない。前の更新で出ていたマスだけ（隠れていたマスを出し直さない）
+  let lastShown = new Set();
+  function keptIds() {
+    const kept = new Set();
+    const active = globalThis.document?.activeElement;
+    const focusedId = active && active !== grid && grid.contains?.(active) ? active.getAttribute?.('data-pal-id') : null;
+    if (focusedId) kept.add(focusedId);
+    const opened = context.drawer?.isOpen?.() ? context.drawer.current?.() : null;
+    if (opened?.kind === 'pal' && opened.id) kept.add(opened.id);
+    return kept;
   }
 
   let summaryKey = '';
@@ -219,7 +243,7 @@ export function paldexView(context) {
     }));
   }
 
-  function refresh() {
+  function refresh({ filterChanged = false } = {}) {
     if (destroyed) return;
     const state = context.store?.state ?? {};
     // 記録をまだ読めていなければ、読み込み中（失敗なら「もう一度読み込む」）を出し、格子は隠す（全部が影に見えないように）
@@ -232,10 +256,20 @@ export function paldexView(context) {
     // 所持パルのデータがないときの「未所持」は「すべて」として描く（覚えた値は残し、データが来たら戻す）
     const current = memory.filter === 'unowned' && !marks.owned ? 'all' : memory.filter;
     renderFilter(Boolean(marks.owned), current);
-    const items = PALDEX_PALS.map((pal) => paldexCellState(pal, marks, current));
+    const kept = filterChanged ? null : keptIds();
+    let matched = 0;
+    const items = PALDEX_PALS.map((pal) => {
+      const item = paldexCellState(pal, marks, current);
+      if (item.shown) matched++;
+      else if (kept?.has(pal.id) && lastShown.has(pal.id)) item.shown = true;
+      return item;
+    });
     syncList(grid, items, { key: (item) => item.pal.id, create: paldexCell });
+    lastShown = new Set(items.filter((item) => item.shown).map((item) => item.pal.id));
     grid.hidden = pending;
     renderSummary(items, marks, pending);
+    renderShown(pending ? 0 : matched);
+    shownCount.hidden = pending;
     legend.update(marks);
     none.hidden = pending || items.some((item) => item.shown);
     none.textContent = current === 'unowned' ? '所持していないパルはいません。' : '子として登録のないパルはいません。';
@@ -275,7 +309,7 @@ export function paldexView(context) {
       for (const unsubscribe of subscriptions.splice(0)) {
         try { unsubscribe?.(); } catch { /* 外せない購読は残っても描き直さない（destroyed）。 */ }
       }
-      filter?.destroy();
+      filter.destroy();
       clearList(grid);
     },
   };

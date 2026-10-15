@@ -10,7 +10,7 @@ import { createPopover } from '../ui/popover.js';
 import { icon } from '../ui/icons.js';
 import { ownedNotices, noticeList, grantWithReport, onlineUids, onlineKey } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
-import { farmBoard } from '../ui/farm-board.js';
+import { farmBoard, cakesOut } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
 import {
   viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
@@ -761,7 +761,8 @@ export function ownedView(context, route) {
   const query = el('input');
   query.type = 'search';
   query.placeholder = '名前・スキル・属性など';
-  query.title = '名前・スキル・属性など（空白で区切ると、すべてを含むパル）';
+  // 作業の名前＋数字は Lv の下限（画面のどこにも書いていなかった。フェーズ 4 の終わりのレビュー）
+  query.title = '名前・スキル・属性・作業適性など（空白で区切ると、すべてを含むパル）\n例: 「採掘3」は採掘 Lv3 以上の種族（Lv4 以上も当たる）';
   query.value = filter.query;
   const sort = el('select', 'owned-sort');
   sort.setAttribute('aria-label', '並べ替え');
@@ -1097,8 +1098,12 @@ export function ownedView(context, route) {
       return;
     }
     const eggs = data.farmsCounted === false ? null : farms.reduce((sum, farm) => sum + farm.eggCount, 0);
-    const text = `配合牧場（${farms.length} か所${eggs === null ? '' : ` · タマゴ ${eggs} 個`}）`;
-    if (farmToggleText.textContent !== text) farmToggleText.textContent = text;
+    // ケーキ切れの牧場の数（ホストの画面だけ。閉じたままでも気づけるように警告の色で。フェーズ 4 の終わりのレビュー）
+    const out = farms.filter(cakesOut).length;
+    const text = `配合牧場（${farms.length} か所${eggs === null ? '' : ` · タマゴ ${eggs} 個`}`;
+    if (farmToggleText.textContent !== `${text}${out ? ` · ケーキ切れ ${out}` : ''}）`) {
+      farmToggleText.replaceChildren(el('span', '', text), ...(out ? [el('span', '', ' · '), el('span', 'farm-band-alert', `ケーキ切れ ${out}`)] : []), el('span', '', '）'));
+    }
     farmToggle.setAttribute('aria-expanded', String(farmsOpen));
     farmBody.hidden = !farmsOpen;
     if (farmsOpen && !board) {
@@ -1512,24 +1517,34 @@ export function ownedView(context, route) {
   let newSince = { key: '', since: '' };
   let viewed = null;
   const isNewPal = (pal) => Boolean(newSince.since) && Boolean(pal.ownedAt) && pal.ownedAt > newSince.since && !pal.heading;
+  // 見ていたときと環境・ログインの ID が違うか（名前の変更・ログインし直し。ログアウトした〔空〕ときは違うとみなさない）
+  const otherScope = (seen, env, userId) => Boolean(env && env !== seen.env) || Boolean(userId && userIdKey(userId) !== userIdKey(seen.userId));
   function saveSeen() {
-    if (viewed) seenStore?.write(viewed.env, viewed.userId, viewed.worldId, viewed.at);
+    if (!viewed) return;
+    // 名前を変えた後は、前の ID のキーに書き戻さない（user-rename.js が移して消したキーが戻る）
+    if (otherScope(viewed, context.store?.state?.env ?? '', context.store?.state?.userId ?? '')) return;
+    seenStore?.write(viewed.env, viewed.userId, viewed.worldId, viewed.at);
   }
+  /** 基準を合わせる（データ・環境・ログインの ID が変わったとき）。NEW の基準が変わったら true（呼び出し側が行を描き直す） */
   function trackNew(state) {
     const env = context.store?.state?.env ?? '';
     const userId = context.store?.state?.userId ?? '';
     const worldId = state.meta?.worldId ?? '';
     const at = state.owned && state.meta?.source ? seenTime(state.meta.saveUpdatedAt) : '';
-    if (!seenStore || !env || !userId || !worldId || !at) return;
+    if (!seenStore || !env || !userId || !worldId || !at) return false;
     const key = `${env}\u0001${userIdKey(userId)}\u0001${worldId}`;
+    let changed = false;
     if (newSince.key !== key) {
-      // 別のワールド（・ログイン）に替わったら、前に見ていたワールドの時刻を保存してから新しい基準を読む
-      if (viewed && viewed.key !== key) saveSeen();
+      // 同じ環境・ID のまま別のワールドに替わったら、前に見ていたワールドの時刻を保存してから新しい基準を読む。環境・ID が変わったら
+      //（名前の変更など）前に見ていた時刻は書かずに捨てる
+      if (viewed && viewed.key !== key && !otherScope(viewed, env, userId)) saveSeen();
       const stored = seenStore.read(env, userId, worldId);
+      changed = (stored ?? '') !== newSince.since;
       newSince = { key, since: stored ?? '' };
       if (!stored) seenStore.write(env, userId, worldId, at);
     }
     viewed = { key, env, userId, worldId, at };
+    return changed;
   }
   // タブが裏に回ったら（ゲームに戻る・ページを閉じる前にも来る）、見ていたデータの時刻を保存する（この画面の NEW はそのまま）
   globalThis.document?.addEventListener?.('visibilitychange', () => {
@@ -1835,8 +1850,15 @@ export function ownedView(context, route) {
   // 自分のプレイヤー（ログインの ID・ユーザーの一覧・登録者の対応・このワールドでの自分で決まる）が後から分かった・変わったら、
   // 所持者の選択肢と一覧（件数・行・パッシブの所持数）を描き直す（既定の自分は、分かるまで「すべて」として描いている）。
   // 許す個体の Set（holderIds）は自分の UID の並びも鍵にしているので作り直される。このワールドでの自分は設定や別のタブで変わる（context.self）
+  // 環境・ログインの ID が後から分かった・変わったときも、NEW の基準を合わせる（配合のキャッシュがない端末では、所持パルのデータが環境より
+  // 先に届く。開いたまま名前を変えたら、前の ID の基準は書かずに捨てる。trackNew。フェーズ 4 の終わりのレビュー）
   const selfChanged = () => {
-    if (destroyed || selfKey() === shownSelf) return;
+    if (destroyed) return;
+    const sinceChanged = trackNew(owned.state);
+    if (selfKey() === shownSelf) {
+      if (sinceChanged) renderResults({ keepPosition: true });
+      return;
+    }
     renderFilters(owned.state);
     renderResults({ keepPosition: true });
   };

@@ -119,3 +119,27 @@ test('押しボタンの選択: badge で 1 つの押しボタンに小さな印
   part.badge('知らない値', { text: '最速' });
   assert.equal(badges().length, 0);
 });
+
+test('押しボタンの選択: setHidden は押しボタンを作り直さずに隠す・出す。隠した押しボタンへは矢印・Home・End で移らない', async (t) => {
+  const { part, changes, radio, radios } = mount(t);
+  const before = radios();
+  part.setHidden('special', true);
+  assert.equal(radio('special').hidden, true);
+  assert.deepEqual(radios(), before);
+  const press = (node, key) => node.dispatch('keydown', { key, preventDefault() {} });
+  radio('none').focus();
+  await press(radio('none'), 'ArrowLeft');
+  assert.equal(document.activeElement, radio('talent'));
+  await press(radio('talent'), 'ArrowRight');
+  assert.equal(document.activeElement, radio('none'));
+  await press(radio('none'), 'End');
+  assert.equal(document.activeElement, radio('talent'));
+  assert.deepEqual(changes, ['talent', 'none', 'talent']);
+  // 出し直すと、また移れる
+  part.setHidden('special', false);
+  await press(radio('talent'), 'ArrowRight');
+  assert.equal(document.activeElement, radio('special'));
+  // 知らない値は何もしない
+  part.setHidden('unknown', true);
+  assert.equal(radios().some((node) => node.hidden), false);
+});

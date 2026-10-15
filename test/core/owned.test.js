@@ -778,6 +778,11 @@ test('save-extras: 入手時刻・魂の強化・状態を画面の形に整え�
   assert.equal(owned.world.inGameDay, null);
   assert.equal(normalizeOwned({ ...snapshot, world: { ...snapshot.world, inGameDay: 624 } }, { pals, passives }).world.inGameDay, 624);
   assert.equal(normalizeOwned({ ...snapshot, world: { ...snapshot.world, inGameDay: 0 } }, { pals, passives }).world.inGameDay, null);
+  // 範囲外・整数でない値は丸めずに null（共有側の ownedInGameDay と同じ。前は '9e99' を「1000000 日目」にして共有もした）
+  for (const day of ['9e99', 1000001, -3, 1.5, 'abc', Infinity]) {
+    assert.equal(normalizeOwned({ ...snapshot, world: { ...snapshot.world, inGameDay: day } }, { pals, passives }).world.inGameDay, null, String(day));
+  }
+  assert.equal(normalizeOwned({ ...snapshot, world: { ...snapshot.world, inGameDay: '1000000' } }, { pals, passives }).world.inGameDay, 1000000);
 });
 
 test('save-extras: 入手の新しい順（入手時刻のない個体は向きによらず最後・同じ時刻は図鑑番号 → 個体 ID）と、入手の古い順', () => {

@@ -9,10 +9,13 @@ const STEPS = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
  * choices は [value, 短いラベル, title?] の配列（title は長い説明。値の意味の文は呼び出し側が渡す）。
  * 遺伝の仕組み（core/ideal.js）は import しない（INV-2 の import の制限。ケーキ・パッシブの条件の文は views/ideal.js が渡す）。
  * @param {{ label: string, choices: [string, string, string?][], value: string, onChange: (value: string) => void }} options
- * @returns {{ element: HTMLElement, update(value: string): void, badge(value: string | null, options?: { text?: string, note?: string }): void, destroy(): void }}
+ * @returns {{ element: HTMLElement, update(value: string): void, badge(value: string | null, options?: { text?: string, note?: string }): void,
+ *   setHidden(value: string, hidden: boolean): void, destroy(): void }}
  *   update は外からの反映（onChange は呼ばない）。知らない値ならどれも選ばず、先頭を Tab で入れる位置にする。
  *   badge は value の押しボタンに小さな印（span.segmented-badge。見た目だけで、読み上げは隠した文「（text）」）を付け、title に note を
- *   1 行足す（ほかの押しボタンの印は外す。null・知らない値なら外すだけ）。印は CSS でボタンの角に重ね、ボタンの幅と高さを変えない
+ *   1 行足す（ほかの押しボタンの印は外す。null・知らない値なら外すだけ）。印は CSS でボタンの角に重ね、ボタンの幅と高さを変えない。
+ *   setHidden は value の押しボタンを隠す・出す（作り直さないので、ほかの押しボタンのフォーカスは残る。隠した押しボタンには矢印・Home・End で
+ *   移らない。隠すのは選んでいない押しボタンだけにする〔選んでいる値を隠すときは、先に update で別の値にする〕）
  */
 export function segmented({ label, choices, value, onChange }) {
   const element = el('div', 'segmented');
@@ -27,9 +30,12 @@ export function segmented({ label, choices, value, onChange }) {
     node.setAttribute('data-value', key);
     if (title) node.title = title;
     node.addEventListener('keydown', (event) => {
+      // 移れる押しボタン（隠したものは飛ばす）の並びの中で、隣・端へ
+      const open = radios.map((_, i) => i).filter((i) => !radios[i].hidden);
+      const at = open.indexOf(index);
       const step = STEPS[event.key];
-      const next = step ? (index + step + choices.length) % choices.length
-        : event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1 : -1;
+      const next = step && at >= 0 ? open[(at + step + open.length) % open.length]
+        : event.key === 'Home' ? open[0] ?? -1 : event.key === 'End' ? open.at(-1) ?? -1 : -1;
       if (next < 0) return;
       event.preventDefault();
       choose(choices[next][0]);
@@ -84,6 +90,10 @@ export function segmented({ label, choices, value, onChange }) {
       show();
     },
     badge,
+    setHidden(value, hidden) {
+      const index = choices.findIndex(([key]) => key === value);
+      if (index >= 0 && radios[index].hidden !== hidden) radios[index].hidden = hidden;
+    },
     destroy() { destroyed = true; },
   };
 }

@@ -27,15 +27,22 @@ function ownedDate(value) {
 export function soulAndCondition(pal) {
   if (pal.egg || (!pal.soul && !pal.condition)) return null;
   const list = el('dl', 'owned-detail-facts');
-  const add = (term, detail, className = '') => list.append(el('dt', '', term), el('dd', className, detail));
+  const add = (term, detail, className = '') => {
+    const value = el('dd', className, detail);
+    list.append(el('dt', '', term), value);
+    return value;
+  };
   if (pal.soul) {
     const parts = SOUL_PARTS.filter(([key]) => pal.soul[key] > 0).map(([key, name]) => `${name} +${pal.soul[key]}`);
     add('魂の強化', parts.length ? parts.join(' · ') : 'なし');
   }
   if (pal.condition) {
     const { sick, hunger, sanity } = pal.condition;
-    // 病気・空腹の種類はゲームの内部名（日本語の表を取り込んでいないので、そのまま括弧に添える）
-    add('状態', [sick ? `病気（${sick}）` : '', hunger ? `空腹（${hunger}）` : ''].filter(Boolean).join(' · ') || '病気・空腹なし', sick || hunger ? 'is-warning' : '');
+    // 見える文は「病気」「空腹」だけ。種類はゲームの内部名（日本語の表を取り込んでいない）なので title にだけ出す（前は「病気（Sprain）」と
+    // 英語の内部名を本文に出していた。フェーズ 4 の終わりのレビュー）
+    const state = add('状態', [sick ? '病気' : '', hunger ? '空腹' : ''].filter(Boolean).join(' · ') || '病気・空腹なし', sick || hunger ? 'is-warning' : '');
+    const kinds = [sick ? `病気: ${sick}` : '', hunger ? `空腹: ${hunger}` : ''].filter(Boolean);
+    if (kinds.length) state.title = `種類（ゲームの内部名）\n${kinds.join('\n')}`;
     if (sanity !== null) add('SAN', String(Math.round(sanity)));
   }
   return list;

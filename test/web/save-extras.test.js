@@ -187,6 +187,58 @@ test('所持パルの NEW: タブが裏に回ったら見ていたデータの�
   assert.notEqual(rowSignature(pal, [], [], true), rowSignature(pal, [], []));
 });
 
+// 環境・ログインの ID の変化（store の知らせ）を拾う context（フェーズ 4 の終わりのレビュー）
+function liveContext(owned, { storage, env = 'test', userId = 'Dave' }) {
+  const app = context(owned, { storage, userId });
+  const listeners = new Set();
+  app.store.state.env = env;
+  app.store.subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
+  app.store.emit = () => listeners.forEach((fn) => fn(app.store.state));
+  return app;
+}
+
+test('所持パルの NEW: 所持パルのデータが環境より先に届いても（配合のキャッシュがない端末）、環境が分かったら基準を読んで NEW を付け、閉じたら保存する', (t) => {
+  installDom(t);
+  const storage = memoryStorage({ 'ns.owned.seenAt.test.dave': JSON.stringify({ [WORLD]: '2026-10-15T12:00:00.000Z' }) });
+  // 起動の直後: ログインはしているが、環境は配合の取得が終わるまで null
+  const app = liveContext(fakeOwned(), { storage, env: null });
+  const view = ownedView(app, parseHash('#/owned'));
+  assert.deepEqual(newIds(view), []);
+  // 取得が終わって環境が分かる
+  app.store.state.env = 'test';
+  app.store.emit();
+  assert.deepEqual(newIds(view), ['new1']);
+  view.destroy();
+  assert.deepEqual(JSON.parse(storage.getItem('ns.owned.seenAt.test.dave')), { [WORLD]: minutesAgo(2) });
+});
+
+test('所持パルの NEW: 開いたまま名前を変えると、前の名前のキーには書き戻さず（移したキーを戻さない）、新しい名前のキーで続ける', (t) => {
+  installDom(t);
+  const storage = memoryStorage({ 'ns.owned.seenAt.test.dave': JSON.stringify({ [WORLD]: '2026-10-15T12:00:00.000Z' }) });
+  const owned = fakeOwned();
+  const app = liveContext(owned, { storage });
+  const view = ownedView(app, parseHash('#/owned'));
+  assert.deepEqual(newIds(view), ['new1']);
+  // 名前の変更（user-rename.js が端末の値を移し、ログイン中の ID が替わる。画面は作り直さない）。知らせより先にデータが届くこともある
+  moveUserStorage(storage, 'ns', 'test', 'Dave', 'Eve');
+  app.store.state.userId = 'Eve';
+  owned.replace(snapshot({ saveAt: minutesAgo(1) }));
+  assert.equal(storage.values.has('ns.owned.seenAt.test.dave'), false, '前の名前のキーが書き戻された');
+  app.store.emit();
+  assert.deepEqual(newIds(view), ['new1']);
+  view.destroy();
+  assert.deepEqual([...storage.values.keys()], ['ns.owned.seenAt.test.eve']);
+  assert.deepEqual(JSON.parse(storage.getItem('ns.owned.seenAt.test.eve')), { [WORLD]: minutesAgo(1) });
+  // 知らせもデータも来ないまま閉じても、前の名前のキーには書かない
+  const storage2 = memoryStorage({ 'ns.owned.seenAt.test.dave': JSON.stringify({ [WORLD]: '2026-10-15T12:00:00.000Z' }) });
+  const app2 = liveContext(fakeOwned(), { storage: storage2 });
+  const view2 = ownedView(app2, parseHash('#/owned'));
+  moveUserStorage(storage2, 'ns', 'test', 'Dave', 'Eve');
+  app2.store.state.userId = 'Eve';
+  view2.destroy();
+  assert.deepEqual([...storage2.values.keys()], ['ns.owned.seenAt.test.eve']);
+});
+
 test('入手の新しい順: 並べ替えに「入手の新しい順」があり、入手時刻のない個体は最後', (t) => {
   installDom(t);
   const owned = fakeOwned();
@@ -303,7 +355,14 @@ test('個体の詳細: 魂の強化（0 でないものだけ）・病気と空�
   const section = byClass(a, 'is-condition')[0];
   assert.equal(section.querySelector('h3').textContent, '魂の強化と状態');
   assert.deepEqual(section.querySelectorAll('dt').map((node) => node.textContent), ['魂の強化', '状態', 'SAN']);
-  assert.deepEqual(section.querySelectorAll('dd').map((node) => node.textContent), ['HP +10 · 作業速度 +20', '病気（Cold）', '83']);
+  // 見える文は「病気」「空腹」だけ。種類（ゲームの内部名）は title に（本文に英語の内部名を出さない。フェーズ 4 の終わりのレビュー）
+  assert.deepEqual(section.querySelectorAll('dd').map((node) => node.textContent), ['HP +10 · 作業速度 +20', '病気', '83']);
+  assert.equal(section.querySelectorAll('dd')[1].title, '種類（ゲームの内部名）\n病気: Cold');
+  const both = normalizeOwned(snapshot({ pals: [individual('b', 'Anubis', { condition: { sick: 'Sprain', hunger: 'Starvation', sanity: 12 } })] }), { pals, passives });
+  const bothDetail = ownedDetail({ owned: { state: { ready: true, owned: both }, subscribe: () => () => {} } }, 'b');
+  const state = byClass(bothDetail.element, 'is-condition')[0].querySelectorAll('dd')[0];
+  assert.deepEqual([state.textContent, state.title], ['病気 · 空腹', '種類（ゲームの内部名）\n病気: Sprain\n空腹: Starvation']);
+  bothDetail.destroy?.();
   assert.ok(byClass(a, 'badge-sick').length);
   const date = new Date('2026-10-15T12:52:16.570Z');
   const pad = (n) => String(n).padStart(2, '0');

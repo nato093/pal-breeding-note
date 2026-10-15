@@ -24,6 +24,21 @@
 
 > 変更記録（2026-10-15）: ユーザーの決定（UI 改善フェーズ 4 の game-assets）により、作業適性の行を足した。理由: パル詳細と所持パルのキーワードで作業適性を使うため。文書の案（palworld-helper の CSV から `pals.js` に取り込む）ではなく、ゲーム本体の表から別の生成ファイル `web/data/work.js` に取り出した（取り込み元をゲーム本体にそろえ、`pals.js` の項目の許可リストを変えないため）。影響: 配信物にゲーム由来の表が 1 つ増える（約 18KB）。同じ表にある配合の値（`CombiRank` など）は書き出さない（下の「取り込まないもの」。`test/import.test.js` が値の形を確かめる）。
 
+### ゲームから取り出した表の撤回
+
+上の表のうちゲーム本体から取り出した表（`web/data/work.js`・`web/data/implants.js`・`web/data/items.js`・`web/data/skills.js`）は、画面のモジュールが名前つきで静的に import している（`WORKS`・`GENDER_REVERSE_ITEM`・`GENDER_REVERSE_NAME`・`EGG_NAMES`・`CAKE_NAMES`・`ACTIVE_SKILLS` など）。**ファイルを消すとアプリ全体が読み込めなくなる**ので、撤回するときは `web/data/humans.js` と同じく、export を残した空の形に書き換えて配信する（取り出しのスクリプトは流さない。2026-10-16 に、この形でアプリが起動し、画面のテストで例外が出ないことを確かめた）。
+
+| ファイル | 撤回した形 | 画面 |
+|---|---|---|
+| `web/data/work.js` | `export const WORKS = {};` と `export default {};` | パル詳細の「作業適性」の行が出ない。キーワードの「採掘3」は文字の一致に戻る |
+| `web/data/implants.js` | `export default [];` と `export const GENDER_REVERSE_ITEM = 'PalGenderReverse';`（セーブのアイテム ID。在庫を数える鍵）と `export const GENDER_REVERSE_NAME = '性別を変えるアイテム';`（ゲームの名前の代わりの説明の語） | 手術台の案内（付けられるパッシブ・インプラント・「手術で完成できる」）が出ない。性別を変える案内は説明の語で出る |
+| `web/data/items.js` | `export const EGG_NAMES = {};` と `export const CAKE_NAMES = {};` | タマゴは「タマゴ」、ケーキはアイテム ID（「Cake02 ×51」）の表示に戻る |
+| `web/data/skills.js` | `export const ACTIVE_SKILLS = {};`・`PARTNER_SKILLS`・`ACTIVE_SKILL_DESCS`・`PARTNER_SKILL_DESCS` も同じく `{}` | スキルは ID の表示に戻り、説明は出ない |
+
+撤回した後は、表の中身を確かめるテスト（`test/import.test.js`・`test/static/extract-ui-icons.test.js`、画面のテストのうち作業適性・手術台・ケーキの名前・スキルの名前を見るもの）を空の表に合わせて直す。画像（`web/img/{element,work,item,ui}/`）の撤回は下の「画像の扱い」。
+
+> 変更記録（2026-10-16）: UI 改善フェーズ 4 の終わりの互換のレビュー（指摘 5）で、ゲームから取り出した表に撤回の手順がなく、名前つきの静的 import のためファイルを消すとアプリ全体が読み込めなくなることが分かったので、「ゲームから取り出した表の撤回」の節（export を残した空の形）を足した。影響: 手順の追記だけで、配信物とデータは変わらない。
+
 ## セーブの読み込みに使うコード
 
 | 部分 | 元にしたもの | ライセンス |
