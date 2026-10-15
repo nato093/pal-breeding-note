@@ -1,18 +1,17 @@
-import { el, button, empty, storageWarning, setDisabled } from '../ui/dom.js';
-import { palPicker } from '../ui/pal-picker.js';
-import { actionIcon, breedingCard, breedingEquation } from '../ui/breeding-card.js';
-import { palsById } from '../ui/pal-icon.js';
-import { confirmDialog } from '../ui/dialog.js';
-import { toast } from '../ui/toast.js';
-import { validationText } from '../ui/record-editor.js';
+// 下書きの帯（register-entry。D2）: 配合を探すの全件表示の上に出す折り畳みの帯。前の下書きのタブ（views/drafts.js）の中身をここへ移した。
+// 下書きはこの端末だけに保存する（web/js/drafts.js の createDraftStore。保存の形は変えていない）。
+import { el, button, syncList, storageWarning, setDisabled } from './dom.js';
+import { actionIcon, breedingCard, breedingEquation } from './breeding-card.js';
+import { palTile, palsById } from './pal-icon.js';
+import { confirmDialog } from './dialog.js';
+import { toast } from './toast.js';
+import { validationText } from './record-editor.js';
 import { errorMessage } from '../api.js';
 import { findConflict } from '../core/index.js';
 import { validateRecordInput } from '../core/validate.js';
 import { DRAFT_PALS, sameDraftContent } from '../drafts.js';
-import { viewHeading, watchView, dataPending } from './shared.js';
-import { tabLabel } from './tabs.js';
 
-const palLabels = { parent1Id: '親1', parent2Id: '親2', childId: '子' };
+let sequence = 0;
 
 function describeError(error) {
   const items = error.code === 'VALIDATION' ? error.response?.errors : null;
@@ -92,83 +91,104 @@ export async function registerDrafts(context, ids) {
   return { registered, kept };
 }
 
+// 読み取り専用の式（親1 ＋ 親2 → 子）。選んでいない枠は破線の「未選択」
+function draftEquation(draft) {
+  const equation = el('div', 'breeding-equation draft-equation');
+  const slot = (id) => (id && palsById.has(id) ? palTile(id, { clickable: false }) : el('span', 'draft-empty', '未選択'));
+  equation.append(slot(draft.parent1Id), el('span', 'equation-symbol', '＋'), slot(draft.parent2Id),
+    el('span', 'equation-symbol arrow', '→'), slot(draft.childId));
+  return equation;
+}
+
+/**
+ * 下書きの 1 行（2 行の形）: 1 行目は読み取り専用の式、2 行目は 登録者 · メモ · 理由の文（1 行で省略し、全文は title）と右端の操作
+ * 「登録」（未選択があれば押せない）・「編集」（モーダル）・「削除」（確認なしで消してトーストで「元に戻す」）。理由の文が出ても行の高さを
+ * 変えない（前は行の下に 1 行足して、すべて登録で未選択の行が多いと画面が 340px 伸びた）。{ element, update(draft, status) } を返す（syncList の行）。
+ * 行が消えたときのフォーカスの移し先は「編集」（data-focus。同じ「登録」「削除」へ移すと、Enter の長押しで次の行まで続けて押してしまう）
+ */
 function draftRow(context, draft, onRemove) {
-  const { drafts } = context;
   let current = draft;
   let shown = null;
   const row = el('article', 'draft-row');
   row.setAttribute('aria-label', '下書き');
-  const equation = el('div', 'breeding-equation draft-equation');
-  const pickers = DRAFT_PALS.map((field) => {
-    const picker = palPicker({ label: palLabels[field], value: draft[field], onChange: (id) => {
-      if (!drafts.update(current.id, { [field]: id })) picker.setValue(current[field]);
-    } });
-    return picker;
-  });
-  equation.append(pickers[0].element, el('span', 'equation-symbol', '＋'), pickers[1].element,
-    el('span', 'equation-symbol arrow', '→'), pickers[2].element);
+  const equationSlot = el('div', 'draft-equation-slot');
   const meta = el('div', 'card-meta');
   // 押した行はすぐ消えて次の行が詰まるため、ダブルクリックの 2 回目（detail が 2 以上）は次の行に当てない。
   const singleClick = (action) => (event) => (event?.detail > 1 ? undefined : action());
   const register = button('登録', singleClick(() => registerDrafts(context, [current.id])), 'button primary small');
   register.setAttribute('aria-label', 'この下書きを登録');
+  const edit = actionIcon('編集', 'edit', () => context.register(current, { draft: true }));
+  edit.setAttribute('data-focus', 'edit');
   const actions = el('div', 'card-actions draft-actions');
-  actions.append(register, actionIcon('編集', 'edit', () => context.register(current, { draft: true })),
-    actionIcon('削除', 'remove', singleClick(() => onRemove(current.id)), 'danger-text'));
-  const memo = el('p', 'draft-memo');
-  const message = el('p', 'draft-message');
+  actions.append(register, edit, actionIcon('削除', 'remove', singleClick(() => onRemove(current.id)), 'danger-text'));
+  const registrant = el('span', 'draft-registrant');
+  const memo = el('span', 'draft-memo');
+  const message = el('span', 'draft-message');
   message.setAttribute('aria-live', 'polite');
-  row.append(equation, meta, actions, memo, message);
+  meta.append(registrant, memo, message);
+  row.append(equationSlot, meta, actions);
   return {
     element: row,
     update(next, status) {
       if (shown?.draft === next && shown.status === status) return;
+      const palsChanged = !shown || DRAFT_PALS.some((field) => shown.draft[field] !== next[field]);
       shown = { draft: next, status };
       current = next;
-      DRAFT_PALS.forEach((field, index) => { if (pickers[index].getValue() !== next[field]) pickers[index].setValue(next[field]); });
-      meta.replaceChildren(el('span', '', next.registrant || '登録者未指定'));
+      if (palsChanged) equationSlot.replaceChildren(draftEquation(next));
+      registrant.textContent = next.registrant || '登録者未指定';
       memo.textContent = next.memo;
+      memo.title = next.memo;
       memo.hidden = !next.memo;
-      setDisabled(register, DRAFT_PALS.some((field) => !next[field]), '親1・親2・子を選ぶと登録できます');
+      setDisabled(register, DRAFT_PALS.some((field) => !next[field]) || !context.store.state.env,
+        DRAFT_PALS.some((field) => !next[field]) ? '親1・親2・子を「編集」で選ぶと登録できます' : '登録済みの配合を読み込んでいます');
       message.textContent = status.error;
+      message.title = status.error;
       message.classList.toggle('draft-error', Boolean(status.error));
       message.hidden = !status.error;
     },
-    destroy() { pickers.forEach((picker) => picker.destroy()); },
   };
 }
 
-export function draftsView(context) {
+/**
+ * 下書きの帯。頭の行に開閉のボタン「下書き n 件（この端末だけ）」（aria-expanded・aria-controls）と「すべて登録」「＋ 下書きに追加」
+ *（0 件でも出し、追加は押せる）。開くと保存の失敗の警告・行の一覧・「すべて削除」。onToggle(open) は開閉のボタンを押したとき
+ *（配合を探すが URL の drafts=1 で開閉を持つ）。update({ open }) で開閉を合わせる
+ */
+export function draftsBand(context, { open = false, onToggle = () => {} } = {}) {
   const { store, drafts } = context;
-  const element = el('section', 'view drafts-view');
-  const heading = viewHeading(tabLabel('drafts'));
-  heading.classList.add('drafts-heading');
+  const bodyId = `drafts-band-${++sequence}`;
+  const element = el('section', 'drafts-band');
+  element.setAttribute('aria-label', '下書き');
+  const toggle = button('', () => onToggle(!isOpen), 'drafts-band-toggle');
+  toggle.setAttribute('aria-controls', bodyId);
+  const toggleText = el('span', 'drafts-band-title');
+  toggle.append(el('span', 'drafts-band-mark'), toggleText);
   let bulkRunning = false;
   let destroyed = false;
-  const bulkRegister = button('一括登録', async () => {
+  const registerAll = button('すべて登録', async () => {
     bulkRunning = true;
     update();
-    try { await registerDrafts(context, drafts.list().map((draft) => draft.id)); } finally {
+    try { await registerDrafts(context, visible().map((draft) => draft.id)); } finally {
       bulkRunning = false;
       update();
     }
   }, 'button primary small');
-  const bulkRemove = button('一括削除', () => removeAll(), 'button secondary small danger-text');
-  const headingActions = el('div', 'heading-actions');
-  headingActions.append(bulkRegister, bulkRemove);
-  heading.append(headingActions);
-  const addWithDialog = button('＋ 下書きに保存', () => context.register({}, { draft: true }), 'button secondary small');
-  const count = el('p', 'result-note');
-  const toolbar = el('div', 'drafts-toolbar');
-  toolbar.append(addWithDialog, count);
+  const add = button('＋ 下書きに追加', () => context.register({}, { draft: true }), 'button secondary small drafts-band-add');
+  const head = el('div', 'drafts-band-head');
+  const headActions = el('div', 'drafts-band-actions');
+  headActions.append(registerAll, add);
+  head.append(toggle, headActions);
+  const body = el('div', 'drafts-band-body');
+  body.id = bodyId;
   const saveWarning = storageWarning('下書き', 'drafts-warning');
-  const list = el('div', 'card-stack draft-list');
-  const addEmpty = button('＋ 空の下書きを追加', () => {
-    const draft = drafts.add();
-    rows.get(draft?.id)?.element.querySelector('.picker-trigger')?.focus();
-  }, 'button secondary drafts-add');
-  element.append(heading, toolbar, saveWarning, list, addEmpty);
-  const rows = new Map();
+  const list = el('div', 'draft-list');
+  const removeAllButton = button('すべて削除', () => removeAll(), 'button secondary small danger-text drafts-band-remove');
+  const foot = el('div', 'drafts-band-foot');
+  foot.append(removeAllButton);
+  body.append(saveWarning, list, foot);
+  element.append(head, body);
+  let isOpen = Boolean(open);
+
   // 送信中の下書きは登録済みとして隠す。端末には成功するまで残し、失敗したら理由を付けて行に戻す。
   const visible = (key) => drafts.list(key).filter((draft) => !drafts.status(draft.id).sending);
 
@@ -184,84 +204,58 @@ export function draftsView(context) {
   // 下書きはこの端末だけのものなので、確認せずに消して「元に戻す」を出す（共有する配合の削除だけ確認する。判断事項 7）
   function removeAll() {
     const key = drafts.scope();
-    const focused = document.activeElement === bulkRemove;
+    const focused = globalThis.document?.activeElement === removeAllButton;
     // 押した時点で見えている下書きだけを消す（送信中で隠れている下書きは残る）
     const removed = drafts.removeAll(visible(key).map((draft) => draft.id), key);
     if (!removed) return;
-    // 押した一括削除は押せなくなってフォーカスを失うので、空の下書きの追加へ移す（その次の Tab でトーストの「元に戻す」）
-    if (focused) addEmpty.focus();
+    // 押した「すべて削除」は押せなくなってフォーカスを失うので、「＋ 下書きに追加」へ移す（その次の Tab でトーストの「元に戻す」）
+    if (focused) add.focus();
     toast(`${removed.length} 件の下書きを削除しました`, { action: () => {
       if (!drafts.restoreMany(removed, key)) toast('元に戻せませんでした', { kind: 'error' });
     } });
   }
 
-  function clearRows() {
-    for (const row of rows.values()) row.destroy();
-    rows.clear();
-  }
-
   function update() {
     if (destroyed) return;
     const ready = Boolean(drafts.scope());
-    addWithDialog.disabled = !ready;
-    addEmpty.disabled = !ready;
+    setDisabled(add, !ready, 'ログインすると下書きを作れます');
     saveWarning.hidden = !drafts.saveFailed;
-    const items = visible();
-    // 押せない理由: 一括登録の途中は「登録しています」、下書きがなければ「下書きがありません」
-    const bulkReason = bulkRunning ? '登録しています' : '下書きがありません';
-    setDisabled(bulkRegister, bulkRunning || !items.length, bulkReason);
-    setDisabled(bulkRemove, bulkRunning || !items.length, bulkReason);
-    if (dataPending(list, store.state, () => store.refresh())) {
-      clearRows();
-      count.textContent = '';
-      return;
-    }
-    count.textContent = `${items.length} 件の下書き`;
-    const ids = new Set(items.map((draft) => draft.id));
-    const order = Array.from(list.children);
-    let lost = null;
-    for (const [id, row] of rows) {
-      if (ids.has(id)) continue;
-      // 操作した行（登録・削除）が消えるときは、フォーカスの移し先を並べ終えてから決める。
-      if (row.element.contains(document.activeElement)) lost = row.element;
-      row.destroy();
-      row.element.remove();
-      rows.delete(id);
-    }
-    for (const draft of items) {
-      if (!rows.has(draft.id)) rows.set(draft.id, draftRow(context, draft, removeOne));
-      rows.get(draft.id).update(draft, drafts.status(draft.id));
-    }
-    if (!items.length) list.replaceChildren(empty('下書きはありません。「＋ 空の下書きを追加」か「＋ 下書きに保存」から作れます。', null, { icon: 'drafts' }));
-    else {
-      // 付け直すとフォーカスと開いている候補が外れるため、位置の違う行（新しい行・送信に失敗して戻った行・元に戻した行）だけを差し込む。
-      items.forEach((draft, index) => {
-        const node = rows.get(draft.id).element;
-        if (list.children[index] !== node) list.insertBefore(node, list.children[index] ?? null);
-      });
-      while (list.children.length > items.length) list.lastElementChild.remove();
-    }
-    if (lost) moveFocus(order, lost);
+    const items = ready ? visible() : [];
+    toggleText.textContent = `下書き ${items.length} 件（この端末だけ）`;
+    toggle.setAttribute('aria-expanded', String(isOpen));
+    element.classList.toggle('is-open', isOpen);
+    body.hidden = !isOpen;
+    // 押せない理由: 一括登録の途中は「登録しています」、下書きがなければ「下書きがありません」、記録の読み込み前は「読み込んでいます」
+    const bulkReason = bulkRunning ? '登録しています' : !items.length ? '下書きがありません' : '登録済みの配合を読み込んでいます';
+    setDisabled(registerAll, bulkRunning || !items.length || !store.state.env, bulkReason);
+    setDisabled(removeAllButton, bulkRunning || !items.length, bulkRunning ? '登録しています' : '下書きがありません');
+    // 閉じている間も行は作っておく（開いたときに組み立て直さない。数は多くない）。同じ下書きの行は使い回し、送信の状態（status）の
+    // 変化も update で伝える
+    syncList(list, items, {
+      key: (draft) => draft.id,
+      create: (draft) => {
+        const row = draftRow(context, draft, removeOne);
+        row.update(draft, drafts.status(draft.id));
+        return { element: row.element, update: (next) => row.update(next, drafts.status(next.id)) };
+      },
+      empty: () => el('p', 'drafts-band-empty', '下書きはありません。「＋ 下書きに追加」から作れます。'),
+      fallbackFocus: add,
+    });
   }
 
-  // キーボードの位置を見失わないよう、消えた行の次の行（なければ前の行）の最初のパル選択へ移す。
-  // 同じボタンへ移すと、Enter の長押しで次の行まで続けて登録・削除してしまう。
-  function moveFocus(order, gone) {
-    const position = order.indexOf(gone);
-    const kept = (node) => node.parentElement === list;
-    const target = order.slice(position + 1).find(kept) ?? order.slice(0, position).reverse().find(kept);
-    (target?.querySelector('.picker-trigger') ?? addEmpty).focus();
-  }
-
-  const unsubscribe = drafts.subscribe(update);
-  const view = watchView(store, element, update);
+  const unsubscribeDrafts = drafts.subscribe(update);
+  const unsubscribeStore = store.subscribe?.(() => update()) ?? (() => {});
+  update();
   return {
     element,
+    update({ open: next } = {}) {
+      if (next !== undefined) isOpen = Boolean(next);
+      update();
+    },
     destroy() {
       destroyed = true;
-      view.destroy();
-      unsubscribe();
-      clearRows();
+      unsubscribeDrafts();
+      unsubscribeStore();
     },
   };
 }

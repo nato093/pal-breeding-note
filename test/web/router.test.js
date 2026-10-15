@@ -105,7 +105,7 @@ test('ルーティング: 設定の行き先は意図（self・registrant・stat
   assert.equal(settingsHash(world, 'other'), `#/settings?world=${world}&open=auto`);
 });
 
-test('ルーティング: 統合した旧画面（逆引き・一覧）の URL は配合を探すに読み替え、条件のクエリはそのまま渡す', () => {
+test('ルーティング: 統合した旧画面（逆引き・一覧・下書き）の URL は配合を探すに読み替え、条件のクエリはそのまま渡す', () => {
   assert.equal(canonicalHash('#/reverse?c=SheepBall'), '#/search?c=SheepBall');
   assert.equal(canonicalHash('#/list'), '#/search');
   assert.equal(canonicalHash('#/list?sort=updated'), '#/search?sort=updated');
@@ -117,9 +117,14 @@ test('ルーティング: 統合した旧画面（逆引き・一覧）の URL �
   assert.equal(route.view, 'search');
   assert.equal(route.params.get('c'), 'SheepBall');
   assert.equal(parseHash('#/list').view, 'search');
+  // 下書き（register-entry）は下書きの帯を開いた配合を探す（drafts=1 を足す）
+  assert.equal(canonicalHash('#/drafts'), '#/search?drafts=1');
+  assert.equal(canonicalHash('#/drafts?x=1'), '#/search?x=1&drafts=1');
+  assert.equal(parseHash('#/drafts').params.get('drafts'), '1');
   // 旧画面の名前では URL を作らない
   assert.equal(buildHash('reverse', { c: 'A' }), '#/search?c=A');
   assert.equal(buildHash('list'), '#/search');
+  assert.equal(buildHash('drafts'), '#/search');
 });
 
 test('ルーティング: 起動時とハッシュ変更時に旧画面の URL を履歴を増やさず（replaceState・state は保つ）配合を探すへ書き換える', () => {

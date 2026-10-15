@@ -7,7 +7,7 @@ import { createStore, safeStorage } from '../../web/js/store.js';
 import { createDraftStore } from '../../web/js/drafts.js';
 import { createRenamer } from '../../web/js/user-rename.js';
 import { openRecordEditor } from '../../web/js/ui/record-editor.js';
-import { draftsView, registerDrafts } from '../../web/js/views/drafts.js';
+import { draftsBand, registerDrafts } from '../../web/js/ui/drafts-band.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
 
 const complete = { parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen' };
@@ -60,8 +60,9 @@ async function setup(t, { records = [], storage = memoryStorage() } = {}) {
   };
 }
 
-function mount(t, app) {
-  const view = draftsView(app.context);
+function mount(t, app, { open = true, onToggle } = {}) {
+  // 下書きの帯（配合を探すの全件表示の上。register-entry で前の下書きのタブから移した）
+  const view = draftsBand(app.context, { open, onToggle });
   app.body.append(view.element);
   t.after(() => view.destroy());
   return view;
@@ -69,18 +70,43 @@ function mount(t, app) {
 
 const rows = (view) => view.element.querySelectorAll('.draft-row');
 const message = (row) => row.querySelector('.draft-message');
+// 行の式のパル名（読み取り専用。未選択の枠は「未選択」）
+const names = (row) => row.querySelector('.draft-equation').children.filter((node) => !node.className.includes('equation-symbol'))
+  .map((node) => node.querySelector('strong')?.textContent ?? node.textContent);
+const countText = (view) => view.element.querySelector('.drafts-band-title').textContent;
 
-async function choose(picker, query) {
-  await picker.querySelector('.picker-trigger').dispatch('click');
-  const input = picker.querySelector('input');
-  input.value = query;
-  await input.dispatch('input');
-  await picker.querySelectorAll('[role="option"]')[0].dispatch('click');
-}
+test('ルーティング: 下書きのタブはなくなり、#/drafts は下書きの帯を開いた配合を探すに読み替える', () => {
+  const route = parseHash('#/drafts');
+  assert.equal(route.view, 'search');
+  assert.equal(route.params.get('drafts'), '1');
+  assert.equal(buildHash('drafts'), '#/search');
+});
 
-test('ルーティング: 下書きのタブを開ける', () => {
-  assert.equal(parseHash('#/drafts').view, 'drafts');
-  assert.equal(buildHash('drafts'), '#/drafts');
+test('下書きの帯: 頭の行に開閉のボタン（aria-expanded・aria-controls）と件数「下書き n 件（この端末だけ）」、閉じている間は中身を隠す', async (t) => {
+  const app = await setup(t);
+  const toggles = [];
+  const view = mount(t, app, { open: false, onToggle: (open) => toggles.push(open) });
+  const toggle = view.element.querySelector('.drafts-band-toggle');
+  const body = view.element.querySelector('.drafts-band-body');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(toggle.getAttribute('aria-controls'), body.id);
+  assert.equal(body.hidden, true);
+  assert.equal(countText(view), '下書き 0 件（この端末だけ）');
+  // 0 件でも「＋ 下書きに追加」は押せる。「すべて登録」は押せない（理由は title）
+  assert.equal(buttonNamed(view.element, '＋ 下書きに追加').disabled, false);
+  assert.equal(buttonNamed(view.element, 'すべて登録').disabled, true);
+  assert.equal(buttonNamed(view.element, 'すべて登録').title, '下書きがありません');
+  await toggle.dispatch('click');
+  assert.deepEqual(toggles, [true]);
+  // 開閉は呼び出し側（配合を探すの URL）が持つ。update({ open }) で合わせる
+  view.update({ open: true });
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(body.hidden, false);
+  app.drafts.add({ parent1Id: 'Alpaca' });
+  assert.equal(countText(view), '下書き 1 件（この端末だけ）');
+  // ログアウト中は作れない
+  app.store.logout();
+  assert.equal(buttonNamed(view.element, '＋ 下書きに追加').disabled, true);
 });
 
 test('下書き: ID・環境ごとに保存し、不正な保存内容は読み捨て、ログアウト中は作らない', async (t) => {
@@ -111,7 +137,7 @@ test('下書き: 端末に保存できなければ警告し、入力は画面に
   const warning = view.element.querySelector('.drafts-warning');
   assert.equal(warning.hidden, true);
   app.storage.fail = true;
-  await buttonNamed(view.element, '＋ 空の下書きを追加').dispatch('click');
+  app.drafts.add({ parent1Id: 'Alpaca' });
   assert.equal(rows(view).length, 1);
   assert.equal(warning.hidden, false);
   assert.match(warning.textContent, /保存できませんでした/);
@@ -123,36 +149,40 @@ test('下書き: 端末に保存できなければ警告し、入力は画面に
   assert.equal(warning.hidden, true);
 });
 
-test('下書き: 追加した空の行でパル名から直接選び、3 つ揃うと登録できる', async (t) => {
+test('下書き: 行は読み取り専用の式（未選択の枠は「未選択」）で、未選択があれば登録できない。「編集」のモーダルで選ぶと登録できる', async (t) => {
   const app = await setup(t);
   const view = mount(t, app);
   assert.match(view.element.textContent, /下書きはありません/);
-  assert.equal(buttonNamed(view.element, '一括登録').disabled, true);
-  // 押せないボタンは、マウスを乗せると理由が出る（setDisabled の title）
-  assert.equal(buttonNamed(view.element, '一括登録').title, '下書きがありません');
-  assert.equal(buttonNamed(view.element, '一括削除').title, '下書きがありません');
-  await buttonNamed(view.element, '＋ 空の下書きを追加').dispatch('click');
-  assert.deepEqual([buttonNamed(view.element, '一括登録').disabled, buttonNamed(view.element, '一括登録').title], [false, '']);
+  assert.equal(buttonNamed(view.element, 'すべて削除').title, '下書きがありません');
+  app.drafts.add({ parent1Id: 'SheepBall' });
+  assert.deepEqual([buttonNamed(view.element, 'すべて登録').disabled, buttonNamed(view.element, 'すべて登録').title], [false, '']);
   const [row] = rows(view);
-  assert.deepEqual(row.querySelectorAll('.picker-trigger').map((node) => node.textContent), ['パルを選択', 'パルを選択', 'パルを選択']);
-  assert.equal(document.activeElement, row.querySelector('.picker-trigger'));
-  assert.equal(iconNamed(row, '編集').tagName, 'button');
+  assert.deepEqual(names(row), ['モコロン', '未選択', '未選択']);
+  // 行の中でパルを選ぶ欄はない
+  assert.equal(row.querySelector('.picker'), null);
   const register = buttonNamed(row, '登録');
   assert.equal(register.disabled, true);
-  assert.equal(register.title, '親1・親2・子を選ぶと登録できます');
-  const pickers = row.querySelectorAll('.picker');
-  await choose(pickers[0], 'モコロン');
-  await choose(pickers[1], 'フラリーナ');
-  assert.equal(register.disabled, true);
-  await choose(pickers[2], 'セレムーン');
-  // 行を作り直さないので、選んだ欄にフォーカスが残る。
+  assert.equal(register.title, '親1・親2・子を「編集」で選ぶと登録できます');
+  await iconNamed(row, '編集').dispatch('click');
+  const [dialog] = openDialogs();
+  assert.equal(dialog.querySelector('h2').textContent, '下書きを編集');
+  const pickTrigger = async (index, query) => {
+    await dialog.querySelectorAll('.picker-trigger')[index].dispatch('click');
+    const search = dialog.querySelector('.picker-search');
+    search.value = query;
+    await search.dispatch('input');
+    await dialog.querySelectorAll('[role="option"]')[0].dispatch('click');
+  };
+  await pickTrigger(1, 'フラリーナ');
+  await pickTrigger(2, 'セレムーン');
+  await buttonNamed(dialog, '下書きに保存').dispatch('click');
+  // 行は作り直さず、式と登録のボタンだけ合わせる
   assert.equal(rows(view)[0], row);
-  assert.equal(document.activeElement, pickers[2].querySelector('.picker-trigger'));
+  assert.deepEqual(names(row), ['モコロン', 'フラリーナ', 'セレムーン']);
   assert.equal(register.disabled, false);
-  // 押せるようになったら理由を消す（古い理由を残さない）
   assert.equal(register.title, '');
   assert.deepEqual(pals(app.drafts.list()[0]), complete);
-  assert.equal(view.element.querySelector('.result-note').textContent, '1 件の下書き');
+  assert.equal(countText(view), '下書き 1 件（この端末だけ）');
   assert.equal(app.calls.length, 0);
 });
 
@@ -237,7 +267,7 @@ test('下書き: 応答を受け取れずに残った下書きは、同じ登録
   assert.equal(app.store.state.records.length, 1);
 });
 
-test('下書き: 一括登録は問題のない行だけ登録し、未選択・重複・登録しないを選んだ行は理由付きで残す', async (t) => {
+test('下書き: すべて登録は問題のない行だけ登録し、未選択・重複・登録しないを選んだ行は理由付きで残す', async (t) => {
   const app = await setup(t, { records: [complete] });
   const ok = app.drafts.add({ parent1Id: 'Alpaca', parent2Id: 'Boar', childId: 'Deer' });
   const incomplete = app.drafts.add({ parent1Id: 'Alpaca' });
@@ -246,12 +276,12 @@ test('下書き: 一括登録は問題のない行だけ登録し、未選択・
   const accepted = app.drafts.add({ ...complete, childId: 'Eagle' });
   const sameBatch = app.drafts.add({ parent1Id: 'Boar', parent2Id: 'Alpaca', childId: 'Deer' });
   const view = mount(t, app);
-  const done = buttonNamed(view.element, '一括登録').dispatch('click');
+  const done = buttonNamed(view.element, 'すべて登録').dispatch('click');
   await flush();
-  assert.equal(buttonNamed(view.element, '一括登録').disabled, true);
+  assert.equal(buttonNamed(view.element, 'すべて登録').disabled, true);
   // 一括登録の途中は「登録しています」（下書きはあるので「下書きがありません」ではない）
-  assert.equal(buttonNamed(view.element, '一括登録').title, '登録しています');
-  assert.equal(buttonNamed(view.element, '一括削除').title, '登録しています');
+  assert.equal(buttonNamed(view.element, 'すべて登録').title, '登録しています');
+  assert.equal(buttonNamed(view.element, 'すべて削除').title, '登録しています');
   let [dialog] = openDialogs();
   assert.match(dialog.textContent, /別の結果として登録しますか？.*登録しようとしている下書き.*クレメーオ.*登録済みの配合.*セレムーン/);
   await buttonNamed(dialog, '登録しない').dispatch('click');
@@ -270,7 +300,7 @@ test('下書き: 一括登録は問題のない行だけ登録し、未選択・
   assert.deepEqual(created.map((payload) => payload.allowDifferentChild), [undefined, true]);
   assert.equal(app.store.state.records.length, 3);
   assert.match(app.body.textContent, /2 件を登録しました。4 件は下書きに残っています/);
-  assert.equal(buttonNamed(view.element, '一括登録').disabled, false);
+  assert.equal(buttonNamed(view.element, 'すべて登録').disabled, false);
 });
 
 test('下書き: 確認の間にログアウトしたら、残りの下書きを送らない', async (t) => {
@@ -286,11 +316,11 @@ test('下書き: 確認の間にログアウトしたら、残りの下書きを
   assert.equal(app.calls.length, 0);
 });
 
-test('下書き: 一括削除は確認なしで全件を消し、「元に戻す」で同じ順に戻す', async (t) => {
+test('下書き: すべて削除は確認なしで全件を消し、「元に戻す」で同じ順に戻す', async (t) => {
   const app = await setup(t);
   const [first, second, third] = [app.drafts.add({ parent1Id: 'Alpaca' }), app.drafts.add({ parent1Id: 'Boar' }), app.drafts.add({ parent1Id: 'Deer' })];
   const view = mount(t, app);
-  const bulkRemove = buttonNamed(view.element, '一括削除');
+  const bulkRemove = buttonNamed(view.element, 'すべて削除');
   bulkRemove.focus();
   await bulkRemove.dispatch('click');
   // 端末だけのものなので確認は出さない（共有する配合の削除だけ確認する。判断事項 7）
@@ -298,8 +328,8 @@ test('下書き: 一括削除は確認なしで全件を消し、「元に戻す
   assert.deepEqual(app.drafts.list(), []);
   assert.match(view.element.textContent, /下書きはありません/);
   assert.equal(bulkRemove.disabled, true);
-  // 押せなくなった一括削除の代わりに、空の下書きの追加へフォーカスを移す（その次の Tab でトーストの「元に戻す」）
-  assert.equal(document.activeElement, buttonNamed(view.element, '＋ 空の下書きを追加'));
+  // 押せなくなった「すべて削除」の代わりに、「＋ 下書きに追加」へフォーカスを移す（その次の Tab でトーストの「元に戻す」）
+  assert.equal(document.activeElement, buttonNamed(view.element, '＋ 下書きに追加'));
   const toastNode = app.body.querySelectorAll('.toast').find((node) => node.textContent.startsWith('3 件の下書きを削除しました'));
   assert.ok(toastNode);
   // 戻す前に足した下書きは、そのまま後ろに残る
@@ -346,7 +376,7 @@ test('下書き: 一括削除の元に戻すは、名前の変更中なら戻さ
   app.drafts.add({ parent1Id: 'Alpaca' });
   app.drafts.add({ parent1Id: 'Boar' });
   const view = mount(t, app);
-  await buttonNamed(view.element, '一括削除').dispatch('click');
+  await buttonNamed(view.element, 'すべて削除').dispatch('click');
   assert.deepEqual(app.drafts.list(), []);
   app.store.state.renaming = true;
   await buttonNamed(app.body.querySelector('.toast-list'), '元に戻す').dispatch('click');
@@ -386,7 +416,7 @@ test('下書き: 一括削除・1 件の削除の後に ID の変更が終わっ
   const view = mount(t, app);
   const [, row] = rows(view);
   await iconNamed(row, '削除').dispatch('click');
-  await buttonNamed(view.element, '一括削除').dispatch('click');
+  await buttonNamed(view.element, 'すべて削除').dispatch('click');
   assert.deepEqual(app.drafts.list(), []);
   const renamer = createRenamer({ store: app.store, drafts: app.drafts, storage: app.storage, namespace: 'test-note' });
   await renamer.rename('別の名前');
@@ -410,10 +440,10 @@ test('下書き: 1 行の削除は確認なしで消し、元に戻すと同じ�
   assert.equal(rows(view).length, 2);
   await buttonNamed(app.body, '元に戻す').dispatch('click');
   assert.deepEqual(app.drafts.list().map((draft) => draft.id), [first.id, second.id, third.id]);
-  assert.deepEqual(rows(view).map((node) => node.querySelector('.picker-trigger').textContent.replace(/No\.\d+/, '')), ['メルパカ', 'イノボウ', 'ツノガミ']);
+  assert.deepEqual(rows(view).map((node) => names(node)[0]), ['メルパカ', 'イノボウ', 'ツノガミ']);
 });
 
-test('下書き: 別の行の送信が終わっても、開いている候補と行を保つ', async (t) => {
+test('下書き: 別の行の送信が終わっても、操作中の行の要素とフォーカスを保つ', async (t) => {
   const app = await setup(t);
   app.drafts.add(complete);
   app.drafts.add({ parent1Id: 'Alpaca' });
@@ -422,19 +452,15 @@ test('下書き: 別の行の送信が終わっても、開いている候補と
   const release = app.hold();
   const done = buttonNamed(sending, '登録').dispatch('click');
   await flush();
-  const trigger = editing.querySelector('.picker-trigger');
-  await trigger.dispatch('click');
-  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  const edit = iconNamed(editing, '編集');
+  edit.focus();
   release();
   await done;
   assert.deepEqual(rows(view), [editing]);
-  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
-  assert.ok(editing.querySelector('.picker-popover'));
-  view.destroy();
-  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(document.activeElement, edit);
 });
 
-test('下書き: 別の行の送信に失敗して行が戻っても、開いている候補と行を保つ', async (t) => {
+test('下書き: 別の行の送信に失敗して行が戻っても、操作中の行は付け直さずフォーカスを保つ', async (t) => {
   const app = await setup(t);
   app.serve((request, next) => request.action === 'create'
     ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
@@ -446,23 +472,18 @@ test('下書き: 別の行の送信に失敗して行が戻っても、開いて
   const done = buttonNamed(sending, '登録').dispatch('click');
   await flush();
   assert.deepEqual(rows(view), [editing]);
-  const trigger = editing.querySelector('.picker-trigger');
-  await trigger.dispatch('click');
-  const search = editing.querySelector('.picker-search');
-  assert.equal(document.activeElement, search);
+  const edit = iconNamed(editing, '編集');
+  edit.focus();
   release();
   await done;
   const [returned, kept] = rows(view);
   assert.equal(kept, editing);
   assert.equal(message(returned).textContent, '登録者: 文字数が上限を超えています。');
-  // 戻った行だけを差し込み、入力中の行は付け直さない（付け直すとフォーカスが外れる）。
-  assert.equal(document.activeElement, search);
-  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
-  assert.ok(editing.querySelector('.picker-popover'));
-  view.destroy();
+  // 戻った行だけを差し込み、操作中の行は付け直さない（付け直すとフォーカスが外れる）。
+  assert.equal(document.activeElement, edit);
 });
 
-test('下書き: 送信中で隠れている下書きは、一括削除の件数にも対象にも含めない', async (t) => {
+test('下書き: 送信中で隠れている下書きは、すべて削除の件数にも対象にも含めない', async (t) => {
   const app = await setup(t);
   const sending = app.drafts.add(complete);
   app.drafts.add({ parent1Id: 'Alpaca' });
@@ -470,8 +491,8 @@ test('下書き: 送信中で隠れている下書きは、一括削除の件数
   const release = app.hold();
   const registering = buttonNamed(rows(view)[0], '登録').dispatch('click');
   await flush();
-  assert.equal(view.element.querySelector('.result-note').textContent, '1 件の下書き');
-  await buttonNamed(view.element, '一括削除').dispatch('click');
+  assert.equal(countText(view), '下書き 1 件（この端末だけ）');
+  await buttonNamed(view.element, 'すべて削除').dispatch('click');
   assert.equal(openDialogs().length, 0);
   assert.deepEqual(app.drafts.list().map((draft) => draft.id), [sending.id]);
   assert.match(app.body.textContent, /1 件の下書きを削除しました/);
@@ -481,7 +502,7 @@ test('下書き: 送信中で隠れている下書きは、一括削除の件数
   assert.equal(app.store.state.records.length, 1);
 });
 
-test('下書き: 一括削除は押した時点で見えていた下書きだけを消し、後で送信に失敗して戻った下書きは残す', async (t) => {
+test('下書き: すべて削除は押した時点で見えていた下書きだけを消し、後で送信に失敗して戻った下書きは残す', async (t) => {
   const app = await setup(t);
   app.serve((request, next) => request.action === 'create'
     ? { ok: false, code: 'VALIDATION', errors: [{ field: 'registrant', code: 'TOO_LONG' }] } : next(request));
@@ -491,7 +512,7 @@ test('下書き: 一括削除は押した時点で見えていた下書きだけ
   const release = app.hold();
   const registering = buttonNamed(rows(view)[0], '登録').dispatch('click');
   await flush();
-  await buttonNamed(view.element, '一括削除').dispatch('click');
+  await buttonNamed(view.element, 'すべて削除').dispatch('click');
   assert.match(app.body.textContent, /1 件の下書きを削除しました/);
   release();
   await registering;
@@ -499,7 +520,7 @@ test('下書き: 一括削除は押した時点で見えていた下書きだけ
   assert.equal(message(rows(view)[0]).textContent, '登録者: 文字数が上限を超えています。');
 });
 
-test('下書き: 登録・削除で行が消えたら、次の行（なければ前の行）の最初のパル選択へフォーカスを移す', async (t) => {
+test('下書き: 登録・削除で行が消えたら、次の行（なければ前の行）の「編集」へフォーカスを移し、行がなくなったら「＋ 下書きに追加」へ', async (t) => {
   const app = await setup(t);
   app.drafts.add(complete);
   app.drafts.add({ parent1Id: 'Alpaca' });
@@ -507,23 +528,24 @@ test('下書き: 登録・削除で行が消えたら、次の行（なければ
   app.drafts.add({ parent1Id: 'Deer' });
   const view = mount(t, app);
   const [first, second, third, fourth] = rows(view);
-  const trigger = (row) => row.querySelector('.picker-trigger');
+  const edit = (row) => iconNamed(row, '編集');
   const release = app.hold();
   buttonNamed(first, '登録').focus();
   const registering = buttonNamed(first, '登録').dispatch('click');
   await flush();
-  assert.equal(document.activeElement, trigger(second));
+  // 同じ「登録」へ移すと Enter の長押しで次の行まで続けて登録してしまうので、次の行の「編集」へ
+  assert.equal(document.activeElement, edit(second));
   // 前後に行があるときは次の行へ移す。
   iconNamed(third, '削除').focus();
   await iconNamed(third, '削除').dispatch('click');
-  assert.equal(document.activeElement, trigger(fourth));
-  // 最後の行なら前の行へ、行がなくなったら空の下書きの追加へ移す。
+  assert.equal(document.activeElement, edit(fourth));
+  // 最後の行なら前の行へ、行がなくなったら「＋ 下書きに追加」へ移す。
   iconNamed(fourth, '削除').focus();
   await iconNamed(fourth, '削除').dispatch('click');
-  assert.equal(document.activeElement, trigger(second));
+  assert.equal(document.activeElement, edit(second));
   iconNamed(second, '削除').focus();
   await iconNamed(second, '削除').dispatch('click');
-  assert.equal(document.activeElement, buttonNamed(view.element, '＋ 空の下書きを追加'));
+  assert.equal(document.activeElement, buttonNamed(view.element, '＋ 下書きに追加'));
   release();
   await registering;
   assert.deepEqual(app.drafts.list(), []);
@@ -544,10 +566,10 @@ test('下書き: ダブルクリックの 2 回目は、詰まってきた次の
   assert.equal(app.calls.length, 1);
 });
 
-test('下書き: 「＋ 下書きに保存」はモーダルの下書き版で、サーバに送らずに登録者とメモも保存する', async (t) => {
+test('下書き: 「＋ 下書きに追加」はモーダルの下書き版で、サーバに送らずに登録者とメモも保存する', async (t) => {
   const app = await setup(t);
   const view = mount(t, app);
-  await buttonNamed(view.element, '＋ 下書きに保存').dispatch('click');
+  await buttonNamed(view.element, '＋ 下書きに追加').dispatch('click');
   let [dialog] = openDialogs();
   assert.equal(dialog.querySelector('h2').textContent, '下書きに保存');
   assert.ok(buttonNamed(dialog, '続けて下書きに保存'));
@@ -600,7 +622,7 @@ test('下書き: 別のタブで書き換わったら読み直して表示する
   app.storage.values.set(key, JSON.stringify([{ id, parent1Id: 'Boar' }]));
   app.drafts.reload(key);
   assert.deepEqual(app.drafts.list().map((draft) => draft.id), [id]);
-  assert.match(rows(view)[0].querySelector('.picker-trigger').textContent, /イノボウ/);
+  assert.equal(names(rows(view)[0])[0], 'イノボウ');
 });
 
 test('下書き: 2 つのタブで続けて書き換えても、互いの保存を消さない', async (t) => {

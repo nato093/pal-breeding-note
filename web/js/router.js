@@ -1,8 +1,13 @@
-const views = new Set(['search', 'route', 'owned', 'ideal', 'drafts', 'wishlist', 'pal', 'settings']);
+const views = new Set(['search', 'route', 'owned', 'ideal', 'wishlist', 'pal', 'settings']);
 
-// 統合してなくなった画面 → 移った先の画面（条件のクエリはそのまま渡す）。ブックマーク・保存済みの通知の href の旧 URL を読み替える。
-// 逆引き（#/reverse?c=）と一覧（#/list）は配合を探す（find-merge）。後のテーマが 1 行ずつ足す
-const LEGACY = Object.freeze({ reverse: 'search', list: 'search' });
+// 統合してなくなった画面 → 移った先の画面と足すクエリ（もとの条件のクエリはそのまま渡す）。ブックマーク・保存済みの通知の href の旧 URL を
+// 読み替える。逆引き（#/reverse?c=）と一覧（#/list）は配合を探す（find-merge）、下書き（#/drafts）は下書きの帯を開いた配合を探す
+//（register-entry）。後のテーマが 1 行ずつ足す
+const LEGACY = Object.freeze({
+  reverse: { view: 'search' },
+  list: { view: 'search' },
+  drafts: { view: 'search', add: { drafts: '1' } },
+});
 
 function splitHash(hash) {
   const [path, query = ''] = String(hash ?? '').replace(/^#/, '').split('?');
@@ -15,16 +20,22 @@ export function parseHash(hash = '') {
   try { id = decodeURIComponent(segments[1] ?? ''); } catch { /* 不正な URL は空の入力として扱う。 */ }
   const params = new URLSearchParams(query);
   params.delete('k');
-  const name = LEGACY[segments[0]] ?? segments[0];
-  return { view: views.has(name) ? name : 'search', id: LEGACY[segments[0]] ? '' : id, params };
+  const legacy = LEGACY[segments[0]];
+  if (legacy) {
+    for (const [key, value] of Object.entries(legacy.add ?? {})) params.set(key, value);
+    return { view: legacy.view, id: '', params };
+  }
+  return { view: views.has(segments[0]) ? segments[0] : 'search', id, params };
 }
 
-/** 旧画面の URL（LEGACY）なら移った先の画面のハッシュを、そうでなければ null を返す（`#/reverse?c=X` → `#/search?c=X`）。 */
+/** 旧画面の URL（LEGACY）なら移った先の画面のハッシュを、そうでなければ null を返す（`#/reverse?c=X` → `#/search?c=X`、`#/drafts` → `#/search?drafts=1`）。 */
 export function canonicalHash(hash) {
   const { segments, query } = splitHash(hash);
-  const next = LEGACY[segments[0]];
-  if (!next) return null;
-  return buildHash(next, new URLSearchParams(query));
+  const legacy = LEGACY[segments[0]];
+  if (!legacy) return null;
+  const params = new URLSearchParams(query);
+  for (const [key, value] of Object.entries(legacy.add ?? {})) params.set(key, value);
+  return buildHash(legacy.view, params);
 }
 
 export function buildHash(view, params = {}, id = '') {

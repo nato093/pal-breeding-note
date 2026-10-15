@@ -17,16 +17,19 @@ export function palView(context, route) {
   const hero = el('div', 'pal-hero');
   hero.append(palIcon(pal, { large: true }), elementChips(pal));
   const actions = el('div', 'pal-hero-actions');
+  // 「この子の配合を登録」は、このパルが産まれる配合が 1 件でもあれば控えめ（secondary）、0 件なら primary（F075。描くたびに合わせる）
+  const register = button('この子の配合を登録', () => context.register({ childId: pal.id }), 'button primary');
   actions.append(link('ここから継承ルート', buildHash('route', { from: pal.id }), 'button secondary'),
-    link('ここへの継承ルート', buildHash('route', { to: pal.id }), 'button secondary'),
-    button('この子の配合を登録', () => context.register({ childId: pal.id }), 'button primary'));
+    link('ここへの継承ルート', buildHash('route', { to: pal.id }), 'button secondary'), register);
   const children = el('div', 'card-stack');
   const parents = el('div', 'card-stack');
   element.append(hero, actions, el('h2', 'section-title', 'このパルが産まれる配合'), children,
     el('h2', 'section-title', 'このパルを親に使う配合（相手 → 子）'), parents);
   return watchView(context.store, element, (state) => {
     if (dataPending(children, state, () => context.store.refresh())) { renderCards(parents, [], context); return; }
-    renderCards(children, findByChild(state.index, pal.id).map((record) => ({ record })), context, {
+    const born = findByChild(state.index, pal.id);
+    register.className = born.length ? 'button secondary' : 'button primary';
+    renderCards(children, born.map((record) => ({ record })), context, {
       empty: () => empty('この子の配合はまだ登録されていません。'),
     });
     renderCards(parents, findByParent(state.index, pal.id).map((record) => ({ record, focusParent: pal.id })), context, {
