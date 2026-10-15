@@ -2672,3 +2672,32 @@ test('理想個体画面（このワールドでの自分）: 自分が分から
   assert.equal(dialog.querySelector('.ideal-goals-reason').hidden, true);
   view.destroy();
 });
+
+test('理想個体画面: 共有で牧場が一部だけ（farmsPartial）なら判定を保留して理由を出し、牧場の数が分からない古い形の共有（farmsCounted: false）では空き牧場だけを数えない（farm-data）', (t) => {
+  install(t);
+  const same = { hp: 100, shot: 50, defense: 100 };
+  const list = ['1', '2', '3'].flatMap((n) => [palworldPal(`m${n}`, 'SheepBall', 'Male', [], same), palworldPal(`f${n}`, 'SheepBall', 'Female', [], same)]);
+  const owned = fakeOwned(list);
+  owned.state.owned.bases = [{ id: 'b1', label: '拠点 1' }];
+  owned.state.owned.farms = [ok('A', 'b1', ['m1', 'f1']), ok('E', 'b1', [])];
+  owned.state.owned.farmsPartial = true;
+  const partial = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  assert.equal(partial.element.querySelector('.ideal-farm-strip').textContent, '牧場の判定を保留（共有の上限で牧場の情報が一部です）');
+  assert.equal(partial.element.querySelector('.ideal-farm-pending').textContent, '共有の上限で牧場の情報が一部のため、交換推奨・空き牧場・使用中の判定を保留しています');
+  assert.equal(partial.element.querySelector('.ideal-farm-empty'), null);
+  partial.destroy();
+  // タマゴの中身だけを省いた共有（eggs: null）は保留しない。古い形（n がない）は空き牧場を数えない（親のない牧場が読めない牧場かもしれない）
+  owned.state.owned.farmsPartial = false;
+  owned.state.owned.farms = owned.state.owned.farms.map((farm) => ({ ...farm, eggs: null, eggCount: 0 }));
+  owned.state.owned.farmsCounted = false;
+  const legacy = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  assert.equal(legacy.element.querySelector('.ideal-farm-pending'), null);
+  assert.match(legacy.element.querySelector('.ideal-farm-strip').textContent, /1 番/);
+  assert.equal(legacy.element.querySelector('.ideal-farm-empty'), null);
+  assert.equal(legacy.element.querySelector('.ideal-farms').querySelector('h2').textContent, '配合牧場の詳細（置いている 1 か所）');
+  legacy.destroy();
+  owned.state.owned.farmsCounted = true;
+  const counted = idealView(context(owned, [], new Map()), parseHash('#/ideal?to=SheepBall&p=Legend'));
+  assert.ok(counted.element.querySelector('.ideal-farm-empty'));
+  counted.destroy();
+});

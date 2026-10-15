@@ -1,7 +1,7 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS, cleanOwnedFarms } from './owned-shared.js';
+import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX } from './owned-shared.js';
 import { isObject, int, text, idText, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
@@ -143,6 +143,8 @@ const TALENT = { min: 0, max: 100, fallback: 0 };
 const LEVEL = { min: 1, max: 999, fallback: 1 };
 const RANK = { min: 1, max: 5, fallback: 1 };
 const STARS_RANGE = { min: 0, max: 4, fallback: 0 };
+// 1 牧場のタマゴ（セーブの解析が読む数。web/js/save/palworld.js の MAX_FARM_EGGS）
+const FARM_EGGS_MAX = 64;
 // パッシブは 5 個以上も切り詰めない（理想個体の計算が別に扱う）。重複を除き 16 個まで。
 // 共有の 20,000 行で行ごとに Set や関数を作らないよう、ループで書く（数が少ないので重複は includes で見る）
 const PASSIVES_MAX = 16;
@@ -264,11 +266,22 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     pals: entries,
     // 配合牧場（状態つき）。理想個体の配合の計画で、置いてある組と比べる。牧場を読む前の解析結果では null（情報がない）。
     // 親が読めない・食い違う牧場（uncertain。parents は引けた親だけ）も捨てずに残し、判定の側で使わない・判定を保留する
-    //（core/ideal-farms.js の readyFarms・farmCompleteness）。状態のない古い解析結果は ok
-    farms: Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).map((farm) => ({
-      id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
-      status: farm.status === 'uncertain' ? 'uncertain' : 'ok',
-    })) : null,
+    //（core/ideal-farms.js の readyFarms・farmCompleteness）。状態のない古い解析結果は ok。
+    // eggs は牧場の上のタマゴ（{ id: タマゴの個体 ID, palId: 中身〔マスターにないものは ''〕, mutant: 突然変異 }。セーブの順。64 個まで）、
+    // eggCount はその数（farm-data。共有で中身を省いたときは eggs が null で、数だけが分かる）
+    farms: Array.isArray(snapshot?.breedFarms) ? objects(snapshot.breedFarms).map((farm) => {
+      const eggs = list(farm.eggs, { max: FARM_EGGS_MAX, map: (egg) => (isObject(egg) && idText(egg.localId) ? {
+        id: egg.localId, palId: resolve(text(egg.characterId, 200)).palId, mutant: isMutationEggItem(text(egg.itemId, 200)),
+      } : null) });
+      return {
+        id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
+        status: farm.status === 'uncertain' ? 'uncertain' : 'ok', eggs, eggCount: eggs.length,
+      };
+    }) : null,
+    // 牧場そのものが一部だけか（共有で牧場を切ったとき。手元のセーブはいつも全部）。farmsCounted は牧場の数とタマゴの数が分かる形か
+    //（共有で n のない古い形は false。空いて見える牧場が読めない牧場かもしれないので、空き牧場の判定をしない）
+    farmsPartial: false,
+    farmsCounted: true,
     stats: snapshot?.stats ?? {},
   };
 }
@@ -722,6 +735,17 @@ export function partnerOwnership(bySpecies, palId, passives) {
 // ---------------------------------------------------------------------------
 
 /** 画面用の一覧を、共有の行（OWNED_FIELDS の順の配列）にする。文字列はそのまま送り、式の無害化は GAS 側で行う。 */
+// 画面用の 1 牧場を共有の形にする（短い鍵。owned-shared.js の cleanOwnedFarms）
+function sharedFarm(farm) {
+  const count = Number.isInteger(farm.eggCount) ? farm.eggCount : Array.isArray(farm.eggs) ? farm.eggs.length : 0;
+  if (farm.status === 'uncertain') return { id: farm.id, baseId: farm.baseId, parents: [], s: 'u', n: count };
+  const shared = { id: farm.id, baseId: farm.baseId, parents: farm.parents, n: count };
+  if (Array.isArray(farm.eggs)) {
+    shared.eggs = farm.eggs.slice(0, OWNED_FARM_EGGS_MAX).map((egg) => ({ id: egg.id, ...(egg.palId ? { p: egg.palId } : {}), ...(egg.mutant ? { m: 1 } : {}) }));
+  }
+  return shared;
+}
+
 export function sharedUpload(owned) {
   const rows = owned.pals.map((pal) => {
     const value = {
@@ -737,12 +761,32 @@ export function sharedUpload(owned) {
   return {
     players: owned.players.map((player) => ({ uid: player.uid, name: player.name })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
-    // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。読めた牧場だけを、状態のない今の形で送る
-    //（GAS の cleanOwnedFarms と旧コードの画面は状態を知らないので、読めない牧場を送ると普通の牧場として扱ってしまう）
-    ...(Array.isArray(owned.farms) ? { farms: owned.farms.filter((farm) => !farm.status || farm.status === 'ok')
-      .map((farm) => ({ id: farm.id, baseId: farm.baseId, parents: farm.parents })) } : {}),
+    // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。牧場ごとにタマゴの数（n）と中身（eggs。20 個まで）を足し、セルに入るよう
+    // 縮めてから送る（farm-data。owned-shared.js の fitOwnedFarms）。読めない牧場は親を空にして s: 'u'（古い GAS・旧コードの画面が s を
+    // 捨てても、親のない牧場は置いてある組として扱われない〔ideal-farms の targetFarms は親 2 体の牧場だけ〕）
+    ...(Array.isArray(owned.farms) ? { farms: fitOwnedFarms(cleanOwnedFarms(owned.farms.map(sharedFarm))) } : {}),
     columns: OWNED_FIELDS,
     rows,
+  };
+}
+
+/**
+ * 共有の牧場（短い鍵）を画面用の形に戻す（farm-data）。s: 'u' は読めない牧場、eggs がなければ中身が分からない（null）、eggCount は n。
+ * n のない古い形（古い GAS・古いホストの画面）は、タマゴの情報なし（eggs: null・eggCount: 0）で farmsCounted: false。
+ * of（元の牧場の数）が受け取った数より多ければ、牧場が一部だけ（farmsPartial）
+ */
+function sharedFarms(value, palsById) {
+  if (!Array.isArray(value)) return { farms: null, farmsPartial: false, farmsCounted: false };
+  const raw = cleanOwnedFarms(value);
+  const farms = raw.map((farm) => ({
+    id: farm.id, baseId: farm.baseId, parents: farm.s === 'u' ? [] : farm.parents, status: farm.s === 'u' ? 'uncertain' : 'ok',
+    eggs: Array.isArray(farm.eggs) ? farm.eggs.map((egg) => ({ id: egg.id, palId: palsById.has(egg.p) ? egg.p : '', mutant: egg.m === 1 })) : null,
+    eggCount: Number.isInteger(farm.n) ? farm.n : Array.isArray(farm.eggs) ? farm.eggs.length : 0,
+  }));
+  return {
+    farms,
+    farmsPartial: raw.some((farm) => Number.isInteger(farm.of) && farm.of > raw.length),
+    farmsCounted: raw.length === 0 || raw.some((farm) => Number.isInteger(farm.n)),
   };
 }
 
@@ -811,9 +855,8 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', level: 0 })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
-    // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）。
-    // 共有には読めた牧場だけが載るので、状態は ok（cleanOwnedFarms は GAS に写すので変えない）
-    farms: Array.isArray(world.farms) ? cleanOwnedFarms(world.farms).map((farm) => ({ ...farm, status: 'ok' })) : null,
+    // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
+    ...sharedFarms(world.farms, palsById),
     stats: {},
   };
 }

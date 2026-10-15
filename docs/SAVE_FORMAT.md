@@ -69,6 +69,13 @@
 - 読めない・食い違う牧場（件数が大きすぎる、割り当てが 3 体以上、親が見つからない、ゼロ GUID など）は `status: 'uncertain'` にして、自動登録に使わない。
 - 解析にかかる時間は、`WorkSaveData` を読む分だけ増えた（手元のセーブで 129 → 143 ms）。
 
+### 牧場のタマゴの画面と共有（farm-data。2026-10-15）
+
+- 画面用の形（`web/js/core/owned.js` の `normalizeOwned`）: 牧場ごとに `eggs: [{ id: タマゴの localId, palId: 中身〔マスターにないものは空〕, mutant: 突然変異 }]`（セーブの順・64 個まで）と `eggCount`。突然変異は、タマゴのアイテム ID が `PalEgg_MutationPal_*` のもの（`web/js/core/owned-shared.js` の `isMutationEggItem`。自動登録の照合も同じ関数）。2026-10-15 の手元のセーブ（`npm run check:save`）では牧場 7 か所・タマゴ 34 個（1 か所に 19 個）。
+- 共有（スプレッドシートのワールドの行の `farms` の 1 セル）: 牧場ごとに短い鍵 `n`（タマゴの数）・`eggs: [{ id, p: パル ID, m: 1〔突然変異〕 }]`（1 牧場 20 個まで）と、読めない牧場は `s: 'u'` で親を空にして送る（古い GAS・古い画面が `s` を捨てても、親のない牧場は置いてある組にならない）。JSON にした後 45,000 字（`OWNED_FARMS_MAX_CHARS`）を超えたら、全部の牧場の `eggs` を外して `n` だけにし、それでも超えたら牧場を先頭から入る分だけにして `of`（元の牧場の数）を付ける（`fitOwnedFarms`。画面・GAS・開発用 API の `validateOwnedUpload` で同じ）。今の 200 件の上限では 2 段目で必ず収まる（1 牧場 約 210 字）。
+- 受け取る側（`ownedFromShared`）: `eggs` がなければ中身が分からない（`eggs: null`）。`n` のない古い形（古い GAS・古いホストの画面）は「タマゴの情報なし」で、`farmsCounted: false`（理想個体は空き牧場を数えない）。`of` が受け取った数より多ければ `farmsPartial: true`（理想個体は交換推奨・空き牧場・使用中の判定を保留）。中身だけを省いたときは保留しない。
+- GAS に新しい列は要らない（`farms` の列のまま）。反映は `npm run gas:push` だけ（`setup()` は `farms` の列がないシートのときだけ）。
+
 ## 使う項目
 
 `CharacterID`・`NickName`・`Gender`・`Level`（ないときは 1）・`Rank`（凝縮。ないときは 1 = 星なし）・`Talent_HP` / `Talent_Shot` / `Talent_Defense`（個体値）・`PassiveSkillList`（パッシブの内部名）・`EquipWaza` / `MasteredWaza`（アクティブスキル）・`IsRarePal`（ラッキー）・`OwnerPlayerUId`・`OldOwnerPlayerUIds`・`SlotId`。

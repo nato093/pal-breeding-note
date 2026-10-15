@@ -713,17 +713,19 @@ export function idealView(context, route) {
 
   // 配合牧場の情報（今のデータの牧場から。計算の後に読み直したデータで描くときも、ここから求め直す）。牧場の情報がなければ null。
   // 名前は全体の牧場で A／B を付け（I-27）、使用中の印は所持者で絞る前の親の候補で決める（I-32）。
-  // 読めない牧場があれば complete: false で、交換推奨・空き牧場・使用中の判定を保留する
+  // 読めない牧場がある・共有で牧場が一部だけ（farmsPartial。farm-data）なら complete: false で、交換推奨・空き牧場・使用中の判定を保留する。
+  // タマゴの中身だけを省いた共有では保留しない。牧場の数の分からない古い形の共有（farmsCounted: false）では、親のない牧場が読めない牧場かも
+  // しれないので、空き牧場だけを数えない
   function farmContext(data, layouts) {
     const all = Array.isArray(data?.farms) ? data.farms : null;
     if (!all) return null;
     const labels = new Map((data.bases ?? []).map((base) => [base.id, base.label]));
-    const { complete, uncertain } = farmCompleteness(all);
+    const { complete, uncertain, partial } = farmCompleteness(all, { partial: data.farmsPartial === true });
     const own = complete ? targetFarms(all, (data.pals ?? []).filter(isParentCandidate), layouts) : [];
     return {
-      names: farmNames(all, (baseId) => labels.get(baseId) ?? ''), complete, uncertain,
+      names: farmNames(all, (baseId) => labels.get(baseId) ?? ''), complete, uncertain, partial,
       inUse: complete ? farmsInUse(all, new Set(own.map((farm) => farm.id))) : new Map(),
-      empties: complete ? emptyFarms(all) : [],
+      empties: complete && data.farmsCounted !== false ? emptyFarms(all) : [],
       baseLabel: (baseId) => labels.get(baseId) || '拠点',
     };
   }
@@ -785,13 +787,17 @@ export function idealView(context, route) {
     if (key) cell.setAttribute('aria-label', `${label}。押すとその組へ移ります`);
     return cell;
   }
+  // 判定を保留している理由（読めない牧場・共有で牧場が一部だけ）。because は「〜ため」に続ける形
+  const pendingReason = (farm, { because = false } = {}) => (farm.uncertain
+    ? `読めない牧場が ${farm.uncertain} か所${because ? 'ある' : 'あります'}`
+    : `共有の上限で牧場の情報が一部${because ? 'の' : 'です'}`);
   // 帯の中身（高さは固定）。保留中は理由の 1 行。この目標の組を置いた牧場がなければ帯を出さない（D30。空き牧場の数は詳細の 1 行に出る）
   function renderStrip({ farm, rows, pending }) {
     farmStrip.replaceChildren();
     farmStrip.hidden = !farm || (!pending && !rows.length);
     if (farmStrip.hidden) return;
     if (pending) {
-      farmStrip.append(el('span', 'ideal-farm-strip-note is-pending', `牧場の判定を保留（読めない牧場が ${farm.uncertain} か所あります）`));
+      farmStrip.append(el('span', 'ideal-farm-strip-note is-pending', `牧場の判定を保留（${pendingReason(farm)}）`));
       return;
     }
     farmStrip.append(...rows.slice(0, STRIP_FARMS).map(stripCell));
@@ -915,7 +921,7 @@ export function idealView(context, route) {
     // 狭い幅では見出しを省略記号で 1 行に収めるので、全文は title に
     farmHead.title = title;
     if (changed) farmBody.append(el('p', 'ideal-changed-note', `牧場の中身が最後に変わってから、交換推奨の行き先に新しく入った組が ${changed} 組あります（「変更あり」）。`));
-    if (pending) farmBody.append(el('p', 'ideal-farm-pending', `読めない牧場が ${farm.uncertain} か所あるため、交換推奨・空き牧場・使用中の判定を保留しています`));
+    if (pending) farmBody.append(el('p', 'ideal-farm-pending', `${pendingReason(farm, { because: true })}ため、交換推奨・空き牧場・使用中の判定を保留しています`));
     if (rows.length) {
       const list = el('ul', 'ideal-farm-list');
       list.append(...rows.map((row) => farmRow(row, view)));
