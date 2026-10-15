@@ -782,7 +782,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 パル詳細を種族のハブに
 
-- 状態: 済（2026-10-15） ／ ブランチ: `feature/pal-detail` ／ マージのコミット: （マージの後に書く）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/pal-detail` ／ マージのコミット: `5839ad2`
 
 - [x] `web/js/ui/pal-detail.js` に `palDetail(context, palId, { mode, onSwitch })` を切り出し、`views/pal.js` を包むだけにする
 - [x] 見出しをパル名にし、パル切り替えの `palPicker` を置く
@@ -801,17 +801,17 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 所持パルの個体の詳細をドロワーで
 
-- 状態: 未着手 ／ ブランチ: `feature/owned-detail` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/owned-detail` ／ マージのコミット: （マージの後に書く）
 
-- [ ] `web/js/ui/owned-detail.js` に `ownedDetail(context, instanceId, { terms })` を書く
-- [ ] 中身（アイコン・名前・Lv・★・個体値の 4 セル・パッシブと説明・スキル・属性・場所の図・リンク）
-- [ ] キーワード一致の全文（`keywordNotes` の全部）
-- [ ] 行の操作に「詳細」を足し、パッシブ・個体値・場所のセルのクリックでも開く（委譲・文字選択中は除く）（D29: 行の操作はないので、セルのクリックとキーボードの手段で）
-- [ ] 開いている行の `aria-current` と背景
-- [ ] 読み直しで同じ個体を引き直す・いなければ案内
-- [ ] ドロワーの中身の表に `owned` を足す
-- [ ] テスト（owned-detail・owned-view）
-- [ ] OPERATIONS.md と release-notes
+- [x] `web/js/ui/owned-detail.js` に `ownedDetail(context, instanceId, { terms })` を書く
+- [x] 中身（アイコン・名前・Lv・★・個体値の 4 セル・パッシブと説明・スキル・属性・場所の図・リンク）
+- [x] キーワード一致の全文（`keywordNotes` の全部）
+- [x] 行の操作に「詳細」を足し、パッシブ・個体値・場所のセルのクリックでも開く（委譲・文字選択中は除く）（D29: 行の操作はないので、セルのクリックとキーボードの手段で）
+- [x] 開いている行の `aria-current` と背景
+- [x] 読み直しで同じ個体を引き直す・いなければ案内
+- [x] ドロワーの中身の表に `owned` を足す
+- [x] テスト（owned-detail・owned-view）
+- [x] OPERATIONS.md と release-notes
 
 ### 34. [farm-data](phase-3-4-drawer-data.md#farm-data-牧場のタマゴを残して共有する牧場の表示の土台)（M）
 

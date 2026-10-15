@@ -40,6 +40,7 @@ import { inheritanceView } from './views/route.js';
 import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { palView, palDrawer } from './views/pal.js';
+import { ownedDetail } from './views/owned-detail.js';
 import { settingsView, RIGHTS_NOTE } from './views/settings.js';
 import { palDataNotes } from './views/shared.js';
 import { TABS, tabLabel } from './views/tabs.js';
@@ -438,6 +439,8 @@ async function boot() {
   // 画面を作り直してもドロワーは壊さない
   const drawerContents = {
     pal: (entry) => palDrawer(context, entry.id),
+    // 所持パルの個体の詳細（params.q は所持パルで入れていたキーワード。一致の理由の全文を出す。owned-detail）
+    owned: (entry) => ownedDetail(context, entry.id, { query: entry.params?.q ?? '' }),
   };
   const drawer = createDrawer({ context, render: drawerContents, main, url: () => urlOf(location.hash) });
   context.drawer = drawer;

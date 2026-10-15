@@ -11,7 +11,7 @@ import { ownedBySpecies, ownedCounts, sortOwned, PLACE_ORDER } from '../core/own
 import { PARTNER_SKILLS, PARTNER_SKILL_DESCS } from '../../data/skills.js';
 import { buildHash } from '../router.js';
 import { dataPending, renderCards, palDataNotes, viewHeading } from './shared.js';
-import { ownedRowItem } from './owned.js';
+import { ownedRowItem, openDetailOnClick } from './owned.js';
 
 /** 配合の節に出すカードの数（それより多ければ「すべて見る」で配合を探すへ。S-04） */
 export const PAL_RECORDS_SHOWN = 3;
@@ -121,10 +121,12 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
   const ownedRows = el('div', 'pal-owned-rows');
   ownedTop.append(ownedSummary, ownedRows);
   let topPals = [];
+  // 行の Lv・★のボタン・セルを押すと、個体の詳細を同じドロワーで開く（ドロワーでは「←」でこのパルへ戻れる。owned-detail）
+  openDetailOnClick(ownedRows, context.drawer);
   const rowOptions = {
     key: (row) => row.id,
     create: (row) => {
-      const item = ownedRowItem(row);
+      const item = ownedRowItem(row, { detail: Boolean(context.drawer) });
       return { element: item.element, update: (next) => item.update(next), destroy: () => item.destroy() };
     },
   };
