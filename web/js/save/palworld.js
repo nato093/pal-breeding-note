@@ -813,20 +813,43 @@ const PLAYER_SKIP = makeWhitelistSkip({
   '': ['SaveData', 'Timestamp'],
   '.SaveData': [
     'PlayerUId', 'IndividualId', 'OtomoCharacterContainerId', 'PalStorageContainerId', 'InventoryInfo',
-    'LastOnlineDateTime',
+    'LastOnlineDateTime', 'RecordData',
   ],
   '.SaveData.IndividualId': ['PlayerUId', 'InstanceId'],
   '.SaveData.OtomoCharacterContainerId': ['ID'],
   '.SaveData.PalStorageContainerId': ['ID'],
   '.SaveData.InventoryInfo': (name) => name.endsWith('ContainerId'),
+  // 捕獲数だけ（paldex。図鑑の登録 PaldeckUnlockFlag は画面で使わないので読まない。調べるのは check-save の --probe の [7]）
+  '.SaveData.RecordData': ['PalCaptureCount'],
 });
+
+// 捕獲数の種類の上限（パルは 300 体ほど。人間などパルでないキーも入る）
+const CAPTURES_MAX = 2000;
+
+/**
+ * 捕獲数（RecordData の PalCaptureCount。MapProperty<NameProperty, IntProperty> を { key, value } の並びで読んだもの）を
+ * [{ id: キャラクター ID, count }] にする（paldex）。キーはセーブのまま（大文字小文字の違い・人間などは画面の側〔core/owned.js〕が引く）。
+ * 0 回は省く。項目がない（古いセーブ・読めなくて飛ばした）・形が違う（使える項目が 1 つもない）なら null（分からない）
+ */
+function capturesOf(value) {
+  if (!Array.isArray(value)) return null;
+  const list = [];
+  let valid = 0;
+  for (const entry of value) {
+    const id = entry && typeof entry.key === 'string' ? entry.key.slice(0, 64) : '';
+    if (!id || !Number.isInteger(entry.value) || entry.value < 0) continue;
+    valid++;
+    if (entry.value > 0 && list.length < CAPTURES_MAX) list.push({ id, count: entry.value });
+  }
+  return value.length && !valid ? null : list;
+}
 
 /**
  * Players/<PlayerUId>.sav（解凍済み GVAS）を読む。
  * @param {Uint8Array|ArrayBuffer} gvasBytes
  * @returns {{ uid: string, instanceId: string, otomoContainerId: string, palStorageContainerId: string,
- *   inventoryContainers: Record<string, string>, lastOnlineTicks: number|string|null }}
- *   inventoryContainers は InventoryInfo の *ContainerId（キーは末尾の 'ContainerId' を除いた名前）
+ *   inventoryContainers: Record<string, string>, lastOnlineTicks: number|string|null, captures: { id: string, count: number }[] | null }}
+ *   inventoryContainers は InventoryInfo の *ContainerId（キーは末尾の 'ContainerId' を除いた名前）。captures は捕獲数（capturesOf）
  */
 export function parsePlayer(gvasBytes) {
   const malformed = {};
@@ -852,6 +875,8 @@ export function parsePlayer(gvasBytes) {
     palStorageContainerId: cid(sd.PalStorageContainerId),
     inventoryContainers,
     lastOnlineTicks: sd.LastOnlineDateTime ?? null,
+    // 読めない捕獲数（壊れた・知らない型）は readGvas の回復で飛ばして malformed に数える（所持パルの取り込みは続く）
+    captures: capturesOf(sd.RecordData && typeof sd.RecordData === 'object' ? sd.RecordData.PalCaptureCount : undefined),
     malformed,
     errors,
   };
@@ -1081,6 +1106,10 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
   }
   for (const p of playerSaves) {
     if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0 });
+  }
+  // 捕獲数（paldex。ホストの画面だけ・共有しない）。読めたプレイヤーだけに付ける（古いセーブ・読めなかったプレイヤーには項目がない）
+  for (const p of playerSaves) {
+    if (p.uid && Array.isArray(p.captures)) playerMap.get(p.uid).captures = p.captures.map(({ id, count }) => ({ id, count }));
   }
   // プレイ中（この保存の時点で接続していた）か。ギルドのメンバーの最終ログイン（last_online_real_time）と、ワールドが動いた通算の時間
   //（RealDateTimeTicks）が 10 秒（1 億ティック）以内なら true、離れていれば false、どちらかが読めなければ null（分からない）。

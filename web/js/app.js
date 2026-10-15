@@ -518,8 +518,8 @@ async function boot() {
       if (active) tab.setAttribute('aria-current', 'page');
       else tab.removeAttribute('aria-current');
     }
-    // 題名の画面名（タブの名前。パル詳細はパルの名前。attention.js）
-    attention.setScreen(current.view === 'pal' ? palsById.get(current.id)?.ja ?? '' : tabLabel(current.view));
+    // 題名の画面名（タブの名前。パル詳細はパルの名前、ID のない・不正な `#/pal` は図鑑。attention.js）
+    attention.setScreen(current.view === 'pal' ? palsById.get(current.id)?.ja ?? '図鑑' : tabLabel(current.view));
   }
 
   // 位置: 同じ画面の条件の変更はそのまま、リンクで違う画面へは先頭、タブで違う画面へはその画面を離れたときの位置、

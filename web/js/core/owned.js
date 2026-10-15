@@ -215,6 +215,44 @@ function conditionOf(value) {
 // プレイヤーの Lv（0 は分からない）とプレイ中（true・false、分からなければ null）
 const PLAYER_LEVEL = { min: 0, max: 999, fallback: 0 };
 const playerExtras = (player) => ({ level: int(player.level, PLAYER_LEVEL), online: typeof player.online === 'boolean' ? player.online : null });
+
+// ---- 捕獲数（paldex。Players/<uid>.sav の RecordData の PalCaptureCount。ホストの画面だけ・共有しない） ----
+const CAPTURE_COUNT = { min: 0, max: 10000000, fallback: 0 };
+const CAPTURE_ENTRIES_MAX = 2000;
+/**
+ * スナップショットのプレイヤーの捕獲数（[{ id: キャラクター ID, count }]）を { パル ID: 回数 } にする。キャラクター ID はマスターの ID に
+ * 引き（大文字小文字の違い・BOSS_ などの接頭辞もそろえ、同じ種族は合わせる）、人間などマスターにないキーと 0 回は捨てる。
+ * 捕獲数のない古いスナップショット・形の違う値は null（分からない）
+ */
+function capturesOf(value, resolve) {
+  if (!Array.isArray(value)) return null;
+  const total = new Map();
+  for (const entry of value.slice(0, CAPTURE_ENTRIES_MAX)) {
+    if (!isObject(entry) || typeof entry.id !== 'string') continue;
+    const palId = resolve(entry.id).palId;
+    const count = int(entry.count, CAPTURE_COUNT);
+    if (palId && count > 0) total.set(palId, Math.min(CAPTURE_COUNT.max, (total.get(palId) ?? 0) + count));
+  }
+  return Object.fromEntries(total);
+}
+
+/**
+ * 自分のプレイヤー（uids。ideals の selfUids）の捕獲数を種族ごとに合わせる（パル詳細の「捕獲 N」と図鑑のマスの数。paldex）。
+ * 自分が分からない・自分のプレイヤーに捕獲数がない（参加者の画面・共有のデータ・古いスナップショット）なら null（出さない）
+ * @param {{ uid: string, captures?: Record<string, number> }[]} players normalizeOwned のプレイヤー
+ * @param {Set<string>} uids
+ * @returns {Map<string, number> | null}
+ */
+export function ownCaptures(players, uids) {
+  if (!uids?.size) return null;
+  let total = null;
+  for (const player of players ?? []) {
+    if (!uids.has(player?.uid) || !isObject(player.captures)) continue;
+    total ??= new Map();
+    for (const [palId, count] of Object.entries(player.captures)) total.set(palId, (total.get(palId) ?? 0) + count);
+  }
+  return total;
+}
 // ゲーム内の日数（1 以上。0・欠けている・読めなければ null）
 const cleanDay = (value) => {
   const day = intOrNull(value, { min: 0, max: 1000000 });
@@ -316,9 +354,13 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   const passiveById = new Map(passives.map((passive) => [passive.id, passive]));
   // 読み戻したセーブの解析結果は、要素ごとに形を確かめる（壊れた要素だけを捨てる）。uid・拠点の ID は個体の所持者・場所と比べるので切り詰めない
   const objects = (value) => list(value, { map: (item) => (isObject(item) ? item : null) });
-  // プレイヤーの Lv とプレイ中（save-extras）は形を確かめて入れ直す（古いスナップショットのプレイヤーには online がない＝分からない）
+  // プレイヤーの Lv とプレイ中（save-extras）は形を確かめて入れ直す（古いスナップショットのプレイヤーには online がない＝分からない）。
+  // 捕獲数（paldex）はパル ID ごとの回数にして、読めたプレイヤーだけに captures を付ける（古いスナップショットには項目がない）
   const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
-    .map((player) => [player.uid, { ...player, name: text(player.name, 50), ...playerExtras(player) }]));
+    .map(({ captures: raw, ...player }) => {
+      const captures = capturesOf(raw, resolve);
+      return [player.uid, { ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}) }];
+    }));
   const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
   // ギルドが複数あるワールドでは、拠点の番号がギルドごとに重なるのでギルド名を添える
   const guildNames = new Map(objects(snapshot?.guilds).map((guild) => [guild.id, guild.name]));

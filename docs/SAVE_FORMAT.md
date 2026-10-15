@@ -140,7 +140,7 @@
 ### 後のテーマが使う入れ物（--probe の [6]・[7]）
 
 - インプラント（`PalPassiveSkillChange_*`）とパルリバーサー（`PalGenderReverse`）: `ItemContainerSaveData` のスロット。入れ物の持ち主は、ギルド保管庫（`GuildExtraSaveDataMap` の `GuildItemStorage.RawData` の先頭 16 バイト）・プレイヤーの所持品（`Players/*.sav` の `InventoryInfo` の `*ContainerId`。`Essential` など）・拠点の MapObject（`ItemChest_04` などの `ModuleMap` の `ItemContainer`）・拠点の外の宝箱（`TreasureBox_*`。在庫に数えない）。手元のセーブでは 31 種・406 個（拠点の箱 288・拠点の外の宝箱 85・所持品 13・ギルド保管庫 12 ほか）。implants の在庫はここから（下の「アイテムの在庫」）。
-- 捕獲数と図鑑: `Players/<uid>.sav` の `SaveData.RecordData` の `PalCaptureCount`（MapProperty<NameProperty, IntProperty>。キーはパル ID〔大文字小文字が違うことがある〕、`Human` などパルでないキーもある）・`PaldeckUnlockFlag`（MapProperty<NameProperty, BoolProperty>）。手元では 1 人 220〜250 件。paldex は `PLAYER_SKIP` に `RecordData` を足して読む。
+- 捕獲数と図鑑: `Players/<uid>.sav` の `SaveData.RecordData` の `PalCaptureCount`（MapProperty<NameProperty, IntProperty>。キーはパル ID〔大文字小文字が違うことがある〕、`Human` などパルでないキーもある）・`PaldeckUnlockFlag`（MapProperty<NameProperty, BoolProperty>）。手元では 1 人 220〜250 件。paldex で `PalCaptureCount` を読むようにした（下の「捕獲数」）。
 
 ### 解析の時間
 
@@ -157,6 +157,18 @@
 - 画面（`web/js/core/owned.js` の `normalizeOwned`）: `items: { 〈アイテム ID〉: { total, places: [{ label, count }] } }`（場所は数の多い順に 3 つまで。呼び名は「拠点 1 の箱」「拠点 1 の配合牧場」「拠点 1 の設備」「ギルド保管庫」「Alice の所持品」）。在庫を読む前のスナップショットは `null`（分からない）。大文字小文字の違う同じアイテムは合わせる。共有のデータ（`ownedFromShared`）はいつも `null`。引くのは `itemStock(owned, itemId)` → `{ total, places } | null`（読んだデータにないアイテムは `{ total: 0, places: [] }`＝在庫なし）、文は `stockText(stock)`（「在庫 5（拠点 1 の箱）」「在庫 7（拠点 1 の箱 5・ギルド保管庫 2）」「在庫なし」。`{ short: true }` は「在庫 5」）。
 - 手元のセーブ（2026-10-16）: 31 種・321 個（拠点の箱 288・拠点の設備 8・ギルド保管庫 12〔パルリバーサーだけ〕・所持品 13）。拠点の外の宝箱の 85 個（全部パルリバーサー）は数えない。`npm run check:save` の通常の出力に「アイテムの在庫（インプラント・パルリバーサー。拠点の外の宝箱は数えない）: 321 個・31 種（うちパルリバーサー 12 個）」の 1 行。
 - 解析の時間: 同じセーブの写しを前の版と交互に 12 回ずつ読んだ中央値で、手元のワールド（1,558 体）625 → 615 ms、別のワールド（1,032 体）115 → 114 ms（差は揺れの範囲。スロットのループは 1 回のまま）。
+
+## 捕獲数（RecordData。paldex。2026-10-16）
+
+自分が捕まえた数（パル詳細の「捕獲 n 回（自分）」と図鑑のマスの「捕獲 n」）。**ホストの画面だけ**（手元でセーブを読んだときだけ。共有しない）。
+
+- 場所: `Players/<uid>.sav` の `SaveData.RecordData.PalCaptureCount`。MapProperty<NameProperty, IntProperty>（キーはキャラクター ID、値は捕まえた回数）。`npm run check:save -- "<ワールドのフォルダ>" --probe` の [7] で形を確かめた（2026-10-16。手元のワールドのプレイヤー 2 人で 246 件・224 件、マスターで引けないのはどちらも `Human` だけ）。読み取りの許可リスト `PLAYER_SKIP` は `.SaveData` に `RecordData`、`.SaveData.RecordData` に `PalCaptureCount` だけを足した。**`PaldeckUnlockFlag`（図鑑の登録。MapProperty<NameProperty, BoolProperty>）は画面で使わないので読まない**（--probe の [7] では件数を出す）。`RecordData` のほかの項目も読まない。
+- 解析（`web/js/save/palworld.js` の `parsePlayer`）: `captures: [{ id: キャラクター ID, count }]`（セーブのキーのまま。0 回は省く・2,000 件まで）。`RecordData`・`PalCaptureCount` がない（古いセーブ）・形が違う（値が整数でない項目しかない、Map でない）なら `null`（分からない）。壊れた Map（要素の数がデータより多いなど）は `readGvas` の回復で飛ばし、`malformed.properties` に数える（後ろの項目と所持パルの取り込みは続く。スナップショットの `stats.malformed['player.properties']`）。
+- スナップショット（`buildSnapshot`）: 捕獲数を読めたプレイヤーだけ `players[].captures` に写す（読めなかったプレイヤー・古いスナップショットには項目がない）。
+- 画面（`web/js/core/owned.js` の `normalizeOwned`）: プレイヤーの `captures: { 〈パル ID〉: 回数 }`。キャラクター ID は `createSpeciesResolver` で引く（大文字小文字の違い〔例 セーブの `WereWolf_Ice` → マスターの `Werewolf_Ice`〕・`BOSS_` などの接頭辞もそろえ、同じ種族は合わせる）。`Human` などマスターにないキーと 0 回は捨てる。形の違う値は捨てて、項目を付けない。共有のデータ（`ownedFromShared`）には付けない（`sharedUpload` も送らない。`cleanSharedPlayers` は uid・name・Lv・プレイ中だけを残す）。自分の分は `ownCaptures(players, uids)`（`ideals.selfUids()` のプレイヤーの分を合わせた `Map`。自分が分からない・捕獲数のあるプレイヤーがいなければ `null`）。
+- 手元のセーブ（2026-10-16）: `npm run check:save` の通常の出力に「捕獲数: 〈プレイヤー〉 245 種・合計 15334（引けないキー 1: Human）, …」の 1 行（名前は手元の console にだけ出る）。もう 1 人は 223 種。
+- 解析の時間: 同じセーブの写しを前の版（統合ブランチの HEAD）と交互に 13 回ずつ読んだ中央値（1 回目を除く）で、手元のワールド（1,558 体）605 → 601 ms（差は揺れの範囲。プレイヤーのファイルは小さい）。
+- 捕獲ボーナスのしきい値（10 回など）はゲームのデータで確かめていないので出さない。仲間の捕獲数の共有もしない。
 
 ## 注意
 

@@ -1101,6 +1101,32 @@ test('画面: パルのタイルを押すと右のドロワーで開き、本文
   assert.equal(drawer.hidden, true);
 });
 
+test('画面: `#/pal`（ID なし）は図鑑の格子（題名も「図鑑」）。マスを押すと画面を移らずにドロワーでパル詳細を開く（中にも「図鑑」のリンク）', async (t) => {
+  const development = createDevelopmentApi();
+  await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
+  await development({ action: 'create', passcode: '入力', opId: crypto.randomUUID(), record: {
+    id: crypto.randomUUID(), parent1Id: 'SheepBall', parent2Id: 'FlowerDoll', childId: 'MoonQueen',
+    parent1Gender: '', parent2Gender: '', registrant: '架空データ', memo: '',
+  } });
+  const { pushes } = await boot(t, { initial: signedIn, api: development, hash: '#/pal', pushState: true });
+  const isMoon = (node) => node.tagName === 'a' && node.getAttribute('data-pal-id') === 'MoonQueen' && node.className.split(' ').includes('paldex-cell');
+  for (let i = 0; i < 20 && !(find(isMoon) && !find(isMoon).className.split(' ').includes('is-unregistered')); i++) await flush();
+  const view = document.getElementById('main').children[0];
+  assert.equal(view.querySelector('h1').textContent, '図鑑');
+  assert.match(document.title, /^図鑑 · /);
+  const moon = find(isMoon);
+  assert.equal(byClass('paldex-grid').children.length, 298);
+  assert.match(moon.getAttribute('aria-label'), /子としての登録 1 件/);
+  await clickLink(moon.children[1]);
+  assert.equal(byClass('side-drawer').hidden, false);
+  assert.match(byClass('side-drawer-title').textContent, /セレムーン/);
+  assert.equal(document.getElementById('main').children[0], view);
+  assert.equal(location.hash, '#/pal');
+  assert.deepEqual(pushes, ['/Pal/#/pal']);
+  // ドロワーの中のパル詳細にも「図鑑」（ほかの画面から開いたドロワーで押すと、ドロワーを閉じて本文が図鑑になる）
+  assert.equal(find((node) => node.className.split(' ').includes('pal-dex-link') && byClass('side-drawer').contains(node)).href, '#/pal/');
+});
+
 test('画面: ドロワーを開いたまま本文にフォーカスを移しても Esc で閉じる（入力欄では閉じない）。開いたまま検索語を打ったエントリは、× で前のエントリへ戻らない印になる', async (t) => {
   const development = createDevelopmentApi();
   await development({ action: 'signup', passcode: '入力', opId: crypto.randomUUID(), userId: '架空データ' });
