@@ -22,11 +22,11 @@
 | 1b | 4 | 45 | 4 |
 | 1c | 3 | 44 | 3 |
 | 1d | 6 | 74 | 6 |
-| 2 | 10 | 119 | 3 |
+| 2 | 10 | 119 | 4 |
 | 3 | 7 | 79 | 0 |
 | 4 | 4 | 49 | 0 |
 | 任意 | 4 | 23 | — |
-| **合計** | **42＋任意 4** | **532＋任意 23** | **24** |
+| **合計** | **42＋任意 4** | **532＋任意 23** | **25** |
 
 TODO の数は、テーマの TODO とフェーズの終わりの作業の合計（1b と 1c の終わりの作業はまとめて 1c の行に数えた）。2026-10-12 に、理想個体の計算の修正（フェーズ 1-0 の ideal-calc。README の「2-8」）を足し、implants のパルリバーサーの項目を 2 つに分けた（D17）。
 
@@ -617,20 +617,20 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 登録モーダルの見直し
 
-- 状態: 未着手 ／ ブランチ: `feature/register-dialog` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/register-dialog` ／ マージのコミット: （統合ブランチ `integrate/phase-2` へのマージ。下の「次にやること」）
 
-- [ ] `ui/dialog.js` に `beforeClose`・`requestClose`・`initialFocus` と `confirmDialog` の `aria-describedby`（テストを先に）
-- [ ] 登録モーダルの基準の入力と「退避の対象」の判定
-- [ ] 下書きへの退避・失敗時にフォームを残す・トーストの「破棄」
-- [ ] `ui/gender-toggle.js` と、枠ごとの性別のリセット
-- [ ] `drafts.js` の性別のキー（読み・書き・比較・reload）
-- [ ] `saveDraft`・`prepare` で性別を通す
-- [ ] `user-rename.js` にオブジェクトのキーの移動を足す
-- [ ] 左右 2 列のレイアウトと固定の高さの確認の枠・参照列
-- [ ] 式の並び・高さの固定をやめる・登録者とメモを 1 行に
-- [ ] 最初の未選択の欄へのフォーカスとエラーの `aria-invalid`
-- [ ] ログイン画面の初期フォーカスと ID の maxLength
-- [ ] テスト（dialog・record-editor・drafts・user-rename・app）と release-notes
+- [x] `ui/dialog.js` に `beforeClose`・`requestClose`・`initialFocus` と `confirmDialog` の `aria-describedby`（テストを先に）
+- [x] 登録モーダルの基準の入力と「退避の対象」の判定
+- [x] 下書きへの退避・失敗時にフォームを残す・トーストの「破棄」
+- [x] `ui/gender-toggle.js` と、枠ごとの性別のリセット
+- [x] `drafts.js` の性別のキー（読み・書き・比較・reload）
+- [x] `saveDraft`・`prepare` で性別を通す
+- [x] `user-rename.js` にオブジェクトのキーの移動を足す
+- [x] 左右 2 列のレイアウトと固定の高さの確認の枠・参照列
+- [x] 式の並び・高さの固定をやめる・登録者とメモを 1 行に
+- [x] 最初の未選択の欄へのフォーカスとエラーの `aria-invalid`
+- [x] ログイン画面の初期フォーカスと ID の maxLength
+- [x] テスト（dialog・record-editor・drafts・user-rename・app）と release-notes
 
 ### 25. [goals-merge](phase-2-structure.md#goals-merge-ウィッシュリストを目標に統合)（L）
 
