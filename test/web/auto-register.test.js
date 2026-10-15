@@ -137,6 +137,9 @@ test('自動登録: 同じ組み合わせで別の子が登録済みなら、登
   // 押すと配合を探すでその組の登録を出す（前は一覧〔#/list〕）
   assert.match(notice.href, /^#\/search\?p1=(SheepBall&p2=SwordCutlassfish|SwordCutlassfish&p2=SheepBall)$/);
   assert.ok(Number.isFinite(Date.parse(notice.date)));
+  // 通知欄の行の画像は親1（候補の子は配合表で決めた値なので使わない。bell）
+  assert.ok(['SheepBall', 'SwordCutlassfish'].includes(notice.palId));
+  assert.equal(notice.palId, notice.href.match(/p1=(\w+)/)[1]);
   assert.equal(t.noticed, 1);
 });
 
@@ -160,6 +163,8 @@ test('自動登録: 新しいふつうのタマゴが配合表と合わないと
   const [notice] = t.auto.notices();
   assert.match(notice.body, /^(ヘルバーン＋モモエール|モモエール＋ヘルバーン) のタマゴ（ヤクモマル）は照合が合わず、自動登録しませんでした$/);
   assert.doesNotMatch(`${notice.title}${notice.body}`, /テラナイト|表は/);
+  // 通知欄の行の画像はセーブで見たタマゴの中身（bell）
+  assert.equal(notice.palId, 'GuardianDog');
   assert.equal(t.noticed, 1);
   // 同じ通知は重ねない
   await t.run();
@@ -770,7 +775,8 @@ test('自動登録（成功の通知）: 登録が確定すると、登録した
     id: `auto-breed:test:registered:${record.id}`, date: FIRST_READ,
     title: '配合を自動登録しました', body: 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）',
     href: '#/search?p1=SheepBall&p2=SwordCutlassfish',
-    kind: 'auto-registered', worldId: WORLD, batchId: FIRST_READ,
+    // 通知欄の行の画像は登録した記録の子（bell）
+    kind: 'auto-registered', worldId: WORLD, batchId: FIRST_READ, palId: record.childId,
   }]);
   // 配合表だけで決まる言い回しは出さない（INV-2）
   assert.doesNotMatch(t.auto.notices()[0].body, /表は|予想は/);

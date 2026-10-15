@@ -711,7 +711,7 @@ test('画面: ショートカット N で登録を開く（配合を探すで選
   assert.equal(press().prevented, false);
 });
 
-test('画面: 右上のベルに未読の数を出し、開くと既読にして、既読も設定タブの通知一覧で見られる', async (t) => {
+test('画面: 初めての端末では更新内容のお知らせを既読から始めて数字を出さず、別のタブで既読が変われば点を出し、開いても既読にしない', async (t) => {
   const { values, events } = await boot(t, {
     initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }),
   });
@@ -719,33 +719,27 @@ test('画面: 右上のベルに未読の数を出し、開くと既読にして
   const bell = byClass('notification-button');
   const badge = byClass('notification-badge');
   const titles = (node) => node.querySelectorAll('.notification-title').map((title) => title.textContent);
-  assert.equal(badge.hidden, false);
-  assert.equal(badge.textContent, String(releaseNotes.length));
-  assert.equal(bell.getAttribute('aria-label'), `通知（未読 ${releaseNotes.length} 件）`);
-  await bell.dispatch('click');
-  assert.equal(bell.getAttribute('aria-expanded'), 'true');
-  assert.deepEqual(titles(byClass('notification-panel')), releaseNotes.map((note) => note.title));
+  // 既読の記録のない ID はお知らせを既読から（G-22）。新しい人に過去のお知らせの未読が残り続けない
   assert.equal(badge.hidden, true);
   assert.equal(bell.getAttribute('aria-label'), '通知');
   assert.equal(JSON.parse(values.get(key)).length, releaseNotes.length);
+  // 別のタブで既読が書き換わったら読み直す（お知らせだけが未読なら数字のない点）
+  values.set(key, JSON.stringify(releaseNotes.slice(1).map((note) => `release:${note.id}`)));
+  events.get('storage')({ key });
+  assert.equal(badge.hidden, false);
+  assert.equal(badge.textContent, '');
+  assert.equal(bell.getAttribute('aria-label'), '通知（お知らせ 1 件）');
+  await bell.dispatch('click');
+  assert.equal(bell.getAttribute('aria-expanded'), 'true');
+  // パネルは既読も含めて新しい順（30 行まで）。開いただけでは既読にしない
+  assert.deepEqual(titles(byClass('notification-panel')), releaseNotes.slice(0, 30).map((note) => note.title));
+  assert.equal(byClass('notification-panel').querySelectorAll('.unread-chip').length, 1);
+  assert.equal(badge.hidden, false);
   await bell.dispatch('click');
   assert.equal(byClass('notification-panel'), undefined);
   assert.equal(bell.getAttribute('aria-expanded'), 'false');
-  await bell.dispatch('click');
-  assert.match(byClass('notification-panel').textContent, /新しい通知はありません/);
-  await bell.dispatch('click');
-  // 別のタブで既読が書き換わったら読み直す。
-  values.set(key, JSON.stringify([`release:${releaseNotes[0].id}`]));
-  events.get('storage')({ key });
-  assert.equal(badge.textContent, String(releaseNotes.length - 1));
-  await byText('通知一覧').dispatch('click');
-  const dialog = find((node) => node.tagName === 'dialog' && node.open);
-  assert.deepEqual(titles(dialog), releaseNotes.map((note) => note.title));
-  assert.equal(dialog.querySelectorAll('.unread-chip').length, releaseNotes.length - 1);
-  assert.equal(badge.hidden, true);
-  // 画面には更新の帯の「閉じる」もあるため、通知一覧の中のボタンを押す
-  await dialog.querySelectorAll('button').find((node) => node.textContent === '閉じる').dispatch('click');
-  assert.equal(dialog.open, false);
+  // 設定タブの「通知一覧」はなくした（履歴はベルの「すべての通知を見る」）
+  assert.equal(byText('通知一覧'), undefined);
 });
 
 test('画面: パル詳細の「☆ 目標に登録」で種族だけの目標にし、作れるようになったらベルで「配合が登録されました」と知らせ、目標の行に配合の数を出す', async (t) => {
@@ -1523,23 +1517,22 @@ test('画面: タブの見出し（h1）はタブの名前と同じ（views/tabs
   }
 });
 
-test('画面: ベルに未読がないときは「新しい通知はありません。」と「これまでの通知」（押すとパネルを閉じて通知一覧を開き、閉じたらベルへ）', async (t) => {
-  await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }) });
+test('画面: ベルの下端の「すべての通知を見る →」でパネルを閉じて通知一覧を開き、閉じたらベルへ（「すべて既読」で既読に）', async (t) => {
+  const { values } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }) });
   const bell = byClass('notification-button');
-  // 開くと未読を既読にする（更新内容のお知らせ）
-  await bell.dispatch('click');
-  await bell.dispatch('click');
+  const key = 'pal-note.notifications.read.架空データ';
   await bell.dispatch('click');
   const panel = byClass('notification-panel');
-  assert.equal(panel.querySelector('p').textContent, '新しい通知はありません。');
   assert.doesNotMatch(panel.textContent, /設定タブ/);
-  const all = panel.querySelectorAll('button').find((node) => node.textContent === 'これまでの通知');
-  await all.dispatch('click');
+  await panel.querySelector('.notification-show-all').dispatch('click');
   assert.equal(byClass('notification-panel'), undefined);
   assert.equal(bell.getAttribute('aria-expanded'), 'false');
   const dialog = find((node) => node.tagName === 'dialog' && node.open);
   assert.equal(dialog.querySelector('h2').textContent, '通知一覧');
   assert.equal(dialog.querySelectorAll('.notification-title').length, releaseNotes.length);
+  // お知らせはすでに既読（初めての端末）なので「すべて既読」は押せない
+  assert.equal(dialog.querySelector('.notification-all-read').disabled, true);
+  assert.equal(JSON.parse(values.get(key)).length, releaseNotes.length);
   await dialog.querySelectorAll('button').find((node) => node.textContent === '閉じる').dispatch('click');
   assert.equal(document.activeElement, bell);
 });

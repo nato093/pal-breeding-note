@@ -374,6 +374,8 @@ export function idealNotificationSource({ store, ideals }) {
       title: '理想個体が完成しました',
       body: `「${goal.name}」の条件を満たす個体が${world.worldName ? `「${world.worldName}」` : ''}の所持パルにいます。`,
       href: buildHash('ideal', { to: goal.palId, p: goal.passives.join(','), g: goal.id }),
+      // 通知欄の行の画像（目標の種族）
+      palId: goal.palId,
     })));
 }
 
@@ -398,14 +400,14 @@ export function goalObservationSource({ store, ideals }) {
         date: entry.readyAt,
         title: `${name}の配合が登録されました`,
         body: entry.pairs?.length ? `${pairText(entry.pairs[0])} で作れます${entry.pairs.length > 1 ? `（ほか ${entry.pairs.length - 1} 組）` : ''}。` : '配合を探すで確認できます。',
-        href,
+        href, palId,
       }] : [];
       return [...ready, ...entry.found.map(({ pair, at }) => ({
         id: `wishlist:${store.state.env}:${palId}:${pair}:${at}`,
         date: at,
         title: `${name}の配合が増えました`,
         body: `${pairText(pair)} でも作れます。`,
-        href,
+        href, palId,
       }))];
     });
   };

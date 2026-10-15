@@ -106,7 +106,8 @@ function registeredNotice(ctx, record, farmLabel) {
   const parentText = (id, gender) => `${palName(id)}${genderMark(gender)}`;
   return {
     id: `auto-breed:${ctx.env}:registered:${record.id}`, date: ctx.importedAt,
-    kind: SUCCESS, worldId: ctx.worldId, batchId: ctx.importedAt,
+    // 通知欄の行の画像は登録した記録の子（登録済みなので出してよい）
+    kind: SUCCESS, worldId: ctx.worldId, batchId: ctx.importedAt, palId: record.childId,
     title: '配合を自動登録しました',
     body: `${parentText(record.parent1Id, record.parent1Gender)}＋${parentText(record.parent2Id, record.parent2Gender)} → ${palName(record.childId)}（${farmLabel}）`,
     href: buildHash('search', { p1: record.parent1Id, p2: record.parent2Id }),
@@ -351,9 +352,10 @@ export function createAutoRegister({
   // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」。前の版が保存した本文は「×」のまま読み替える＝OLD_ANOMALY・OLD_CONFLICT）
   const pairText = (a, b) => `${palName(a)}＋${palName(b)}`;
   // 表と合わない新しいタマゴ（見たタマゴとして記録し、二度と判定しない）。表の子（m.expected）は出さない
+  // 通知欄の行の画像はセーブで見た新しいタマゴの種族（m.actual）
   const anomalyNotice = (ctx, m) => ({
     id: `auto-breed:${ctx.env}:anomaly:${m.farmId}:${m.eggLocalId}`, date: ctx.importedAt,
-    title: AUTO_NOTICE_TITLES.anomaly, body: anomalyText(pairText(...m.parents), palName(m.actual)),
+    title: AUTO_NOTICE_TITLES.anomaly, body: anomalyText(pairText(...m.parents), palName(m.actual)), palId: m.actual,
   });
   // 登録済みと食い違う候補（対応や登録が変わったら、次の判定でやり直す）。候補の子は表の子
   // （突然変異タマゴならタマゴの中身とも違う）なので出さず、登録済みの子だけを出す。押すと配合を探すでその組の登録を出す
@@ -363,6 +365,8 @@ export function createAutoRegister({
     title: AUTO_NOTICE_TITLES.conflict,
     body: conflictText(pairText(candidate.record.parent1Id, candidate.record.parent2Id), [...new Set(existing.map((e) => palName(e.childId)))].join('・')),
     href: buildHash('search', { p1: candidate.record.parent1Id, p2: candidate.record.parent2Id }),
+    // 通知欄の行の画像は親1（候補の子は配合表で決めた値なので使わない。INV-2）
+    palId: candidate.record.parent1Id,
   });
   const unmappedId = (ctx, uid) => `auto-breed:${ctx.env}:unmapped:${ctx.worldId}:${uid}`;
   const unmappedNotice = (ctx, uid, players) => ({
