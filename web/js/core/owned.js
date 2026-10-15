@@ -688,10 +688,11 @@ export function rowsToCsv(rows) {
 /**
  * 継承ルートの開始候補: 指定のパッシブをすべて持つ所持パル（親にできる個体）の種類ごとに、登録済みの配合で目標までの最短経路を調べる。
  * 経路の探索は shortestRoute（登録済みの配合だけを使う）に任せる。
- * @param {{ graph: Map, pals: object[], to: string, passives: string[], shortestRoute: Function }} input
+ * 並びは手数 → パッシブの多い個体 → 個体数 → 図鑑順（palOrder の小さい順。無いパルは後ろで ID の順。F030）。
+ * @param {{ graph: Map, pals: object[], to: string, passives: string[], shortestRoute: Function, palOrder?: Map<string, number> }} input
  * @returns {{ palId: string, carriers: object[], route: object|null, length: number }[]} 近い順（たどり着けないものは除く）
  */
-export function ownedRouteStarts({ graph, pals, to, passives, shortestRoute }) {
+export function ownedRouteStarts({ graph, pals, to, passives, shortestRoute, palOrder = new Map() }) {
   const candidates = [];
   for (const [palId, list] of ownedBySpecies(pals)) {
     // 運び手は親にできる個体だけ（タマゴ・グローバルパルボックスの個体は外す。R-15。理想個体と同じ規則）
@@ -706,6 +707,7 @@ export function ownedRouteStarts({ graph, pals, to, passives, shortestRoute }) {
   return candidates.sort((a, b) => a.length - b.length
     || Math.max(...b.carriers.map(best)) - Math.max(...a.carriers.map(best))
     || b.carriers.length - a.carriers.length
+    || (palOrder.get(a.palId) ?? Infinity) - (palOrder.get(b.palId) ?? Infinity)
     || (a.palId < b.palId ? -1 : a.palId > b.palId ? 1 : 0));
 }
 

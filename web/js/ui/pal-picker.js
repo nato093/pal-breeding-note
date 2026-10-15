@@ -22,8 +22,9 @@ const checkMark = () => icon('check', { className: 'picker-check' });
  *     dim?: Set<palId>（薄い色の行）, orderLabel?: string（検索語が空のときの件数の行。order の並びの説明） }
  * 検索語があるときは、一致の段階 → order → 図鑑順。↑↓で選んでいないときの Enter は何もしない（ユーザー指定）。
  */
-export function palPicker({ label, value = '', onChange, popupHost, placeholder = 'パルを選択', describe }) {
+export function palPicker({ label, value = '', onChange, popupHost, placeholder: initialPlaceholder = 'パルを選択', describe }) {
   let selected = value;
+  let placeholder = initialPlaceholder;
   let annotate = describe;
   const wrapper = el('div', 'picker');
   const labelNode = el('span', 'field-label', label);
@@ -186,9 +187,16 @@ export function palPicker({ label, value = '', onChange, popupHost, placeholder 
       if (view) markSelected();
     },
     getValue() { return selected; },
-    /** 注記を変える（describe を渡さなければ同じ関数で数え直す）。開いていれば、検索語と矢印の位置を保って候補を描き直す */
-    update({ describe: next } = {}) {
+    /**
+     * 注記を変える（describe を渡さなければ同じ関数で数え直す）。開いていれば、検索語と矢印の位置を保って候補を描き直す。
+     * placeholder を渡すと、選んでいないときの文を変える
+     */
+    update({ describe: next, placeholder: text } = {}) {
       if (next !== undefined) annotate = next;
+      if (text !== undefined && text !== placeholder) {
+        placeholder = text;
+        renderSelected();
+      }
       if (!view) return;
       const keep = view.position >= 0 ? view.choices[view.position]?.id ?? null : null;
       view.info = annotate?.() ?? {};

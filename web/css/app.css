@@ -580,12 +580,6 @@ img, svg { max-width: 100%; }
 .notification-link:hover .notification-title { color: var(--md-sys-color-primary); }
 .notification-dialog { width: min(560px, calc(100% - 24px)); }
 .selection-panel { padding: 4px 0; margin-bottom: 8px; }
-.pair-selection { display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); gap: 4px 12px; }
-.pair-selection > .picker { display: grid; grid-row: 1 / 3; grid-template-rows: subgrid; }
-.pair-selection > .picker:first-child { grid-column: 1; }
-.pair-selection > .picker:last-child { grid-column: 3; }
-.pair-selection .picker-trigger { height: 100%; }
-.swap-button { grid-column: 2; grid-row: 2; justify-self: center; align-self: center; border: 1px solid var(--md-sys-color-outline-variant); }
 /* ラベルと入力の間は .field・.picker の gap 4px だけ（ラベルの margin は 0。前は .field が gap 4px＋margin 4px の 8px、.picker が margin の
    4px だけで、同じ行の select とパル選択の上端が 4px ずれた） */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; min-width: 0; }
@@ -655,7 +649,6 @@ img, svg { max-width: 100%; }
   background: var(--md-sys-color-surface-container);
   z-index: var(--z-panel);
 }
-.pair-selection > .picker:last-child .picker-popover { left: auto; right: 0; }
 .picker-popover-floating {
   position: fixed;
   z-index: var(--z-popover);
@@ -993,12 +986,25 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .toast-close:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 /* 閉じる動きの間（150ms）は押せない（ui/toast.js が中のボタンも押せなくする） */
 .toast.leaving { pointer-events: none; }
-.route-explanation { color: var(--muted); font-size: 13px; }
 .route-results { display: grid; gap: 12px; }
 .route-card { padding: 16px 18px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; }
 /* 画面の h1 の次の見出し（前の h3 と同じ大きさ・余白） */
 .route-card h2 { font-size: 15px; line-height: inherit; margin-bottom: 1em; }
 .route-breeding-card { grid-template-columns: 26px minmax(0, 1fr); }
+/* 段番号の丸どうしを 2px の縦線でつなぐ（R-23。CSS だけ）。丸は式の 1 行目の高さにそろえて上から置き（--step-top）、線は丸の中心から
+   次の段の丸の中心まで（段の下の区切りの線 1px を含む）。丸は線の上に重ねる */
+.route-chain { --step-top: 13px; }
+.route-chain > .route-breeding-card { position: relative; }
+.route-chain > .route-breeding-card > .step-number { position: relative; z-index: 1; align-self: start; margin-top: var(--step-top); }
+.route-chain > .route-breeding-card:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 26px;
+  top: calc(4px + var(--step-top) + 11px);
+  bottom: calc(-1px - 4px - var(--step-top) - 11px);
+  width: 2px;
+  background: var(--md-sys-color-outline-variant);
+}
 .step-number {
   display: grid;
   place-items: center;
@@ -1010,7 +1016,7 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   font-size: 11px;
   font-weight: 700;
 }
-.route-breeding-card:has(> .route-options) > .step-number { align-self: start; margin-top: 10px; }
+.route-chain > .route-breeding-card:has(> .route-options) > .step-number { margin-top: 10px; }
 .route-options {
   display: grid;
   min-width: 0;
@@ -1022,7 +1028,11 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .route-options-label { margin: 6px 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .route-options > .breeding-equation { padding: 8px 0; }
 .route-options > .breeding-equation + .breeding-equation { border-top: 1px dashed var(--line); }
-.route-warning { grid-column: 2; color: var(--warning); font-size: 12px; }
+/* 段の注意（ui/route-view.js の stepNotes）: 「同じ組で別の子も登録あり」（警告。押すとその組の配合を探す）と「性別の向きは未確認」（注記。
+   title に説明）。どちらも状態のチップの形で、段に 1 回だけ */
+.route-step-notes { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 2px 0 4px; }
+.route-warning:hover { text-decoration: underline; }
+.route-note { cursor: help; }
 .pal-hero {
   background: var(--md-sys-color-surface-container-low);
   border-radius: 16px;
@@ -1197,11 +1207,9 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   .owned-drop.dragging { animation: breathe 1.4s ease-in-out infinite alternate; }
   input[type="checkbox"] { transition: background-color .15s linear, border-color .15s linear; }
   input[type="checkbox"]::after { transition: clip-path .22s var(--ease-decelerate); }
-  /* 押すと少し沈み、離すとわずかに弾んで戻る。入れ替えは乗ると半回転して、押すと何が起きるかを見せる */
+  /* 押すと少し沈み、離すとわずかに弾んで戻る */
   .button, .start-chip { transition: transform .25s var(--ease-spring), background-color .15s, box-shadow .15s, border-color .15s; }
   .button:active:not(:disabled), .start-chip:active { transform: scale(.96); transition-duration: .08s; }
-  .swap-button { transition: transform .35s var(--ease-emphasized), background-color .15s; }
-  .swap-button:hover { transform: rotate(180deg); }
   :focus-visible { animation: focus-in .18s var(--ease-decelerate); }
   input, select, textarea, .picker-trigger { transition: border-color .15s linear, box-shadow .15s linear; }
 }
@@ -1611,8 +1619,8 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
    右のドロワー〔D3〕は本文に重ねるので本文の幅は窓で決まる。container query は先祖の固定配置の基準を変えるので使わない） */
 @media (max-width: 1000px) {
   :root { --owned-cols: minmax(150px, 1.2fr) 56px minmax(0, 2fr) 152px minmax(0, 1fr); }
-  :is(.owned-view, .ideal-view) .owned-row, .owned-view .owned-list-head { column-gap: 10px; }
-  :is(.owned-view, .ideal-view) .owned-talent, .owned-view .owned-head-talent { column-gap: 4px; }
+  :is(.owned-view, .ideal-view, .route-view) .owned-row, .owned-view .owned-list-head { column-gap: 10px; }
+  :is(.owned-view, .ideal-view, .route-view) .owned-talent, .owned-view .owned-head-talent { column-gap: 4px; }
 }
 /* 列見出し（押すと並べ替え）。固定のパネルの下に貼り付く。列は行と同じ --owned-cols、一覧の帯の上の角を受け持つ */
 .owned-list-head {
@@ -1723,12 +1731,15 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .ideal-warning .passive-list.compact { margin: 1px 2px; }
 .ideal-carry { display: inline-flex; align-items: center; gap: 6px; }
 .route-passives { margin-bottom: 4px; }
-/* 所持パルがあるとき: 目標とパッシブで探し、開始は候補のチップで絞り込む（「すべて」が既定） */
+/* 継承ルート（route-cleanup。形は 1 つ）: 目標とパッシブの行 → 開始のチップの行（候補があれば「すべて」が既定） → 経路 → 開始の所持個体 */
 .route-query { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; margin-bottom: 0; }
 .route-query > * { flex: 1 1 280px; min-width: 0; }
 .route-query .route-passives { margin-bottom: 0; }
-.start-filter { padding: 10px 14px; margin-bottom: 4px; background: var(--md-sys-color-surface-container-low); border-radius: 12px; }
-.start-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.route-hint .setup-hint { margin-bottom: 8px; }
+.start-filter { padding: 10px 14px; margin-bottom: 12px; background: var(--md-sys-color-surface-container-low); border-radius: 12px; }
+/* 行の高さはチップの 2 段の高さに保つ（所持パルの読み込みの前後と、候補がないとき〔選択欄だけ〕で下の経路が上下しない） */
+.start-chips { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; min-height: 46px; }
+.start-note { margin: 8px 0 0; font-size: 13px; }
 .start-chip {
   display: inline-flex;
   align-items: center;
@@ -1743,10 +1754,13 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   border-color: var(--md-sys-color-outline);
 }
 .start-chip-all { padding: 2px 14px; }
-.start-chip .pal-tile { min-height: 26px; gap: 6px; color: inherit; }
-.start-chip .pal-icon { width: 32px; height: 32px; }
+/* 候補のチップは 2 段（1 段目はパルの名前、2 段目は「最短 N 回 · n 体 · 持ち主」）。絵は 2 段の左に置く（パルのタイルを grid に溶かす） */
+.start-chip:not(.start-chip-all) { display: inline-grid; grid-template-columns: 32px auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 0; padding: 4px 12px 4px 6px; text-align: left; }
+.start-chip .pal-tile { display: contents; color: inherit; }
+.start-chip .pal-icon { grid-row: 1 / 3; align-self: center; width: 32px; height: 32px; }
+.start-chip .pal-label { grid-column: 2; grid-row: 1; line-height: 1.35; }
 .start-chip .dex-label { display: none; }
-.start-chip-count { color: var(--muted); font-size: 12px; }
+.start-chip-count { grid-column: 2; grid-row: 2; max-width: 15em; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.35; white-space: nowrap; }
 .start-chip:hover { background: var(--state-hover); }
 .start-chip[aria-pressed="true"] {
   background: var(--md-sys-color-secondary-container);
@@ -1756,8 +1770,9 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .start-chip[aria-pressed="true"] .start-chip-count { color: inherit; }
 .start-chips > .picker { flex: 0 1 220px; min-width: 150px; }
 .start-chips .picker > .field-label { display: none; }
-.start-chips .picker-trigger {
-  min-height: 32px;
+.start-chips .picker-trigger { min-height: 46px; }
+/* 候補のチップがあるときの選択欄は「他のパル…」の点線（候補がないときはふつうの選択欄の見た目） */
+.start-chips.has-starts .picker-trigger {
   padding-top: 4px;
   padding-bottom: 4px;
   border-style: dashed;
@@ -1765,35 +1780,28 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   background: transparent;
   color: var(--muted);
 }
-.start-chips .picker-trigger.has-selection { border: 1px solid var(--accent); background: var(--surface); color: var(--accent); }
+.start-chips.has-starts .picker-trigger.has-selection { border: 1px solid var(--accent); background: var(--surface); color: var(--accent); }
 .start-chips .picker-trigger .pal-tile { min-height: 32px; gap: 6px; }
 .start-chips .picker-trigger .pal-icon { width: 32px; height: 32px; }
 .start-chips .picker-trigger .dex-label { display: none; }
 .start-chips .picker-clear { right: 28px; background: transparent; }
 .start-chips .picker-clear:hover { background: var(--state-hover); }
-.route-owned-box { padding: 14px 18px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin-bottom: 16px; }
-.route-owned-box h2 { font-size: 15px; line-height: inherit; margin-bottom: 10px; }
-.route-starts { display: grid; }
-.route-start {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line);
-}
-.route-start:last-child { border-bottom: 0; }
-.route-start .pal-icon { width: 44px; height: 44px; }
-.route-start .pal-tile { min-height: 44px; }
-.route-start-info { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
-.route-carriers { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.route-carrier { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; }
-.route-carrier-where { color: var(--muted); }
+/* 開始の所持個体（経路の下）。行は所持パルの行の部品で、列と見た目は理想個体の組の行と同じ（下の :is(.ideal-pair, .route-owned-rows)） */
+.route-owned-box { padding: 10px 18px 6px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin: 12px 0 16px; }
+.route-owned-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.route-owned-box h2 { font-size: 15px; line-height: inherit; margin: 0; }
+.route-owned-open { margin-left: auto; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.route-owned-more > summary { padding: 8px 0; font-size: 13px; font-weight: 700; color: var(--md-sys-color-primary); cursor: pointer; }
+.route-owned-more[open] > summary { border-bottom: 1px solid var(--line); }
+.route-owned-box > .muted { margin: 8px 0; font-size: 13px; }
 .route-owned-note { grid-column: 2; font-size: 12px; color: var(--md-sys-color-tertiary); }
 /* 相手親の注記の「所持パルで見る」と、経路の見出しの右の「相手親 n/m 段で所持」（owned-overlay） */
 .route-owned-link { margin-left: 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .route-card-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 15px; }
 .route-card-head > h2 { margin-bottom: 0; }
+/* 最初の経路のカードの見出し: 運ぶパッシブの小さいチップ（R-23）と、見出しの下の説明（前の常時の説明。R-27） */
+.route-card-passives { display: inline-flex; flex-wrap: wrap; gap: 4px; align-self: center; }
+.route-card-note { display: block; margin: -10px 0 10px; color: var(--muted); font-size: 12px; }
 .route-owned-badge { font-size: 12px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
 .route-owned-badge.is-all { color: var(--md-sys-color-tertiary); }
 .route-owned-note.unowned { color: var(--muted); }
@@ -2289,14 +2297,15 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-missing-note p { margin: 0 0 6px; font-size: 13px; }
 /* 組の ♂♀ 行は所持パルの行と同じ列（--owned-cols）と高さ。列見出しがないので、個体値の 4 セルには小さな見出しを付ける */
 /* 組の行は描画を後回しにせず、はみ出しを切らない（.owned-row の contain: strict の paint のまま左の余白 0 だと、パル名のリンクのフォーカスの枠の左が切れる） */
-.ideal-pair .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
-.ideal-pair > .owned-row:last-child { border-bottom: 0; }
-.ideal-pair .owned-row:hover { background: transparent; }
-.ideal-pair .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
-.ideal-pair .talent-cell[data-key="hp"]::before { content: 'HP'; }
-.ideal-pair .talent-cell[data-key="shot"]::before { content: '攻'; }
-.ideal-pair .talent-cell[data-key="defense"]::before { content: '防'; }
-.ideal-pair .talent-cell[data-key="total"]::before { content: '計'; }
+/* 継承ルートの開始の所持個体の行（.route-owned-rows）も同じ（route-cleanup） */
+:is(.ideal-pair, .route-owned-rows) .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
+:is(.ideal-pair, .route-owned-rows) > .owned-row:last-child { border-bottom: 0; }
+:is(.ideal-pair, .route-owned-rows) .owned-row:hover { background: transparent; }
+:is(.ideal-pair, .route-owned-rows) .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
+:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="hp"]::before { content: 'HP'; }
+:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="shot"]::before { content: '攻'; }
+:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="defense"]::before { content: '防'; }
+:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="total"]::before { content: '計'; }
 /* 組の ♂♀ 行の強調（views/owned.js の ownedRowItem の highlight）。欲しいパッシブは先頭に ✓、それ以外は薄く。
    個体値は目標以上を primary の太字、目標未満は細字（目標までの差〔−N。D23〕は D30 で出さなくした。バーの目標の縦線は残す） */
 .passive-chip.is-extra { opacity: .55; }
@@ -2551,9 +2560,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .pal-label .dex-label { font-size: 11px; line-height: 1.3; letter-spacing: .02em; }
 /* 一覧は詰めた行を、ひと続きの帯に入れる。空状態だけのときは帯を敷かない（空の箱に見えるため）。
    行の中でプルダウンを開くため帯は切り抜かず（overflow: hidden にしない）、行の hover の背景は最初と最後の行の角を丸めて帯に収める */
-.card-stack, .owned-list, .route-starts { background: var(--md-sys-color-surface-container-low); border-radius: 12px; }
-:is(.card-stack, .owned-list, .route-starts) > :first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
-:is(.card-stack, .owned-list, .route-starts) > :last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
+.card-stack, .owned-list { background: var(--md-sys-color-surface-container-low); border-radius: 12px; }
+:is(.card-stack, .owned-list) > :first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
+:is(.card-stack, .owned-list) > :last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
 .card-stack:empty, .owned-list:empty { display: none; }
 .card-stack:has(> :is(.empty-state, .error-state):only-child) { background: transparent; }
 /* 所持パルの一覧は :has() を使わず、空の表示のときに JS が付ける .is-empty で見る（:has() は行の出し入れのたびに一覧の全体の
@@ -2565,7 +2574,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .breeding-card:hover, .owned-row:hover, .draft-row:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 7%, transparent); }
 .card-action.danger-text { color: var(--md-sys-color-error); }
 .route-card .card-stack, .route-card .breeding-card { background: transparent; }
-.start-chip .pal-icon, .start-chip .picker-trigger .pal-icon { width: 26px; height: 26px; }
 .settings-card h2 { font-size: 16px; margin-bottom: 8px; }
 .owned-notice.notice-warning { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); }
 .owned-toggle input, input[type="checkbox"] { accent-color: var(--md-sys-color-primary); }
