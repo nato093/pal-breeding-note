@@ -166,3 +166,28 @@ test('所持パル共有: 大きなアップロードだけ 16 KB を超えて�
   const big = plain(env.gas.handleRequest_(JSON.stringify({ action: 'snapshot', passcode: PROPS.TEST_PASSCODE, pad: 'x'.repeat(20000) })));
   assert.equal(big.code, 'TOO_LARGE');
 });
+
+test('所持パル共有: 配合牧場のタマゴ（短い鍵 s・eggs・n）も残して返し、大きな farms でもワールドの行のセルは 45,000 字以下で個体の行は全部保存する', () => {
+  const env = fixture();
+  const farms = [
+    { id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 2, eggs: [{ id: 'e1', p: 'SheepBall' }, { id: 'e2', p: 'Anubis', m: 1 }] },
+    { id: 'F2', baseId: 'b1', parents: [], s: 'u', n: 1 },
+  ];
+  env.call('ownedUpload', upload(WORLD_A, [row('p1'), row('p2')], '2026-10-05T10:00:00.000Z', { farms }));
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.farms, farms);
+  const id = (prefix, i) => `${prefix}${i}`.padEnd(40, 'x');
+  const big = Array.from({ length: 200 }, (_, i) => ({
+    id: id('F', i), baseId: id('B', i), parents: [id('P', i), id('Q', i)], n: 20,
+    eggs: Array.from({ length: 20 }, (_, j) => ({ id: id(`E${i}-`, j), p: 'SheepBall', m: 1 })),
+  }));
+  const rows = Array.from({ length: 50 }, (_, i) => row(`p${i}`));
+  const stored = env.call('ownedUpload', upload(WORLD_A, rows, '2026-10-05T11:00:00.000Z', { farms: big }));
+  assert.equal(stored.stored, true);
+  const sheet = env.spreadsheet.getSheetByName('OwnedWorlds_test');
+  const cell = sheet.data[1][sheet.data[0].indexOf('farms')];
+  assert.ok(String(cell).length <= 45000, String(String(cell).length));
+  const back = env.call('owned', { worldId: WORLD_A });
+  assert.equal(back.rows.length, 50);
+  assert.equal(back.world.farms.length, 200);
+  assert.ok(back.world.farms.every((farm) => farm.n === 20 && !('eggs' in farm)));
+});

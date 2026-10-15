@@ -71,6 +71,12 @@ async function main() {
     const eggs = farm.eggs.map((e) => `${e.characterId}${/^PalEgg_MutationPal/i.test(e.itemId ?? '') ? '（突然変異）' : ''}`).join(', ') || 'なし';
     console.log(`  ${farm.status === 'ok' ? '' : '[読めない] '}${parents} → 表の子 ${expected} / タマゴ ${eggs}`);
   }
+  // 画面用の形（正規化の後。farm-data）の牧場ごとのタマゴの数と突然変異の数（共有では 1 牧場 20 個までの中身と数を送る）
+  const farms = owned.farms ?? [];
+  const eggTotal = farms.reduce((sum, farm) => sum + farm.eggCount, 0);
+  const mutants = farms.reduce((sum, farm) => sum + farm.eggs.filter((egg) => egg.mutant).length, 0);
+  console.log(`画面用の牧場: ${farms.length} か所（読めない ${farms.filter((farm) => farm.status === 'uncertain').length}）・タマゴ ${eggTotal} 個（突然変異 ${mutants} 個・中身の分からない ${farms.reduce((sum, farm) => sum + farm.eggs.filter((egg) => !egg.palId).length, 0)} 個）`);
+  for (const farm of farms) if (farm.eggCount) console.log(`  ${farm.id.slice(0, 8)}: タマゴ ${farm.eggCount} 個${farm.eggs.some((egg) => egg.mutant) ? `（突然変異 ${farm.eggs.filter((egg) => egg.mutant).length}）` : ''}`);
 }
 
 main().catch((error) => { console.error(error.message); process.exit(1); });

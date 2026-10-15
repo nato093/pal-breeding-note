@@ -637,24 +637,41 @@
 - 画面に変化がないので、farm-board と同じ配信なら farm-board の 1 件にまとめてよい。
 
 ### 完了の条件
-- [ ] `npm test` が通る（上の最悪の場合のテストを含む）。
-- [ ] `npm run check:save -- "<ワールドのフォルダ>"` で、牧場ごとのタマゴの数・突然変異の数が出て、今までの出力と矛盾しない。
-- [ ] モックで、ホストの画面の共有 → 参加者（モックの役割の切り替え。roles で入る `?as=guest`）の画面で、牧場の `eggs` が受け取れる。古い形の共有を入れても壊れない。
-- [ ] GAS の反映（`npm run gas:push`）の手順を、フェーズの報告でユーザーに伝える。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 親の組から配合表で子を求めて持たない・出さない。互換 — 新しい画面＋古い GAS、古いホストの画面＋新しい GAS、古い共有の 3 通りで、共有が止まらず画面も壊れない（読めない牧場の親を「置いてある組」と取り違えない）。セキュリティ — 共有の文字列は `ownedText` で整える。性能 — `fitOwnedFarms` は牧場 200 件でも `JSON.stringify` 数回で 45,000 字以下に収める。
+- [x] `npm test` が通る（上の最悪の場合のテストを含む）。
+- [x] `npm run check:save -- "<ワールドのフォルダ>"` で、牧場ごとのタマゴの数・突然変異の数が出て、今までの出力と矛盾しない。
+- [x] モックで、ホストの画面の共有 → 参加者（モックの役割の切り替え。roles で入る `?as=guest`）の画面で、牧場の `eggs` が受け取れる。古い形の共有を入れても壊れない。
+- [x] GAS の反映（`npm run gas:push`）の手順を、フェーズの報告でユーザーに伝える。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: INV-2 — 親の組から配合表で子を求めて持たない・出さない。互換 — 新しい画面＋古い GAS、古いホストの画面＋新しい GAS、古い共有の 3 通りで、共有が止まらず画面も壊れない（読めない牧場の親を「置いてある組」と取り違えない）。セキュリティ — 共有の文字列は `ownedText` で整える。性能 — `fitOwnedFarms` は牧場 200 件でも `JSON.stringify` 数回で 45,000 字以下に収める。
 
 ### TODO
-- [ ] 画面用の farms に `eggs`（id・palId・mutant）・`eggCount`、全体に `farmsPartial` を足す
-- [ ] `owned-shared.js` に `OWNED_FARMS_MAX_CHARS`・`OWNED_FARM_EGGS_MAX`・短い鍵の検証・`fitOwnedFarms` を書く
-- [ ] `validateOwnedUpload` で `fitOwnedFarms(cleanOwnedFarms(…))` にする
-- [ ] `sharedUpload` を共有の形＋縮めてから送るように（読めない牧場は親を空にして `s: 'u'`）
-- [ ] `ownedFromShared` で共有の形を戻し、古い形は「タマゴの情報なし」に（古い形では空き牧場を判定しない）
-- [ ] ideal-farms の完全性の判定に `farmsPartial` を足す（中身だけ省いたときは保留しない）
-- [ ] data-boundary の検証に `breedFarms[].eggs` と共有の farms を入れる
-- [ ] `npm run build:gas` で gas/Shared.js を作り直す
-- [ ] テスト（shared・owned・gas・ideal-farms）と owned.test.js:53 の期待値の更新
-- [ ] check-save の出力、SAVE_FORMAT.md と owned-shared.js のコメント
-- [ ] release-notes と、ユーザーへの `gas:push` の依頼
+- [x] 画面用の farms に `eggs`（id・palId・mutant）・`eggCount`、全体に `farmsPartial` を足す
+- [x] `owned-shared.js` に `OWNED_FARMS_MAX_CHARS`・`OWNED_FARM_EGGS_MAX`・短い鍵の検証・`fitOwnedFarms` を書く
+- [x] `validateOwnedUpload` で `fitOwnedFarms(cleanOwnedFarms(…))` にする
+- [x] `sharedUpload` を共有の形＋縮めてから送るように（読めない牧場は親を空にして `s: 'u'`）
+- [x] `ownedFromShared` で共有の形を戻し、古い形は「タマゴの情報なし」に（古い形では空き牧場を判定しない）
+- [x] ideal-farms の完全性の判定に `farmsPartial` を足す（中身だけ省いたときは保留しない）
+- [x] data-boundary の検証に `breedFarms[].eggs` と共有の farms を入れる
+- [x] `npm run build:gas` で gas/Shared.js を作り直す
+- [x] テスト（shared・owned・gas・ideal-farms）と owned.test.js:53 の期待値の更新
+- [x] check-save の出力、SAVE_FORMAT.md と owned-shared.js のコメント
+- [x] release-notes と、ユーザーへの `gas:push` の依頼
+
+### 実装の記録（2026-10-15、ブランチ `feature/farm-data`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の farm-board・route-progress はこちらを正とする）。着手の前に、共有の形の変更と GAS（`gas/Shared.js` の作り直し・反映は `npm run gas:push` だけ）をユーザーに確かめ、「この形で進める」の答えを得た（2026-10-15）。
+
+1. **画面用の形（手順 1）**: `normalizeOwned` の farms の各牧場に **`eggs: [{ id, palId, mutant }]`**（タマゴの `localId`・中身〔マスターにないものは ''〕・突然変異。セーブの順・64 個まで）と **`eggCount`**。全体に **`farmsPartial`**（手元のセーブは false）と **`farmsCounted`**（牧場とタマゴの数が分かる形か。手元のセーブは true。文書にない鍵で、手順 4 の「古い形では空き牧場を判定しない」を画面に渡すために足した）。突然変異の判定は `web/js/core/owned-shared.js` の **`isMutationEggItem(itemId)`** にし、`core/auto-breeding.js` の `isMutationEgg` もそれを呼ぶ（auto-breeding は読み込まない）。
+2. **共有の形と上限（手順 2）**: owned-shared.js に `OWNED_FARMS_MAX_CHARS`（45,000）・`OWNED_FARM_EGGS_MAX`（20）・**`cleanOwnedFarms` の短い鍵の検証**（`s: 'u'`・`eggs`〔20 個まで・id 40 字・p は英数字と _ の 64 字まで〔不正なら落とす〕・m は 1 だけ〕・`n`〔0〜64 の整数〕・`of`〔1〜10000 の整数〕。知らない鍵は落とす）・**`fitOwnedFarms(farms)`**（文書の 3 段階）。`validateOwnedUpload` の farms は `fitOwnedFarms(cleanOwnedFarms(…))`。**今の 200 件の上限では 2 段目（中身を外して数だけ）で必ず収まる**（1 牧場は ID が全部 40 字でも 約 210 字）。3 段目（牧場を切って `of`）は上限を変えたときの守りとして残し、テストは 400 件の入力で確かめた。
+3. **送る側（手順 3）**: `sharedUpload` は全部の牧場を `sharedFarm`（画面の形 → 短い鍵）にして `fitOwnedFarms(cleanOwnedFarms(…))`。ふつうの牧場は `{ id, baseId, parents, n, eggs }`（eggs は先頭 20 個）、読めない牧場は `{ id, baseId, parents: [], s: 'u', n }`（中身は送らない）。**`n` はどの牧場にも付ける**（受け取る側が新しい形と古い形を見分ける印にする）。
+4. **受け取る側（手順 4）**: `ownedFromShared` の `sharedFarms(value, palsById)` が `{ farms, farmsPartial, farmsCounted }` を返す。`s: 'u'` は `status: 'uncertain'`・親は空、`eggs` がなければ `eggs: null`、`eggCount` は `n`（なければ eggs の数、どちらもなければ 0）、中身のパル ID はマスターにあるものだけ。`farmsPartial` は `of` が受け取った数より多い牧場があるとき、**`farmsCounted` はどの牧場にも `n` がない（古い GAS・古いホストの画面）とき false**（牧場が 0 件なら true）。
+5. **完全性の判定（手順 5）**: ideal-farms の `farmCompleteness(farms, { partial })` は前からあったので、views/ideal.js の `farmContext` で `partial: data.farmsPartial === true` を渡し、**`farmsCounted === false` なら空き牧場を数えない**（交換推奨・使用中の印は今どおり）。保留の理由の文は `pendingReason(farm, { because })`: 読めない牧場があれば今の文、一部だけなら「牧場の判定を保留（共有の上限で牧場の情報が一部です）」「共有の上限で牧場の情報が一部のため、交換推奨・空き牧場・使用中の判定を保留しています」。
+6. **data-boundary（手順 6）**: IndexedDB のスナップショットの `breedFarms[].eggs` は `normalizeOwned` の中で検証する（配列・`localId` が 1〜64 字・文字列の長さ・64 個まで）。共有の応答は core/boundary.js の `cleanWorld` が前から `cleanOwnedFarms` を通すので、広げた検証がそのまま効く。
+7. **GAS（手順 7）**: `npm run build:gas` で `gas/Shared.js` を作り直した（`cleanOwnedFarms`・`fitOwnedFarms`・`isMutationEggItem`）。`gas/Owned.js` は変えていない（読み出しも `cleanOwnedFarms` を通すので新しい鍵が返る）。**反映（`npm run gas:push`）はフェーズの報告の後にユーザー**。
+8. **文書・道具（手順 8・9）**: docs/SAVE_FORMAT.md に「牧場のタマゴの画面と共有（farm-data）」の節。`scripts/check-save.mjs` に正規化の後の「画面用の牧場: N か所（読めない n）・タマゴ M 個（突然変異 k 個・中身の分からない j 個）」と牧場ごとの数。**手元の実セーブで、牧場 7 か所（読めない 0）・タマゴ 34 個（1 か所に 19 個・もう 1 か所に 15 個）で、解析の牧場ごとの出力と矛盾しない**ことを確かめた。開発用 API の `as=viewer` の共有ワールドを新しい形にした（牧場 1 に親 2 体とタマゴ 3 個〔1 個は突然変異〕、30 体のうち最後の 3 体はその牧場の上のタマゴ）。
+9. **テスト**: 1,619 → 1,625 件（`npm test` exit 0）。新規 test/core/owned-farms.test.js（4 件: 突然変異の判定・`cleanOwnedFarms` の短い鍵と不正な値・`fitOwnedFarms` の 3 段階と最悪の場合〔牧場 200・タマゴ 20 個・ID 40 字で 45,000 字以下〕・`validateOwnedUpload` も縮める）、owned.test.js（牧場のテストを書き換え: 画面の形の eggs と突然変異とマスターにない中身・短い鍵の送り方と読めない牧場・受け取りと古い形と一部だけ）、gas/owned.test.js（新しい鍵の往復・大きな farms でもセル 45,000 字以下で個体の行は全部保存）、ideal-view.test.js（一部だけで保留・古い形で空き牧場を数えない・中身だけ省いても保留しない）。
+10. **後のテーマへの申し送り**:
+    - farm-board: 画面の farms は `{ id, baseId, parents, status, eggs | null, eggCount }`、全体の `farmsPartial`・`farmsCounted`。`eggs: null` は「タマゴ n 個（中身はホストの画面で見られます）」、`farmsCounted: false` は「タマゴの情報なし」。参加者の画面は `?mock=1&as=viewer` で確かめられる。
+    - route-progress: 「タマゴあり」は `farms[].eggs` の `palId` で見る（`eggs: null` の牧場は数えない）。
 
 ---
 

@@ -8,6 +8,7 @@
 import { breedChild } from './breeding.js';
 import { identityKey, normalizeRecord } from './pair.js';
 import { userIdKey } from './user.js';
+import { isMutationEggItem } from './owned-shared.js';
 
 const GENDER = { Male: 'M', Female: 'F' };
 // 覚えておく「見たことのあるタマゴ」の数。孵化したり、読めないファイルに移ったりして見えなくなっても、しばらくは忘れない
@@ -15,7 +16,7 @@ const SEEN_EGGS_MAX = 2000;
 // 前に読んだときの親の組として使えるか（♂♀がそろっている）
 const validPair = (pair) => Boolean(pair?.a?.palId && pair?.b?.palId && pair.a.gender && pair.b.gender && pair.a.gender !== pair.b.gender);
 // 突然変異タマゴ（親と関係ない子が入る）。親の組み合わせで産んだことには変わりないので、表の子で登録する
-export const isMutationEgg = (egg) => /^PalEgg_MutationPal/i.test(egg.itemId ?? '');
+export const isMutationEgg = (egg) => isMutationEggItem(egg.itemId);
 
 // 牧場の親 2 体（♂♀がそろい、種族が分かるとき）。だめなら null
 function pairOf(farm, resolveSpecies) {

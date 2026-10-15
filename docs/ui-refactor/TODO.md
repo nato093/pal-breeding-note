@@ -801,7 +801,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 所持パルの個体の詳細をドロワーで
 
-- 状態: 済（2026-10-15） ／ ブランチ: `feature/owned-detail` ／ マージのコミット: （マージの後に書く）
+- 状態: 済（2026-10-15） ／ ブランチ: `feature/owned-detail` ／ マージのコミット: `f4c3a63`
 
 - [x] `web/js/ui/owned-detail.js` に `ownedDetail(context, instanceId, { terms })` を書く
 - [x] 中身（アイコン・名前・Lv・★・個体値の 4 セル・パッシブと説明・スキル・属性・場所の図・リンク）
@@ -817,19 +817,19 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 牧場のタマゴを残して共有する（牧場の表示の土台）
 
-- 状態: 未着手 ／ ブランチ: `feature/farm-data` ／ マージのコミット: （未）
+- 状態: 済（2026-10-15。GAS の反映〔npm run gas:push〕はフェーズの報告の後にユーザー） ／ ブランチ: `feature/farm-data` ／ マージのコミット: （マージの後に書く）
 
-- [ ] 画面用の farms に `eggs`（id・palId・mutant）・`eggCount`、全体に `farmsPartial` を足す
-- [ ] `owned-shared.js` に `OWNED_FARMS_MAX_CHARS`・`OWNED_FARM_EGGS_MAX`・短い鍵の検証・`fitOwnedFarms` を書く
-- [ ] `validateOwnedUpload` で `fitOwnedFarms(cleanOwnedFarms(…))` にする
-- [ ] `sharedUpload` を共有の形＋縮めてから送るように（読めない牧場は親を空にして `s: 'u'`）
-- [ ] `ownedFromShared` で共有の形を戻し、古い形は「タマゴの情報なし」に（古い形では空き牧場を判定しない）
-- [ ] ideal-farms の完全性の判定に `farmsPartial` を足す（中身だけ省いたときは保留しない）
-- [ ] data-boundary の検証に `breedFarms[].eggs` と共有の farms を入れる
-- [ ] `npm run build:gas` で gas/Shared.js を作り直す
-- [ ] テスト（shared・owned・gas・ideal-farms）と owned.test.js:53 の期待値の更新
-- [ ] check-save の出力、SAVE_FORMAT.md と owned-shared.js のコメント
-- [ ] release-notes と、ユーザーへの `gas:push` の依頼
+- [x] 画面用の farms に `eggs`（id・palId・mutant）・`eggCount`、全体に `farmsPartial` を足す
+- [x] `owned-shared.js` に `OWNED_FARMS_MAX_CHARS`・`OWNED_FARM_EGGS_MAX`・短い鍵の検証・`fitOwnedFarms` を書く
+- [x] `validateOwnedUpload` で `fitOwnedFarms(cleanOwnedFarms(…))` にする
+- [x] `sharedUpload` を共有の形＋縮めてから送るように（読めない牧場は親を空にして `s: 'u'`）
+- [x] `ownedFromShared` で共有の形を戻し、古い形は「タマゴの情報なし」に（古い形では空き牧場を判定しない）
+- [x] ideal-farms の完全性の判定に `farmsPartial` を足す（中身だけ省いたときは保留しない）
+- [x] data-boundary の検証に `breedFarms[].eggs` と共有の farms を入れる
+- [x] `npm run build:gas` で gas/Shared.js を作り直す
+- [x] テスト（shared・owned・gas・ideal-farms）と owned.test.js:53 の期待値の更新
+- [x] check-save の出力、SAVE_FORMAT.md と owned-shared.js のコメント
+- [ ] release-notes と、ユーザーへの `gas:push` の依頼（release-notes は済。依頼はフェーズの報告で）
 
 ### 35. [farm-board](phase-3-4-drawer-data.md#farm-board-配合牧場ボード牧場の印孵化待ちのタマゴ)（M）
 

@@ -163,6 +163,13 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
       const atBase = index % 4 === 3;
       const base = bases[index % bases.length];
       const page = 1 + Math.floor(index / 30);
+      // 最後の 3 体は拠点 1 の配合牧場の上のタマゴ（farm-data の牧場のタマゴの共有を確かめる）
+      if (index >= 27) {
+        return OWNED_FIELDS.map((field) => ({
+          instanceId: `viewer-${String(index).padStart(3, '0')}`, palId, palName: pals.find((pal) => pal.id === palId)?.ja ?? palId, characterId: palId,
+          rank: '1', stars: '0', egg: '1', place: 'egg-ground', placeLabel: 'タマゴ（地面）・拠点 1', holder: '拠点 1', baseId: 'base-1',
+        })[field] ?? '');
+      }
       const value = {
         instanceId: `viewer-${String(index).padStart(3, '0')}`, palId, palName: pals.find((pal) => pal.id === palId)?.ja ?? palId, characterId: palId, nickname: '',
         gender: index % 2 ? 'M' : 'F', level: String(5 + (index * 7) % 50), rank: '1', stars: String(index % 5), passiveIds: passiveSets[index % passiveSets.length].join('|'),
@@ -172,9 +179,12 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
       };
       return OWNED_FIELDS.map((field) => value[field] ?? '');
     });
+    // 牧場の短い鍵（farm-data）: n はタマゴの数、eggs は中身（m: 1 は突然変異）
+    const egg = (index) => ({ id: `viewer-${String(index).padStart(3, '0')}`, p: species[index % species.length] });
     const farms = [
-      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'] }, { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'] },
-      { id: 'farm-3', baseId: 'base-2', parents: [] },
+      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'], n: 3, eggs: [egg(27), { ...egg(28), m: 1 }, egg(29)] },
+      { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'], n: 0, eggs: [] },
+      { id: 'farm-3', baseId: 'base-2', parents: [], n: 0, eggs: [] },
     ];
     const checked = validateOwnedUpload({
       worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice' }, saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(),

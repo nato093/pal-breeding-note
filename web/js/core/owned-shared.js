@@ -14,11 +14,23 @@ export const OWNED_ADDED_FIELDS = ['skillIds'];
 // 覚えているアクティブスキルの ID（| 区切り）は、ほかの列より長くなる
 const OWNED_TEXT_MAX = { skillIds: 1000 };
 export const OWNED_MAX_ROWS = 20000;
-// 配合牧場（ワールドの行に JSON で持つ）。牧場の ID・拠点・親（個体 ID、2 体まで）。
-// 1 件は JSON で 180 字ほどなので、セル（5 万字まで）に収まる数に限る
+// 配合牧場（ワールドの行に JSON で 1 セル）。牧場の ID・拠点・親（個体 ID、2 体まで）と、farm-data で足した短い鍵:
+//   s: 'u'（親が読めない牧場。親は送らない）、eggs: [{ id, p, m }]（牧場の上のタマゴの中身。p はパル ID、m: 1 は突然変異。1 牧場 20 個まで）、
+//   n（タマゴの数。中身を省いても分かる）、of（ワールドの牧場の総数。セルに入らず牧場を切ったときだけ付く＝一部だけ）。
+// 数は 200 件まで、セルの上限（5 万字）は OWNED_FARMS_MAX_CHARS（JSON にした後の字数）で守る（fitOwnedFarms）。
+// 古い GAS・古い画面はこの鍵を知らずに捨てる（id・baseId・parents だけの今までの形になる）
 export const OWNED_MAX_FARMS = 200;
+export const OWNED_FARMS_MAX_CHARS = 45000;
+export const OWNED_FARM_EGGS_MAX = 20;
+// 1 牧場のタマゴの数の上限（セーブの解析が読む数。web/js/save/palworld.js の MAX_FARM_EGGS）
+const OWNED_FARM_EGG_COUNT_MAX = 64;
 
-/** 配合牧場の一覧を検証して整える（形の合わないものは捨てる）。 */
+/** 突然変異のタマゴのアイテム ID か（PalEgg_MutationPal_*。親と関係ない子が入る） */
+export function isMutationEggItem(itemId) {
+  return /^PalEgg_MutationPal/i.test(String(itemId ?? ''));
+}
+
+/** 配合牧場の一覧を検証して整える（形の合わないものは捨てる。知らない鍵は落とす）。 */
 export function cleanOwnedFarms(value) {
   if (!Array.isArray(value)) return [];
   const farms = [];
@@ -27,9 +39,53 @@ export function cleanOwnedFarms(value) {
     const id = ownedText(farm.id, 40);
     const parents = Array.isArray(farm.parents) ? farm.parents.filter((parent) => typeof parent === 'string').map((parent) => ownedText(parent, 40)).filter(Boolean) : [];
     if (!id || parents.length > 2) continue;
-    farms.push({ id, baseId: ownedText(farm.baseId, 40), parents });
+    const clean = { id, baseId: ownedText(farm.baseId, 40), parents };
+    if (farm.s === 'u') clean.s = 'u';
+    if (Array.isArray(farm.eggs)) {
+      const eggs = [];
+      for (const egg of farm.eggs.slice(0, OWNED_FARM_EGGS_MAX)) {
+        if (!egg || typeof egg !== 'object') continue;
+        const eggId = ownedText(egg.id, 40);
+        if (!eggId) continue;
+        const item = { id: eggId };
+        if (typeof egg.p === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(egg.p)) item.p = egg.p;
+        if (egg.m === 1) item.m = 1;
+        eggs.push(item);
+      }
+      clean.eggs = eggs;
+    }
+    if (Number.isInteger(farm.n) && farm.n >= 0 && farm.n <= OWNED_FARM_EGG_COUNT_MAX) clean.n = farm.n;
+    if (Number.isInteger(farm.of) && farm.of > 0 && farm.of <= 10000) clean.of = farm.of;
+    farms.push(clean);
   }
   return farms;
+}
+
+/**
+ * 配合牧場の一覧を、JSON にした後 OWNED_FARMS_MAX_CHARS 字以下に収める（入らないときだけ縮める）。
+ * (1) そのまま入れば、そのまま (2) 入らなければ、全部の牧場のタマゴの中身（eggs）を外して数（n）だけにする（牧場は全部ある）
+ * (3) まだ入らなければ、牧場を先頭から入る分だけ残し、残した全部の牧場に of（元の牧場の数）を付ける（一部だけ。判定は保留する）
+ */
+export function fitOwnedFarms(farms) {
+  const list = Array.isArray(farms) ? farms : [];
+  const size = (value) => JSON.stringify(value).length;
+  if (size(list) <= OWNED_FARMS_MAX_CHARS) return list;
+  const counted = list.map((farm) => {
+    if (!Array.isArray(farm.eggs)) return farm;
+    const { eggs, ...rest } = farm;
+    return { ...rest, n: Number.isInteger(farm.n) ? farm.n : eggs.length };
+  });
+  if (size(counted) <= OWNED_FARMS_MAX_CHARS) return counted;
+  const kept = [];
+  let length = 2;
+  for (const farm of counted) {
+    const next = { ...farm, of: list.length };
+    const add = size(next) + (kept.length ? 1 : 0);
+    if (length + add > OWNED_FARMS_MAX_CHARS) break;
+    kept.push(next);
+    length += add;
+  }
+  return kept;
 }
 
 function ownedText(value, max) {
@@ -85,8 +141,8 @@ export function validateOwnedUpload(input) {
       saveUpdatedAt: new Date(saveTime).toISOString(),
       players: players.map((player) => ({ uid: ownedText(player && player.uid, 40), name: ownedText(player && player.name, 50) })).filter((player) => player.uid),
       bases: bases.map((base) => ({ id: ownedText(base && base.id, 40), label: ownedText(base && base.label, 60) })).filter((base) => base.id),
-      // 牧場を送らない古い画面からの共有では null（牧場の情報がない）
-      farms: source.farms === undefined || source.farms === null ? null : cleanOwnedFarms(source.farms),
+      // 牧場を送らない古い画面からの共有では null（牧場の情報がない）。セルに入るよう縮める（GAS・開発用 API・画面で同じ上限）
+      farms: source.farms === undefined || source.farms === null ? null : fitOwnedFarms(cleanOwnedFarms(source.farms)),
       rows: cleanRows,
     },
   };
