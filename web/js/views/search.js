@@ -1,8 +1,8 @@
-import { el, button, empty, field, syncList, clearList, onTextInput, trackHeight, setDisabled } from '../ui/dom.js';
+import { el, button, empty, field, link, syncList, clearList, onTextInput, trackHeight, setDisabled } from '../ui/dom.js';
 import { palPicker } from '../ui/pal-picker.js';
 import { palIcon, palsById } from '../ui/pal-icon.js';
 import { searchSelect } from '../ui/search-select.js';
-import { breedingCard } from '../ui/breeding-card.js';
+import { breedingCard, breedingEquation } from '../ui/breeding-card.js';
 import { ownedBadge, ownedBadgeText } from '../ui/owned-badge.js';
 import { draftsBand } from '../ui/drafts-band.js';
 import { goalToggle } from '../ui/goal-toggle.js';
@@ -10,6 +10,8 @@ import { withTransition } from '../ui/motion.js';
 import { queryTerms } from '../core/kana.js';
 import { userIdKey } from '../core/user.js';
 import { ownedCounts, canPairRecord } from '../core/owned.js';
+import { findByChild } from '../core/index.js';
+import { recordComparator } from '../core/record-sort.js';
 import {
   RECORD_SORTS, RECORD_SORT_DEFAULT, recordSort, searchBase, byRegistrant, registrantCounts, groupRecords, childCounts, pairNote,
 } from '../core/record-search.js';
@@ -238,6 +240,66 @@ export function searchView(context, route) {
   let shownCond = '';
   let flash = false;
   const headingKey = (palId, by) => `heading:${by}:${palId}`;
+  // ---- 子で探したときの「▸ この親の配合 n 件」（F015）。カードの親ごとに、その親が産まれる登録済みの配合を字下げして出す。2 段まで、
+  // 経路にすでに出ている種族は開かない（同じ種族のくり返しで止める）。開いた所は viewState に残す（タブを替えても残る）。
+  // 引くのは登録済みの記録だけ（INV-2）。1 段に出す配合は新しい順に 10 件まで（残りは配合を探すの子の条件で） ----
+  const TREE_DEPTH = 2;
+  const TREE_ROWS = 10;
+  const memory = context.viewState?.('search');
+  const expanded = new Set(Array.isArray(memory?.expanded) ? memory.expanded : []);
+  const saveExpanded = () => { if (memory) memory.expanded = [...expanded].slice(-200); };
+  const newest = recordComparator('updated');
+  // 1 つの親の行（開閉のボタンと、開いていればその親の配合）。path は経路に出ている種族（子 → 親 …）、key は開いた所の目印
+  function treeNode(palId, path, depth, keyBase) {
+    const index = context.store.state.index;
+    const records = index ? [...findByChild(index, palId)].sort(newest) : [];
+    if (!records.length) return null;
+    const key = `${keyBase}>${palId}`;
+    const pal = palsById.get(palId);
+    const node = el('div', 'find-tree-node');
+    const toggle = button(`${pal?.ja ?? palId}の配合 ${records.length} 件`, null, 'find-tree-toggle');
+    toggle.setAttribute('aria-expanded', String(expanded.has(key)));
+    toggle.setAttribute('data-focus-key', `tree:${key}`);
+    const body = el('div', 'find-tree-body');
+    const fill = () => {
+      body.replaceChildren();
+      body.hidden = !expanded.has(key);
+      if (body.hidden) return;
+      for (const record of records.slice(0, TREE_ROWS)) {
+        const row = el('div', 'find-tree-row');
+        row.append(breedingEquation(record, { omitChild: true }));
+        // 2 段まで。経路にすでに出ている種族（くり返し）は開かない
+        if (depth < TREE_DEPTH) {
+          for (const parent of [...new Set([record.parent1Id, record.parent2Id])]) {
+            if (path.includes(parent)) continue;
+            const child = treeNode(parent, [...path, parent], depth + 1, `${key}:${record.id}`);
+            if (child) row.append(child);
+          }
+        }
+        body.append(row);
+      }
+      if (records.length > TREE_ROWS) body.append(link(`ほか ${records.length - TREE_ROWS} 件 → 配合を探す`, buildHash('search', { c: palId }), 'find-tree-more'));
+    };
+    toggle.addEventListener('click', () => {
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
+      saveExpanded();
+      toggle.setAttribute('aria-expanded', String(expanded.has(key)));
+      fill();
+    });
+    fill();
+    node.append(toggle, body);
+    return node;
+  }
+  function parentTree(record) {
+    const parents = [...new Set([record.parent1Id, record.parent2Id])].filter((id) => id !== record.childId);
+    const nodes = parents.map((id) => treeNode(id, [record.childId, id], 1, record.id)).filter(Boolean);
+    if (!nodes.length) return null;
+    const tree = el('div', 'find-tree');
+    tree.append(...nodes);
+    return tree;
+  }
+
   function createRow(item) {
     if (item.heading) return { element: groupHeading(item) };
     const card = breedingCard(item.record, context, {
@@ -245,6 +307,11 @@ export function searchView(context, route) {
       annotate: counts ? badgeOf : null,
     });
     if (flash && shownIds && !shownIds.has(item.record.id)) card.classList.add('is-new');
+    // 子で探しているときだけ、親の配合を開ける（F015）
+    if (cond.c && item.record.childId === cond.c) {
+      const tree = parentTree(item.record);
+      if (tree) card.append(tree);
+    }
     return { element: card };
   }
   function groupHeading({ palId, count: total }) {
@@ -257,7 +324,8 @@ export function searchView(context, route) {
     return node;
   }
   // カードは子を省く（omitChild）かもキーに入れる（並べ替えで群の分け方が変わったとき、子を省いたままのカードを使い回さない）
-  const rowKey = (item) => (item.heading ? `${headingKey(item.palId, item.by)}:${item.count}` : `${cardKey(item)}|${item.omitChild ? 'o' : ''}|${item.owned ?? ''}`);
+  // 子で探しているカードは親の配合の木を持つので、記録の索引の版もキーに入れる（登録が増えたら件数を描き直す）
+  const rowKey = (item) => (item.heading ? `${headingKey(item.palId, item.by)}:${item.count}` : `${cardKey(item)}|${item.omitChild ? 'o' : ''}|${item.owned ?? ''}|${cond.c && item.record.childId === cond.c ? `t${context.store.state.revision ?? ''}` : ''}`);
 
   function update(state) {
     if (destroyed) return;

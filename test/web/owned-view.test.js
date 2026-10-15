@@ -588,7 +588,7 @@ test('継承ルート: 目標とパッシブの下に開始の候補を「すべ
   const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
   // 開始を切り替えても経路の先頭の位置が変わらないよう、所持個体は経路の下（R-07）
   assert.deepEqual(view.element.children.map((node) => node.className).slice(1),
-    ['selection-panel route-query', 'route-hint', 'start-filter', 'route-result-slot', 'route-owned']);
+    ['selection-panel route-query', 'route-hint', 'start-filter', 'route-split', 'route-result-slot', 'route-owned']);
   assert.equal(view.element.querySelector('.swap-button'), null);
   assert.deepEqual(chipStates(view), [['すべて', 'true'], [SHEEP, 'false']]);
   assert.match(view.element.querySelector('.start-chips').className, /has-starts/);
@@ -3119,5 +3119,76 @@ test('所持パル画面（配合牧場の帯）: 牧場の情報があれば「
   owned.state.owned.farms = null;
   const none = ownedView(context(owned), parseHash('#/owned'));
   assert.equal(none.element.querySelector('.farm-band').hidden, true);
+  none.destroy();
+});
+
+test('継承ルート（route-progress）: 選んだパッシブをすべて持つ個体がいなければ、パッシブ 1 つずつの経路と「理想個体で合わせる」。見出しの右に「理想個体でこの目標を見る」', (t) => {
+  installDom(t);
+  const records = [{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 }];
+  const view = inheritanceView(context(fakeOwned(), records), parseHash('#/route?to=CuteFox&p=Rare,Legend'));
+  const split = view.element.querySelector('.route-split');
+  assert.equal(split.hidden, false);
+  assert.equal(split.querySelector('.route-split-title').textContent, '1 つずつなら運べます');
+  const items = split.querySelectorAll('li').map((item) => item.textContent);
+  assert.deepEqual(items, ['希少を運ぶ: 最短 1 回（開始 モコロン）', '伝説: 所持パルから運べません']);
+  assert.equal(split.querySelector('.route-split-link').href, '#/route?to=CuteFox&p=Rare');
+  assert.equal(split.querySelector('.route-split-ideal').href, `#/ideal?to=CuteFox&p=${encodeURIComponent('Rare,Legend')}`);
+  assert.equal(view.element.querySelector('.route-cross').href, `#/ideal?to=CuteFox&p=${encodeURIComponent('Rare,Legend')}`);
+  view.destroy();
+  // すべて持つ個体がいれば（開始の候補が出る）出さない
+  const all = inheritanceView(context(fakeOwned(), records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2,Rare'));
+  assert.equal(all.element.querySelector('.route-split').hidden, true);
+  all.destroy();
+});
+
+test('継承ルート（route-progress）: 段に「牧場に配置中」「タマゴあり」「✓ 所持」と次の段の印。相手親の数のチップを押すと右のドロワーにその種族の所持個体', (t) => {
+  installDom(t);
+  const records = [{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 }];
+  const egg = { instanceId: 'fox-egg', characterId: 'CuteFox', passives: ['CraftSpeed_up2'], talent: {}, location: { kind: 'egg-ground', playerUid: P1 } };
+  const data = { version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' }, snapshot: { ...snapshot, pals: [...snapshot.pals, egg] } };
+  const owned = fakeOwned(data);
+  owned.state.owned.farms = [{ id: 'F1', baseId: '', parents: ['a', 'b'], status: 'ok', eggs: [], eggCount: 0 }];
+  const opened = [];
+  const app = { ...context(owned, records), drawer: { open: (entry) => opened.push(entry) } };
+  const view = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  const note = view.element.querySelector('.route-owned-note');
+  assert.equal(note.querySelector('.route-farm-badge').textContent, '牧場に配置中（拠点の牧場）');
+  const eggBadge = note.querySelector('.route-egg-badge');
+  assert.equal(eggBadge.textContent, 'タマゴあり');
+  assert.equal(eggBadge.href, '#/owned?pal=CuteFox&place=egg&p=CraftSpeed_up2');
+  // 段の子（キツネビ）を運ぶパッシブつきで（タマゴでなく）持っていないので、最初の段が次の段
+  const step = view.element.querySelector('.route-breeding-card');
+  assert.ok(step.className.split(' ').includes('route-step-next'));
+  assert.equal(step.querySelector('.route-step-done'), null);
+  // 相手親のチップ（文はそのまま）を押すとドロワー
+  const chip = note.querySelector('.route-partner-chip');
+  assert.equal(chip.tagName, 'button');
+  assert.match(chip.textContent, /^相手親のツッパニャン: ♂1 ♀0（うちパッシブ一致 0 体）$/);
+  chip.dispatch('click');
+  assert.deepEqual(opened, [{ kind: 'species', id: 'PinkCat', params: { p: 'CraftSpeed_up2' } }]);
+  view.destroy();
+  // 牧場の情報がない（farms: null）なら「牧場に配置中」を出さない。段の子を持っていれば ✓
+  owned.state.owned.farms = null;
+  owned.state.owned.pals = [...owned.state.owned.pals, { ...owned.state.owned.pals.find((pal) => pal.id === 'fox-egg'), id: 'fox', egg: false, place: 'palbox', placeGroup: 'palbox' }];
+  const done = inheritanceView({ ...context(owned, records) }, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  assert.equal(done.element.querySelector('.route-farm-badge'), null);
+  const doneStep = done.element.querySelector('.route-breeding-card');
+  assert.ok(doneStep.className.split(' ').includes('is-done'));
+  assert.equal(doneStep.querySelector('.route-step-done').textContent, '✓ 所持');
+  done.destroy();
+});
+
+test('1 種族の所持個体（species。ドロワーの中身）: 親にできる個体とタマゴ・グローバルを分け、選んだパッシブをすべて持つ個体を上に', async (t) => {
+  installDom(t);
+  const { speciesOwnedPanel } = await import('../../web/js/views/species-owned.js');
+  const panel = speciesOwnedPanel(context(fakeOwned()), 'PinkCat', { passives: [] });
+  assert.equal(panel.title, 'ツッパニャンの所持個体');
+  assert.equal(panel.element.querySelector('.species-owned-summary').textContent, '所持 2 体 · 親になれる ♂1 ♀0');
+  const lists = panel.element.querySelectorAll('.species-owned-rows');
+  assert.deepEqual(lists.map((list) => list.querySelectorAll('.owned-row').map((row) => row.getAttribute('data-instance'))), [['b'], ['g']]);
+  panel.destroy();
+  assert.equal(speciesOwnedPanel(context(fakeOwned()), 'NoSuchPal'), null);
+  const none = speciesOwnedPanel(context(fakeOwned()), 'Anubis', { passives: ['Rare'] });
+  assert.equal(none.element.querySelector('.species-owned-summary').textContent, '所持していません。');
   none.destroy();
 });

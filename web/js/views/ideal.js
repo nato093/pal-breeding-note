@@ -13,7 +13,8 @@ import { talentInput } from '../ui/talent-input.js';
 import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { goalMatches, eggMatches, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
-import { passiveCounts, ownedCounts } from '../core/owned.js';
+import { passiveCounts, ownedCounts, ownedRouteStarts } from '../core/owned.js';
+import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
 import {
@@ -698,19 +699,51 @@ export function idealView(context, route) {
 
   // 欲しいパッシブを候補のだれも持たないときは、個体値厳選組だけを並べていることを知らせる。
   // そのパッシブを持つ所持パル（別の種族など）から目標へ運ぶ継承ルートも探せる
+  // 足りないパッシブを運ぶ継承ルートの最短（目標・そのパッシブ 1 つの ownedRouteStarts の先頭。R-32）。記録・所持パル・目標が同じ間は覚えておく
+  //（再計算・10 秒ごとの読み直しで同じデータなら BFS をし直さない）
+  let carryMemo = { key: null, map: new Map() };
+  function carryOf(id) {
+    const state = context.store.state;
+    const pals = owned?.state?.owned?.pals ?? null;
+    if (!state.graph || !pals) return undefined;
+    if (carryMemo.key?.[0] !== state.graph || carryMemo.key?.[1] !== pals || carryMemo.key?.[2] !== to) carryMemo = { key: [state.graph, pals, to], map: new Map() };
+    if (!carryMemo.map.has(id)) {
+      const [best] = ownedRouteStarts({ graph: state.graph, pals, to, passives: [id], shortestRoute, palOrder: state.index?.palOrder });
+      carryMemo.map.set(id, best ?? null);
+    }
+    return carryMemo.map.get(id);
+  }
   function renderMissing(result) {
     missingBox.replaceChildren();
-    if (!result?.missing.length) return;
+    if (!result?.missing.length) {
+      // 欲しいパッシブが 2 つ以上でどれも候補にいるときは、継承ルートで運ぶ（目標とパッシブを写した明示のリンク。I-58）
+      if (result && to && passives.length >= 2) {
+        const cross = link('継承ルートで運ぶ →', buildHash('route', { to, p: passives.join(',') }), 'ideal-route-cross');
+        cross.title = '同じ目標とパッシブで継承ルートを開く';
+        cross.setAttribute('data-focus-key', 'route-cross');
+        missingBox.append(cross);
+      }
+      return;
+    }
     const listed = result.total ? 'いまは個体値厳選組だけを出しています。' : '';
     const warning = el('p', 'ideal-warning');
     warning.append(passiveList(result.missing, { compact: true, focusable: true }), el('span', '', ` を持つ親の候補がいません。${listed}`));
     missingBox.append(warning);
     const actions = el('div', 'ideal-missing');
-    // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）
+    // ボタンの中に小さなチップ（チップの title と重ならないよう、ボタンには title を付けない）。所持パルから運べれば最短の回数と開始を添え、
+    // 運べなければリンクにせず文字だけ（R-32）。所持パルのデータ・記録がまだなければ今までどおりのリンク
     for (const id of result.missing) {
+      const carry = carryOf(id);
+      if (carry === null) {
+        const none = el('span', 'ideal-carry is-none');
+        none.append(passiveChip(id, { compact: true }), el('span', '', ': 所持パルから運べません'));
+        actions.append(none);
+        continue;
+      }
       const action = link('', buildHash('route', { to, p: id }), 'button secondary ideal-carry');
       action.setAttribute('data-focus-key', `carry:${id}`);
-      action.append(passiveChip(id, { compact: true }), el('span', '', 'を運ぶ継承ルート'));
+      const via = carry && carry.length ? `（最短 ${carry.length} 回・開始 ${palsById.get(carry.palId)?.ja ?? carry.palId}）` : '';
+      action.append(passiveChip(id, { compact: true }), el('span', '', `を運ぶ継承ルート${via}`));
       actions.append(action);
     }
     missingBox.append(actions);

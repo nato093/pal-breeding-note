@@ -949,3 +949,49 @@ test('設定（この端末のデータ）: 自動登録の記録を既読より
   assert.ok(toasts.includes('取り込みました: 自動登録の記録 1・通知の既読 1・プレイヤーの対応 1 件（自動登録の記録 2 件は重複・上限で取り込みませんでした）'), toasts.join(' / '));
   view.destroy();
 });
+
+test('配合を探す（F015）: 子で探したカードの親ごとに「その親の配合 n 件」を開け、2 段まで・経路に出た種族では止める。開いた所は viewState に残る', (t) => {
+  installDom(t);
+  const record = (id, parent1Id, parent2Id, childId, updatedAt = '2026-10-04T00:00:00Z') => ({ id, parent1Id, parent2Id, childId, parent1Gender: '', parent2Gender: '', registrant: '仲間', updatedAt });
+  const records = [
+    record('top', 'SheepBall', 'PinkCat', 'CuteFox'),
+    record('s1', 'FlowerDoll', 'ChickenPal', 'SheepBall'),
+    record('f1', 'Kitsunebi', 'Alpaca', 'FlowerDoll'),
+    record('k1', 'Anubis', 'LongCat', 'Kitsunebi'),
+    // 経路に出ている種族（キツネビ）をまた親にする配合は開かない
+    record('c1', 'CuteFox', 'Kitsunebi', 'ChickenPal'),
+  ];
+  const app = context(records);
+  const states = new Map();
+  app.viewState = (view) => { if (!states.has(view)) states.set(view, {}); return states.get(view); };
+  const view = searchView(app, parseHash('#/search?c=CuteFox'));
+  document.body.append(view.element);
+  const card = view.element.querySelectorAll('.breeding-card').find((node) => node.querySelector('.find-tree'));
+  assert.ok(card);
+  const toggles = () => card.querySelectorAll('.find-tree-toggle');
+  // ツッパニャンは産まれる配合がないので出さない
+  assert.deepEqual(toggles().map((node) => node.textContent), ['モコロンの配合 1 件']);
+  assert.equal(toggles()[0].getAttribute('aria-expanded'), 'false');
+  toggles()[0].dispatch('click');
+  assert.equal(toggles()[0].getAttribute('aria-expanded'), 'true');
+  // 2 段目: モコロンの親（フラリーナ・タマコッコ）の配合
+  assert.deepEqual(toggles().map((node) => node.textContent), ['モコロンの配合 1 件', 'フラリーナの配合 1 件', 'タマコッコの配合 1 件']);
+  toggles()[1].dispatch('click');
+  // 3 段目（キツネビの配合）は開けない（2 段まで）
+  assert.ok(card.textContent.includes('キツネビ'));
+  assert.equal(toggles().some((node) => node.textContent.startsWith('キツネビ')), false);
+  // 経路に出ている種族（キツネビ → タマコッコの親）でも開かない
+  toggles()[2].dispatch('click');
+  assert.equal(toggles().filter((node) => node.textContent.startsWith('キツネビ')).length, 0);
+  // 開いた所は viewState に残る（作り直しても開いたまま）
+  assert.equal(states.get('search').expanded.length, 3);
+  view.destroy();
+  const again = searchView(app, parseHash('#/search?c=CuteFox'));
+  const reopened = again.element.querySelectorAll('.find-tree-toggle');
+  assert.deepEqual(reopened.map((node) => node.getAttribute('aria-expanded')), ['true', 'true', 'true']);
+  again.destroy();
+  // 子で探していなければ出さない
+  const all = searchView(app, parseHash('#/search'));
+  assert.equal(all.element.querySelector('.find-tree'), null);
+  all.destroy();
+});

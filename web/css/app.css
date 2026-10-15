@@ -1244,7 +1244,7 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .pal-detail.is-drawer .pal-hero-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .pal-detail.is-drawer .pal-hero-actions > * { justify-content: center; min-width: 0; }
 .pal-detail.is-drawer .pal-records-head h3 { font-size: 14px; }
-.pal-detail.is-drawer .owned-row {
+.side-drawer .owned-row {
   grid-template-columns: 184px minmax(0, 1fr);
   grid-template-rows: auto;
   grid-auto-rows: auto;
@@ -1253,11 +1253,11 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
   padding-top: 8px;
   padding-bottom: 8px;
 }
-.pal-detail.is-drawer .owned-row > .owned-pal { grid-column: 1; grid-row: 1; }
-.pal-detail.is-drawer .owned-row > .owned-level { grid-column: 2; grid-row: 1; flex-direction: row; gap: 8px; align-items: baseline; }
-.pal-detail.is-drawer .owned-row > .owned-passives { grid-column: 1 / -1; grid-row: 2; }
-.pal-detail.is-drawer .owned-row > .owned-talent { grid-column: 1; grid-row: 3; }
-.pal-detail.is-drawer .owned-row > .owned-where { grid-column: 2; grid-row: 3; }
+.side-drawer .owned-row > .owned-pal { grid-column: 1; grid-row: 1; }
+.side-drawer .owned-row > .owned-level { grid-column: 2; grid-row: 1; flex-direction: row; gap: 8px; align-items: baseline; }
+.side-drawer .owned-row > .owned-passives { grid-column: 1 / -1; grid-row: 2; }
+.side-drawer .owned-row > .owned-talent { grid-column: 1; grid-row: 3; }
+.side-drawer .owned-row > .owned-where { grid-column: 2; grid-row: 3; }
 .pal-detail.is-drawer .breeding-card { padding-left: 8px; padding-right: 8px; }
 /* 所持パルの行の Lv・★のセルを、個体の詳細を開くボタンにしたもの（views/owned.js の ownedRowItem の detail。owned-detail）。見た目はセルのまま */
 .owned-detail-open {
@@ -1343,8 +1343,61 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .badge-mutant { background: var(--md-sys-color-warning-container); color: var(--md-sys-color-warning); font-weight: 700; }
 .badge-farm { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .ideal-hatch { margin: 0 0 10px; font-size: 13px; }
+.ideal-route-cross { display: inline-block; margin: 0 0 10px; font-size: 13px; font-weight: 700; }
+.ideal-carry.is-none { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
 .ideal-hatch-link { font-weight: 700; }
 .ideal-farms-all { margin-top: 8px; }
+/* 継承ルートの進み具合と横断の導線（views/route.js・ui/route-view.js。route-progress） */
+.view-heading.route-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; }
+.route-cross { font-size: 13px; font-weight: 700; }
+.route-split { margin: 0 0 12px; padding: 10px 14px; border: 1px dashed var(--md-sys-color-outline-variant); border-radius: 12px; }
+.route-split[hidden] { display: none; }
+.route-split-title { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
+.route-split-list { display: grid; gap: 2px; margin: 0 0 8px; padding: 0 0 0 18px; font-size: 13px; }
+.route-split-none { color: var(--md-sys-color-on-surface-variant); }
+.route-partner-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 8px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 100px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+button.route-partner-chip:hover { background: var(--state-hover); }
+.route-owned-note > .status-chip { margin-left: 6px; }
+.route-breeding-card.is-done { background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent); }
+.route-breeding-card.route-step-next { box-shadow: inset 3px 0 0 var(--md-sys-color-primary); }
+.route-step-done { justify-self: start; grid-column: 2; }
+/* 配合を探すで子を選んだときの「▸ この親の配合 n 件」（views/search.js の treeNode。F015。2 段まで字下げ） */
+.find-tree { grid-column: 1 / -1; display: grid; gap: 2px; margin-top: 4px; }
+.find-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.find-tree-toggle::before { content: ''; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent currentColor; }
+.find-tree-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.find-tree-toggle:hover { background: var(--state-hover); }
+.find-tree-body { display: grid; gap: 2px; margin-left: 14px; padding-left: 10px; border-left: 2px solid var(--md-sys-color-outline-variant); }
+.find-tree-body[hidden] { display: none; }
+.find-tree-row .breeding-equation { grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr); max-width: 420px; }
+.find-tree-row .breeding-equation .pal-icon { width: 28px; height: 28px; }
+.find-tree-more { font-size: 12px; }
+/* 1 種族の所持個体（views/species-owned.js。右のドロワーの中身） */
+.species-owned { display: grid; gap: 8px; }
+.species-owned-summary { margin: 0; font-size: 13px; }
+.species-owned-open { font-size: 13px; font-weight: 700; }
 /* 所持パルの個体の詳細（views/owned-detail.js。右のドロワーの中身） */
 .owned-detail { display: grid; gap: 14px; }
 .owned-detail-hero {

@@ -52,12 +52,25 @@ function stepNotes(step) {
   return line;
 }
 
-function chain(route, annotate) {
+// progress(step) が true の段（段の子を、運ぶパッシブつきで所持している）に「✓ 所持」と .is-done、最初の ✓ のない段に .route-step-next（R-34）
+function chain(route, annotate, progress) {
   const wrapper = el('div', 'route-chain');
+  let next = Boolean(progress);
   route.steps.forEach((step, index) => {
     const node = stepView(step, index, annotate);
     const notes = stepNotes(step);
     if (notes) node.append(notes);
+    if (progress) {
+      if (progress(step)) {
+        node.classList.add('is-done');
+        const done = el('span', 'status-chip is-ready route-step-done', '✓ 所持');
+        done.title = 'この段の子を、運ぶパッシブをすべて持つ個体（タマゴを除く）で所持しています';
+        node.append(done);
+      } else if (next) {
+        node.classList.add('route-step-next');
+        next = false;
+      }
+    }
     wrapper.append(node);
   });
   return wrapper;
@@ -66,9 +79,9 @@ function chain(route, annotate) {
 /**
  * 経路のカードを並べる。annotate(step, option) は配合ごとの注記、badge(route) は見出しの右に置く要素（相手親の所持の段の数など。
  * どちらも任意。返さなければ何も足さない）。passives（運ぶパッシブ）と note（説明）は、最初のカードの見出しにだけ出す
- * （passives は見出しの横に小さいチップ、note は見出しの下に small。R-23・R-27）
+ * （passives は見出しの横に小さいチップ、note は見出しの下に small。R-23・R-27）。progress(step) は段の進み具合（✓ と次の段。R-34。任意）
  */
-export function routeView(routes, { annotate, badge, passives = [], note = '' } = {}) {
+export function routeView(routes, { annotate, badge, passives = [], note = '', progress } = {}) {
   const wrapper = el('div', 'route-results');
   routes.forEach((route, index) => {
     const node = el('section', 'route-card');
@@ -88,7 +101,7 @@ export function routeView(routes, { annotate, badge, passives = [], note = '' } 
       node.append(head);
     } else node.append(heading);
     if (index === 0 && note) node.append(el('small', 'route-card-note', note));
-    node.append(chain(route, annotate));
+    node.append(chain(route, annotate, progress));
     wrapper.append(node);
   });
   return wrapper;
