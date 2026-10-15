@@ -862,8 +862,11 @@ test('画面: パル詳細の「☆ 目標に保存」で種族だけの目標�
   assert.equal(badge.textContent, String(unread + 1));
   await byClass('notification-button').dispatch('click');
   const panel = byClass('notification-panel');
-  const link = panel.querySelector('.notification-link');
-  assert.equal(link.querySelector('.notification-title').textContent, `${target.ja}の配合が登録されました`);
+  // 題名で探す（並び順で取らない）。更新内容の通知の日付はその日の 0 時（端末のタイムゾーン）なので、テストを流す時刻とタイムゾーンに
+  // よっては（UTC の GitHub Actions で、日本時間の 0〜9 時など）最新の更新内容の通知が「今」より新しくなり、目標の通知より上に並ぶ
+  const title = `${target.ja}の配合が登録されました`;
+  const link = panel.querySelectorAll('.notification-link').find((node) => node.querySelector('.notification-title')?.textContent === title);
+  assert.ok(link, `ベルに「${title}」の通知がない`);
   assert.match(link.textContent, /モコロン＋フラリーナ で作れます|フラリーナ＋モコロン で作れます/);
   assert.equal(link.href, `#/search?c=${target.id}`);
   await link.dispatch('click');
