@@ -106,9 +106,10 @@ export function passiveMatches(id, terms) {
  * negatives: 'last'（負のパッシブを最後の群「マイナスのパッシブ」に。理想個体・継承ルート）| 'inline'（所持パル）
  * presets: [{ label, passives }]（保存した目標の組み合わせ。押すと選択をその組で置き換える）
  * update の disabled: 追加のボタンとチップの × を押せなくする（選んだチップは残す。所持パルのパッシブの条件「なし」のとき）
+ * placeholder: 1 個も選んでいないときの追加のボタンの文（省くと「パッシブを追加…」。継承ルートの「運びたいパッシブを選ぶ」）
  */
 export function passiveSelector({ label, selected = [], counts = new Map(), countLabel = '所持パルが持っているもの', groups,
-  negatives = 'inline', presets = [], onChange, max = 4 }) {
+  negatives = 'inline', presets = [], onChange, max = 4, placeholder = '' }) {
   const state = { selected: [...selected], counts, groups, presets, disabled: false };
   const focusGroup = `passive:${label}`;
   const element = el('div', 'field passive-selector');
@@ -137,7 +138,7 @@ export function passiveSelector({ label, selected = [], counts = new Map(), coun
 
   function renderButton() {
     const full = state.selected.length >= max;
-    add.textContent = full ? `最大 ${max} 個まで` : 'パッシブを追加…';
+    add.textContent = full ? `最大 ${max} 個まで` : (!state.selected.length && placeholder) || 'パッシブを追加…';
     setDisabled(add, full || state.disabled, full ? `パッシブは最大 ${max} 個まで選べます` : '');
     element.classList.toggle('is-disabled', state.disabled);
   }

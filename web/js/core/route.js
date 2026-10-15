@@ -124,16 +124,17 @@ function comparePaths(a, b, comparePal) {
   return 0;
 }
 
-// 各手順に、相手の候補のどれかで同じ組み合わせから別の子も登録されているか（multiChild）を足す
+// 各手順に、相手の候補のどれかで同じ組み合わせから別の子も登録されているか（multiChild）と、その最初の相手（multiPartner。
+// 画面の「同じ組で別の子も登録あり」から、その組の配合を探す）を足す
 function addStepDetails(route, index) {
   return {
     ...route,
     steps: route.steps.map((step) => {
-      const multiChild = step.options.some(({ partner }) => {
+      const multi = step.options.find(({ partner }) => {
         const records = index.byPair.get(pairKey(step.from, partner)) ?? [];
         return new Set(records.map((record) => record.childId)).size > 1;
       });
-      return { ...step, multiChild };
+      return { ...step, multiChild: Boolean(multi), multiPartner: multi?.partner ?? '' };
     }),
   };
 }

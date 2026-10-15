@@ -437,6 +437,21 @@ test('継承ルート: パッシブを持つ所持パルから、登録済みの
   assert.equal(bySpecies.has(''), false);
 });
 
+test('継承ルート: 開始の候補の並びは手数・パッシブの多い個体・個体数が同じなら図鑑順（palOrder。前は ID の文字列順。F030）', () => {
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'ChickenPal', childId: 'CuteFox', confirmCount: 1 },
+    { id: 'r2', parent1Id: 'PinkCat', parent2Id: 'ChickenPal', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const index = buildIndex(records, pals);
+  const graph = buildCarrierGraph(index);
+  const carrier = (id, palId) => ({ id, palId, passives: ['Rare'], egg: false, place: 'palbox', level: 1 });
+  const input = { graph, pals: [carrier('p', 'PinkCat'), carrier('s', 'SheepBall')], to: 'CuteFox', passives: ['Rare'], shortestRoute };
+  // 図鑑はモコロン（No.1）→ ツッパニャン（No.2）。ID の文字列順なら PinkCat が先
+  assert.deepEqual(ownedRouteStarts({ ...input, palOrder: index.palOrder }).map((start) => start.palId), ['SheepBall', 'PinkCat']);
+  // palOrder を渡さなければ前のとおり ID の順
+  assert.deepEqual(ownedRouteStarts(input).map((start) => start.palId), ['PinkCat', 'SheepBall']);
+});
+
 test('所持パル: パルボックスの通し番号から、ページ（30 枠）と行・列（横 6 列）を求め、共有しても残る', () => {
   const at = (index) => { const p = palboxPosition(index); return p && [p.page, p.row, p.column]; };
   // 2026-10-08 にゲーム内で、29 が 1 ページ目の最後、30 が 2 ページ目の最初、59 が 2 ページ目の最後、60 が 3 ページ目の最初と確認

@@ -1,5 +1,5 @@
 // 押した位置から薄く広がる波紋（M3 のリップル）。見た目は app.css の .ripple。
-const TARGETS = '.nav-tab, .button, .register-button, .card-action, .picker-option, .start-chip, .swap-button';
+const TARGETS = '.nav-tab, .button, .register-button, .card-action, .picker-option, .start-chip';
 
 export function installRipple(root = document) {
   root.addEventListener('pointerdown', (event) => {

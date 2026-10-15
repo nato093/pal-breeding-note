@@ -518,7 +518,7 @@ test('設定画面: セーブ連携の状態・登録したワールド・使う
   view.destroy();
 });
 
-test('継承ルート: パッシブを選ぶと、持っている所持パルから目標への経路と相手親の所持数を出す', (t) => {
+test('継承ルート: パッシブを選ぶと、持っている所持パルを開始のチップ（2 段目に回数・体数・持ち主）に並べ、開始を選ぶと経路の下に所持個体を所持パルの行で出す', (t) => {
   installDom(t);
   const records = [
     { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
@@ -527,14 +527,16 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルか
   const app = context(owned, records);
   const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
   assert.equal(view.element.querySelectorAll('.picker').length, 2);
-  const starts = view.element.querySelectorAll('.route-start');
-  assert.equal(starts.length, 1);
-  // 候補の要約は、パルボックスのページと位置までは出さない
-  assert.match(starts[0].textContent, /モコロン.*最短 1 回の配合.*1 体 · Alice・パルボックス/);
-  assert.doesNotMatch(starts[0].textContent, /ページ/);
-  const go = starts[0].querySelector('.button');
-  assert.match(go.href, /from=SheepBall/);
-  assert.match(go.href, /p=CraftSpeed_up2/);
+  // 候補の一覧（前の .route-start と「この経路を見る」）はなく、開始の候補はチップだけ（route-cleanup。R-01）
+  assert.equal(view.element.querySelector('.route-start'), null);
+  assert.doesNotMatch(view.element.textContent, /この経路を見る/);
+  // チップの 2 段目。候補の要約は、パルボックスのページと位置までは出さない
+  const chips = view.element.querySelectorAll('.start-chip');
+  assert.equal(chips[1].querySelector('.start-chip-count').textContent, '最短 1 回 · 1 体 · Alice・パルボックス');
+  // 2 段目は長いと CSS で省略するので、全文は title にも
+  assert.equal(chips[1].title, 'モコロン · 最短 1 回 · 1 体 · Alice・パルボックス');
+  // 開始を選ぶまでは所持個体の欄を出さない
+  assert.equal(view.element.querySelector('.route-owned').hidden, true);
   view.destroy();
 
   const routeView = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
@@ -545,31 +547,46 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルか
   assert.equal(note.querySelector('a').href, '#/owned?pal=PinkCat');
   // 経路の見出しの右に、相手親を持っている段の数
   assert.equal(routeView.element.querySelector('.route-owned-badge').textContent, '相手親 1/1 段で所持');
-  assert.match(routeView.element.querySelector('.route-owned-box').textContent, /職人気質/);
+  // 開始の所持個体は所持パルの行（性別・★・個体値も見える）。見出しの右に「所持パルで開く」（開始のパルと運びたいパッシブで絞った所持パル）
+  assert.equal(routeView.element.querySelector('.route-owned').hidden, false);
+  const box = routeView.element.querySelector('.route-owned-box');
+  assert.equal(box.querySelector('h2').textContent, '開始のモコロンでパッシブを持つ所持個体');
+  const rows = box.querySelectorAll('.owned-row');
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].textContent, /職人気質/);
+  assert.ok(rows[0].querySelector('.owned-talent'));
+  assert.equal(box.querySelector('.route-owned-open').textContent, '所持パルで開く');
+  assert.equal(box.querySelector('.route-owned-open').href, '#/owned?pal=SheepBall&p=CraftSpeed_up2');
+  assert.equal(box.querySelector('.route-owned-more').hidden, true);
   routeView.destroy();
 });
 
-test('継承ルート: 所持パルがあると、目標とパッシブの下に開始の候補を「すべて」を既定にして並べ、押すと絞り込む', async (t) => {
+test('継承ルート: 目標とパッシブの下に開始の候補を「すべて」を既定にして並べ、押すと絞り込む。並びは選択欄 → チップ → 経路 → 所持個体', async (t) => {
   installDom(t);
   const records = [
     { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
   ];
   const app = context(fakeOwned(), records);
   const chipStates = (view) => view.element.querySelectorAll('.start-chip').map((chip) => [chip.textContent, chip.getAttribute('aria-pressed')]);
+  const SHEEP = 'No.1モコロン最短 1 回 · 1 体 · Alice・パルボックス';
 
   const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
-  const order = view.element.children.map((node) => node.className);
-  assert.ok(order.indexOf('selection-panel route-query') < order.indexOf('start-filter'));
+  // 開始を切り替えても経路の先頭の位置が変わらないよう、所持個体は経路の下（R-07）
+  assert.deepEqual(view.element.children.map((node) => node.className).slice(1),
+    ['selection-panel route-query', 'route-hint', 'start-filter', 'route-result-slot', 'route-owned']);
   assert.equal(view.element.querySelector('.swap-button'), null);
-  assert.deepEqual(chipStates(view), [['すべて', 'true'], ['No.1モコロン1回', 'false']]);
+  assert.deepEqual(chipStates(view), [['すべて', 'true'], [SHEEP, 'false']]);
+  assert.match(view.element.querySelector('.start-chips').className, /has-starts/);
   assert.equal(view.element.querySelector('.start-chips').querySelector('.picker-trigger').textContent, '他のパル…');
+  // 「すべて」のときはチップが次の手順なので、経路の欄は空（説明の文は出さない）
+  assert.equal(view.element.querySelector('.route-result-slot').children.length, 0);
   await view.element.querySelectorAll('.start-chip')[1].dispatch('click');
   assert.equal(app.navigations.at(-1), '#/route?to=CuteFox&p=CraftSpeed_up2&from=SheepBall');
   view.destroy();
 
   // 選んだ候補は押された見た目になり、もう一度押すか「すべて」で開始を外す
   const narrowed = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
-  assert.deepEqual(chipStates(narrowed), [['すべて', 'false'], ['No.1モコロン1回', 'true']]);
+  assert.deepEqual(chipStates(narrowed), [['すべて', 'false'], [SHEEP, 'true']]);
   await narrowed.element.querySelectorAll('.start-chip')[1].dispatch('click');
   await narrowed.element.querySelectorAll('.start-chip')[0].dispatch('click');
   assert.deepEqual(app.navigations.slice(-2), ['#/route?to=CuteFox&p=CraftSpeed_up2', '#/route?to=CuteFox&p=CraftSpeed_up2']);
@@ -619,22 +636,51 @@ test('継承ルート: 同じ画面のまま開始のチップやパッシブの
   view.destroy();
 });
 
-test('継承ルート: 所持パルのデータがないときは、開始と目標を並べて選ぶ', (t) => {
+test('継承ルート: 所持パルのデータがないときも形は同じで、パッシブの欄を出さず「所持パルを読み込むと…」と「設定を開く」を出す', (t) => {
   installDom(t);
   const view = inheritanceView(context(fakeOwned(null)), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
-  assert.ok(view.element.querySelector('.pair-selection'));
-  assert.ok(view.element.querySelector('.swap-button'));
-  assert.equal(view.element.querySelector('.start-filter'), null);
-  // 「設定タブの〜」とだけ書かず、1 文と行き先のボタン（設定のセーブ連携。copy-dead-ends）
-  const hint = view.element.querySelector('.route-owned').querySelector('.setup-hint');
-  assert.equal(hint.querySelector('p').textContent, '所持パルのデータがありません。');
-  assert.equal(hint.querySelector('a').textContent, 'セーブ連携を開く');
+  // 前の 2 列の形（開始 ⇄ 目標）はない（R-05）
+  assert.equal(view.element.querySelector('.pair-selection'), null);
+  assert.equal(view.element.querySelector('.swap-button'), null);
+  assert.ok(view.element.querySelector('.route-query'));
+  assert.equal(view.element.querySelector('.route-passives').hidden, true);
+  // 開始は選択欄だけ（候補のチップも「すべて」もない。ふつうの見た目の「パルを選択」）
+  const start = view.element.querySelector('.start-filter');
+  assert.equal(start.querySelectorAll('.start-chip').length, 0);
+  assert.equal(start.querySelector('.picker-trigger').textContent, 'パルを選択');
+  assert.doesNotMatch(start.querySelector('.start-chips').className, /has-starts/);
+  // 1 文と行き先のボタン（設定のセーブ連携。copy-dead-ends の setupHint。R-28）
+  assert.equal(view.element.querySelector('.route-hint').hidden, false);
+  const hint = view.element.querySelector('.route-hint').querySelector('.setup-hint');
+  assert.equal(hint.querySelector('p').textContent, '所持パルを読み込むと、パッシブを持つ個体から探せます。');
+  assert.equal(hint.querySelector('a').textContent, '設定を開く');
   assert.equal(hint.querySelector('a').getAttribute('href') ?? hint.querySelector('a').href, '#/settings?open=status');
   assert.doesNotMatch(view.element.textContent, /設定タブ/);
+  assert.equal(view.element.querySelector('.empty-state').querySelector('p').textContent, '開始のパルを選んでください。');
   view.destroy();
 });
 
-test('パッシブの選択欄: 所持パルのある継承ルートは目標と横に並べる欄（.route-query）に置き、所持パルのない継承ルート・所持パル画面は置かない', (t) => {
+test('継承ルート: 所持パルの読み込みの前はパッシブの欄を出したまま（形を変えない）。読み込みを終えてデータがなければ 1 行に替え、データが来たら戻す', (t) => {
+  installDom(t);
+  const owned = fakeOwned(null, { ready: false });
+  const view = inheritanceView(context(owned), parseHash('#/route?to=CuteFox'));
+  const children = [...view.element.children];
+  const passivesHidden = () => view.element.querySelector('.route-passives').hidden;
+  const hintHidden = () => view.element.querySelector('.route-hint').hidden;
+  assert.deepEqual([passivesHidden(), hintHidden()], [false, true]);
+  owned.state.ready = true;
+  owned.emit();
+  assert.deepEqual([passivesHidden(), hintHidden()], [true, false]);
+  const loaded = fakeOwned().state;
+  Object.assign(owned.state, { data: loaded.data, owned: loaded.owned, linkedWorldId: 'W' });
+  owned.emit();
+  assert.deepEqual([passivesHidden(), hintHidden()], [false, true]);
+  // 部品は作り直さず、並びも同じ
+  assert.deepEqual([...view.element.children], children);
+  view.destroy();
+});
+
+test('パッシブの選択欄: 継承ルートは目標と横に並べる欄（.route-query）に置き（所持パルがないときは出さない）、所持パル画面は置かない', (t) => {
   installDom(t);
   const records = [
     { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
@@ -642,16 +688,84 @@ test('パッシブの選択欄: 所持パルのある継承ルートは目標と
   const inQuery = (view) => Boolean(view.element.querySelector('.route-query')?.querySelector('.passive-selector'));
   const route = inheritanceView(context(fakeOwned(), records), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
   assert.equal(inQuery(route), true);
+  assert.equal(route.element.querySelector('.route-passives').hidden, false);
   route.destroy();
-  // 所持パルがないときは全幅の欄（ふつうは 4 個とも 1 行に収まるので、1 行分のまま）
+  // 所持パルがないときは隠す（所持パルを読み込む 1 行に替える）
   const noOwned = inheritanceView(context(fakeOwned(null)), parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
-  assert.ok(noOwned.element.querySelector('.passive-selector'));
-  assert.equal(inQuery(noOwned), false);
+  assert.equal(noOwned.element.querySelector('.route-passives').hidden, true);
   noOwned.destroy();
   const owned = ownedView(context(fakeOwned()), parseHash('#/owned'));
   assert.ok(owned.element.querySelector('.passive-selector'));
   assert.equal(owned.element.querySelector('.route-query'), null);
   owned.destroy();
+});
+
+test('継承ルート: パッシブを選ぶ前は追加のボタンが「運びたいパッシブを選ぶ」（前の常時の案内の文はない）。候補がないときはチップの行の下に 1 行', (t) => {
+  installDom(t);
+  const app = context(fakeOwned(), []);
+  const none = inheritanceView(app, parseHash('#/route?to=CuteFox'));
+  assert.equal(passiveAdd(none).textContent, '運びたいパッシブを選ぶ');
+  assert.doesNotMatch(none.element.textContent, /運びたいパッシブを選ぶと/);
+  assert.equal(none.element.querySelector('.start-note').hidden, true);
+  assert.equal(none.element.querySelector('.empty-state').querySelector('p').textContent, '開始のパルを選んでください。');
+  none.destroy();
+  // 職人気質を持つのはモコロン（パルボックス）とタマゴのフラリーナ。登録の配合がないので目標に届かない
+  const unreachable = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  assert.equal(passiveAdd(unreachable).textContent, 'パッシブを追加…');
+  assert.equal(unreachable.element.querySelectorAll('.start-chip').length, 0);
+  const note = unreachable.element.querySelector('.start-note');
+  assert.equal(note.hidden, false);
+  assert.equal(note.textContent, '該当する所持パルは 1 体いますが、登録済みの配合では目標にたどり着けません。タマゴ・グローバルパルボックスの個体は含めていません。');
+  unreachable.destroy();
+  const nobody = inheritanceView(app, parseHash('#/route?to=CuteFox&p=Legend'));
+  assert.equal(nobody.element.querySelector('.start-note').textContent, '選んだパッシブをすべて持つ所持パルはいません。');
+  nobody.destroy();
+});
+
+test('継承ルート: 開始の所持個体は親にできる個体だけをパッシブの多い順に 5 体まで出し、6 体以上なら残りを「ほか N 体」に畳む', (t) => {
+  installDom(t);
+  const sheep = (id, level, extra = [], location = { kind: 'palbox', playerUid: P1, slotIndex: level }) => ({
+    instanceId: id, characterId: 'SheepBall', gender: 'Male', level, rank: 1, passives: ['CraftSpeed_up2', ...extra], talent: {}, location,
+  });
+  const data = {
+    version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 's/W', name: 'テスト', hostName: 'Alice', updatedAt: '2026-10-05T00:00:00.000Z' },
+    snapshot: {
+      version: 1, world: { name: 'テスト', hostName: 'Alice' }, players: [{ uid: P1, name: 'Alice', level: 50 }], bases: [], stats: {},
+      pals: [
+        sheep('s1', 10), sheep('s2', 20), sheep('s3', 30, ['Rare']), sheep('s4', 40), sheep('s5', 50), sheep('s6', 5), sheep('s7', 1),
+        // タマゴとグローバルパルボックスの個体は出さない（開始の候補と同じ。R-15）
+        sheep('egg', 0, [], { kind: 'egg-ground', playerUid: P1 }), sheep('gl', 60, [], { kind: 'global', playerUid: '' }),
+      ],
+    },
+  };
+  const records = [{ id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 }];
+  const view = inheritanceView(context(fakeOwned(data), records), parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  const box = view.element.querySelector('.route-owned-box');
+  const levels = (node) => node.querySelectorAll('.owned-row').map((row) => row.querySelector('.owned-level').textContent);
+  const [top, more] = box.querySelectorAll('.route-owned-rows');
+  // パッシブの多い s3 が先、あとはレベルの高い順
+  assert.equal(levels(top).length, 5);
+  assert.match(levels(top)[0], /30/);
+  assert.equal(box.querySelector('.route-owned-more').hidden, false);
+  assert.equal(box.querySelector('summary').textContent, 'ほか 2 体');
+  assert.equal(levels(more).length, 2);
+  assert.equal(box.querySelectorAll('.owned-row').length, 7);
+  // 「該当する個体を所持していません」の文は隠す（箱の最後の子）
+  assert.equal(box.children.at(-1).hidden, true);
+  view.destroy();
+});
+
+test('継承ルート: 記録に相手親の性別があれば、相手親の注記の末尾に「（記録では ♀）」を添える（所持個体の数とは別に示す）', (t) => {
+  installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', parent1Gender: 'M', parent2Gender: 'F', confirmCount: 1 },
+  ];
+  const view = inheritanceView(context(fakeOwned(), records), parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  assert.equal(view.element.querySelector('.route-owned-note').textContent, '相手親のツッパニャン: ♂1 ♀0（うちパッシブ一致 0 体）（記録では ♀）所持パルで見る');
+  // 段には「性別の向きは未確認」の注記（警告ではない）
+  assert.equal(view.element.querySelector('.route-note').textContent, '性別の向きは未確認');
+  assert.equal(view.element.querySelector('.route-warning'), null);
+  view.destroy();
 });
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -1158,8 +1272,8 @@ test('継承ルート: 所持パルの読み直しでパッシブの選択欄を
   const search = view.element.querySelector('.picker-search');
   search.value = '職人';
   await search.dispatch('input');
-  // タマゴも含めて数える（a と、タマゴの c）
-  assert.equal(optionCount(view, 'CraftSpeed_up2'), '2 体');
+  // 親にできる個体だけを数える（a。タマゴの c は数えない。開始の候補と同じ数え方。route-cleanup）
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '1 体');
   const more = { ...snapshot, pals: [...snapshot.pals, { instanceId: 'z', characterId: 'PinkCat', gender: 'Male', passives: ['CraftSpeed_up2'], talent: {}, location: { kind: 'palbox', playerUid: P1 } }] };
   owned.state.data = { ...owned.state.data };
   owned.state.owned = normalizeOwned(more, { pals, passives });
@@ -1168,9 +1282,9 @@ test('継承ルート: 所持パルの読み直しでパッシブの選択欄を
   assert.equal(view.element.querySelector('.picker-search'), search);
   assert.equal(document.activeElement, search);
   assert.equal(search.value, '職人');
-  assert.equal(optionCount(view, 'CraftSpeed_up2'), '3 体');
+  assert.equal(optionCount(view, 'CraftSpeed_up2'), '2 体');
   // 見出しは継承ルートの数え方
-  assert.match(view.element.querySelector('.passive-options').textContent, /^所持パルが持っているもの（タマゴを含む）/);
+  assert.match(view.element.querySelector('.passive-options').textContent, /^所持パルが持っているもの（タマゴ・グローバルパルボックスを除く）/);
   view.destroy();
 });
 

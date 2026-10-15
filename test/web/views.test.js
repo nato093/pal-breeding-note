@@ -57,21 +57,21 @@ for (const [params, names, genders] of [
   });
 }
 
-test('継承ルート: 除外設定と確認回数を出さず、旧 URL でも経路を表示し、入れ替えは残す', async (t) => {
+test('継承ルート: 除外設定と確認回数を出さず、旧 URL でも経路を表示する。説明は最初の経路の見出しの下に 1 回だけ', async (t) => {
   installDom(t);
   const app = context();
   const view = inheritanceView(app, parseHash('#/route?from=SheepBall&to=MoonQueen&exclude=FlowerDoll'));
   assert.equal(view.element.querySelectorAll('.picker').length, 2);
   assert.doesNotMatch(view.element.textContent, /相手親に使わない|除外|確認.*回/);
   assert.match(view.element.textContent, /最短 1 回の配合/);
-  // 見出しはタブ名、説明は「パッシブ」（「スキル」はアクティブスキル・パートナースキルの言葉。copy-dead-ends）
+  // 見出しはタブ名、説明は「パッシブ」（「スキル」はアクティブスキル・パートナースキルの言葉。copy-dead-ends）。
+  // 常時の説明はやめ、最初の経路のカードの見出しの下に small で（route-cleanup。R-27）
   assert.equal(view.element.querySelector('h1').textContent, '継承ルート');
-  assert.ok(view.element.textContent.includes('この経路はパッシブを運ぶ個体の流れです。相手親は別途用意します'));
-  assert.doesNotMatch(view.element.textContent, /スキルを運ぶ|スキルをつなぐ/);
-  const swap = view.element.querySelector('.swap-button');
-  assert.equal(swap.getAttribute('aria-label'), '開始と目標を入れ替える');
-  await swap.dispatch('click');
-  assert.equal(app.navigations[0], '#/route?from=MoonQueen&to=SheepBall&exclude=FlowerDoll');
+  assert.equal(view.element.querySelector('.route-explanation'), null);
+  assert.deepEqual(view.element.querySelectorAll('.route-card-note').map((node) => node.textContent), ['左のパルがパッシブを運びます。相手親は別に用意してください。']);
+  assert.doesNotMatch(view.element.textContent, /スキルを運ぶ|スキルをつなぐ|別途用意/);
+  // 入れ替えのボタンはなくした（R-05）
+  assert.equal(view.element.querySelector('.swap-button'), null);
   view.destroy();
 });
 
@@ -147,22 +147,23 @@ test('配合を探す: 子だけでも引け、applyRoute で子を合わせ、�
   view.destroy();
 });
 
-test('継承ルート: applyRoute で開始と目標を合わせ、入れ替えは入れ直した route から URL を作る', async (t) => {
+test('継承ルート: applyRoute で開始と目標を合わせる（選択欄は作り直さない）', async (t) => {
   installDom(t);
   const app = context();
   const updates = [];
   app.update = (hash) => updates.push(hash);
   const view = inheritanceView(app, parseHash('#/route?to=MoonQueen'));
   const triggers = view.element.querySelectorAll('.picker-trigger');
-  const swap = view.element.querySelector('.swap-button');
-  assert.match(view.element.textContent, /開始と目標のパルを選んでください/);
+  assert.match(view.element.textContent, /開始のパルを選んでください/);
   view.applyRoute(parseHash('#/route?from=SheepBall&to=MoonQueen'), { reason: 'update' });
   assert.deepEqual(view.element.querySelectorAll('.picker-trigger'), triggers);
-  assert.equal(view.element.querySelector('.swap-button'), swap);
-  assert.equal(triggers[0].getAttribute('aria-label'), '開始: No.1 モコロン');
+  // 目標の行の後に、開始の行の選択欄
+  assert.equal(triggers[0].getAttribute('aria-label'), '目標: No.190 セレムーン');
+  assert.equal(triggers[1].getAttribute('aria-label'), '開始: No.1 モコロン');
   assert.match(view.element.textContent, /最短 1 回の配合/);
-  await swap.dispatch('click');
-  assert.deepEqual(updates, ['#/route?from=MoonQueen&to=SheepBall']);
+  view.applyRoute(parseHash('#/route'), { reason: 'history' });
+  assert.equal(view.element.querySelector('.empty-state').querySelector('p').textContent, '開始と目標のパルを選んでください。');
+  assert.deepEqual(updates, []);
   assert.deepEqual(app.navigations, []);
   view.destroy();
 });
@@ -358,9 +359,11 @@ test('設定: 記録が同じで整合性の警告だけ変わったときも、
 async function pickerRows(view, index = 0) {
   const picker = view.element.querySelectorAll('.picker')[index];
   await picker.querySelector('.picker-trigger').dispatch('click');
+  // 候補を本文の外（document.body）に出す選択欄（継承ルートの開始）は、そちらから読む
+  const root = picker.querySelector('.picker-status') ? picker : document.body;
   return {
-    status: picker.querySelector('.picker-status').textContent,
-    rows: picker.querySelectorAll('[role="option"]').map((node) => ({
+    status: root.querySelector('.picker-status').textContent,
+    rows: root.querySelectorAll('[role="option"]').map((node) => ({
       name: node.querySelector('strong')?.textContent ?? node.textContent,
       badge: node.querySelector('.picker-badge')?.textContent ?? '',
       dim: /is-dim/.test(node.className),
@@ -395,7 +398,8 @@ test('配合を探す: パル選択の並びは図鑑順のまま、親（親1�
 test('継承ルート: 開始の候補は、登録済みの配合で目標まで届くパルを回数の少ない順に先へ出し、届かないパルは薄く後ろに', async (t) => {
   installDom(t);
   const view = inheritanceView(context(), parseHash('#/route?to=MoonQueen'));
-  const { status, rows } = await pickerRows(view, 0);
+  // 開始の選択欄は目標の後（2 つ目）
+  const { status, rows } = await pickerRows(view, 1);
   assert.equal(status, '目標まで少ない回数の順に表示');
   assert.deepEqual(rows.slice(0, 4).map((row) => [row.name, row.badge, row.dim]),
     [['パルを選択', '', false], ['セレムーン', '目標', false], ['モコロン', '1 回', false], ['フラリーナ', '1 回', false]]);
@@ -403,7 +407,7 @@ test('継承ルート: 開始の候補は、登録済みの配合で目標まで
   view.destroy();
   // 目標を選ぶまでは図鑑順
   const none = inheritanceView(context(), parseHash('#/route'));
-  assert.equal((await pickerRows(none, 0)).status, '図鑑順で表示');
+  assert.equal((await pickerRows(none, 1)).status, '図鑑順で表示');
   none.destroy();
 });
 

@@ -92,6 +92,7 @@ test('ステップ: 相手の候補は相手の順位、レコード ID の順�
   const step = findRoutes(graph, index, 'A', 'B').routes[0].steps[0];
   assert.deepEqual(step.options.map((option) => option.record.id), ['d', 'a', 'z', 'y']);
   assert.equal(step.multiChild, false);
+  assert.equal(step.multiPartner, '');
 });
 
 test('ステップ: どの相手候補でも同じペアに異なる子が登録されていれば multiChild', () => {
@@ -99,6 +100,8 @@ test('ステップ: どの相手候補でも同じペアに異なる子が登録
   const { index, graph } = setup(records);
   const step = findRoutes(graph, index, 'A', 'B').routes[0].steps[0];
   assert.equal(step.multiChild, true);
+  // 別の子もある最初の相手（画面の「同じ組で別の子も登録あり」から、その組の配合を探す）
+  assert.equal(step.multiPartner, 'Y');
 });
 
 test('INV-1: 経路の全ステップの全候補は入力レコードそのものを参照する', () => {
