@@ -532,26 +532,45 @@
 - id: `<実装日>-register-dialog`／title: 「登録画面を見直し」（8 字）／body: 「閉じても入力は下書きに残ります。親の ♂♀ も記録でき、右に登録済みの配合と所持数を出します。」（47 字）
 
 ### 完了の条件
-- [ ] `npm test` が通る。
-- [ ] モックで: 入力して Esc・×・キャンセルのどれで閉じても下書きの帯に 1 件増え、「破棄」で消える。編集・続けて登録の直後は増えない。
-- [ ] 性別を付けた下書きを帯から「登録」すると、記録に性別が入る（カードに ♂♀ が出る）。
-- [ ] 実測: 親・子を選んでもメモ欄が動かない（今は +71px・+35px）。
-- [ ] 旧コードの版を別タブで開いたまま、新しい版で性別つきの下書きを作り、旧タブで別の下書きを足しても、性別が消えない（ブラウザで確かめる）。
-- [ ] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 下書きのキーに性別を足していない（性別は `draftGenders` の別のキー）。旧コードの `cleanDraft` で下書きのキーが書き直されても性別が残り、下書きを消すと性別も消え、名前の変更で性別のキーが移る（`drafts.test.js`・`user-rename.test.js`）。性別の値は `M`／`F`／`''` 以外を捨てる（data-boundary）。INV-2 — 確認の枠の「登録済み」は登録済みの記録だけで、配合表を使わない。セキュリティ — `test/static/security.test.js` が通る。性能 — 対象外。
+- [x] `npm test` が通る。
+- [x] モックで: 入力して Esc・×・キャンセルのどれで閉じても下書きの帯に 1 件増え、「破棄」で消える。編集・続けて登録の直後は増えない。
+- [x] 性別を付けた下書きを帯から「登録」すると、記録に性別が入る（カードに ♂♀ が出る）。
+- [x] 実測: 親・子を選んでもメモ欄が動かない（今は +71px・+35px）。
+- [x] 旧コードの版を別タブで開いたまま、新しい版で性別つきの下書きを作り、旧タブで別の下書きを足しても、性別が消えない（ブラウザで確かめる）。
+- [x] **共通の受け入れ条件**（[README の 5-1](README.md#5-1-全テーマ共通の受け入れ条件)。詳しくは上の「INV-2・互換・セキュリティ・性能の注意」）: 互換 — 下書きのキーに性別を足していない（性別は `draftGenders` の別のキー）。旧コードの `cleanDraft` で下書きのキーが書き直されても性別が残り、下書きを消すと性別も消え、名前の変更で性別のキーが移る（`drafts.test.js`・`user-rename.test.js`）。性別の値は `M`／`F`／`''` 以外を捨てる（data-boundary）。INV-2 — 確認の枠の「登録済み」は登録済みの記録だけで、配合表を使わない。セキュリティ — `test/static/security.test.js` が通る。性能 — 対象外。
 
 ### TODO
-- [ ] `ui/dialog.js` に `beforeClose`・`requestClose`・`initialFocus` と `confirmDialog` の `aria-describedby`（テストを先に）
-- [ ] 登録モーダルの基準の入力と「退避の対象」の判定
-- [ ] 下書きへの退避・失敗時にフォームを残す・トーストの「破棄」
-- [ ] `ui/gender-toggle.js` と、枠ごとの性別のリセット
-- [ ] `drafts.js` の性別のキー（読み・書き・比較・reload）
-- [ ] `saveDraft`・`prepare` で性別を通す
-- [ ] `user-rename.js` にオブジェクトのキーの移動を足す
-- [ ] 左右 2 列のレイアウトと固定の高さの確認の枠・参照列
-- [ ] 式の並び・高さの固定をやめる・登録者とメモを 1 行に
-- [ ] 最初の未選択の欄へのフォーカスとエラーの `aria-invalid`
-- [ ] ログイン画面の初期フォーカスと ID の maxLength
-- [ ] テスト（dialog・record-editor・drafts・user-rename・app）と release-notes
+- [x] `ui/dialog.js` に `beforeClose`・`requestClose`・`initialFocus` と `confirmDialog` の `aria-describedby`（テストを先に）
+- [x] 登録モーダルの基準の入力と「退避の対象」の判定
+- [x] 下書きへの退避・失敗時にフォームを残す・トーストの「破棄」
+- [x] `ui/gender-toggle.js` と、枠ごとの性別のリセット
+- [x] `drafts.js` の性別のキー（読み・書き・比較・reload）
+- [x] `saveDraft`・`prepare` で性別を通す
+- [x] `user-rename.js` にオブジェクトのキーの移動を足す
+- [x] 左右 2 列のレイアウトと固定の高さの確認の枠・参照列
+- [x] 式の並び・高さの固定をやめる・登録者とメモを 1 行に
+- [x] 最初の未選択の欄へのフォーカスとエラーの `aria-invalid`
+- [x] ログイン画面の初期フォーカスと ID の maxLength
+- [x] テスト（dialog・record-editor・drafts・user-rename・app）と release-notes
+
+### 実装の記録（2026-10-15、ブランチ `feature/register-dialog`）
+
+実装のときに決めたこと・文書と違う形にしたこと（後の goals-merge・settings・roles はこちらを正とする）。
+
+1. **閉じる前の口（手順 1）**: `openDialog(title, { …, beforeClose, initialFocus })` は `{ dialog, body, footer, close, requestClose }` を返す。×（`'dismiss'`）・Esc（`'escape'`）・背景（`'backdrop'`。`closeOnBackdrop` のとき）・キャンセル（呼び出し側が `requestClose('cancel')`）が `requestClose` を通る。Esc は、ダイアログの中に `aria-expanded="true"` の要素（開いている候補）があれば何もせず、ui/popover.js の cancel の処理に任せる（候補が先に閉じる。前と同じ）。`close()` は確かめずに閉じる。どちらも通らずに閉じたら、閉じた後に `beforeClose('forced')`（`closeDialogs` のログアウトなど）。Esc・背景のリスナーは閉じたら外す（AbortController）。`confirmDialog` のキャンセルも `requestClose('cancel')`、本文の `p` を `aria-describedby` で結ぶ。
+2. **退避（手順 2）**: 基準の入力（`markBaseline`）は開いたとき（初期値を入れた後）と「続けて登録」の直後。新規（編集でも下書き版でもない）・`context.drafts` がある・基準から変わった・パルかメモが入っている、のときだけ退避する。`validateRecordInput`（パルの未選択は許す）を通して性別ごと `drafts.add`。失敗（ログインしていない・ID の変更中・`saveFailed`）なら足した下書きを消し、`'forced'` 以外はフォームを残して「下書きに残せませんでした。登録するか、内容を控えてから閉じてください。」（検証の失敗ならその文）で `false`。`'forced'` で失敗したら、ログイン中だけエラーのトースト「入力を下書きに残せませんでした」＋「開き直す」（`context.register(input)`）。成功は「下書きに残しました」＋「破棄」（`drafts.remove`）。
+3. **性別（手順 3）**: `web/js/ui/gender-toggle.js` の **`genderToggle({ label, value, onChange }) → { element, getValue, setValue, destroy }`**（ui/segmented.js の radiogroup に ♂〔`M`〕・♀〔`F`〕・指定なし〔`''`〕。`.gender-toggle`。選んだ ♂・♀ は `--gender-male`・`--gender-female` の地）。親1・親2 の選択欄の下の `div.editor-genders`（選択欄と同じ 5 列の格子）。初期値は `initial.parent1Gender`・`parent2Gender`（編集・下書きの編集）。パル選択の onChange でその枠の性別だけ空に（`sameParents` はやめた）。`value()` はパルを選んでいない枠の性別を空にして返す。`INVALID_GENDER` の文は「性別のデータが正しくありません。開き直してください。」。
+4. **下書きの性別のキー（手順 4）**: `${namespace}.draftGenders.${env}.${userIdKey}` に `{ [下書き id]: { parent1Gender, parent2Gender, parent1Id, parent2Id } }`（**文書の推奨どおり親の ID を控え、読むときに今の下書きの親と違う枠の性別は捨てる**。前の版のタブでパルを変えた下書きに前のパルの性別を残さない）。性別のある下書きがなければキーを消す。下書きのキーには前の版の `cleanDraft` と同じ 7 項目だけ（`STORED`）。メモリ上の下書きは `parent1Gender`・`parent2Gender` を持ち（パルのない枠は空）、`CONTENT` に足したので `sameDraftContent`・送信の成功で消す判定・内容が変わったら登録 ID を使い回さない、が性別でも効く。`reload(key)` は性別のキーを受けたら同じ環境・ID の下書きのキーを読み直す（app.js の storage イベントはそのまま）。`DRAFT_GENDERS` を export。帯の `prepare` は性別を通し（前は空にしていた）、行の式に性別の印を出す。
+5. **名前の変更（手順 5）**: `moveUserStorage` にオブジェクトの形のキーの扱い（今は `draftGenders` だけ。移し先と合わせ、同じ id は元を優先・元を消す）。`moveLocal` で性別のキーの元と先も `drafts.reload` に渡す。goals-merge の観測のキー（`goalsObs`）は同じ並びに足せる。
+6. **レイアウト（手順 6）**: **文書の「左にフォーム（選択欄を含む）・右に参照列」は、選択欄を上の全幅の行に出した**（左の列〔約 460px〕に 3 つの選択欄を式の並びで入れると 1 欄 約 135px で、選んだパルの名前が 2〜3 文字しか見えないため）。上: `div.editor-pickers`（5 列の格子。見出しは入力の上・記号は入力の行・選択欄の高さは 40px に固定）と `div.editor-genders`。下: `div.editor-columns`（左 1fr: `div.editor-details`〔登録者 170px・メモ 2 行〕とエラー、右 290px: `aside.editor-reference`）。参照列は**高さ 236px に固定**（中はスクロール）: `div.editor-check`（高さ 92px 以上。未選択「親1・親2 を選ぶと、登録済みの配合を確かめます。」／未登録「まだ登録されていない組み合わせです。」／登録済み「この組み合わせは登録済み:」と子の絵のボタン〔3 件まで・「ほか N 件」。押すと子の欄に入る〕／別の子が登録済みなら `.is-warning` と子の選択欄の枠を warning の色）、`div.editor-parent-records`（親1、なければ親2 の登録済みの配合 4 件まで。相手 → 子）、`div.editor-owned`（所持パルのデータがあれば「所持 親1 ♂n ♀m 親2 未所持」。`ownedBadge`。開いたときの所持パルで 1 回数える）。モーダルの高さの固定（800×600）をやめ `max-height: 90dvh`、幅は 820px まで。
+7. **フォーカスとエラー（手順 7）**: 開いたら最初の未選択のパルの欄（どれも選んであれば登録のボタン）へ。`openDialog` の `initialFocus` は、選択欄がダイアログを開いた後に作られるので登録のモーダルでは使わず、作った後に移す。検証のエラーにパルの欄があれば、最初の未選択の欄のトリガーに `aria-invalid="true"`・`aria-describedby`（エラーの要素）・`.is-invalid`（danger の枠）を付けてフォーカス、選び直したら外す（pal-picker には `setInvalid` を足さず、呼び出し側で付けた）。登録者は自分を先頭、残りは五十音順（今の値が一覧になければ先頭に足す）。ログイン画面の ID に `maxLength = 20`（初期フォーカスは copy-dead-ends で入っていた）。
+8. **テスト**: 1,527 → 1,538 件（`npm test` exit 0）。dialog.test.js（requestClose の理由と false・close・forced、initialFocus と aria-describedby）、record-editor.test.js（×・Esc・キャンセルで退避と「破棄」、退避しない 4 通り、残せないときと forced、フォーカス・aria-invalid・登録者の並び、確認の枠の警告・子の絵・所持数・親の登録済み。親を変えた編集はその枠の性別だけ空に〔前は両方空のテストを書き換えた〕・形のテスト）、drafts.test.js（性別の別のキー・帯から登録で記録に入る・消したらキーも消える、前の版の書き直しで残る・パルを変えた枠は捨てる・別タブの性別のキーで読み直す・形の合わない値・性別だけの変更）、user-rename.test.js（性別のキーの移動と合わせ方）、app.test.js（ID の maxLength）。
+9. **画面（モック・1100×900。`Claude outputs/ui-audit-2026-10/shots/find-merge/`）**: 「＋ 配合を登録」で開くとフォーカスは親1。親1 → 親2 → 子（登録済みと違う子）と選んでも、メモ欄の top は 402.89px・フッターは 632.3px のまま（基準は +71px・+35px）。確認の枠は「この組み合わせは登録済み: カモノスケ」から警告の色に（`30-record-dialog-1100-light.png`・`31-…-dark.png`）。親1 を ♂ にして Esc で閉じると「下書きに残しました」＋「破棄」、帯が 19 → 20 件（`32-after-escape-1100-light.png`）。
+   - **確かめていないこと**: 完了の条件の「旧コードの版を別タブで開いたまま、新しい版で性別つきの下書きを作り、旧タブで別の下書きを足しても性別が消えない」は、旧版（integrate/phase-1d の版）を同時に配信する用意がないのでブラウザでは確かめていない（drafts.test.js で旧版の書き直しの形を再現して確かめた）。
+10. **後のテーマへの申し送り**:
+    - goals-merge: 観測のキー（オブジェクトの形）は user-rename.js の「オブジェクトの形のキー」の並びに prefix を足す。ウィッシュリストの削除の元に戻すも、ideals・drafts と同じく今のキーだけにする（フェーズ 1d の申し送り）。
+    - roles・settings: ダイアログで「閉じる前」に確かめたいときは `beforeClose`（false で閉じない）と `requestClose('cancel')`。ワールドの登録のモーダルの「背景で閉じない」は `closeOnBackdrop: false`。
+    - route-cleanup: 手入力の記録に性別が付くようになったので、継承ルートの「性別条件は未検証」が付く段が増える（言い換えは route-cleanup）。
 
 ---
 

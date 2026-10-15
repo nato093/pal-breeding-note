@@ -114,14 +114,16 @@ test('下書き: ID・環境ごとに保存し、不正な保存内容は読み�
   const key = app.drafts.scope();
   assert.equal(key, 'test-note.drafts.test.自分');
   const draft = app.drafts.add({ parent1Id: 'SheepBall' });
-  assert.deepEqual(draft, { id: draft.id, parent1Id: 'SheepBall', parent2Id: '', childId: '', registrant: '自分', memo: '', recordId: '' });
-  assert.deepEqual(JSON.parse(app.storage.values.get(key)), [draft]);
+  assert.deepEqual(draft, { id: draft.id, parent1Id: 'SheepBall', parent2Id: '', childId: '', parent1Gender: '', parent2Gender: '', registrant: '自分', memo: '', recordId: '' });
+  // 下書きのキーには前の版と同じ項目だけを書く（親の性別は別のキー。性別がなければ書かない）
+  assert.deepEqual(JSON.parse(app.storage.values.get(key)), [{ id: draft.id, parent1Id: 'SheepBall', parent2Id: '', childId: '', registrant: '自分', memo: '', recordId: '' }]);
+  assert.equal(app.storage.values.has('test-note.draftGenders.test.自分'), false);
   const id = crypto.randomUUID();
   app.storage.values.set(key, JSON.stringify([null, { id: 'UUID ではない' },
     { id, parent1Id: '存在しない', parent2Id: 'SheepBall', childId: 7, registrant: 5, memo: 'メモ', recordId: '不正' },
     { id, parent1Id: 'SheepBall' }]));
   app.drafts.reload(key);
-  assert.deepEqual(app.drafts.list(), [{ id, parent1Id: '', parent2Id: 'SheepBall', childId: '', registrant: '', memo: 'メモ', recordId: '' }]);
+  assert.deepEqual(app.drafts.list(), [{ id, parent1Id: '', parent2Id: 'SheepBall', childId: '', parent1Gender: '', parent2Gender: '', registrant: '', memo: 'メモ', recordId: '' }]);
   app.storage.values.set(key, '壊れた JSON');
   app.drafts.reload(key);
   assert.deepEqual(app.drafts.list(), []);
@@ -658,4 +660,51 @@ test('下書き: 確認の間に内容が変わったら、承認を使わずに
   await buttonNamed(openDialogs()[0], '別の結果として保存').dispatch('click');
   await done;
   assert.deepEqual(app.calls.map((call) => [call.payload.record.childId, call.payload.allowDifferentChild]), [['Deer', undefined]]);
+});
+
+test('下書きの性別: 別のキーに親の ID と一緒に持ち、帯から登録すると記録に入る。下書きのキーには前の版の形だけを書く', async (t) => {
+  const app = await setup(t);
+  const draft = app.drafts.add({ ...complete, parent1Gender: 'M', parent2Gender: 'F' });
+  const key = app.drafts.scope();
+  const genderKey = 'test-note.draftGenders.test.自分';
+  assert.deepEqual(JSON.parse(app.storage.values.get(key)).map((item) => Object.keys(item).sort()),
+    [['childId', 'id', 'memo', 'parent1Id', 'parent2Id', 'recordId', 'registrant']]);
+  assert.deepEqual(JSON.parse(app.storage.values.get(genderKey)), { [draft.id]: { parent1Gender: 'M', parent2Gender: 'F', parent1Id: 'SheepBall', parent2Id: 'FlowerDoll' } });
+  const view = mount(t, app);
+  // 行の式に性別の印
+  assert.deepEqual(rows(view)[0].querySelectorAll('.gender').map((node) => node.textContent), ['♂', '♀']);
+  await buttonNamed(rows(view)[0], '登録').dispatch('click');
+  const [{ payload }] = app.calls;
+  assert.deepEqual([payload.record.parent1Gender, payload.record.parent2Gender], ['M', 'F']);
+  // 送った内容と同じ下書きを消したら、性別のキーも消える
+  assert.deepEqual(app.drafts.list(), []);
+  assert.equal(app.storage.values.has(genderKey), false);
+});
+
+test('下書きの性別: 前の版のタブが下書きのキーを書き直しても性別は残り、前の版でパルを変えた枠の性別は捨てる。別のタブで性別のキーが変わったら読み直す', async (t) => {
+  const app = await setup(t);
+  const first = app.drafts.add({ ...complete, parent1Gender: 'M', parent2Gender: 'F' });
+  const key = app.drafts.scope();
+  const genderKey = 'test-note.draftGenders.test.自分';
+  // 前の版のタブ: 性別を知らない形で下書きを足して書き戻す（1 件目は親2 をツッパニャンに変えた）
+  const old = JSON.parse(app.storage.values.get(key));
+  old[0].parent2Id = 'PinkCat';
+  const added = { id: crypto.randomUUID(), parent1Id: 'Alpaca', parent2Id: '', childId: '', registrant: '自分', memo: '', recordId: '' };
+  app.storage.values.set(key, JSON.stringify([...old, added]));
+  app.drafts.reload(key);
+  const [kept, other] = app.drafts.list();
+  assert.equal(kept.id, first.id);
+  assert.deepEqual([kept.parent1Gender, kept.parent2Gender], ['M', '']);
+  assert.deepEqual([other.parent1Gender, other.parent2Gender], ['', '']);
+  // 別のタブで性別のキーだけが変わった（storage イベントのキーは性別のキー）
+  app.storage.values.set(genderKey, JSON.stringify({ [added.id]: { parent1Gender: 'F', parent2Gender: '', parent1Id: 'Alpaca', parent2Id: '' } }));
+  app.drafts.reload(genderKey);
+  assert.equal(app.drafts.list().find((draft) => draft.id === added.id).parent1Gender, 'F');
+  // 形の合わない値は捨てる
+  app.storage.values.set(genderKey, JSON.stringify({ [added.id]: { parent1Gender: 'X', parent1Id: 'Alpaca' } }));
+  app.drafts.reload(genderKey);
+  assert.equal(app.drafts.list().find((draft) => draft.id === added.id).parent1Gender, '');
+  // 性別だけ変えても内容が変わった扱い（登録 ID を使い回さない）
+  assert.equal(app.drafts.update(added.id, { parent1Gender: 'M' }), true);
+  assert.equal(app.drafts.list().find((draft) => draft.id === added.id).parent1Gender, 'M');
 });

@@ -6,34 +6,63 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const palIds = new Set(pals.map((pal) => pal.id));
 const idle = Object.freeze({ sending: false, error: '' });
 export const DRAFT_PALS = ['parent1Id', 'parent2Id', 'childId'];
-const CONTENT = [...DRAFT_PALS, 'registrant', 'memo'];
+export const DRAFT_GENDERS = ['parent1Gender', 'parent2Gender'];
+const CONTENT = [...DRAFT_PALS, ...DRAFT_GENDERS, 'registrant', 'memo'];
+// 下書きのキーに書く項目（前の版の cleanDraft と同じ形。前の版のタブが storage イベントで読み直して書き戻しても消えない項目だけ）
+const STORED = ['id', ...DRAFT_PALS, 'registrant', 'memo', 'recordId'];
+const gender = (value) => (value === 'M' || value === 'F' ? value : '');
 
 const isUuid = (value) => typeof value === 'string' && UUID_PATTERN.test(value);
 const text = (value, max) => sanitizeText(typeof value === 'string' ? value : '', max);
 
+// メモリ上の下書き: 保存の項目と親の性別（M・F・''）。性別はパルを選んだ枠だけに残す
 function cleanDraft(value) {
   if (!value || typeof value !== 'object' || !isUuid(value.id)) return null;
   const draft = { id: value.id };
   for (const field of DRAFT_PALS) draft[field] = palIds.has(value[field]) ? value[field] : '';
+  draft.parent1Gender = draft.parent1Id ? gender(value.parent1Gender) : '';
+  draft.parent2Gender = draft.parent2Id ? gender(value.parent2Gender) : '';
   draft.registrant = text(value.registrant, 30);
   draft.memo = text(value.memo, 200);
   draft.recordId = isUuid(value.recordId) ? value.recordId : '';
   return draft;
 }
 
-function parseDrafts(source) {
-  let values;
-  try { values = JSON.parse(source); } catch { return []; }
+function parseJson(source) {
+  try { return JSON.parse(source); } catch { return null; }
+}
+
+/**
+ * 下書きのキーの値と、性別のキーの値（{ [下書き id]: { parent1Gender, parent2Gender, parent1Id, parent2Id } }）を合わせる。
+ * 性別は、控えた親の ID が今の下書きの親と同じ枠だけ使う（前の版のタブでパルを変えた下書きに、前のパルの性別を残さない）
+ */
+function parseDrafts(source, genderSource = null) {
+  const values = parseJson(source);
   if (!Array.isArray(values)) return [];
+  const genders = parseJson(genderSource);
+  const genderOf = (id) => (genders && typeof genders === 'object' && !Array.isArray(genders) && Object.hasOwn(genders, id) ? genders[id] : null);
   const seen = new Set();
   const drafts = [];
   for (const value of values) {
-    const draft = cleanDraft(value);
+    const saved = value && typeof value === 'object' ? genderOf(value.id) : null;
+    const draft = cleanDraft({
+      ...value,
+      parent1Gender: saved && saved.parent1Id === value.parent1Id ? saved.parent1Gender : '',
+      parent2Gender: saved && saved.parent2Id === value.parent2Id ? saved.parent2Gender : '',
+    });
     if (!draft || seen.has(draft.id)) continue;
     seen.add(draft.id);
     drafts.push(draft);
   }
   return drafts;
+}
+
+const storedDraft = (draft) => Object.fromEntries(STORED.map((field) => [field, draft[field]]));
+// 性別のキーに書く値（性別のある下書きだけ。親の ID を控える）。どれもなければ null（キーを消す）
+function storedGenders(drafts) {
+  const entries = drafts.filter((draft) => draft.parent1Gender || draft.parent2Gender)
+    .map((draft) => [draft.id, { parent1Gender: draft.parent1Gender, parent2Gender: draft.parent2Gender, parent1Id: draft.parent1Id, parent2Id: draft.parent2Id }]);
+  return entries.length ? Object.fromEntries(entries) : null;
 }
 
 export function sameDraftContent(a, b) {
@@ -42,6 +71,8 @@ export function sameDraftContent(a, b) {
 
 // 下書きはこの端末にだけ ID・環境ごとに残す。サーバに控えがないため、保存の失敗は握りつぶさず画面で知らせる。
 // 送信中・エラーの状態は保存せず、画面を移っても裏の送信の結果を反映できるようにここで持つ。
+// 親の性別（register-dialog）は、前の版のタブが下書きのキーを自分の形（性別なし）で書き戻しても消えないよう、別のキー
+// <namespace>.draftGenders.<env>.<userIdKey> に下書き id ごとに持つ（下書きを消せば、次の保存で性別も消える）。
 export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
   const listeners = new Set();
   const cache = new Map();
@@ -53,13 +84,21 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     const { env, userId, passcode } = store.state;
     return env && userId && passcode ? `${namespace}.drafts.${env}.${userIdKey(userId)}` : '';
   }
+  const draftsPrefix = `${namespace}.drafts.`;
+  const gendersPrefix = `${namespace}.draftGenders.`;
+  // 下書きのキー → 性別のキー（同じ環境・ID）
+  const genderKey = (key) => (key.startsWith(draftsPrefix) ? `${gendersPrefix}${key.slice(draftsPrefix.length)}` : '');
 
   function load(key) {
     if (!key) return [];
     if (!cache.has(key)) {
       let source = null;
-      try { source = storage?.getItem(key) ?? null; } catch { /* 読めない端末は下書きなしとして扱う。 */ }
-      cache.set(key, parseDrafts(source));
+      let genders = null;
+      try {
+        source = storage?.getItem(key) ?? null;
+        genders = storage?.getItem(genderKey(key)) ?? null;
+      } catch { /* 読めない端末は下書きなしとして扱う。 */ }
+      cache.set(key, parseDrafts(source, genders));
     }
     return cache.get(key);
   }
@@ -68,7 +107,10 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
     cache.set(key, drafts);
     saveFailed = true;
     try {
-      storage.setItem(key, JSON.stringify(drafts));
+      storage.setItem(key, JSON.stringify(drafts.map(storedDraft)));
+      const genders = storedGenders(drafts);
+      if (genders) storage.setItem(genderKey(key), JSON.stringify(genders));
+      else storage.removeItem?.(genderKey(key));
       saveFailed = false;
     } catch { /* 容量超過・保存の拒否は saveFailed で画面に知らせる。 */ }
     emit();
@@ -186,9 +228,10 @@ export function createDraftStore({ store, storage, namespace = 'pal-note' }) {
       statuses.set(id, { sending: false, error });
       emit();
     },
-    // 別のタブで書き換わったら読み直す。
+    // 別のタブで書き換わったら読み直す（性別のキーが変わったときは、同じ環境・ID の下書きのキーを読み直す）。
     reload(key) {
-      if (cache.delete(key)) emit();
+      const target = typeof key === 'string' && key.startsWith(gendersPrefix) ? `${draftsPrefix}${key.slice(gendersPrefix.length)}` : key;
+      if (cache.delete(target)) emit();
     },
   };
 }

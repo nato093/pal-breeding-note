@@ -299,3 +299,12 @@ test('端末内の移動: 配合を探すの「新」の基準の時刻も新し
   assert.equal(storage.getItem('pal-note.search.seenAt.prod.jiro'), '2026-10-05T00:00:00Z');
   assert.equal(storage.getItem('pal-note.search.seenAt.prod.hanako'), null);
 });
+
+test('端末内の移動: 下書きの親の性別（オブジェクトの形のキー）も新しい名前へ移し、移し先と合わせて同じ id は元を優先する', () => {
+  const storage = memoryStorage();
+  storage.setItem('pal-note.draftGenders.prod.taro', JSON.stringify({ a: { parent1Gender: 'M' }, b: { parent1Gender: 'F' } }));
+  storage.setItem('pal-note.draftGenders.prod.jiro', JSON.stringify({ b: { parent1Gender: 'M' }, c: { parent2Gender: 'F' } }));
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
+  assert.deepEqual(read(storage, 'pal-note.draftGenders.prod.jiro'), { a: { parent1Gender: 'M' }, b: { parent1Gender: 'F' }, c: { parent2Gender: 'F' } });
+  assert.equal(storage.getItem('pal-note.draftGenders.prod.taro'), null);
+});
