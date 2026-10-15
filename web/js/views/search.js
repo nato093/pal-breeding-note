@@ -234,7 +234,7 @@ export function searchView(context, route) {
   let shownIds = null;
   let shownCond = '';
   let flash = false;
-  const headingKey = (palId) => `heading:${palId}`;
+  const headingKey = (palId, by) => `heading:${by}:${palId}`;
   function createRow(item) {
     if (item.heading) return { element: groupHeading(item) };
     const card = breedingCard(item.record, context, {
@@ -253,7 +253,8 @@ export function searchView(context, route) {
     node.append(el('span', 'find-group-name', pal ? `No.${pal.label} ${pal.ja}` : palId), el('span', 'find-group-count', `${total} 件`));
     return node;
   }
-  const rowKey = (item) => (item.heading ? `${headingKey(item.palId)}:${item.count}` : `${cardKey(item)}|${item.owned ?? ''}`);
+  // カードは子を省く（omitChild）かもキーに入れる（並べ替えで群の分け方が変わったとき、子を省いたままのカードを使い回さない）
+  const rowKey = (item) => (item.heading ? `${headingKey(item.palId, item.by)}:${item.count}` : `${cardKey(item)}|${item.omitChild ? 'o' : ''}|${item.owned ?? ''}`);
 
   function update(state) {
     if (destroyed) return;
@@ -294,7 +295,7 @@ export function searchView(context, route) {
     const byParent = cond.sort.startsWith('parent');
     const items = [];
     for (const group of groups) {
-      if (group.palId) items.push({ heading: true, palId: group.palId, count: group.records.length });
+      if (group.palId) items.push({ heading: true, palId: group.palId, by: byParent ? 'parent' : 'child', count: group.records.length });
       for (const record of group.records) {
         const extra = { isNew: isNew(record, me), owned: ownedSig(record) };
         if (!group.palId) items.push({ record, leftParent: cond.p1 || (record.parent1Id === cond.p2 ? record.parent2Id : record.parent1Id), ...extra });
@@ -447,14 +448,16 @@ export function searchView(context, route) {
       return empty('この親を使う配合はまだ登録されていません。', register('この親で配合を登録', () => ({ parent1Id: cond.p1 || cond.p2 })));
     }
     if (cond.c) {
-      // 子だけを選んで 0 件: 「☆ 目標に登録」（作れるようになったら知らせる）を主な操作、「この子の配合を登録」を 2 番目に（goals-merge）
-      if (!context.ideals?.scope?.()) return empty('この子の配合はまだ登録されていません。', register('この子の配合を登録', () => ({ childId: cond.c })));
+      // 子だけを選んで 0 件: 「☆ 目標に登録」（作れるようになったら知らせる）を主な操作、「この子の配合を登録」を 2 番目に（goals-merge）。
+      // 文に子の名前を入れる（syncList は同じ文の空の表示を使い回すので、子を変えたときに前の子の押しボタンを残さない）
+      const text = `${palsById.get(cond.c)?.ja ?? cond.c}の配合はまだ登録されていません。`;
+      if (!context.ideals?.scope?.()) return empty(text, register('この子の配合を登録', () => ({ childId: cond.c })));
       // syncList は同じ文の空の表示を作り直さないので、作った押しボタンは描いた後に出ている方だけ残す（keepEmptyGoal）
       pendingGoal?.destroy();
       pendingGoal = goalToggle(context, cond.c, { className: 'button primary', label: '目標に登録（作れるようになったら知らせます）' });
       const actions = el('div', 'empty-actions');
       actions.append(pendingGoal.element, button('この子の配合を登録', () => context.register({ childId: cond.c }), 'button secondary'));
-      return empty('この子の配合はまだ登録されていません。', actions);
+      return empty(text, actions);
     }
     return empty('条件に合う登録はありません。', button('条件をすべて解除', clearAll, 'button secondary'), { icon: 'search' });
   }
@@ -473,8 +476,11 @@ export function searchView(context, route) {
     applyRoute(next, { reason } = {}) {
       readRoute(next);
       pickers.forEach((picker, index) => syncPicker(picker, cond[['p1', 'p2', 'c'][index]]));
-      // 入力中のキーワードの欄は上書きしない（打っている途中の文字・変換を消さない）
-      if (globalThis.document?.activeElement !== keyword && keyword.value !== cond.q) keyword.value = cond.q;
+      // 入力中のキーワードの欄は上書きしない（打っている途中の文字・変換を消さない）。ただし戻る・進む・リンクなど外から条件が
+      // 変わったときは、欄と結果が食い違わないよう合わせる（間引いて待っている入力は捨てる。移る前に app.js が flushInputs で書いている）
+      const outside = Boolean(reason) && reason !== 'update';
+      if (outside) typed.cancel();
+      if ((outside || globalThis.document?.activeElement !== keyword) && keyword.value !== cond.q) keyword.value = cond.q;
       if (sort.value !== cond.sort) sort.value = cond.sort;
       view.update(context.store.state);
       // 利用者が条件を変えた: 結果の先頭が帯の下に隠れていれば先頭を見せる（O-05 と同じ）

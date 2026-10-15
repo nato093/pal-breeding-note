@@ -737,7 +737,7 @@ test('継承ルート: パッシブを選ぶ前は追加のボタンが「運び
   nobody.destroy();
 });
 
-test('継承ルート: 開始の所持個体は親にできる個体だけをパッシブの多い順に 5 体まで出し、6 体以上なら残りを「ほか N 体」に畳む', (t) => {
+test('継承ルート: 開始の所持個体は親にできる個体だけをパッシブの多い順に 5 体まで出し、6 体以上なら残りを「ほか N 体」に畳む（残りの行は開いたときに作る）', (t) => {
   installDom(t);
   const sheep = (id, level, extra = [], location = { kind: 'palbox', playerUid: P1, slotIndex: level }) => ({
     instanceId: id, characterId: 'SheepBall', gender: 'Male', level, rank: 1, passives: ['CraftSpeed_up2', ...extra], talent: {}, location,
@@ -763,8 +763,17 @@ test('継承ルート: 開始の所持個体は親にできる個体だけをパ
   assert.match(levels(top)[0], /30/);
   assert.equal(box.querySelector('.route-owned-more').hidden, false);
   assert.equal(box.querySelector('summary').textContent, 'ほか 2 体');
+  // 「ほか N 体」の行は開いたときに作る（閉じたままでは作らない）
+  assert.equal(levels(more).length, 0);
+  const details = box.querySelector('.route-owned-more');
+  details.open = true;
+  details.dispatch('toggle');
   assert.equal(levels(more).length, 2);
   assert.equal(box.querySelectorAll('.owned-row').length, 7);
+  assert.equal(box.querySelector('.route-owned-more-note').hidden, true);
+  details.open = false;
+  details.dispatch('toggle');
+  assert.equal(levels(more).length, 0);
   // 「該当する個体を所持していません」の文は隠す（箱の最後の子）
   assert.equal(box.children.at(-1).hidden, true);
   view.destroy();

@@ -127,8 +127,10 @@ export const releaseNoteSource = () => releaseNotes.map((note) => ({ ...note, id
 
 // 通知の中身は sources（通知の配列を返す関数）から集める。新しい種類の通知は sources に足す。
 // 既読はこの端末に ID ごとに残す（サーバには送らない）。既読の記録のない ID（新しい人・新しい端末）は、その時点の更新内容のお知らせを
-// 既読から始める（G-22。過去のお知らせが全部未読で残り続けないように。目標・自動登録の通知は未読のまま）
-export function createNotificationStore({ store, storage, namespace = 'pal-note', sources = [releaseNoteSource] }) {
+// 既読から始める（G-22。過去のお知らせが全部未読で残り続けないように。目標・自動登録の通知は未読のまま）。ただし直近 7 日の
+// お知らせは未読のまま（既読の記録を持たないまま前から使っている人にも、新しい更新を届ける）
+const RECENT_RELEASE_MS = 7 * 24 * 60 * 60 * 1000;
+export function createNotificationStore({ store, storage, namespace = 'pal-note', sources = [releaseNoteSource], now = Date.now }) {
   const listeners = new Set();
   const cache = new Map();
   const emit = () => listeners.forEach((listener) => listener());
@@ -156,7 +158,9 @@ export function createNotificationStore({ store, storage, namespace = 'pal-note'
     let raw;
     try { raw = storage ? storage.getItem(key) : undefined; } catch { return []; }
     if (raw !== null) return stored(key);
-    const ids = list().filter((notification) => notificationCategory(notification) === 'release').map((notification) => notification.id).slice(-READ_MAX);
+    const recent = now() - RECENT_RELEASE_MS;
+    const ids = list().filter((notification) => notificationCategory(notification) === 'release' && notification.time < recent)
+      .map((notification) => notification.id).slice(-READ_MAX);
     try { storage.setItem(key, JSON.stringify(ids)); } catch { /* 保存できなくても、開いている間は既読として扱う。 */ }
     return ids;
   }

@@ -234,6 +234,8 @@ export function createIdealStore({
     observation(palId) { return loadObs(obsScope()).species[palId] ?? null; },
     /** 観測のすべて（通知の元が読む） */
     observations() { return loadObs(obsScope()); },
+    /** 今の確定データで、その種族が産まれる親の組（「A|B」。通知の本文に使う） */
+    pairsOf,
     /** 前のウィッシュリストの移行の結果（{ status, migrated, pending }。status は 'none'・'done'・'partial'・'failed'） */
     migration() { return migration; },
     /** 移せていない前のウィッシュリスト（読み取り専用の一覧に出す。移行が partial・failed のときだけ意味がある） */
@@ -338,6 +340,8 @@ export function createIdealStore({
       if (index < 0 || store.state.renaming) return null;
       const goal = goals[index];
       save(key, goals.filter((item, at) => at !== index));
+      // 上限で移せていない前のウィッシュリストがあれば、空いた分に移す（繰り返しても同じ結果になる移行）
+      if (key === scope() && migration.status === 'partial') queueMicrotask(() => migrate(true));
       let observation = null;
       const okey = key === scope() ? obsScope() : '';
       if (okey && !goals.some((item, at) => at !== index && item.palId === goal.palId)) {
@@ -417,16 +421,18 @@ export function goalObservationSource({ store, ideals }) {
     const observations = ideals.observations();
     const targets = new Set(ideals.list().filter(isSpeciesGoal).map((goal) => goal.palId));
     return [...targets].flatMap((palId) => {
-      const entry = observations.species[palId];
+      const entry = Object.hasOwn(observations.species, palId) ? observations.species[palId] : null;
       if (!entry) return [];
       const name = palName(palId);
       const href = buildHash('search', { c: palId });
       const pairText = (pair) => pair.split('|').map(palName).join('＋');
+      // 本文の組は今の確定データから（観測の pairs は一度見た組を残すので、削除された組を指すことがある）
+      const pairs = entry.readyAt ? ideals.pairsOf?.(palId) ?? [] : [];
       const ready = entry.readyAt ? [{
         id: `wishlist:${store.state.env}:${palId}:${entry.readyAt}`,
         date: entry.readyAt,
         title: `${name}の配合が登録されました`,
-        body: entry.pairs?.length ? `${pairText(entry.pairs[0])} で作れます${entry.pairs.length > 1 ? `（ほか ${entry.pairs.length - 1} 組）` : ''}。` : '配合を探すで確認できます。',
+        body: pairs.length ? `${pairText(pairs[0])} で作れます${pairs.length > 1 ? `（ほか ${pairs.length - 1} 組）` : ''}。` : '配合を探すで確認できます。',
         href, palId,
       }] : [];
       return [...ready, ...entry.found.map(({ pair, at }) => ({

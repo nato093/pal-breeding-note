@@ -139,11 +139,41 @@ test('配合を探す: 子だけでも引け、applyRoute で子を合わせ、�
   assert.equal(trigger.getAttribute('aria-label'), `子: No.${pals.find((pal) => pal.id === 'MoonQueen').label} セレムーン`);
   assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
   view.applyRoute(parseHash('#/search?c=SheepBall'), { reason: 'history' });
-  assert.equal(view.element.querySelector('.empty-state').querySelector('p').textContent, 'この子の配合はまだ登録されていません。');
+  assert.equal(view.element.querySelector('.empty-state').querySelector('p').textContent, 'モコロンの配合はまだ登録されていません。');
   view.applyRoute(parseHash('#/search?c=存在しない'), { reason: 'history' });
   assert.deepEqual(replaced, ['#/search']);
   assert.equal(trigger.getAttribute('aria-label'), '子: パルを選択');
   assert.equal(view.element.querySelectorAll('.breeding-card').length, 1);
+  view.destroy();
+});
+
+test('配合を探す: 親を選んで子の並べ替え（子を省いたカード）から更新日の順に戻すと、カードに子を出し直す', (t) => {
+  installDom(t);
+  const view = searchView(context(), parseHash('#/search?p1=SheepBall&sort=child-dex'));
+  const names = () => view.element.querySelectorAll('.breeding-equation').map((node) => node.querySelectorAll('strong').map((item) => item.textContent));
+  assert.deepEqual(names(), [['モコロン', 'フラリーナ']]);
+  view.applyRoute(parseHash('#/search?p1=SheepBall'), { reason: 'update' });
+  assert.deepEqual(names(), [['モコロン', 'フラリーナ', 'セレムーン']]);
+  view.applyRoute(parseHash('#/search?p1=SheepBall&sort=child-dex'), { reason: 'update' });
+  assert.deepEqual(names(), [['モコロン', 'フラリーナ']]);
+  view.destroy();
+});
+
+test('配合を探す: 戻る・進むで条件が変わったら、キーワードの欄にフォーカスがあっても欄を URL に合わせる（自分の入力による変更では上書きしない）', (t) => {
+  installDom(t);
+  const app = context();
+  app.update = () => {};
+  const view = searchView(app, parseHash('#/search?q=もこ'));
+  const keyword = view.element.querySelector('.find-keyword').querySelector('input');
+  assert.equal(keyword.value, 'もこ');
+  keyword.focus();
+  keyword.value = 'もこ ふら';
+  view.applyRoute(parseHash('#/search?q=もこ'), { reason: 'update' });
+  assert.equal(keyword.value, 'もこ ふら');
+  view.applyRoute(parseHash('#/search?q=せれ'), { reason: 'history' });
+  assert.equal(keyword.value, 'せれ');
+  view.applyRoute(parseHash('#/search'), { reason: 'navigate' });
+  assert.equal(keyword.value, '');
   view.destroy();
 });
 
@@ -877,5 +907,42 @@ test('設定（この端末のデータ）: 件数を出し、読み込むと形
   assert.deepEqual(calls, [['drafts', 1], ['goals', 1], ['read', ['wishlist:test:SheepBall:x']]]);
   // 断りのトーストは警告の列に出るので、ふつうのトーストは列の中で探す
   assert.ok(toasts().includes('取り込みました: 下書き 1・目標 1・既読 1 件'), toasts().join(' / '));
+  view.destroy();
+});
+
+test('設定（この端末のデータ）: 自動登録の記録を既読より先に足し、プレイヤーの対応を足したら本人の変化を知らせ、入らなかった数を文に出す', async (t) => {
+  installDom(t);
+  const app = liveContext();
+  app.store.state.passcode = '入力';
+  const subscribe = () => () => {};
+  const calls = [];
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  const other = 'FEDCBA9876543210FEDCBA9876543210';
+  app.notifications = { readList: () => [], unread: () => { calls.push('unread'); return [{ id: 'auto-breed:test:anomaly:f1:e1' }]; }, markRead: (ids) => calls.push(['read', ids]), subscribe };
+  app.autoRegister = {
+    notices: () => [], subscribe,
+    importNotices: (values) => { calls.push(['notices', values.length]); return { added: 1, skipped: 2 }; },
+    // 知らないワールド（null）の後のワールドも取り込む
+    mapping: (id) => (id === world ? { 'uid-1': '自分' } : null),
+    setMapping: (uid, userId, id) => calls.push(['map', uid, userId, id]),
+  };
+  app.self = { changed: () => calls.push('self') };
+  const view = settingsView(app);
+  const input = view.element.querySelector('.settings-device').querySelector('input');
+  input.files = [{ size: 100, text: async () => JSON.stringify({
+    format: 'pal-breeding-note/device-data', version: 1, env: 'test', userId: '仲間', drafts: [], draftGenders: {}, goals: [], goalsObs: {},
+    notificationsRead: ['auto-breed:test:anomaly:f1:e1'],
+    autoBreedingNotices: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    playerMappings: { [other]: { 'uid-9': '他' }, [world]: { 'uid-1': '仲間', 'uid-2': '仲間' } },
+  }) }];
+  const reading = input.dispatch('change');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const dialog = document.body.querySelectorAll('dialog').find((node) => node.open);
+  await dialog.querySelectorAll('button').find((node) => node.textContent === '取り込む').dispatch('click');
+  await reading;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [['notices', 3], 'unread', ['read', ['auto-breed:test:anomaly:f1:e1']], ['map', 'uid-2', '仲間', world], 'self']);
+  const toasts = document.body.querySelectorAll('.toast-message').map((node) => node.textContent);
+  assert.ok(toasts.includes('取り込みました: 自動登録の記録 1・既読 1・登録者の対応 1 件（自動登録の記録 2 件は重複・上限で取り込みませんでした）'), toasts.join(' / '));
   view.destroy();
 });

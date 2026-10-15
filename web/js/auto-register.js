@@ -85,6 +85,19 @@ const batchOf = (notice) => `${notice.worldId ?? ''}\n${notice.batchId ?? notice
  * 入り切らない読み込みから先は丸ごと外す（1 回の読み込みを途中で切ると、通知欄の「ほか N 件」が登録した件数より少なくなるため）。
  * いちばん新しい読み込みだけは、REGISTERED_MAX 件を超えても REGISTERED_MAX 件までは残す
  */
+// 今の通知（current）を全部残したまま、取り込む通知を新しい順に 1 件ずつ、上限（cap: 新しい順の一覧 → 残す一覧）に入る分だけ足す
+function fitNotices(current, incoming, cap) {
+  let kept = [...current].sort(newestFirst);
+  let added = 0;
+  for (const notice of [...incoming].sort(newestFirst)) {
+    const next = cap([...kept, notice].sort(newestFirst));
+    if (next.length !== kept.length + 1) continue;
+    kept = next;
+    added++;
+  }
+  return { kept, added, skipped: incoming.length - added };
+}
+
 function capRegistered(notices) {
   const counts = new Map();
   for (const notice of notices) counts.set(batchOf(notice), (counts.get(batchOf(notice)) ?? 0) + 1);
@@ -585,23 +598,23 @@ export function createAutoRegister({
     /**
      * 書き出したファイルの自動登録の通知を足す（settings の「この端末のデータ」の読み込み）。保存した通知と同じ確かめ方で整え
      *（配合表の答えを外し、前の版の行き先を直す）、同じ id は足さない。登録できた配合は別のキー（capRegistered）、ほかは既存のキー
-     *（NOTICE_MAX 件）。足した数を返す。ログイン前は 0
+     *（NOTICE_MAX 件）。今の通知は押し出さず、空きに入る分だけ足す。{ added（足した数）, skipped（上限で入らなかった数） }。ログイン前は 0 件
      */
     importNotices(values) {
       const { env, userId, passcode } = store.state;
-      if (!passcode || !env || !userId || !Array.isArray(values)) return 0;
+      if (!passcode || !env || !userId || !Array.isArray(values)) return { added: 0, skipped: 0 };
       const cleaned = values.map(cleanSavedNotice).filter(Boolean).map(safeAutoNotice).map(unmappedHref);
       const beforeRegistered = readRegistered(env, userId);
       const beforeNotices = readNotices(env, userId);
       const ids = new Set([...beforeRegistered, ...beforeNotices].map((n) => n.id));
       const fresh = cleaned.filter((n) => !ids.has(n.id) && ids.add(n.id));
-      const registered = fresh.filter((n) => REGISTERED.test(n.id));
-      const others = fresh.filter((n) => !isSuccess(n));
-      if (registered.length) writeNotices(registeredKey(env, userId), capRegistered([...beforeRegistered, ...registered].sort(newestFirst)));
-      if (others.length) writeNotices(noticeKey(env, userId), [...beforeNotices, ...others].sort(newestFirst).slice(0, NOTICE_MAX));
-      const added = registered.length + others.length;
+      const registered = fitNotices(beforeRegistered, fresh.filter((n) => REGISTERED.test(n.id)), capRegistered);
+      const others = fitNotices(beforeNotices, fresh.filter((n) => !isSuccess(n)), (list) => list.slice(0, NOTICE_MAX));
+      if (registered.added) writeNotices(registeredKey(env, userId), registered.kept);
+      if (others.added) writeNotices(noticeKey(env, userId), others.kept);
+      const added = registered.added + others.added;
       if (added) onNotice();
-      return added;
+      return { added, skipped: registered.skipped + others.skipped };
     },
     /** 登録待ちの候補を 1 件捨てる（設定の「登録待ち」の「破棄」。id は pendingSummary の id。登録を終えた候補と同じく外し、このタブでは送り直さない）。捨てたら true */
     discardPending(id, worldId = linkedWorld()) {

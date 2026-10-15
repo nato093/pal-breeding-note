@@ -19,10 +19,12 @@ function memoryStorage() {
 }
 
 // read: 既読の記録（渡すと保存先に書いてから始める。渡さなければ記録のない端末で、更新内容のお知らせは既読から始まる＝G-22）
-function setup({ userId = '自分', passcode = '入力', sources, storage = memoryStorage(), read } = {}) {
+// 既定の時刻は、どのお知らせよりも 7 日以上後（G-22 の「直近 7 日」に入らない）
+const LATER = () => Date.parse('2099-01-01T00:00:00.000Z');
+function setup({ userId = '自分', passcode = '入力', sources, storage = memoryStorage(), read, now = LATER } = {}) {
   if (read) storage.values.set(`pal-note.notifications.read.${userId}`, JSON.stringify(read));
   const store = { state: { userId, passcode } };
-  const notifications = createNotificationStore({ store, storage, sources });
+  const notifications = createNotificationStore({ store, storage, sources, now });
   return { store, storage, notifications };
 }
 
@@ -118,13 +120,22 @@ test('通知: 未読は ID ごとにこの端末に残し、ログアウト中�
   assert.deepEqual(setup({ storage, sources: [() => items], passcode: '' }).notifications.unread(), []);
 });
 
-test('通知: 既読の記録のない ID（新しい人・新しい端末）は、その時点の更新内容のお知らせを既読から始める（目標などは未読のまま。G-22）', () => {
+test('通知: 既読の記録のない ID（新しい人・新しい端末）は、その時点の更新内容のお知らせを既読から始める（目標などと、直近 7 日のお知らせは未読のまま。G-22）', () => {
   const goal = { id: 'wishlist:test:SheepBall:2026-10-15T00:00:00.000Z', date: '2026-10-15', title: '配合が登録されました' };
   const { storage, notifications } = setup({ sources: [releaseNoteSource, () => [goal]] });
   assert.deepEqual(notifications.unread().map((item) => item.id), [goal.id]);
   const saved = JSON.parse(storage.values.get('pal-note.notifications.read.自分'));
   assert.equal(saved.length, releaseNotes.length);
   assert.ok(saved.every((id) => id.startsWith('release:')));
+  // 直近 7 日のお知らせは未読のまま（既読の記録を持たずに前から使っている人にも新しい更新を届ける）
+  const notes = [
+    { id: 'release:new', date: '2026-10-15', title: '新しい' },
+    { id: 'release:edge', date: '2026-10-09T00:00:00.000Z', title: 'ちょうど 7 日前' },
+    { id: 'release:old', date: '2026-10-08', title: '古い' },
+  ];
+  const recent = setup({ userId: '最近', sources: [() => notes], now: () => Date.parse('2026-10-16T00:00:00.000Z') });
+  assert.deepEqual(recent.notifications.unread().map((item) => item.id), ['release:new', 'release:edge']);
+  assert.deepEqual(JSON.parse(recent.storage.values.get('pal-note.notifications.read.最近')), ['release:old']);
   // 記録のある ID は記録のまま（後から出たお知らせは未読）
   storage.values.set('pal-note.notifications.read.仲間', JSON.stringify([]));
   assert.equal(setup({ storage, userId: '仲間' }).notifications.unread().length, releaseNotes.length);

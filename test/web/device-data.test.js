@@ -51,6 +51,32 @@ test('端末のデータ: 読み込みは大きさ・JSON・形式・版・環�
   assert.equal(parseDeviceData(JSON.stringify(exported()), { env: 'test', userId: '仲間' }).otherUser, '自分');
 });
 
+test('端末のデータ: constructor などの palId・マスターにないパルの目標は外し、観測を併せても例外にしない', () => {
+  const raw = (palId) => ({ ...speciesGoal('SheepBall', { name: palId }), palId, id: `g-${palId.replace(/_/g, '')}`, addedAt: '2026-10-01T00:00:00.000Z' });
+  const text = JSON.stringify({
+    ...exported(),
+    goals: [raw('constructor'), raw('toString'), raw('NotAPal'), raw('SheepBall')],
+    goalsObs: { version: 1, species: { constructor: firstObservation([], '2026-10-15T00:00:00.000Z'), SheepBall: firstObservation(['A|B'], '2026-10-15T00:00:00.000Z') } },
+  });
+  const { data } = parseDeviceData(text, { env: 'test', userId: '自分' });
+  assert.deepEqual(data.goals.map((item) => item.palId), ['SheepBall']);
+  assert.deepEqual(Object.keys(data.goalsObs.species), ['SheepBall']);
+  // 足した種族の観測だけを併せる（palId が組み込みの名前でも、継承したものを拾わない）
+  const obs = mergeObservationSpecies({ version: 1, species: {} }, data.goalsObs, ['constructor', 'SheepBall']);
+  assert.deepEqual(Object.keys(obs.species), ['SheepBall']);
+});
+
+test('端末のデータ: 書き出した ID は ID の決まりで整え、全半角・大文字小文字の違いだけなら同じ人とみなす', () => {
+  const read = (userId, current) => parseDeviceData(JSON.stringify(exported({ userId })), { env: 'test', userId: current }).otherUser;
+  assert.equal(read('Ａｌｉｃｅ', 'alice'), '');
+  assert.equal(read('Alice', 'Bob'), 'Alice');
+  // 制御文字は除き、ID にならない値（長すぎる・空・文字列でない）は知らせない
+  assert.equal(read('Al\u0007ice', 'Bob'), 'Alice');
+  assert.equal(read('x'.repeat(21), 'Bob'), '');
+  assert.equal(read('', 'Bob'), '');
+  assert.equal(read(42, 'Bob'), '');
+});
+
 test('端末のデータ: 読み込んだ値は信用せず整える（性別の親が違う枠は外す・形の合わない目標・長い既読・対応の形）', () => {
   const raw = {
     ...exported(),

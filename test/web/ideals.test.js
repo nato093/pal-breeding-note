@@ -420,6 +420,21 @@ test('目標の観測: 種族だけの目標を足した時点で作れても知
   assert.equal(app.ideals.observation('CatMage').pairs.length, 2);
 });
 
+test('目標の観測: 「配合が登録されました」の本文の組は今の確定データから作る（削除された組を指さない）', () => {
+  const app = observing();
+  app.ideals.add(speciesGoal('CatMage'));
+  app.receive([record('CatMage', 'PinkCat', 'Alpaca')], 2);
+  assert.equal(app.notices()[0].body, 'メルパカ＋ツッパニャン で作れます。');
+  app.receive([record('CatMage', 'PinkCat', 'Alpaca'), record('CatMage', 'Boar', 'Deer')], 3);
+  assert.match(app.notices()[0].body, /（ほか 1 組）。$/);
+  // 最初の組が削除された: 観測の pairs には残るが、本文は今の組
+  app.receive([record('CatMage', 'Boar', 'Deer')], 4);
+  assert.equal(app.ideals.observation('CatMage').pairs.length, 2);
+  const ready = app.notices().find((item) => item.title === 'クレメーオの配合が登録されました');
+  assert.doesNotMatch(ready.body, /メルパカ|ツッパニャン|ほか/);
+  assert.match(ready.body, /＋.+ で作れます。$/);
+});
+
 test('目標の観測: 通知は種族だけの目標がある種族だけ（パッシブつきの目標の種族は観測だけ）。最後の目標を外すと観測も消え、元に戻すと戻る', () => {
   const app = observing();
   app.ideals.add({ ...speciesGoal('CatMage'), passives: ['Rare'] });
@@ -471,6 +486,19 @@ test('目標の観測: ログインした環境・ID ごとに前のウィッシ
   storage.setItem('pal-note.wishlist.test.仲間', JSON.stringify([{ palId: 'Alpaca' }]));
   app.ideals.reload('pal-note.wishlist.test.仲間');
   assert.deepEqual(app.ideals.list().map((goal) => goal.palId), ['CatMage', 'Alpaca']);
+});
+
+test('目標の観測: 上限で移せなかった前のウィッシュリストは、目標を外して空いたら移す（partial のまま残さない）', async () => {
+  const storage = memoryStorage();
+  const goals = Array.from({ length: 100 }, (_, index) => ({ ...speciesGoal('SheepBall'), id: `g${index}`, passives: [`P${index}`] }));
+  storage.setItem('pal-note.ideals.test.仲間', JSON.stringify(goals));
+  storage.setItem('pal-note.wishlist.test.仲間', JSON.stringify([{ palId: 'CatMage' }]));
+  const app = observing({ storage });
+  assert.equal(app.ideals.migration().status, 'partial');
+  assert.ok(app.ideals.remove('g0', app.ideals.scope()));
+  await Promise.resolve();
+  assert.equal(app.ideals.migration().status, 'done');
+  assert.deepEqual(app.ideals.list().filter((goal) => goal.palId === 'CatMage').map((goal) => goal.id), ['wish-CatMage']);
 });
 
 test('理想個体（settings）: importGoals は重複・上限を除いて今の目標の後ろに足し、ワールドの完成は持ち込まず、観測は足した種族だけ併せる', () => {

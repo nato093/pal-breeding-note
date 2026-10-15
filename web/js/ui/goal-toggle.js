@@ -17,7 +17,8 @@ export function goalToggle(context, palId, { className = 'button secondary', lab
   const name = palsById.get(palId)?.ja ?? palId;
   const conditions = speciesGoal(palId, { name });
   const key = goalKey(cleanGoal({ ...conditions, id: 'check' }));
-  const element = button('', () => toggle(), `${className} goal-toggle`.trim());
+  // ダブルクリックの 2 回目（detail が 2 以上）は捨てる（登録してすぐ外さない）
+  const element = button('', (event) => { if (!(event?.detail > 1)) toggle(); }, `${className} goal-toggle`.trim());
   // 星は前のウィッシュリストのタブのアイコン（ui/icons.js の star）。登録済みは塗る（CSS）
   const mark = icon('star', { className: 'goal-toggle-star' });
   const text = el('span');

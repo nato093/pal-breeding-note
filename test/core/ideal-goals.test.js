@@ -39,6 +39,12 @@ test('理想個体の登録: 形を確かめ、読めない値は安全な既定
   assert.equal(cleanGoal({ id: 'g', palId: 'X' }).name, 'X');
 });
 
+test('理想個体の登録: Object の組み込みの名前（constructor・__proto__ など）の palId・パッシブは受け付けない', () => {
+  const base = { id: 'g1', name: '目標', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', worlds: {} };
+  for (const palId of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) assert.equal(cleanGoal({ ...base, palId }), null, palId);
+  assert.deepEqual(cleanGoal({ ...base, palId: 'SheepBall', passives: ['valueOf', 'Rare'] }).passives, ['Rare']);
+});
+
 test('理想個体の登録: 読み込みは壊れた JSON を空にし、同じ ID・同じ目標は先のものを残し、件数を限る', () => {
   assert.deepEqual(parseGoals('{'), []);
   assert.deepEqual(parseGoals('{}'), []);
