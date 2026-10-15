@@ -86,5 +86,17 @@ export function createReverserHidden({ storage, namespace = 'pal-note' }) {
       const name = key(env, userId);
       if (read(name).length) write(name, []);
     },
+    /**
+     * 名前の変更（web/js/user-rename.js が端末の配列を移した後に呼ぶ）: 書けずに開いている間だけ覚えていた前の名前の分を、
+     * 新しい名前の分の前に足して移す（端末の配列だけを移すと、手元にだけある分が新しい名前で消える）
+     */
+    move(env, oldId, newId) {
+      const from = key(env, oldId);
+      const to = key(env, newId);
+      if (!from || !to || from === to || !memory.has(from)) return;
+      const items = memory.get(from);
+      memory.delete(from);
+      write(to, cleanReverserHidden([...items, ...read(to)]));
+    },
   };
 }

@@ -83,6 +83,18 @@ test('パルリバーサーの案内を消した目標: 環境・ID ごとの別
   const none = createReverserHidden({ storage: null });
   none.hide('test', 'Taro', a);
   assert.equal(none.has('test', 'Taro', a), true);
+  // 名前の変更: 書けずに手元にだけ覚えていた前の名前の分を、新しい名前の分の前に足して移す（書けるようになっていれば端末にも書く）
+  storage.failing = true;
+  hidden.hide('test', 'Saburo', a);
+  storage.failing = false;
+  storage.values.set('ns.reverserHidden.test.shiro', JSON.stringify([b]));
+  hidden.move('test', 'Saburo', 'Shiro');
+  assert.deepEqual(hidden.list('test', 'Shiro'), [a, b]);
+  assert.deepEqual(JSON.parse(storage.values.get('ns.reverserHidden.test.shiro')), [a, b]);
+  assert.deepEqual(hidden.list('test', 'Saburo'), []);
+  // 手元にだけある分がなければ何もしない（端末の配列は user-rename.js の moveUserStorage が移す）
+  hidden.move('test', 'Taro', 'Goro');
+  assert.equal(storage.values.has('ns.reverserHidden.test.goro'), false);
   // 読めない端末（getItem が投げる）は空として扱う
   const throwing = createReverserHidden({ storage: { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() {} } });
   assert.deepEqual(throwing.list('test', 'Taro'), []);

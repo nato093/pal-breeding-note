@@ -337,4 +337,13 @@ test('端末内の移動: パルリバーサーの案内を消した目標（rev
   assert.deepEqual(read(storage, 'pal-note.reverserHidden.test.taro'), [target(70)]);
   // 新しい名前で読むと、重なりは前の方だけ
   assert.deepEqual(createReverserHidden({ storage }).list('prod', 'Jiro'), [target(100), target(90), target(80)]);
+  // 書けずに手元にだけ覚えていた分も、名前の変更で移す（書けるようになった後の変更。ID の変更は止めない）
+  const hidden = createReverserHidden({ storage });
+  storage.failing.add('pal-note.reverserHidden.prod.hanako');
+  hidden.hide('prod', 'Hanako', target(60));
+  storage.failing.clear();
+  const renamer = createRenamer({ store: { state: { env: 'prod', userId: 'Hanako' } }, reverserHidden: hidden, storage });
+  renamer.followServer('Hanako', 'Saburo', 'prod');
+  assert.deepEqual(hidden.list('prod', 'Saburo'), [target(60)]);
+  assert.deepEqual(read(storage, 'pal-note.reverserHidden.prod.saburo'), [target(60)]);
 });

@@ -562,12 +562,13 @@ export function idealView(context, route) {
   const reverserBox = el('section', 'ideal-reverser');
   reverserBox.setAttribute('aria-label', `${GENDER_REVERSE_NAME}の案内`);
   reverserBox.hidden = true;
-  // 個体の呼び名（「ゴウカブキ♂ Lv66（P4 · 2-5）」）。右のドロワーがあれば押すとその個体の詳細を開く。title は個体値とパッシブ
-  const reverserPal = (pal) => {
+  // 個体の呼び名（「ゴウカブキ♂ Lv66（P4 · 2-5）」）。右のドロワーがあれば押すとその個体の詳細を開く。title は個体値とパッシブ。
+  // フォーカスを戻す目印は、行（性別を変える個体 X は行ごとに 1 体）と役目（X か相手か）で作る（同じ個体が別の行の相手にも出るため）
+  const reverserPal = (pal, hint, role) => {
     const text = palBrief(pal);
     const node = context.drawer ? button(text, () => context.drawer.open({ kind: 'owned', id: pal.id }, { opener: node }), 'ideal-reverser-pal')
       : el('span', 'ideal-reverser-pal', text);
-    if (context.drawer) node.setAttribute('data-focus-key', `reverser-pal:${pal.id}`);
+    if (context.drawer) node.setAttribute('data-focus-key', `reverser-pal:${hint.pal.id}:${role}`);
     node.title = [talentLine(pal), pal.passives.length ? passiveNames(pal.passives) : ''].filter(Boolean).join('\n');
     return node;
   };
@@ -598,7 +599,8 @@ export function idealView(context, route) {
     const list = el('ul', 'ideal-reverser-list');
     for (const hint of flip.hints) {
       const item = el('li', 'ideal-reverser-item');
-      item.append(reverserPal(hint.pal), el('span', '', ' を '), genderMark(hint.to, { inline: true }), el('span', '', ' にすると（相手 '), reverserPal(hint.partner),
+      item.append(reverserPal(hint.pal, hint, 'pal'), el('span', '', ' を '), genderMark(hint.to, { inline: true }), el('span', '', ' にすると（相手 '),
+        reverserPal(hint.partner, hint, 'partner'),
         el('span', '', flip.before === null ? '）、完全体作成組ができます' : '）、より早く完成します'));
       list.append(item);
     }

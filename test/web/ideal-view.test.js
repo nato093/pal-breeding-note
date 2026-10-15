@@ -3092,6 +3092,26 @@ test('理想個体画面（パルリバーサー）: 右のドロワーがあれ
   view.destroy();
 });
 
+test('理想個体画面（パルリバーサー）: データの読み直しで案内を作り直しても、フォーカスは同じ行の同じ役目の個体に戻る（同じ個体が別の行の相手にも出る）', (t) => {
+  const { body } = install(t);
+  const owned = fakeOwned(reverserPals);
+  const view = idealView({ ...context(owned), drawer: { open() {} } }, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  body.append(view.element);
+  // 2 行目の性別を変える個体（m1）は、1 行目の相手（m1）と同じ個体
+  const rowPal = (row, index) => reverserBox(view).querySelectorAll('li')[row].querySelectorAll('.ideal-reverser-pal')[index];
+  assert.equal(rowPal(1, 0).textContent, rowPal(0, 1).textContent);
+  rowPal(1, 0).focus();
+  const before = rowPal(1, 0);
+  // 計算に効かない値（レベル）だけが変わった読み直し（計算し直さず、個体を入れ替えて描き直す）
+  const changed = owned.state.data.snapshot.pals.map((pal) => ({ ...pal, level: 20 }));
+  owned.state.owned = normalizeOwned({ ...owned.state.data.snapshot, pals: changed }, { pals, passives });
+  owned.emit();
+  assert.notEqual(rowPal(1, 0), before);
+  assert.match(rowPal(1, 0).textContent, /Lv20/);
+  assert.equal(document.activeElement, rowPal(1, 0));
+  view.destroy();
+});
+
 test('理想個体画面（パルリバーサー）: 区切った計算でも、計画と案内がそろってから一緒に描く（案内だけ後から出さない）。案内を戻したときは計画を計算し直さない', async (t) => {
   installDom(t);
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
