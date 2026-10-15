@@ -37,7 +37,7 @@ import { inheritanceView } from './views/route.js';
 import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { palView } from './views/pal.js';
-import { settingsView } from './views/settings.js';
+import { settingsView, RIGHTS_NOTE } from './views/settings.js';
 import { TABS, tabLabel } from './views/tabs.js';
 import { ownedWorldId } from './core/owned-shared.js';
 
@@ -163,6 +163,13 @@ async function boot() {
   ownedBadge.hidden = true;
   ownedBadge.setAttribute('aria-hidden', 'true');
   ownedTab?.append(ownedBadge);
+  // 設定のタブの整合性の警告の数（1 件以上のとき。ベルの数字と同じ赤。押すと警告のカードへ〔#/settings?open=warnings〕。C-12）
+  const settingsTab = tabLinks.get('settings');
+  const warningBadge = el('span', 'nav-badge is-error');
+  warningBadge.hidden = true;
+  warningBadge.setAttribute('aria-hidden', 'true');
+  settingsTab?.append(warningBadge);
+  const warningCount = () => (store.state.passcode ? store.state.warnings?.length ?? 0 : 0);
   // タブを切り替えても、各画面の選択（URL）と絞り込み（画面内の入力）を残す。読み込み直しても、同じタブ（sessionStorage）の間は残る
   //（ページを離れるときに保存し、起動したときに戻す。戻る・進むでは、そのときの履歴のエントリの条件と位置に戻す。ui/view-memory.js）。
   const viewStates = new Map();
@@ -185,7 +192,8 @@ async function boot() {
   function setTabHref(view, href) {
     const tab = tabLinks.get(view);
     if (!tab) return;
-    tab.href = href;
+    // 整合性の警告があるあいだ、設定のタブは警告のカードへ（覚える行き先は今までどおり）
+    tab.href = view === 'settings' && warningCount() ? buildHash('settings', { open: 'warnings' }) : href;
     tabHrefs.set(view, href);
     if (view === 'search') brand.href = href;
   }
@@ -442,7 +450,7 @@ async function boot() {
     if (!signup) switchPanel.append(el('p', 'muted', 'アカウントをお持ちでない方'));
     switchPanel.append(switchForm);
     // 注記は INV-2（配合の候補は登録済みの記録だけ）を利用者に伝える文なので残す
-    panel.append(form, switchPanel, el('p', 'login-note', 'このノートに載るのは、仲間が登録した配合だけ。'));
+    panel.append(form, switchPanel, el('p', 'login-note', 'このノートに載るのは、仲間が登録した配合だけ。'), el('p', 'login-note login-rights', RIGHTS_NOTE));
     main.replaceChildren(panel);
     // すぐ入力できるよう、ID が入っていればパスワード、空なら ID の欄へ
     (userId.value ? password : userId).focus();
@@ -717,6 +725,21 @@ async function boot() {
   ideals.subscribe(renderGoalBadge);
   owned.subscribe(renderGoalBadge);
   renderGoalBadge();
+  // 設定のタブの整合性の警告の数（記録を取るたび。文字・hidden・aria-label・行き先だけを書き換える）
+  let shownWarnings = -1;
+  const renderWarningBadge = () => {
+    if (!settingsTab) return;
+    const count = warningCount();
+    if (count === shownWarnings) return;
+    shownWarnings = count;
+    warningBadge.textContent = count ? String(count > 99 ? '99+' : count) : '';
+    warningBadge.hidden = !count;
+    if (count) settingsTab.setAttribute('aria-label', `${tabLabel('settings')}（整合性の警告 ${count} 件）`);
+    else settingsTab.removeAttribute('aria-label');
+    setTabHref('settings', tabHrefs.get('settings') ?? buildHash('settings'));
+  };
+  store.subscribe(renderWarningBadge);
+  renderWarningBadge();
   // 所持パルのタブの「!」
   const renderOwnedBadge = () => {
     if (!ownedTab) return;

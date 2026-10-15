@@ -708,3 +708,22 @@ test('下書きの性別: 前の版のタブが下書きのキーを書き直し
   assert.equal(app.drafts.update(added.id, { parent1Gender: 'M' }), true);
   assert.equal(app.drafts.list().find((draft) => draft.id === added.id).parent1Gender, 'M');
 });
+
+test('下書き（settings）: importMany は id で併せて今の下書きを優先し、中身を整え、送信の登録 ID は持ち込まない。保存できたかを返す', async (t) => {
+  const { drafts, storage } = await setup(t);
+  const mine = drafts.add({ ...complete, memo: '今の下書き' });
+  const result = drafts.importMany([
+    { ...mine, memo: '書き出した方' },
+    { id: '22222222-2222-4222-8222-222222222222', parent1Id: 'SheepBall', parent2Id: '知らないパル', childId: 'MoonQueen', parent1Gender: 'F', memo: 'x'.repeat(300), recordId: '33333333-3333-4333-8333-333333333333' },
+    'こわれた',
+  ]);
+  assert.deepEqual(result, { added: 1, saved: true });
+  const [kept, added] = drafts.list();
+  assert.equal(kept.memo, '今の下書き');
+  assert.deepEqual([added.parent1Id, added.parent2Id, added.parent1Gender, added.memo.length, added.recordId], ['SheepBall', '', 'F', 200, '']);
+  assert.deepEqual(drafts.importMany([mine]), { added: 0, saved: true });
+  // 保存に失敗したら saved: false（手元には足す）
+  storage.fail = true;
+  assert.deepEqual(drafts.importMany([{ id: '44444444-4444-4444-8444-444444444444', ...complete }]), { added: 1, saved: false });
+  assert.equal(drafts.list().length, 3);
+});

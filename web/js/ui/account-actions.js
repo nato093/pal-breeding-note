@@ -41,7 +41,7 @@ export function openRenameDialog({ store, renamer }) {
 
 /** ログアウトの確認。承認したらログアウトして true を返す。 */
 export async function confirmLogout(store) {
-  if (!await confirmDialog('ログアウトしますか？', 'この端末のパスワードと配合キャッシュを消去します。次回は ID と共通パスワードでログインしてください。',
+  if (!await confirmDialog('ログアウトしますか？', 'この端末のパスワードと配合キャッシュを消去します。次回は ID と共通パスワードでログインしてください。下書き・目標・既読などはこの端末に残ります（同じ ID でログインすると戻ります）。',
     { confirmText: 'ログアウト', danger: true })) return false;
   store.logout();
   return true;

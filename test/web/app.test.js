@@ -167,7 +167,7 @@ test('画面: 失敗をフォーム内に表示し、新規登録・ログアウ
   assert.equal(byClass('sync-status').disabled, false);
   assert.equal(byClass('account-button').textContent, 'ＡｂＣ');
   const settings = byClass('settings-view');
-  assert.match(settings.textContent, /ログイン中の ID: ＡｂＣ/);
+  assert.match(settings.textContent, /ログイン中: ＡｂＣ/);
   assert.doesNotMatch(settings.textContent, /仲間を招待|パスコード|新しいパスワード|出典と権利表記/);
   assert.equal(values.get('pal-note.passcode'), '入力');
   const canceled = byText('ログアウト').dispatch('click');
@@ -815,9 +815,11 @@ test('画面: 設定から ID を変えると、ログイン中の ID・登録�
   input('username').value = 'Taro';
   input('new-password').value = '入力';
   await byText('登録してログイン').dispatch('click');
-  assert.match(byClass('settings-view').textContent, /ID を変えると、これまでの配合の登録者名もすべて新しい ID になります/);
+  // 名前の変更の説明はモーダルの側だけ（設定のカードには出さない。C-40）
+  assert.doesNotMatch(byClass('settings-view').textContent, /登録者名もすべて/);
   const dialogInput = () => descendants(find((node) => node.tagName === 'dialog' && node.open)).find((node) => node.tagName === 'input');
   byText('ID を変更').dispatch('click');
+  assert.match(find((node) => node.tagName === 'dialog' && node.open).textContent, /これまでの配合の登録者名も、すべて新しい ID に変わります/);
   assert.equal(dialogInput().value, 'Taro');
   dialogInput().value = 'あ'.repeat(21);
   await byText('変更する').dispatch('click');
@@ -830,7 +832,7 @@ test('画面: 設定から ID を変えると、ログイン中の ID・登録�
   await byText('変更する').dispatch('click');
   await flush();
   assert.equal(find((node) => node.tagName === 'dialog' && node.open), undefined);
-  assert.match(byClass('settings-view').textContent, /ログイン中の ID: Jiro/);
+  assert.match(byClass('settings-view').textContent, /ログイン中: Jiro/);
   // 完了したら「終わっていません」の表示を残さず、ログアウトもできる
   assert.doesNotMatch(byClass('settings-view').textContent, /終わっていません/);
   assert.equal(byText('ID を変更').hidden, false);
@@ -1116,7 +1118,7 @@ test('画面: ID の変更中は「このワールドでの自分」を選べず
   release();
   await renaming;
   for (let i = 0; i < 10; i++) await flush();
-  assert.match(byClass('settings-view').textContent, /ログイン中の ID: Jiro/);
+  assert.match(byClass('settings-view').textContent, /ログイン中: Jiro/);
   // 変更が終わってから、新しい ID の保存先で 1 回判定し直す（そのとき完成していたものは知らせない）
   assert.equal(values.get(`pal-note.ideals.self.test.jiro.${WORLD_A}`), PLAYER);
   const after = JSON.parse(values.get('pal-note.ideals.test.jiro'))[0].worlds[WORLD_A];
@@ -1623,4 +1625,32 @@ test('画面（autoreg-visibility）: 自動の読み込みが止まっている
   assert.equal(badge.textContent, '!');
   assert.equal(tab.getAttribute('aria-label'), '所持パル（読み込みが止まっています）');
   assert.equal(JSON.parse(values.get('pal-note.owned.bridge')).enabled, true);
+});
+
+test('画面（settings）: 整合性の警告が 1 件以上なら設定のタブに数のバッジと読み上げの文、行き先は警告のカード（#/settings?open=warnings）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const api = async (request) => {
+    const response = await development(request);
+    // 全件の応答（snapshot の action は全件をそのまま、ほかの操作は snapshot の中に返す）に警告を 1 件入れる
+    if (Array.isArray(response.warnings)) response.warnings = [{ code: 'UNKNOWN_PAL', rowNumber: 3 }];
+    if (response.snapshot) response.snapshot.warnings = [{ code: 'UNKNOWN_PAL', rowNumber: 3 }];
+    return response;
+  };
+  const { changeHash } = await boot(t, { initial: signedIn, api, hash: '#/search' });
+  for (let i = 0; i < 5; i++) await flush();
+  const tab = find((node) => node.className.split(' ').includes('nav-tab') && node.getAttribute('data-view') === 'settings');
+  const badge = tab.querySelector('.nav-badge');
+  assert.deepEqual([badge.hidden, badge.textContent], [false, '1']);
+  assert.equal(tab.getAttribute('aria-label'), '設定（整合性の警告 1 件）');
+  assert.equal(tab.href, '#/settings?open=warnings');
+  // 設定では警告のカードが出て、見出しに件数
+  changeHash('#/settings?open=warnings');
+  const card = byClass('settings-warnings');
+  assert.equal(card.hidden, false);
+  assert.equal(card.querySelector('h3').textContent, '整合性の警告（1 件）');
+  // 読んだら URL から open を外す
+  assert.equal(location.hash, '#/settings');
+  // 見出しへフォーカスを移すのは描いた後（次の回）
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(document.activeElement, card.querySelector('h3'));
 });

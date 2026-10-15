@@ -483,6 +483,9 @@ export function idealView(context, route) {
   function openGoals() {
     if (!ideals || goalsModal) return;
     goalsModal = openDialog('目標', { className: 'ideal-goals-dialog', onClose: () => { goalsModal = null; goalsClose = null; clearList(goalsList); } });
+    // 見出しの横に「この端末だけ」（目標はこの端末にだけ残る。設定の「この端末のデータ」と同じ印）
+    const header = goalsModal.dialog.querySelector('header');
+    header?.insertBefore(statusChip('この端末だけ', 'neutral', 'device-only-chip'), header.children[1] ?? null);
     goalsClose = button('閉じる', goalsModal.close, 'button secondary');
     goalsModal.body.append(goalsWarning, migrationNote, goalsList);
     goalsModal.footer.append(goalsClose);

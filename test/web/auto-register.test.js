@@ -1019,3 +1019,19 @@ test('自動登録（成功の通知）: 名前の変更で、成功の通知の
   assert.equal(raw.getItem('t.autoBreeding.registered.test.旧名'), null);
   assert.deepEqual(t.auto.notices().map((n) => [n.id, n.kind, n.batchId]), [['auto-breed:test:registered:moved', 'auto-registered', second(5)]]);
 });
+
+test('自動登録（settings）: importNotices は保存した通知と同じ確かめ方で整え（配合表の答えを外す）、同じ id は足さず、成功は別のキーに入れる', async () => {
+  const t = await setup({ farms: [] });
+  const date = '2026-10-06T00:00:00.000Z';
+  const added = t.auto.importNotices([
+    { id: 'auto-breed:test:registered:r1', date, kind: 'auto-registered', worldId: 'ABCDEF0123456789ABCDEF0123456789', batchId: date, title: '配合を自動登録しました', body: 'モコロン♀＋オオタチウオ♂ → ヤクモマル（拠点 1）' },
+    { id: 'auto-breed:test:anomaly:f1:e1', date, title: '配合の結果が表と違います', body: 'モコロン×ツッパニャン：表はセレムーン、新しいタマゴはフラリーナ' },
+    { id: 'こわれた' }, 'こわれた',
+  ]);
+  assert.equal(added, 2);
+  const notices = t.auto.notices();
+  assert.deepEqual(notices.map((n) => n.id).sort(), ['auto-breed:test:anomaly:f1:e1', 'auto-breed:test:registered:r1']);
+  assert.ok(notices.every((n) => !/表は|セレムーン/.test(`${n.title}${n.body}`)));
+  assert.ok(t.storage.get('t.autoBreeding.registered.test.自分'));
+  assert.equal(t.auto.importNotices(notices), 0);
+});

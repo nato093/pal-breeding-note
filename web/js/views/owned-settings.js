@@ -1,9 +1,9 @@
 // 設定の「セーブ連携」。登録したワールド（モーダルで登録・編集・削除）、使うワールドの切り替え、
-// 表示しているワールドでの自分、配合牧場からの自動登録（ワールドごと）、所持パルの CSV・共有の削除を扱う。
-import { el, button, link, runButton, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
+// 表示しているワールドでの自分、配合牧場からの自動登録（ワールドごと）、共有の削除を扱う。所持パルの CSV は設定の「書き出し」カード（settings）。
+import { el, button, link, runButton, statusChip, setChipTone, setDisabled, downloadBlob, dateStamp } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
-import { dateTime, worldName, roleLabel, timeLines, permissionNotice, grantWithReport } from '../ui/owned-status.js';
+import { dateTime, worldName, roleLabel, permissionNotice, grantWithReport } from '../ui/owned-status.js';
 import { palIcon, palsById } from '../ui/pal-icon.js';
 import { buildHash } from '../router.js';
 import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
@@ -45,25 +45,28 @@ function afterAttach(fn) {
   else setTimeout(fn, 0);
 }
 
+// ワールドの行の表記「「テスト」（ホスト Alice）· 10/10 09:00 に遊んだ」（C-43。前の「ホスト」とファイル数はなくした。参加は行のチップ）。
+// 読めない状態（許可が必要など）は後ろに
 function registeredLabel(world) {
-  const parts = [shortName(world), world.kind === 'guest' ? '参加者' : 'ホスト', `${world.files?.length ?? 0} ファイル`];
-  if (world.playedAt) parts.push(`${dateTime(world.playedAt)} に遊んだ${world.role === 'guest' ? '（参加）' : ''}`);
+  const parts = [shortName(world)];
+  if (world.playedAt) parts.push(`${dateTime(world.playedAt)} に遊んだ`);
   if (WORLD_STATES[world.status]) parts.push(WORLD_STATES[world.status]);
   return parts.join(' · ');
 }
 
-function downloadCsv(owned, importedAt) {
+/** 所持パルの CSV を保存する（BOM つき。設定の「書き出し」カード） */
+export function downloadOwnedCsv(owned, importedAt) {
   const csv = rowsToCsv(ownedRows(owned, { importedAt }));
-  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = el('a');
-  anchor.href = url;
-  const now = new Date();
-  anchor.download = `owned-pals-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.csv`;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }), `owned-pals-${dateStamp()}.csv`);
+}
+
+// 登録モーダルのチェックリストに添える、① に貼ったパスから作った実際のパス（長い ID は頭 4 字に縮める。F082）
+const shortId = (id) => (id.length > 6 ? `${id.slice(0, 4)}…` : id);
+function actualPath(draft, path) {
+  if (!draft?.worldId) return '';
+  const world = `…\\SaveGames\\${shortId(draft.steamId ?? '')}\\${shortId(draft.worldId)}`;
+  if (path === '../GlobalPalStorage.sav') return `…\\SaveGames\\${shortId(draft.steamId ?? '')}\\GlobalPalStorage.sav`;
+  return `${world}\\${path.replace(/\//g, '\\')}`;
 }
 
 function dropZone(text, onDrop) {
@@ -111,8 +114,14 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   const draftList = el('ul', 'owned-draft');
   const dropField = el('div', 'owned-step');
   dropField.append(el('span', 'field-label', '② ファイルをドロップ'), fileDrop, draftList);
+  // 結果欄は 2 行分の高さを保つ（文の長さで下の部品が上下しない。長い文は 2 行で切り、全文は title。F082）
   const result = el('p', 'owned-dialog-result');
   result.setAttribute('aria-live', 'polite');
+  const showResult = (text, state = '') => {
+    result.textContent = text;
+    result.title = text;
+    result.className = `owned-dialog-result${state ? ` ${state}` : ''}`;
+  };
   const save = button('保存', async () => {
     if (saving || !previewed) return;
     saving = true;
@@ -137,11 +146,17 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const known = draft ? owned.state.auto.worlds.find((item) => item.id === draft.worldId) : null;
     const paths = draft ? [...new Set([...(known?.files ?? []), ...draft.files.keys()])] : [];
     const has = (path) => paths.includes(path);
-    const item = (label, done) => draftList.append(el('li', done ? 'done' : '', `${done ? '✓' : '—'} ${label}`));
-    for (const path of REQUIRED_FILES.host) item(path, has(path));
+    // 各行に、① に貼ったパスから作った実際のパスを薄い字で添える（パスがまだなければ書き方だけ）
+    const item = (label, done, path = '') => {
+      const node = el('li', done ? 'done' : '', `${done ? '✓' : '—'} ${label}`);
+      const actual = path ? actualPath(draft, path) : '';
+      if (actual) node.append(el('small', 'owned-draft-path', actual));
+      draftList.append(node);
+    };
+    for (const path of REQUIRED_FILES.host) item(path, has(path), path);
     const players = paths.filter((path) => path.startsWith('Players/')).length;
-    item(`Players\\ の中のファイル全部${players ? `（${players} 件）` : ''}`, players > 0);
-    item('..\\GlobalPalStorage.sav（任意）', has('../GlobalPalStorage.sav'));
+    item(`Players\\ の中のファイル全部${players ? `（${players} 件）` : ''}`, players > 0, 'Players/');
+    item('..\\GlobalPalStorage.sav（任意）', has('../GlobalPalStorage.sav'), '../GlobalPalStorage.sav');
     save.disabled = saving || !previewed;
   }
 
@@ -154,19 +169,16 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     // 登録済みのワールドで Steam ID だけ直したときは、ファイルをドロップしなくても確かめて保存できる
     const known = draft ? owned.state.auto.worlds.find((item) => item.id === draft.worldId) : null;
     const steamChanged = Boolean(known && draft.steamId && draft.steamId !== known.steamId);
-    if (!draft?.files.size && !steamChanged) { result.textContent = ''; return; }
-    result.textContent = '読み込んで確かめています…';
-    result.className = 'owned-dialog-result';
+    if (!draft?.files.size && !steamChanged) { showResult(''); return; }
+    showResult('読み込んで確かめています…');
     try {
       const checked = await owned.previewRegistration({ worldId: draft.worldId, steamId: draft.steamId, files: [...draft.files.values()] });
       if (ticket !== checking) return;
       previewed = checked;
-      result.textContent = previewText(checked);
-      result.className = 'owned-dialog-result ok';
+      showResult(previewText(checked), 'ok');
     } catch (error) {
       if (ticket !== checking) return;
-      result.textContent = error.message;
-      result.className = 'owned-dialog-result todo';
+      showResult(error.message, 'todo');
     }
     renderDraft();
   }
@@ -214,11 +226,13 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
 
   // ---- 状態（読み込み・許可） ----
   const autoState = statusChip('', 'neutral', 'owned-auto-state');
+  // この PC の役割（ホスト・参加）の短いチップ（前は状態の dl の「この PC」の括弧書き。C-36）
+  const roleChip = statusChip('', 'neutral', 'owned-role-chip');
   const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
   // 許可はクリックの中で（await を挟まずに）求める。許可されなかったときのトーストは grantWithReport（3 か所で同じ）
   const grant = button('読み込みを許可', () => runButton(grant, () => grantWithReport(owned), () => {}), 'button primary');
   const stateRow = el('div', 'owned-import-row');
-  stateRow.append(autoState, grant, autoNow);
+  stateRow.append(roleChip, autoState, grant, autoNow);
   const autoError = el('p', 'owned-auto-error');
 
   // ---- 使うワールド（所持パルの表示・自動の読み込み・配合の自動登録に効く） ----
@@ -231,7 +245,6 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const run = worldMode === 'auto' ? owned.selectAutoWorld(worldSelect.value) : owned.setViewWorld(worldSelect.value);
     Promise.resolve(run).catch((error) => toast(error.message, { kind: 'error' }));
   });
-  const status = el('dl', 'owned-settings-status');
 
   // ---- 登録したワールド ----
   const registered = el('ul', 'owned-registered');
@@ -341,19 +354,11 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     }
   }
 
-  // ---- 所持パル（ワールドの行を開いたところで、そのワールドについて操作する） ----
+  // ---- 共有した所持パル（ワールドの行を開いたところで。この PC がホストとして共有したワールドだけ。CSV は「書き出し」カードへ移した） ----
   function ownedPanel(world, view) {
     const panel = el('div', 'owned-world-pals');
     panel.append(el('p', 'owned-step-title', '所持パル'));
-    const csv = button('CSV で保存', () => runButton(csv, async () => {
-      const found = await owned.ownedOf(world.id);
-      if (!found) { toast('このワールドの所持パルがまだありません'); return; }
-      downloadCsv(found.owned, found.importedAt);
-    }, (error) => toast(error.message, { kind: 'error' })), 'button secondary');
-    busyButtons.push([csv, () => !view.hasOwned]);
     const row = el('div', 'owned-import-row');
-    row.append(csv);
-    // 共有した所持パルの削除は、この PC がホストとして共有したワールドだけ
     if (view.sharedAt && world.kind !== 'guest') {
       const remove = button('共有した所持パルを削除', async () => {
         if (!await confirmDialog('共有した所持パルを削除しますか？', 'スプレッドシートから、このワールドの所持パルを消します。仲間の画面にも表示されなくなります。セーブは変わりません。', { confirmText: '削除', danger: true })) return;
@@ -363,16 +368,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       row.append(remove);
     }
     panel.append(row);
-    if (!view.hasOwned) panel.append(el('p', 'owned-help muted', 'このワールドを読み込むか、ホストが共有すると保存できます。'));
     return panel;
   }
-
-  // 登録したワールドがないとき（ホストが共有したワールドを見ているとき）は、表示しているワールドを CSV で保存できる
-  const csvButton = button('所持パルを CSV で保存', () => {
-    if (owned.state.owned) downloadCsv(owned.state.owned, owned.state.meta?.saveUpdatedAt ?? '');
-  }, 'button secondary');
-  const dataRow = el('div', 'owned-import-row');
-  dataRow.append(csvButton);
 
   // ---- このワールドでの自分（表示しているワールドのプレイヤーから 1 人。理想個体の完成の判定と自分の個体の絞り込みに使う。この端末だけ） ----
   // 状態の欄（status）は描くたびに作り直すので、その外に作り直さない行として置く。選択肢は表示する内容が変わったときだけ作り直す
@@ -448,7 +445,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   };
 
   const cardTitle = el('h2', '', 'セーブ連携');
-  card.append(cardTitle, stateRow, autoError, worldRow, status, selfRow, worldsHead, emptyNote, registered, dataRow);
+  card.append(cardTitle, stateRow, autoError, worldRow, selfRow, worldsHead, emptyNote, registered);
 
   // ワールドの行は開閉でき、開くとそのワールドの自動登録の設定が出る。開いている行は描き直しても開いたまま。
   // 選んでいる途中に作り直さないよう、表示する内容が変わったときだけ描き直す
@@ -474,11 +471,11 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       mapping: autoRegister && env ? autoRegister.mapping(world.id) : {},
       // 登録者を選べるのは、いま読み込んでいるワールドだけ（ほかのワールドのプレイヤーは分からない）
       players: env && players.length && state.local?.world.id === world.id ? players : null,
-      // 所持パルがあるか（この PC で読み込んだ、または共有されている）と、共有した時刻
-      hasOwned: state.local?.world.id === world.id || sharedAt.has(world.id),
+      // 共有した時刻（共有した所持パルの削除を出すか）
       sharedAt: sharedAt.get(world.id) ?? '',
     }));
-    return { users, views, signature: JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind]), views, users, Boolean(autoRegister)]) };
+    // 参加のチップは kind と role で決まる
+    return { users, views, signature: JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind, w.role]), views, users, Boolean(autoRegister)]) };
   }
   function renderRegistered(state) {
     const { users, views, signature } = registeredViews(state);
@@ -499,11 +496,13 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
           await runButton(remove, async () => { await owned.removeWorld(world.id); toast('登録を削除しました'); }, (error) => toast(error.message, { kind: 'error' }));
         }, 'button quiet danger-text');
         busyButtons.push([edit, () => false], [remove, () => false]);
-        const actions = el('span', 'owned-registered-actions');
+        // 編集・削除は summary の外（行の右端）に置く（summary の中にボタンを入れない。読み上げで開閉の部品と混ざるため。C-44）
+        const actions = el('div', 'owned-registered-actions');
         actions.append(edit, remove);
         const summary = el('summary', 'owned-world-summary');
         // 閉じたままでも、開くと何があるか（配合の自動登録の設定と、いまの状態）が分かるようにする
         const parts = [el('span', 'owned-world-label', views[index].label)];
+        if (world.kind === 'guest' || world.role === 'guest') parts.push(statusChip('参加', 'info', 'owned-world-role'));
         // 状態の印（状態のチップ。オンは ready、オフ・対象外は neutral）
         const stateChip = statusChip('', 'neutral', 'owned-world-state');
         const showState = (on) => {
@@ -512,7 +511,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         };
         showState(world.kind !== 'guest' && views[index].enabled);
         if (autoRegister) parts.push(stateChip);
-        summary.append(...parts, actions);
+        summary.append(...parts);
         const details = el('details', 'owned-world-details');
         details.open = openWorlds.has(world.id);
         details.addEventListener('toggle', () => { if (details.open) openWorlds.add(world.id); else openWorlds.delete(world.id); });
@@ -520,8 +519,9 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         const targets = { details, toggle: null, registrants: [] };
         worldParts.set(world.id, targets);
         if (autoRegister) details.append(breedingPanel(world, views[index], users, showState, targets));
-        details.append(ownedPanel(world, views[index]));
-        item.append(details);
+        // 共有した所持パルの削除があるときだけ「所持パル」の欄を出す
+        if (views[index].sharedAt && world.kind !== 'guest') details.append(ownedPanel(world, views[index]));
+        item.append(details, actions);
         registered.append(item);
       });
     }
@@ -574,19 +574,16 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     autoNow.disabled = state.busy;
     renderWorldSelect(state);
 
-    const items = [];
-    if (state.role) items.push(['この PC', roleLabel(state)]);
-    items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? 0} 体` : '（データなし）'}` : 'なし']);
-    const lines = timeLines(state);
-    if (lines.length) items.push(['更新', lines.join(' · ')]);
-    status.replaceChildren();
-    for (const [term, detail] of items) status.append(el('dt', '', term), el('dd', '', detail));
+    // この PC の役割（表示中のワールド・更新の時刻はヘッダーのセーブ連携と所持パルで見られるので出さない。C-36）
+    const role = state.role === 'host' ? 'ホスト' : state.role === 'guest' ? '参加' : '';
+    if (roleChip.textContent !== role) roleChip.textContent = role;
+    setChipTone(roleChip, role === 'ホスト' ? 'ready' : role ? 'info' : 'neutral');
+    roleChip.hidden = !role;
+    roleChip.title = role ? roleLabel(state) : '';
 
     renderRegistered(state);
     renderSelf();
     add.disabled = state.busy;
-    csvButton.disabled = !state.owned;
-    dataRow.hidden = hasWorlds;
     // 読み込む前に来た設定の行き先は、読み込んだ後に行う
     if (pendingReveal && state.ready) {
       const next = pendingReveal;

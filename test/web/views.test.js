@@ -253,15 +253,23 @@ test('配合を探す: 並べ替えは 5 種（既定は更新日の新しい順
   view.destroy();
 });
 
-test('設定: アカウントを末尾に移し、他の順序とログイン ID を保つ（「通知」カードはない。履歴はベルの「すべての通知を見る」）', (t) => {
+test('設定: 並びは アカウント → データ（整合性の警告は 0 件で隠す・書き出し・この端末のデータ）→ このアプリについて（「データの状態」「通知」はない）', (t) => {
   installDom(t);
   const view = settingsView(context());
   const sections = view.element.querySelectorAll('.settings-card');
-  assert.deepEqual(sections.map((node) => node.querySelector('h2').textContent), [
-    'データの状態', '記録を書き出す', '整合性の警告', 'アカウント',
+  assert.equal(sections.length, 4);
+  assert.deepEqual(sections.map((node) => (node.querySelector('h2') ?? node.querySelector('h3')).textContent), [
+    'アカウント', '整合性の警告（0 件）', '書き出し', 'この端末のデータこの端末だけ',
   ]);
-  assert.match(sections[3].textContent, /ログイン中の ID: 仲間.*ログアウト/);
-  assert.doesNotMatch(view.element.textContent, /通知一覧/);
+  // 整合性の警告は 0 件ならカードごと隠す
+  assert.equal(sections[1].hidden, true);
+  assert.equal(view.element.querySelector('.settings-group-title').textContent, 'データ');
+  // アカウントは「ログイン中: X」と名前の変更・ログアウトだけ（名前の変更の説明はモーダルの側だけ）
+  assert.equal(sections[0].querySelector('.settings-account-id').textContent, 'ログイン中: 仲間');
+  assert.doesNotMatch(sections[0].textContent, /登録者名もすべて/);
+  assert.doesNotMatch(view.element.textContent, /通知一覧|データの状態|前回取得|最新に更新/);
+  // 最下部に小さな文字の権利表記
+  assert.match(view.element.querySelector('.settings-about').textContent, /© Pocketpair, Inc\. に帰属します。非公式・非営利のファンツールです。/);
   view.destroy();
 });
 
@@ -345,13 +353,16 @@ test('配合を探す: 登録の無い組み合わせで「この組み合わせ
   view.destroy();
 });
 
-test('設定: 記録が同じで整合性の警告だけ変わったときも、警告を描き直す', (t) => {
+test('設定: 記録が同じで整合性の警告だけ変わったときも、警告を描き直す（1 件以上でカードを出し、見出しに件数）', (t) => {
   installDom(t);
   const app = liveContext();
   const view = settingsView(app);
+  const card = view.element.querySelector('.settings-warnings');
   const warnings = () => view.element.querySelector('.warning-list').textContent;
-  assert.match(warnings(), /警告はありません/);
+  assert.equal(card.hidden, true);
   app.store.emit({ warnings: [{ code: 'UNKNOWN_PAL', rowNumber: 5 }] });
+  assert.equal(card.hidden, false);
+  assert.equal(card.querySelector('h3').textContent, '整合性の警告（1 件）');
   assert.match(warnings(), /5 行目: マスターにないパルが含まれています/);
   view.destroy();
 });
@@ -825,4 +836,46 @@ test('パル詳細: 「この子の配合を登録」は、このパルが産ま
   const none = palView(context(), parseHash('#/pal/SheepBall'));
   assert.equal(button(none).className, 'button primary');
   none.destroy();
+});
+
+test('設定（この端末のデータ）: 件数を出し、読み込むと形・環境を確かめ、確かめのダイアログの後に各ストアの取り込みを通して足す', async (t) => {
+  installDom(t);
+  const app = liveContext();
+  app.store.state.passcode = '入力';
+  const subscribe = () => () => {};
+  const calls = [];
+  app.drafts = { list: () => [], importMany: (values) => { calls.push(['drafts', values.length]); return { added: values.length, saved: true }; }, subscribe };
+  app.ideals = { list: () => [], observations: () => null, importGoals: (values) => { calls.push(['goals', values.length]); return { added: values.length, skipped: 0, saved: true }; }, subscribe };
+  app.notifications = { readList: () => ['release:a'], unread: () => [{ id: 'wishlist:test:SheepBall:x' }], markRead: (ids) => calls.push(['read', ids]), subscribe };
+  const view = settingsView(app);
+  const card = view.element.querySelector('.settings-device');
+  assert.equal(card.querySelector('.settings-device-counts').textContent, '下書き 0 · 目標 0 · 既読 1 · 自動登録の記録 0');
+  const input = card.querySelector('input');
+  assert.equal(input.accept, 'application/json,.json');
+  const file = (data) => ({ size: 100, text: async () => JSON.stringify(data) });
+  const base = {
+    format: 'pal-breeding-note/device-data', version: 1, env: 'test', userId: '仲間', drafts: [{ id: '11111111-1111-4111-8111-111111111111', parent1Id: 'SheepBall', parent2Id: '', childId: '' }],
+    draftGenders: {}, goals: [{ id: 'g1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', worlds: {} }],
+    goalsObs: {}, notificationsRead: ['wishlist:test:SheepBall:x'], autoBreedingNotices: [], playerMappings: {},
+  };
+  const toasts = () => document.body.querySelectorAll('.toast-message').map((node) => node.textContent);
+  // 環境が違えば断る（ダイアログを出さない）
+  input.files = [file({ ...base, env: 'prod' })];
+  await input.dispatch('change');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(toasts().at(-1), '本番のデータです。いまはテストなので読み込めません。');
+  assert.deepEqual(calls, []);
+  // 合っていれば、確かめてから取り込む
+  input.files = [file(base)];
+  const reading = input.dispatch('change');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const dialog = document.body.querySelectorAll('dialog').find((node) => node.open);
+  assert.match(dialog.textContent, /下書き 1・目標 1・既読 1 件を取り込みます。今のデータは消さずに足します。/);
+  await dialog.querySelectorAll('button').find((node) => node.textContent === '取り込む').dispatch('click');
+  await reading;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [['drafts', 1], ['goals', 1], ['read', ['wishlist:test:SheepBall:x']]]);
+  // 断りのトーストは警告の列に出るので、ふつうのトーストは列の中で探す
+  assert.ok(toasts().includes('取り込みました: 下書き 1・目標 1・既読 1 件'), toasts().join(' / '));
+  view.destroy();
 });

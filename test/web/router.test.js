@@ -94,9 +94,10 @@ test('ルーティング: 変わったときの知らせに、k を除いた後�
   stop();
 });
 
-test('ルーティング: 設定の行き先は意図（self・registrant・status。前の版の auto）ごとの URL で、知らない意図は auto にする', () => {
+test('ルーティング: 設定の行き先は意図（self・registrant・status・warnings。前の版の auto）ごとの URL で、知らない意図は auto にする', () => {
   const world = 'ABCDEF0123456789ABCDEF0123456789';
-  assert.deepEqual([...SETTINGS_OPEN], ['self', 'registrant', 'status', 'auto']);
+  // warnings は整合性の警告のカード（settings。レールの設定のバッジ）
+  assert.deepEqual([...SETTINGS_OPEN], ['self', 'registrant', 'status', 'auto', 'warnings']);
   assert.equal(settingsHash(world, 'self'), `#/settings?world=${world}&open=self`);
   assert.equal(settingsHash(world, 'registrant'), `#/settings?world=${world}&open=registrant`);
   assert.equal(settingsHash('', 'status'), '#/settings?open=status');

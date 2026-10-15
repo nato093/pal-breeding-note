@@ -59,7 +59,8 @@ export function buildHash(view, params = {}, id = '') {
  * - auto: 前の版の決め方（自分が決まっていなければ自分 → 未設定の登録者 → 自動登録のチェック → 自分 → 見出し）。前に保存した通知・
  *   ブックマークの `open=auto` のため受け付け続ける
  */
-export const SETTINGS_OPEN = Object.freeze(['self', 'registrant', 'status', 'auto']);
+// warnings: 整合性の警告のカード（レールの設定のバッジ。settings）
+export const SETTINGS_OPEN = Object.freeze(['self', 'registrant', 'status', 'auto', 'warnings']);
 
 /**
  * 設定のセーブ連携を開いて、そのワールドで open の意図の所へフォーカスする URL（`#/settings?world=<ID>&open=<意図>`。SETTINGS_OPEN）。

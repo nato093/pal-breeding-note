@@ -36,6 +36,22 @@ export function link(text, href, className = '') {
   return node;
 }
 
+/** Blob をファイルとして保存させる（配合・所持パルの CSV と、この端末のデータの書き出し。settings で 1 つにまとめた） */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = link('', url);
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** ファイル名の日付（YYYYMMDD。端末の時刻） */
+export function dateStamp(now = new Date()) {
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('');
+}
+
 export function field(label, input) {
   const wrapper = el('label', 'field');
   wrapper.append(el('span', 'field-label', label), input);
