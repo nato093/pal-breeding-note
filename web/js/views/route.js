@@ -25,6 +25,8 @@ const startSummary = (start) => `${start.length ? `最短 ${start.length} 回` :
 
 // 開始の所持個体の一覧で、上に出す数（それより多ければ残りを「ほか N 体」に畳む）
 const CARRIERS_SHOWN = 5;
+// 「ほか N 体」を開いたときに作る行の上限（残りは「所持パルで開く」で見る）
+const CARRIERS_MORE_MAX = 100;
 
 // 記録の相手親の性別（相手親と開始が同じ種族の記録は、どちらの性別か分からないので空）
 function recordedPartnerGender(record, partner) {
@@ -94,7 +96,9 @@ export function inheritanceView(context, route) {
   const ownedMore = el('details', 'route-owned-more');
   const ownedMoreSummary = el('summary', '');
   const ownedMoreRows = el('div', 'route-owned-rows');
-  ownedMore.append(ownedMoreSummary, ownedMoreRows);
+  const ownedMoreNote = el('p', 'muted route-owned-more-note');
+  ownedMoreNote.hidden = true;
+  ownedMore.append(ownedMoreSummary, ownedMoreRows, ownedMoreNote);
   const ownedEmpty = el('p', 'muted');
   ownedBox.append(ownedHead, ownedRows, ownedMore, ownedEmpty);
   ownedSection.append(ownedBox);
@@ -182,9 +186,24 @@ export function inheritanceView(context, route) {
       return { element: item.element, update: (next) => item.update(next, { highlight: { wanted: passives } }), destroy: () => item.destroy() };
     },
   };
+  // 「ほか N 体」の行は開いている間だけ作る（閉じたら外す。所持パルが多い種族で、見ない行を作らない）
+  let restCarriers = [];
+  function renderMore() {
+    if (!ownedMore.open) {
+      clearList(ownedMoreRows);
+      ownedMoreNote.hidden = true;
+      return;
+    }
+    syncList(ownedMoreRows, restCarriers.slice(0, CARRIERS_MORE_MAX), rowOptions);
+    const over = restCarriers.length - CARRIERS_MORE_MAX;
+    ownedMoreNote.hidden = over <= 0;
+    if (over > 0) ownedMoreNote.textContent = `ほか ${over} 体は「所持パルで開く」で見られます。`;
+  }
+  ownedMore.addEventListener('toggle', renderMore);
   function clearOwned() {
+    restCarriers = [];
     clearList(ownedRows);
-    clearList(ownedMoreRows);
+    renderMore();
   }
   function renderOwned(stats) {
     const show = Boolean(stats && from && passives.length);
@@ -195,11 +214,11 @@ export function inheritanceView(context, route) {
     const matching = (stats.bySpecies.get(from) ?? []).filter((pal) => hasPassives(pal, passives));
     // 運び手は開始の候補と同じく親にできる個体だけ。パッシブの多い個体、レベルの高い個体から
     const carriers = matching.filter(canBeParent).sort((a, b) => b.passives.length - a.passives.length || b.level - a.level);
-    const rest = carriers.slice(CARRIERS_SHOWN);
+    restCarriers = carriers.slice(CARRIERS_SHOWN);
     syncList(ownedRows, carriers.slice(0, CARRIERS_SHOWN), rowOptions);
-    syncList(ownedMoreRows, rest, rowOptions);
-    ownedMore.hidden = !rest.length;
-    ownedMoreSummary.textContent = `ほか ${rest.length} 体`;
+    renderMore();
+    ownedMore.hidden = !restCarriers.length;
+    ownedMoreSummary.textContent = `ほか ${restCarriers.length} 体`;
     ownedEmpty.hidden = carriers.length > 0;
     ownedEmpty.textContent = matching.length > carriers.length
       ? '親にできる個体を所持していません（タマゴ・グローバルパルボックスの個体は含めていません）。' : '該当する個体を所持していません。';

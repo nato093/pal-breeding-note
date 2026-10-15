@@ -14,6 +14,8 @@ export const OBSERVATIONS_VERSION = 1;
 const SPECIES_LIMIT = 300;
 const PAL_ID = /^[A-Za-z0-9_]{1,64}$/;
 const GOAL_ID = /^[A-Za-z0-9_-]{1,64}$/;
+// Object の組み込みの名前（constructor・__proto__ など）は外す（species・migrated を palId で引いたときに継承したものを拾うため）
+const palIdOk = (id) => typeof id === 'string' && PAL_ID.test(id) && !Object.hasOwn(Object.prototype, id);
 
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -21,7 +23,7 @@ const isObject = (value) => Boolean(value) && typeof value === 'object' && !Arra
 /** 親の組（「A|B」）の形だけを確かめる。マスターにないパルの組も残す（捨てると次の判定で新しく見えて重ねて知らせるため） */
 export function cleanPair(value) {
   const ids = typeof value === 'string' ? value.split('|') : [];
-  return ids.length === 2 && ids.every((id) => PAL_ID.test(id)) ? pairKey(ids[0], ids[1]) : '';
+  return ids.length === 2 && ids.every(palIdOk) ? pairKey(ids[0], ids[1]) : '';
 }
 
 /** 1 種族の観測を整える（形が合わなければ null） */
@@ -43,15 +45,15 @@ export function cleanObservations(value) {
   const source = isObject(value) && value.version === OBSERVATIONS_VERSION ? value : {};
   const species = {};
   for (const [palId, entry] of Object.entries(isObject(source.species) ? source.species : {}).slice(0, SPECIES_LIMIT)) {
-    const clean = PAL_ID.test(palId) ? cleanEntry(entry) : null;
+    const clean = palIdOk(palId) ? cleanEntry(entry) : null;
     if (clean) species[palId] = clean;
   }
   const wish = isObject(source.migration?.wishlist) ? source.migration.wishlist : {};
   const migrated = {};
   for (const [palId, goalId] of Object.entries(isObject(wish.migrated) ? wish.migrated : {}).slice(0, SPECIES_LIMIT)) {
-    if (PAL_ID.test(palId) && typeof goalId === 'string' && GOAL_ID.test(goalId)) migrated[palId] = goalId;
+    if (palIdOk(palId) && typeof goalId === 'string' && GOAL_ID.test(goalId)) migrated[palId] = goalId;
   }
-  const pending = Array.isArray(wish.pending) ? [...new Set(wish.pending.filter((palId) => typeof palId === 'string' && PAL_ID.test(palId)))].slice(0, SPECIES_LIMIT) : [];
+  const pending = Array.isArray(wish.pending) ? [...new Set(wish.pending.filter(palIdOk))].slice(0, SPECIES_LIMIT) : [];
   return {
     version: OBSERVATIONS_VERSION,
     species,

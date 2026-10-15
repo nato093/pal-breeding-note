@@ -45,6 +45,19 @@ test('観測: 保存の形を整え（版・種族の ID・時刻・組の形）
   assert.equal(cleanPair('A'), '');
 });
 
+test('観測: Object の組み込みの名前（constructor・__proto__ など）は種族・移行の記録・組から外す（辞書を palId で引いたときに継承したものを拾わない）', () => {
+  const entry = { craftable: true, readyAt: '2026-10-15T00:00:00.000Z', observedAt: '2026-10-15T00:00:00.000Z', pairs: ['constructor|SheepBall', 'FlowerDoll|SheepBall'], found: [] };
+  const source = JSON.parse(JSON.stringify({ version: 1, species: { constructor: entry, toString: entry, SheepBall: entry }, migration: { wishlist: { migrated: { constructor: 'g1', SheepBall: 'g2' }, pending: ['hasOwnProperty', 'CatMage'], doneAt: '' } } })
+    .replace('"toString"', '"__proto__"'));
+  const clean = cleanObservations(source);
+  assert.deepEqual(Object.keys(clean.species), ['SheepBall']);
+  assert.deepEqual(clean.species.SheepBall.pairs, ['FlowerDoll|SheepBall']);
+  assert.equal(Object.hasOwn(clean.species, 'constructor'), false);
+  assert.deepEqual(clean.migration.wishlist.migrated, { SheepBall: 'g2' });
+  assert.deepEqual(clean.migration.wishlist.pending, ['CatMage']);
+  assert.equal(cleanPair('constructor|SheepBall'), '');
+});
+
 test('観測: 2 つの観測を併せる（組と found の和、craftable は新しい方、readyAt は早い方）。保存の値どうしは移行の記録も和', () => {
   const a = { craftable: true, readyAt: time(5), observedAt: time(6), pairs: ['A|B'], found: [{ pair: 'C|D', at: time(7) }] };
   const b = { craftable: true, readyAt: time(3), observedAt: time(4), pairs: ['E|F'], found: [{ pair: 'C|D', at: time(5) }] };

@@ -2,9 +2,11 @@
 //（settings。F081）。DOM・保存先は持たない（書き込みは各ストアの関数が行う。キャッシュと別のタブの決まりを守るため）。
 // 含めないもの: パスワード・記録のキャッシュ・所持パル（セーブから読み直せる）・自動登録の牧場の記録（端末をまたぐと照合を取り違える）・
 // 理想個体の計画の記憶・画面の状態。読み込むファイルは信用しない（大きさ・形・版・環境を確かめ、各項目を今の検証で整える）
+import pals from '../data/pals.js';
 import { cleanGoal, goalKey, GOAL_LIMIT } from './core/ideal-goals.js';
 import { cleanObservations, mergeObservation } from './core/goal-observations.js';
 import { idText, worldId as cleanWorldId, isObject } from './core/boundary.js';
+import { userIdKey, validateUserId } from './core/user.js';
 
 export const DEVICE_FORMAT = 'pal-breeding-note/device-data';
 export const DEVICE_VERSION = 1;
@@ -18,6 +20,7 @@ const WORLDS_MAX = 50;
 const MAPPING_MAX = 100;
 const ID_MAX = 200;
 const ENV_LABELS = { test: 'テスト', prod: '本番' };
+const palIds = new Set(pals.map((pal) => pal.id));
 
 const list = (value, max) => (Array.isArray(value) ? value.slice(0, max) : []);
 const envLabel = (env) => ENV_LABELS[env] ?? '不明な環境';
@@ -87,7 +90,8 @@ export function parseDeviceData(text, { env, userId }) {
   if (!isObject(value) || value.format !== DEVICE_FORMAT) return { ok: false, reason: 'この端末のデータの書き出しのファイルではありません。' };
   if (value.version !== DEVICE_VERSION) return { ok: false, reason: '形式の版が違うため読み込めません（このページを最新にしてから試してください）。' };
   if (value.env !== env) return { ok: false, reason: `${envLabel(value.env)}のデータです。いまは${envLabel(env)}なので読み込めません。` };
-  const goals = list(value.goals, GOAL_LIMIT * 2).map(cleanGoal).filter(Boolean);
+  // マスターにないパルの目標は外す（画面に名前も画像も出せず、完成も確かめられないため）
+  const goals = list(value.goals, GOAL_LIMIT * 2).map(cleanGoal).filter((goal) => goal && palIds.has(goal.palId));
   const data = {
     drafts: combineDrafts(value.drafts, value.draftGenders),
     goals,
@@ -96,8 +100,10 @@ export function parseDeviceData(text, { env, userId }) {
     autoBreedingNotices: list(value.autoBreedingNotices, NOTICES_MAX).filter(isObject),
     playerMappings: cleanMappings(value.playerMappings),
   };
-  const sourceUser = typeof value.userId === 'string' ? value.userId : '';
-  return { ok: true, data, otherUser: sourceUser && sourceUser !== userId ? sourceUser : '' };
+  const checked = validateUserId(value.userId);
+  const sourceUser = checked.ok ? checked.value : '';
+  const same = typeof userId === 'string' && sourceUser && userIdKey(sourceUser) === userIdKey(userId);
+  return { ok: true, data, otherUser: sourceUser && !same ? sourceUser : '' };
 }
 
 /** 下書きを id で併せる（今のものを優先し、無い id だけ後ろに足す）。足した下書きを返す */
@@ -134,9 +140,11 @@ export function mergeGoals(current, incoming, limit = GOAL_LIMIT) {
 export function mergeObservationSpecies(current, incoming, palIds) {
   const next = cleanObservations(current);
   const source = cleanObservations(incoming);
+  // 辞書は自分のプロパティだけを引く（palId が constructor などでも継承したものを拾わない）
+  const own = (species, palId) => (Object.hasOwn(species, palId) ? species[palId] : null);
   for (const palId of palIds) {
-    const entry = source.species[palId];
-    if (entry) next.species[palId] = mergeObservation(next.species[palId] ?? null, entry);
+    const entry = own(source.species, palId);
+    if (entry) next.species[palId] = mergeObservation(own(next.species, palId), entry);
   }
   return next;
 }

@@ -15,6 +15,8 @@ export const GOAL_LIMIT = 100;
 const WORLD_LIMIT = 20;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const PAL_ID = /^[A-Za-z0-9_]{1,64}$/;
+// パルの ID の形。Object の組み込みの名前（constructor・__proto__ など）は外す（観測などの辞書を palId で引いたときに継承したものを拾うため）
+const palIdOk = (id) => typeof id === 'string' && PAL_ID.test(id) && !Object.hasOwn(Object.prototype, id);
 
 const validTime = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 const oneOf = (list, value, fallback) => (list.includes(value) ? value : fallback);
@@ -40,9 +42,8 @@ function cleanWorld(value) {
  */
 export function cleanGoal(value) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !ID.test(value.id)) return null;
-  if (typeof value.palId !== 'string' || !PAL_ID.test(value.palId)) return null;
-  const passives = Array.isArray(value.passives)
-    ? [...new Set(value.passives.filter((id) => typeof id === 'string' && PAL_ID.test(id)))].slice(0, 4) : [];
+  if (!palIdOk(value.palId)) return null;
+  const passives = Array.isArray(value.passives) ? [...new Set(value.passives.filter(palIdOk))].slice(0, 4) : [];
   const targets = Object.fromEntries(GOAL_STATS.map((key) => [key, target(value.targets?.[key])]));
   const worlds = {};
   const entries = value.worlds && typeof value.worlds === 'object' && !Array.isArray(value.worlds) ? Object.entries(value.worlds) : [];

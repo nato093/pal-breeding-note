@@ -1031,10 +1031,28 @@ test('自動登録（settings）: importNotices は保存した通知と同じ�
     { id: 'auto-breed:test:anomaly:f1:e1', date, title: '配合の結果が表と違います', body: 'モコロン×ツッパニャン：表はセレムーン、新しいタマゴはフラリーナ' },
     { id: 'こわれた' }, 'こわれた',
   ]);
-  assert.equal(added, 2);
+  assert.deepEqual(added, { added: 2, skipped: 0 });
   const notices = t.auto.notices();
   assert.deepEqual(notices.map((n) => n.id).sort(), ['auto-breed:test:anomaly:f1:e1', 'auto-breed:test:registered:r1']);
   assert.ok(notices.every((n) => !/表は|セレムーン/.test(`${n.title}${n.body}`)));
   assert.ok(t.storage.get('t.autoBreeding.registered.test.自分'));
-  assert.equal(t.auto.importNotices(notices), 0);
+  assert.deepEqual(t.auto.importNotices(notices), { added: 0, skipped: 0 });
+});
+
+test('自動登録（settings）: importNotices は今の通知を押し出さず、空きに入る分だけ足し、入らなかった数を返す', async () => {
+  const t = await setup({ farms: [] });
+  const at = (minute) => new Date(Date.UTC(2026, 9, 6, 0, minute)).toISOString();
+  const notice = (id, minute) => ({ id: `auto-breed:test:anomaly:${id}`, date: at(minute), title: '配合の結果が表と違います', body: 'モコロン×ツッパニャン' });
+  // 今の通知が 49 件（上限 50 件まで残り 1 件）
+  const current = Array.from({ length: 49 }, (_, index) => notice(`now${index}`, 10 + index));
+  t.storage.set('t.autoBreeding.notices.test.自分', JSON.stringify(current));
+  // 取り込む 3 件は、今のどの通知よりも新しい
+  const result = t.auto.importNotices([notice('in1', 100), notice('in2', 101), notice('in3', 102)]);
+  assert.deepEqual(result, { added: 1, skipped: 2 });
+  const ids = t.auto.notices().map((n) => n.id);
+  assert.equal(ids.length, 50);
+  // 今の 49 件は全部残り、取り込んだうち新しい 1 件だけが入る
+  assert.ok(current.every((n) => ids.includes(n.id)));
+  assert.ok(ids.includes('auto-breed:test:anomaly:in3'));
+  assert.deepEqual(t.auto.importNotices([notice('in4', 1)]), { added: 0, skipped: 1 });
 });

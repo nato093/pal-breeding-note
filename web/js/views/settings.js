@@ -50,26 +50,33 @@ function importDeviceData(context, data) {
   const goals = context.ideals?.importGoals(data.goals, data.goalsObs);
   if (goals?.added) parts.push(`目標 ${goals.added}`);
   if (goals && !goals.saved) failed.push('目標');
+  // 自動登録の記録は既読より先に足す（後から足すと、取り込んだ既読が当たらず未読で残る）
+  const notices = context.autoRegister?.importNotices?.(data.autoBreedingNotices) ?? { added: 0, skipped: 0 };
+  if (notices.added) parts.push(`自動登録の記録 ${notices.added}`);
   const unread = new Set(context.notifications?.unread().map((item) => item.id) ?? []);
   const read = data.notificationsRead.filter((id) => unread.has(id));
   if (read.length) {
     context.notifications.markRead(read);
     parts.push(`既読 ${read.length}`);
   }
-  const notices = context.autoRegister?.importNotices?.(data.autoBreedingNotices) ?? 0;
-  if (notices) parts.push(`自動登録の記録 ${notices}`);
   let mapped = 0;
   for (const [worldId, mapping] of Object.entries(data.playerMappings)) {
     const current = context.autoRegister?.mapping(worldId) ?? null;
-    if (!current) break;
+    if (!current) continue;
     for (const [uid, userId] of Object.entries(mapping)) {
       if (current[uid]) continue;
       context.autoRegister.setMapping(uid, userId, worldId);
       mapped++;
     }
   }
-  if (mapped) parts.push(`登録者の対応 ${mapped}`);
-  const skipped = goals?.skipped ? `（目標 ${goals.skipped} 件は重複・上限で取り込みませんでした）` : '';
+  if (mapped) {
+    parts.push(`登録者の対応 ${mapped}`);
+    // 自分のプレイヤーが変わったかもしれない（理想個体の「自分の個体」。設定の select で選んだときと同じ）
+    if (context.self?.changed) context.self.changed();
+    else context.ideals?.identityChanged?.();
+  }
+  const over = [goals?.skipped ? `目標 ${goals.skipped} 件` : '', notices.skipped ? `自動登録の記録 ${notices.skipped} 件` : ''].filter(Boolean);
+  const skipped = over.length ? `（${over.join('・')}は重複・上限で取り込みませんでした）` : '';
   const text = parts.length ? `取り込みました: ${parts.join('・')} 件${skipped}` : `新しく取り込むものはありませんでした${skipped}`;
   return { text, failed };
 }

@@ -712,6 +712,8 @@ test('画面: ショートカット N で登録を開く（配合を探すで選
 });
 
 test('画面: 初めての端末では更新内容のお知らせを既読から始めて数字を出さず、別のタブで既読が変われば点を出し、開いても既読にしない', async (t) => {
+  // どのお知らせよりも 7 日以上後の時刻（直近 7 日のお知らせは未読のまま。G-22）
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2099-01-01T00:00:00.000Z') });
   const { values, events } = await boot(t, {
     initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }),
   });
@@ -794,6 +796,23 @@ test('画面: パル詳細の「☆ 目標に登録」で種族だけの目標�
   assert.match(row.textContent, /パルだけ/);
   assert.match(row.querySelector('.ideal-goal-records').textContent, /^配合: 登録済み 1 件/);
   assert.equal(row.querySelector('.ideal-goal-records').href, `#/search?c=${target.id}`);
+});
+
+test('画面: 配合を探すで子だけを選んで 0 件のとき、子を変えると文と「目標に登録」が新しい子に変わる（前の子を登録しない）', async (t) => {
+  const { values, changeHash } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
+  const made = new Set(JSON.parse(values.get('pal-note.cache.test')).records.map((record) => record.childId));
+  const [first, second] = pals.filter((pal) => pal.active && !made.has(pal.id));
+  changeHash(`#/search?c=${first.id}`);
+  const main = document.getElementById('main');
+  assert.equal(main.querySelector('.empty-state').querySelector('p').textContent, `${first.ja}の配合はまだ登録されていません。`);
+  changeHash(`#/search?c=${second.id}`);
+  assert.equal(main.querySelector('.empty-state').querySelector('p').textContent, `${second.ja}の配合はまだ登録されていません。`);
+  await main.querySelector('.goal-toggle').dispatch('click');
+  const goals = JSON.parse(values.get('pal-note.ideals.test.架空データ'));
+  assert.deepEqual(goals.map((goal) => goal.palId), [second.id]);
+  // ダブルクリックの 2 回目は捨てる（登録してすぐ外さない）
+  await main.querySelector('.goal-toggle').dispatch('click', { detail: 2 });
+  assert.equal(main.querySelector('.goal-toggle').textContent, '目標に登録済み');
 });
 
 test('画面: 旧ウィッシュリストのデータがあれば起動したときに目標へ移し、旧キーを消す。もう一度起動しても増えない', async (t) => {
@@ -1520,9 +1539,11 @@ test('画面: タブの見出し（h1）はタブの名前と同じ（views/tabs
 });
 
 test('画面: ベルの下端の「すべての通知を見る →」でパネルを閉じて通知一覧を開き、閉じたらベルへ（「すべて既読」で既読に）', async (t) => {
-  const { values } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }) });
-  const bell = byClass('notification-button');
   const key = 'pal-note.notifications.read.架空データ';
+  // お知らせをすべて既読にした端末
+  const read = JSON.stringify(releaseNotes.map((note) => `release:${note.id}`));
+  const { values } = await boot(t, { initial: { ...signedIn, [key]: read }, api: createDevelopmentApi({ seed: '2' }) });
+  const bell = byClass('notification-button');
   await bell.dispatch('click');
   const panel = byClass('notification-panel');
   assert.doesNotMatch(panel.textContent, /設定タブ/);
@@ -1532,7 +1553,7 @@ test('画面: ベルの下端の「すべての通知を見る →」でパネ�
   const dialog = find((node) => node.tagName === 'dialog' && node.open);
   assert.equal(dialog.querySelector('h2').textContent, '通知一覧');
   assert.equal(dialog.querySelectorAll('.notification-title').length, releaseNotes.length);
-  // お知らせはすでに既読（初めての端末）なので「すべて既読」は押せない
+  // お知らせはすでに既読なので「すべて既読」は押せない
   assert.equal(dialog.querySelector('.notification-all-read').disabled, true);
   assert.equal(JSON.parse(values.get(key)).length, releaseNotes.length);
   await dialog.querySelectorAll('button').find((node) => node.textContent === '閉じる').dispatch('click');
