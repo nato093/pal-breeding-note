@@ -322,3 +322,28 @@ test('端末内の移動: 目標の観測（goalsObs）も新しい名前へ移�
   assert.deepEqual(moved.migration.wishlist.migrated, { PinkCat: 'wish-PinkCat', SheepBall: 'wish-SheepBall' });
   assert.equal(storage.getItem('pal-note.goalsObs.prod.taro'), null);
 });
+
+test('端末内の移動: パルリバーサーの案内を消した目標（reverserHidden）も新しい名前へ移し、移し先と連結して元を消す（重なりと 200 件を超えた分は読むときに捨てる）', async () => {
+  const { createReverserHidden } = await import('../../web/js/reverser-hidden.js');
+  const storage = memoryStorage();
+  const target = (hp) => JSON.stringify(['SheepBall', ['Rare'], [hp, 100, 100]]);
+  storage.setItem('pal-note.reverserHidden.prod.taro', JSON.stringify([target(100), target(90)]));
+  storage.setItem('pal-note.reverserHidden.prod.jiro', JSON.stringify([target(90), target(80)]));
+  storage.setItem('pal-note.reverserHidden.test.taro', JSON.stringify([target(70)]));
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
+  assert.deepEqual(read(storage, 'pal-note.reverserHidden.prod.jiro'), [target(100), target(90), target(90), target(80)]);
+  assert.equal(storage.getItem('pal-note.reverserHidden.prod.taro'), null);
+  // 別の環境の分は移さない
+  assert.deepEqual(read(storage, 'pal-note.reverserHidden.test.taro'), [target(70)]);
+  // 新しい名前で読むと、重なりは前の方だけ
+  assert.deepEqual(createReverserHidden({ storage }).list('prod', 'Jiro'), [target(100), target(90), target(80)]);
+  // 書けずに手元にだけ覚えていた分も、名前の変更で移す（書けるようになった後の変更。ID の変更は止めない）
+  const hidden = createReverserHidden({ storage });
+  storage.failing.add('pal-note.reverserHidden.prod.hanako');
+  hidden.hide('prod', 'Hanako', target(60));
+  storage.failing.clear();
+  const renamer = createRenamer({ store: { state: { env: 'prod', userId: 'Hanako' } }, reverserHidden: hidden, storage });
+  renamer.followServer('Hanako', 'Saburo', 'prod');
+  assert.deepEqual(hidden.list('prod', 'Saburo'), [target(60)]);
+  assert.deepEqual(read(storage, 'pal-note.reverserHidden.prod.saburo'), [target(60)]);
+});

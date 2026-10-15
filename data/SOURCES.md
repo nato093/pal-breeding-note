@@ -14,8 +14,11 @@
 | アクティブスキル・パートナースキルの日本語名と説明文（`web/data/skills.js`） | ゲーム本体の `DT_SkillNameText_Common`・`DT_SkillDescText_Common`・`DT_PalFirstActivatedInfoText` ほか（`npm run extract:skills` = `scripts/extract-skills.mjs`。2026-10-10 に取り出し） | © Pocketpair, Inc. |
 | タマゴ・ケーキの日本語名（`web/data/items.js` の `EGG_NAMES`・`CAKE_NAMES`。所持パルのタマゴの行・配合牧場のカードとケーキの残り） | ゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_PalEgg_*`・`ITEM_NAME_Cake*`（`npm run extract:skills` = `scripts/extract-skills.mjs`。タマゴは 2026-10-15、ケーキは 2026-10-16 に取り出し） | © Pocketpair, Inc. |
 | 作業適性（`web/data/work.js`。パル詳細の「作業適性」の行・所持パルのキーワード「採掘3」） | ゲーム本体の `DT_PalMonsterParameter_Common` の `WorkSuitability_*`（Lv）と `DT_UI_Common_Text_Common` の `COMMON_WORK_SUITABILITY_*`（作業の名前）。型の情報のない表なので、列の並びは実行ファイルの反射データから取る（`npm run extract:work` = `scripts/extract-work.mjs`・`scripts/game-tables.mjs`。v1.0.5 で 2026-10-15 に取り出し） | © Pocketpair, Inc. |
+| パル手術台で付けられるパッシブ（`web/data/implants.js`。パッシブ・必要なアイテムの ID と日本語名・種類〔アイテム不要・インプラント・使い切りインプラント〕と、パルリバーサーのアイテム名。理想個体の足りないパッシブの案内・継承ルートの 1 行・目標の一覧の「手術で完成できる」） | ゲーム本体の `DT_OperatingTablePassiveSkillDataTable`（`PassiveSkill`・`RequireItemId`）と `DT_ItemNameText_Common` の `ITEM_NAME_PalPassiveSkillChange_*`・`ITEM_NAME_PalGenderReverse`。型の情報のない表なので、列の並びは実行ファイルの反射データから取る（`npm run extract:implants` = `scripts/extract-implants.mjs`・`scripts/game-tables.mjs`。v1.0.5 で 2026-10-16 に取り出し。表のパッシブ ID がすべて `passives.js` にないと止まる） | © Pocketpair, Inc. |
 
 > 変更記録（2026-10-15）: ユーザーの確認を得て、タマゴの日本語名の表（`web/data/items.js`）の行を足した（UI 改善フェーズ 3 の farm-board）。影響: 配信物にゲーム由来の文字列の表が 1 つ増える（画像は増えない）。配合に関する情報（INV-2）は含まない。
+
+> 変更記録（2026-10-16）: ユーザーの決定（UI 改善フェーズ 4 の implants。手術台の表とアイテム名はゲーム本体から取り出す）により、パル手術台で付けられるパッシブの行を足した。理由: 理想個体で欲しいパッシブを候補のだれも持たないとき、「別に手に入れてください」で止めずに、パル手術台で付けられるか・必要なインプラントを示すため（目標の一覧の「手術で完成できる」・継承ルートの 1 行にも使う）。影響: 配信物にゲーム由来の表が 1 つ増える（54 行・約 8KB。画像は game-assets で取り込み済み）。INV-2: 手術台は配合ではない。取り込むのはパッシブ・アイテム・種類だけで、表の数値（`Price`。意味は確かめていない）や配合の値は書き出さない（下の「取り込まないもの」）。
 
 > 変更記録（2026-10-16）: ユーザーの決定（UI 改善フェーズ 4 の save-extras。配合牧場のケーキの残りを出す）により、タマゴの日本語名の行を「タマゴ・ケーキの日本語名」にし、同じ表のケーキの名前（`ITEM_NAME_Cake`・`Cake02`〜`Cake05` の 5 件。`CAKE_NAMES`）を同じファイルに足した。影響: 配信物の文字列が 5 件増える（画像は game-assets で取り込み済み）。配合に関する情報（INV-2）は含まない。
 
@@ -33,6 +36,7 @@
 ## 取り込まないもの（INV-2）
 
 パルとパッシブのマスターには、配合に関する情報を持たせない。`BreedingPower` などの配合計算に使える値や、パッシブの遺伝の確率（`RandomInheritanceWeight` など）は取り込まない。作業適性（`web/data/work.js`）を取り出すゲーム本体の表（`DT_PalMonsterParameter_Common`）にある配合の値（`CombiRank`・`MaleProbability` など）も取り込まない（取り出しは `WorkSuitability_*` の列だけを残す）。
+INV-2: パル手術台は配合ではない。手術台の表（`web/data/implants.js`。`DT_OperatingTablePassiveSkillDataTable`）から取り込むのはパッシブ・アイテム・種類だけで、同じ行の数値（`Price`）は書き出さない（取り出しは `PassiveSkill`・`RequireItemId` の列だけを残す。`test/import.test.js` が値の形を確かめる）。手術台は理想個体の計画（`web/js/core/ideal.js`）に入れず、案内と、手術で付ける分を除いた計画へのリンクだけにする（計画の既定は配合だけ）。
 このアプリで「既知の配合」とみなし、画面に表示・検索するのは、利用者が登録したレコードだけ。
 
 ### 作らない機能

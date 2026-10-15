@@ -45,6 +45,8 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
     { prefix: `${namespace}.autoBreeding.notices.${env}.` },
     // 自動登録の、登録できた配合の通知（旧版のタブが知らない別のキー。auto-register.js）
     { prefix: `${namespace}.autoBreeding.registered.${env}.` },
+    // パルリバーサーの案内を消した目標（旧版のタブが知らない別のキー。reverser-hidden.js。合わせて 200 件を超えた分は読むときに捨てる）
+    { prefix: `${namespace}.reverserHidden.${env}.` },
     // 既読は環境を含まないので、別の環境の同じ名前のために元を残す
     { prefix: `${namespace}.notifications.read.`, keep: true },
   ];
@@ -141,7 +143,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
  * 自分の名前を変える。サーバでの変更と、この端末のデータの移動をまとめて行う。
  * 途中で止まっても同じ opId でやり直せるよう、終わるまで予定を端末に残す。
  */
-export function createRenamer({ store, drafts, ideals, self, notifications, storage, namespace = 'pal-note' }) {
+export function createRenamer({ store, drafts, ideals, self, notifications, reverserHidden, storage, namespace = 'pal-note' }) {
   const planKey = `${namespace}.rename`;
 
   function readPlan() {
@@ -166,6 +168,8 @@ export function createRenamer({ store, drafts, ideals, self, notifications, stor
     for (const key of keys(`${namespace}.goalsObs.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.ideals.${plan.env}.`)) ideals?.reload(key);
     for (const key of keys(`${namespace}.notifications.read.`)) notifications?.reload(key);
+    // パルリバーサーの案内を消した目標（reverser-hidden.js）は、書けずに手元にだけ覚えている分も新しい名前へ移す（ID の変更は止めない）
+    reverserHidden?.move(plan.env, plan.oldId, plan.newId);
     // このワールドでの自分はワールドごとのキーなので、どのキーでも読み直させる。ID の変更では、ここはまだログイン中の ID が前の ID の
     // ままなので、知らせるのは次の store の通知（新しい ID になった後）まで遅らせる（前の ID のキーは移して消したので、すぐ知らせると
     // 理想個体・所持パル・設定が自分を一度「分からない」として描き直し、新しい ID でもう一度描き直していた）

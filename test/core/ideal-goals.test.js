@@ -295,7 +295,7 @@ test('目標の一覧の状態（goalProgress）: 種族ごとの索引で求め
   }
   // 完成と未完成の両方を確かめている
   assert.ok(finished > 5 && finished < 55, `完成の数 ${finished}`);
-  // 種族のない目標・個体の配列でないもの
-  assert.deepEqual(goalProgress({ ...goal(), palId: '' }, pals), { found: [], nearest: null });
-  assert.deepEqual(goalProgress(goal(), null), { found: [], nearest: null });
+  // 種族のない目標・個体の配列でないもの（手術で完成できる個体〔addable。implants〕は canAdd を渡したときだけ求めるので null）
+  assert.deepEqual(goalProgress({ ...goal(), palId: '' }, pals), { found: [], nearest: null, addable: null });
+  assert.deepEqual(goalProgress(goal(), null), { found: [], nearest: null, addable: null });
 });

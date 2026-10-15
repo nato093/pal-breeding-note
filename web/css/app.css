@@ -1429,6 +1429,8 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .route-cross { font-size: 13px; font-weight: 700; }
 .route-split { margin: 0 0 12px; padding: 10px 14px; border: 1px dashed var(--md-sys-color-outline-variant); border-radius: 12px; }
 .route-split[hidden] { display: none; }
+/* パル手術台の 1 行（implants の X-24。開始の行の下・経路の上） */
+.route-surgery { margin: 0 0 12px; padding: 0 14px; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
 .route-split-title { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
 .route-split-list { display: grid; gap: 2px; margin: 0 0 8px; padding: 0 0 0 18px; font-size: 13px; }
 .route-split-none { color: var(--md-sys-color-on-surface-variant); }
@@ -2902,6 +2904,45 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-notes { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .ideal-warning { color: var(--warning); }
 .ideal-missing { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+/* パル手術台の案内（implants）: 足りないパッシブごとの 1 行（[チップ]: パル手術台で付けられます（[アイコン]〈アイテム名〉） · 在庫）と、
+   手術で付ける分を除いた計画へのリンク、URL の s があるときの帯（左に primary の線。結果の上） */
+.ideal-surgery-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.ideal-surgery-item { display: flex; flex-wrap: wrap; align-items: center; }
+.ideal-surgery-item.is-none { color: var(--md-sys-color-on-surface-variant); }
+.ideal-surgery-icon { flex: none; width: 16px; height: 16px; margin: 0 2px 0 1px; }
+.ideal-surgery-stock { margin-left: 4px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.ideal-surgery-plan { display: inline-block; margin: 0 0 10px; font-size: 13px; font-weight: 700; }
+.ideal-surgery-band { margin: 4px 0 10px; padding: 8px 14px; border-left: 3px solid var(--md-sys-color-primary); border-radius: 0 12px 12px 0; background: var(--md-sys-color-surface-container-low); }
+.ideal-surgery-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 4px; font-size: 13px; font-weight: 700; }
+.ideal-surgery-back { margin-left: auto; font-size: 13px; font-weight: 700; }
+.ideal-surgery-band .ideal-surgery-list { margin: 0; }
+/* パルリバーサーの案内（implants・D17）: 孵化させると完成するタマゴの下・牧場の帯の上。手術台の帯と同じ形（左に primary の線）。
+   左の欄に [アイコン][1 行目の文][· 在庫] と 3 体まで・「ほか n 体」（文の欄の中で折り返す）、右に「パルリバーサーを使わずに作る」。
+   個体の呼び名は押すと右のドロワーで個体の詳細（文字のボタン。title に個体値とパッシブ） */
+.ideal-reverser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 16px;
+  margin: 0 0 10px;
+  padding: 8px 14px;
+  border-left: 3px solid var(--md-sys-color-primary);
+  border-radius: 0 12px 12px 0;
+  background: var(--md-sys-color-surface-container-low);
+}
+.ideal-reverser-head { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
+.ideal-reverser-icon { width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px; }
+.ideal-reverser-note, .ideal-reverser-stock { font-size: 12px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
+.ideal-reverser-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.ideal-reverser-pal { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; }
+button.ideal-reverser-pal { color: var(--md-sys-color-primary); cursor: pointer; }
+button.ideal-reverser-pal:hover { text-decoration: underline; }
+.ideal-reverser-more { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+/* 見出しの右の「非表示にしたパルリバーサーの案内（n 件）を戻す」（小さな文字のボタン。消した案内があるときだけ） */
+.ideal-reverser-restore { flex: none; border: 0; border-radius: 8px; padding: 4px 8px; background: transparent; color: var(--md-sys-color-primary); font: inherit; font-size: 12px; white-space: nowrap; }
+.ideal-reverser-restore:hover { background: var(--state-hover); }
+/* 目標の一覧の「手術で完成できる」の 1 行（「アヌビス♂ Lv52（拠点 1）＋神速（…）」）は長いので、項目の中でも折る */
+.ideal-goal-gap.is-surgery .ideal-goal-gap-part { white-space: normal; overflow-wrap: anywhere; }
 /* 保存した目標（見出しの「目標（N）」のダイアログ。列: パル・名前／パッシブ／条件の要約／状態／呼び出す・外す） */
 .ideal-goals-dialog { width: min(960px, calc(100% - 24px)); }
 .ideal-goal-list { list-style: none; margin: 0; padding: 0; display: grid; }

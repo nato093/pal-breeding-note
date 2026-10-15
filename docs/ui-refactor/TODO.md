@@ -920,7 +920,7 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 セーブから読める追加の情報（入手時刻・お気に入り・接続中の仲間・Day・ケーキの残りほか）
 
-- 状態: 済（2026-10-16。実装の記録は phase-3-4-drawer-data.md の save-extras の節。統合ブランチ `integrate/phase-4` へのマージは親のセッションが確かめてから。お気に入りと孵化の残り時間は 2026-10-15 のユーザーの答えで見送った）／ ブランチ: `feature/save-extras` ／ マージのコミット: （未）
+- 状態: 済（2026-10-16。実装の記録は phase-3-4-drawer-data.md の save-extras の節。統合ブランチ `integrate/phase-4` へマージした。お気に入りと孵化の残り時間は 2026-10-15 のユーザーの答えで見送った）／ ブランチ: `feature/save-extras` ／ マージのコミット: `990161b`
 
 - [x] `check-save.mjs --probe`（個体の項目・最終ログインと RealDateTimeTicks・場所不明の入れ物・牧場の入れ物・孵化器）を書いて実セーブで確かめる（→ インプラントとパルリバーサーの入れ物・RecordData も）
 - [x] 結果を SAVE_FORMAT.md に書き、ない項目をユーザーに報告する
@@ -939,21 +939,21 @@ TODO の数は、テーマの TODO とフェーズの終わりの作業の合計
 
 パル手術台とインプラント・パルリバーサー
 
-- 状態: 未着手 ／ ブランチ: `feature/implants` ／ マージのコミット: （未）
+- 状態: 前半・後半とも実装済（2026-10-16。前半はパル手術台の表・在庫・案内・`s`・継承ルートの 1 行・「手術で完成できる」、後半はパルリバーサーの案内〔D17〕。実装の記録は phase-3-4-drawer-data.md の implants の節）。完了の条件のうち、実セーブ（ホストの画面）での手術台の案内の確認が残り。統合ブランチへのマージは親の確認の後 ／ ブランチ: `feature/implants` ／ マージのコミット: （未）
 - ideal-calc の後の形で書き直した（2026-10-12。README の「3-6」の末尾。D9〜D17）
 
-- [ ] `scripts/extract-implants.mjs` で手術台の表を取り出し、`web/data/implants.js` を生成（パッシブ ID の照合）
-- [ ] SOURCES.md に出典と INV-2 の注記
-- [ ] `web/js/core/implants.js`（`implantOf`・`goalNear`）
-- [ ] 在庫の読み取り（拠点の箱・ギルド保管庫・Essential。ワールドの宝箱は除く）と `itemStock`
-- [ ] タマゴの場所の判定の回帰テスト
-- [ ] 理想個体の足りないパッシブに手術台の案内と在庫（文言の変更とテストの更新）
-- [ ] 「手術で付ける分を除いて計画する」のリンク・`s` の検証・帯・目標の保存の扱い
-- [ ] パルリバーサーの案内の計算（`core/ideal.js`。新しくできる組だけを見る・総当たりと一致するテスト・性能テスト）
-- [ ] パルリバーサーの案内の表示（上位 3 体＋ほか n 体・「パルリバーサーを使わずに作る」・戻すリンク）と、消した記録の保存（この端末だけ・data-boundary・user-rename）
-- [ ] 継承ルートの手術台の 1 行
-- [ ] 目標の一覧の「手術で完成できる」（ベルは鳴らさない）
-- [ ] 計算のしくみの 1 文・OPERATIONS.md:122 の直し・SAVE_FORMAT.md・release-notes
+- [x] `scripts/extract-implants.mjs` で手術台の表を取り出し、`web/data/implants.js` を生成（パッシブ ID の照合）（→ v1.0.5 で 54 行。パルリバーサーの名前 `GENDER_REVERSE_NAME` も）
+- [x] SOURCES.md に出典と INV-2 の注記
+- [x] `web/js/core/implants.js`（`implantOf`・`goalNear`）（→ 数え上げは core/ideal-goals.js の `goalProgress` の `canAdd`〔1 体と数〕と `goalAddable`〔全部〕）
+- [x] 在庫の読み取り（拠点の箱・ギルド保管庫・Essential。ワールドの宝箱は除く）と `itemStock`（→ 所持品は全部の入れ物・拠点は箱・配合牧場・ほかの設備。呼び名は画面の側。`stockText`）
+- [x] タマゴの場所の判定の回帰テスト（→ 合成のセーブと、手元のワールド 4 つで前の版と同じ）
+- [x] 理想個体の足りないパッシブに手術台の案内と在庫（文言の変更とテストの更新）（→ 警告の文は route-progress の後の文のまま）
+- [x] 「手術で付ける分を除いて計画する」のリンク・`s` の検証・帯・目標の保存の扱い（→ 保存は押せなくして理由）
+- [x] パルリバーサーの案内の計算（`core/ideal.js`。新しくできる組だけを見る・総当たりと一致するテスト・性能テスト）（→ `genderFlipSteps`・`genderFlipHints`。同じ組み合わせで別の子も登録されている組は案内しない）
+- [x] パルリバーサーの案内の表示（上位 3 体＋ほか n 体・「パルリバーサーを使わずに作る」・戻すリンク）と、消した記録の保存（この端末だけ・data-boundary・user-rename）（→ 戻すリンクは見出しの右。記録は web/js/reverser-hidden.js）
+- [x] 継承ルートの手術台の 1 行
+- [x] 目標の一覧の「手術で完成できる」（ベルは鳴らさない）
+- [x] 計算のしくみの 1 文・OPERATIONS.md:122 の直し・SAVE_FORMAT.md・release-notes（→ 計算のしくみは D30 でなくしたので不要。OPERATIONS.md のパルリバーサーの案内と release-notes の 2 件目も後半で足した）
 
 ### 41. [paldex](phase-3-4-drawer-data.md#paldex-パルの図鑑pal-の格子)（M）
 

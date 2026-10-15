@@ -204,3 +204,83 @@ test('性能: ケーキの提案（3 通りのケーキの計画を続けて区�
     assert.equal(speeds.size, 3);
   }
 });
+
+// パルリバーサーの案内（implants・D17）: 計画の後に続けて、目標の種族の親の候補を 1 体ずつ性別を変えたときに新しくできる組だけを見る
+// （同じ種族の ♂1000 × ♀1000 では ♂どうし・♀どうしの約 200 万組。計画の 100 万組の約 2 倍）。計画と同じく 1 回 2 秒以内、
+// 画面と同じ 30ms の区切りで 1 回の区切りが 50ms 以内（D18）。案内が計画より親の余計の多い世代の表を要るときは、その表の作成も区切り、
+// 表 1 つの作成は 300ms 以内（D18）
+test('性能: パルリバーサーの案内（D17）は、同じ種族の ♂1000 × ♀1000 で 1 回 2 秒以内・区切って 1 回の区切りが 50ms 以内・新しく要る世代の表の作成は 300ms 以内', async () => {
+  const { idealPlan, planSpeed, genderFlipHints, genderFlipSteps, hasGenerationTable, generationTable } = await import('../../web/js/core/ideal.js');
+  const { startSliced } = await import('../../web/js/ui/slice.js');
+  let state = 0x52455653;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  const junk = ['J0', 'J1', 'J2', 'J3', 'J4', 'J5'];
+  // 性能テスト 3 と同じ形（欲しいパッシブの一部と余計なパッシブを合わせて 4 個まで。先頭の ♂ は欲しいものを持たず余計 4 個、♀ は全部持つ）
+  const make = (wanted, count, low) => Array.from({ length: count * 2 }, (_, i) => {
+    const own = i === 0 ? [] : i === 1 ? [...wanted] : wanted.filter(() => random() < 0.5);
+    const extras = i === 0 ? junk.slice(0, 4) : junk.filter(() => random() < 0.4).slice(0, 4 - own.length);
+    const value = () => low + Math.floor(random() * (101 - low));
+    return { id: `R${i}`, palId: 'X', gender: i % 2 ? 'F' : 'M', egg: false, place: 'palbox', passives: [...own, ...extras], talent: { hp: value(), shot: value(), defense: value() } };
+  });
+  const index = buildIndex([], [{ id: 'X', no: 1, variant: false }]);
+  const sliced = async (steps) => {
+    const slices = [];
+    const job = startSliced(steps, { budget: 30, onSlice: (ms) => slices.push(ms), schedule: (fn) => setImmediate(fn) });
+    const value = job.done ? job.value : await job.promise;
+    return { value, slices, max: Math.max(...slices), total: slices.reduce((sum, ms) => sum + ms, 0) };
+  };
+  // slicedFirst: 区切った計算を先に回す（新しく要る世代の表を、区切った計算の中で作る）
+  const check = async (label, pals, input, { slicedFirst = false } = {}) => {
+    const plan = idealPlan({ pals, index, target: 'X', ...input });
+    const before = planSpeed(plan);
+    const first = slicedFirst ? await sliced(genderFlipSteps({ pals, index, target: 'X', ...input }, before)) : null;
+    const start = performance.now();
+    const result = genderFlipHints({ pals, index, target: 'X', ...input }, before);
+    const elapsed = performance.now() - start;
+    const run = first ?? await sliced(genderFlipSteps({ pals, index, target: 'X', ...input }, before));
+    console.log(`パルリバーサーの案内・${label}: ${elapsed.toFixed(2)} ms（案内 ${result.hints.length} 体＋ほか ${result.more} 体・今の 1 番 ${before === null ? 'なし' : before.toFixed(1)}）、`
+      + `区切って ${run.slices.length} 回・最大 ${run.max.toFixed(2)} ms・合計 ${run.total.toFixed(0)} ms`);
+    assert.ok(elapsed < 2000, `${label}が 2 秒を超えました: ${elapsed.toFixed(2)} ms`);
+    assert.ok(run.max <= 50, `${label}の 1 回の区切りが 50ms を超えました: ${run.max.toFixed(2)} ms`);
+    // 区切っても同じ答え
+    assert.deepEqual(run.value.hints.map((hint) => `${hint.pal.id}>${hint.to}/${hint.partner.id}`), result.hints.map((hint) => `${hint.pal.id}>${hint.to}/${hint.partner.id}`));
+    assert.equal(run.value.more, result.more);
+    return { result, run };
+  };
+  for (const [label, wanted, cake, count, low, targets] of [
+    ['ケーキなし ♂1000×♀1000・欲しい 4 つ', ['P0', 'P1', 'P2', 'P3'], 'none', 1000, 0, {}],
+    ['ケーキなし ♂1000×♀1000・欲しい 2 つ・個体値 95/94/93', ['P0', 'P1'], 'none', 1000, 0, { hp: 95, shot: 94, defense: 93 }],
+    ['ケーキなし ♂1000×♀1000・欲しい 1 つ', ['P0'], 'none', 1000, 0, {}],
+    ['キノコケーキ ♂1000×♀1000（0〜100）・欲しい 1 つ', ['P0'], 'talent', 1000, 0, {}],
+    ['キノコケーキ ♂200×♀200（88〜100）・欲しい 4 つ', ['P0', 'P1', 'P2', 'P3'], 'talent', 200, 88, {}],
+    ['ケーキなし ♂1000×♀1000・欲しいパッシブなし', [], 'none', 1000, 0, {}],
+  ]) {
+    await check(label, make(wanted, count, low), { passives: wanted, cake, targets });
+  }
+  // 案内が計画より大きい世代の表を要る形: ♂ は欲しい P0 と余計 2 個まで、♀ は P1 だけか、P0 と余計 3 個（♂ では和集合がそろわない）。
+  // 計画の表は親の余計 2 個まで、案内（♀ どうしの組）は 3 個までの表を新しく作る
+  const wide = Array.from({ length: 2000 }, (_, i) => {
+    const male = i % 2 === 0;
+    const passives = male ? ['P0', ...junk.filter(() => random() < 0.3).slice(0, 2)] : i % 4 === 1 ? ['P1'] : ['P0', ...junk.slice(0, 3)];
+    const value = () => Math.floor(random() * 101);
+    return { id: `W${i}`, palId: 'X', gender: male ? 'M' : 'F', egg: false, place: 'palbox', passives, talent: { hp: value(), shot: value(), defense: value() } };
+  });
+  const targets = { hp: 97, shot: 96, defense: 95 };
+  const table = { wanted: 2, mode: 'include', cake: 'none', targets, bound: 'upper', parentExtras: 3 };
+  assert.equal(hasGenerationTable(table), false);
+  assert.equal(idealPlan({ pals: wide, index, target: 'X', passives: ['P0', 'P1'], targets }).pairs[0].group, 'complete');
+  assert.equal(hasGenerationTable(table), false);
+  await check('案内だけが親の余計 3 個までの表を新しく作る ♂1000×♀1000・欲しい 2 つ（区切った計算の中で表を作る）', wide, { passives: ['P0', 'P1'], targets }, { slicedFirst: true });
+  assert.ok(hasGenerationTable(table));
+  // 同じ大きさの表 1 つを新しく作る時間（D18 の 300ms。区切った計算では、この作成も区切っている）
+  const fresh = { ...table, targets: { hp: 94, shot: 93, defense: 92 } };
+  assert.equal(hasGenerationTable(fresh), false);
+  const start = performance.now();
+  generationTable(fresh);
+  const built = performance.now() - start;
+  console.log(`パルリバーサーの案内で新しく要る世代の表（欲しい 2 つ・親の余計 3 個まで）の作成: ${built.toFixed(2)} ms`);
+  assert.ok(built <= 300, `新しく要る世代の表の作成が 300ms を超えました: ${built.toFixed(2)} ms`);
+});

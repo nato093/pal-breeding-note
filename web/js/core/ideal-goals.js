@@ -235,31 +235,42 @@ const speciesIndex = memo((pals) => {
 
 /**
  * 目標の一覧の 1 行に要るもの（goals-detail）: 完成品（goalMatches と同じ個体・同じ並び）と、完成品がなければいちばん近い個体（goalNearest と同じ）。
- * 種族ごとの索引を使い、目標ごとには欲しいパッシブを持つ個体の数え上げと個体値の型付き配列だけを見る
+ * 種族ごとの索引を使い、目標ごとには欲しいパッシブを持つ個体の数え上げと個体値の型付き配列だけを見る。
+ * canAdd（パッシブ ID → 後から付けられるか）を渡すと、足りないパッシブをすべて後から付ければ完成する個体のうち、いちばん良い 1 体と数（addable）も
+ * 同じ数え上げで求める（implants の「手術で完成できる」。views/ideal.js が手術台の表〔core/implants.js の canImplant〕を渡す。この関数は表を知らない）。
+ * 1 体と数だけにするのは、目標 100 件 × 同じ種族 20,000 行で全部の個体を並べると 0.7 秒止まったため（全部は goalAddable）
  * @param {object} goal cleanGoal で整えたもの
  * @param {object[]} pals 自分の個体
- * @returns {{ found: object[], nearest: ReturnType<typeof goalNearest> }}
+ * @param {{ canAdd?: ((passiveId: string) => boolean) | null }} [options]
+ * @returns {{ found: object[], nearest: ReturnType<typeof goalNearest>, addable: { pal: object, add: string[], count: number } | null }}
+ *   addable は canAdd がない・そういう個体がいなければ null（並びは goalAddable の先頭と同じ）
  */
-export function goalProgress(goal, pals) {
-  return progressOf(goal, pals, false);
+export function goalProgress(goal, pals, { canAdd = null } = {}) {
+  return progressOf(goal, pals, false, canAdd);
 }
 
-// withNearest: 完成品があっても、いちばん近い個体を求める（goalNearest）
-function progressOf(goal, pals, withNearest) {
+// 目標の種族の索引と、欲しいパッシブのうち持っている数（持っている個体だけ、パッシブ → 個体の位置の一覧から数える）。種族がいなければ null
+function scanOf(goal, pals) {
   const group = goal?.palId && Array.isArray(pals) ? speciesIndex(pals).get(goal.palId) : null;
-  if (!group) return { found: [], nearest: null };
+  if (!group) return null;
   const wanted = [...new Set(goal.passives)];
-  const size = group.pals.length;
-  // 欲しいパッシブのうち持っている数（持っている個体だけ、パッシブ → 個体の位置の一覧から数える）
-  const counts = new Uint8Array(size);
+  const counts = new Uint8Array(group.pals.length);
   let most = 0;
   for (const id of wanted) {
     for (const at of group.byPassive.get(id) ?? []) if (++counts[at] > most) most = counts[at];
   }
   const target = GOAL_STATS.map((key) => (goal.targets[key] > 0 ? goal.targets[key] : 0));
+  return { group, wanted, counts, most, target, only: goal.mode === 'only' };
+}
+
+// withNearest: 完成品があっても、いちばん近い個体を求める（goalNearest）
+function progressOf(goal, pals, withNearest, canAdd = null) {
+  const scan = scanOf(goal, pals);
+  if (!scan) return { found: [], nearest: null, addable: null };
+  const { group, wanted, counts, most, target, only } = scan;
+  const size = group.pals.length;
   const [hp, shot, defense] = target;
   const { talent, distinct } = group;
-  const only = goal.mode === 'only';
   const found = [];
   if (most === wanted.length) {
     for (let at = 0; at < size; at++) {
@@ -267,7 +278,8 @@ function progressOf(goal, pals, withNearest) {
       if (talent.hp[at] >= hp && talent.shot[at] >= shot && talent.defense[at] >= defense) found.push(group.pals[at]);
     }
   }
-  if (found.length && !withNearest) return { found, nearest: null };
+  const addable = canAdd ? bestAddable(scan, canAdd) : null;
+  if (found.length && !withNearest) return { found, nearest: null, addable };
   // いちばん近い個体: 欲しいパッシブを持つ数が最も多い個体のうち、足りない個体値の合計が少ない順 → 個体 ID
   let best = -1;
   let bestLack = Infinity;
@@ -281,7 +293,76 @@ function progressOf(goal, pals, withNearest) {
   }
   const pal = group.pals[best];
   const short = Object.fromEntries(GOAL_STATS.map((key, i) => [key, Math.max(0, target[i] - pal.talent[key])]));
-  return { found, nearest: { pal, passives: { have: most, total: wanted.length }, short, extra: only ? Math.max(0, distinct[best] - most) : 0 } };
+  return { found, nearest: { pal, passives: { have: most, total: wanted.length }, short, extra: only ? Math.max(0, distinct[best] - most) : 0 }, addable };
+}
+
+// 個体が持てるパッシブの数（ゲームの枠）
+const PASSIVE_SLOTS = 4;
+
+/**
+ * 足りないパッシブ（1 個以上）をすべて後から付ければ完成する個体の位置ごとに visit(at) を呼ぶ。完成品（足りないものがない個体）は入れない。
+ * 条件: 個体値の目標を満たす・付けられないパッシブ（canAdd が false）は全部持っている・「欲しいものだけ」なら余計なパッシブの数が
+ * 足りないパッシブの数以下（付けるときに余計なものの枠へ上書きするので、その数までしか消せない）・付けた後の数が枠を超えない
+ *（持っている数＋足りない数−上書きする余計な数。「全部持つ」は余計なものへも上書きできるので、欲しいものが 4 個までならいつも収まる）
+ */
+function scanAddable({ group, wanted, counts, target: [hp, shot, defense], only }, canAdd, visit) {
+  const hard = wanted.filter((id) => !canAdd(id));
+  const { talent, distinct } = group;
+  // 付けられないパッシブがあれば、それを全部持つ個体だけを見る（いちばん少ない持ち主の一覧から引き、残りは数えて確かめる）
+  let positions = null;
+  let hardCounts = null;
+  if (hard.length) {
+    const lists = hard.map((id) => group.byPassive.get(id) ?? []);
+    positions = lists.reduce((a, b) => (b.length < a.length ? b : a));
+    if (!positions.length) return;
+    hardCounts = new Uint8Array(group.pals.length);
+    for (const list of lists) for (const at of list) hardCounts[at]++;
+  }
+  const check = (at) => {
+    const missing = wanted.length - counts[at];
+    if (missing < 1 || (hardCounts && hardCounts[at] !== hard.length)) return;
+    if (talent.hp[at] < hp || talent.shot[at] < shot || talent.defense[at] < defense) return;
+    const extra = distinct[at] - counts[at];
+    if (only && extra > missing) return;
+    const overwrite = only ? extra : Math.min(extra, missing);
+    if (distinct[at] + missing - overwrite > PASSIVE_SLOTS) return;
+    visit(at);
+  };
+  if (positions) for (const at of positions) check(at);
+  else for (let at = 0; at < group.pals.length; at++) check(at);
+}
+
+// 並び: 付ける数の少ない順（＝持っている欲しいパッシブの多い順）→ Lv の高い順 → 個体 ID
+const addableOrder = (group, counts) => (a, b) => counts[b] - counts[a] || (group.pals[b].level ?? 0) - (group.pals[a].level ?? 0)
+  || (group.pals[a].id < group.pals[b].id ? -1 : group.pals[a].id > group.pals[b].id ? 1 : 0);
+const addableEntry = ({ group, wanted }, at) => ({ pal: group.pals[at], add: wanted.filter((id) => !group.pals[at].passives.includes(id)) });
+
+// いちばん良い 1 体と数（並べない。goalProgress）
+function bestAddable(scan, canAdd) {
+  const order = addableOrder(scan.group, scan.counts);
+  let best = -1;
+  let count = 0;
+  scanAddable(scan, canAdd, (at) => {
+    count++;
+    if (best < 0 || order(at, best) < 0) best = at;
+  });
+  return best < 0 ? null : { ...addableEntry(scan, best), count };
+}
+
+/**
+ * 足りないパッシブ（1 個以上）をすべて後から付ければ完成する個体の全部（条件は goalProgress の addable と同じ。並び: 付ける数の少ない順 →
+ * Lv の高い順 → 個体 ID）。core/implants.js の goalNear が手術台の表を渡す
+ * @param {object} goal cleanGoal で整えたもの
+ * @param {object[]} pals 個体
+ * @param {(passiveId: string) => boolean} canAdd 後から付けられるパッシブか
+ * @returns {{ pal: object, add: string[] }[]}
+ */
+export function goalAddable(goal, pals, canAdd) {
+  const scan = scanOf(goal, pals);
+  if (!scan) return [];
+  const positions = [];
+  scanAddable(scan, canAdd, (at) => positions.push(at));
+  return positions.sort(addableOrder(scan.group, scan.counts)).map((at) => addableEntry(scan, at));
 }
 
 /**

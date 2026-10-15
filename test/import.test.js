@@ -141,3 +141,41 @@ test('INV-2: 作業適性（web/data/work.js）は作業の鍵と 1 以上の整
   const script = fs.readFileSync('scripts/extract-work.mjs', 'utf8');
   assert.match(script, /keep: \(name\) => columns\.includes\(name\)/);
 });
+
+// implants: パル手術台の表（web/data/implants.js。ゲーム本体から npm run extract:implants）。INV-2: 手術台は配合ではない。
+// 取り込むのはパッシブ・アイテム・種類だけで、表の数値（Price）や配合の値を含めない。表のパッシブ ID はすべて passives.js にある
+test('INV-2: 手術台の表（web/data/implants.js）はパッシブ・アイテム・種類だけで、パッシブ ID はすべて passives.js にある', async () => {
+  const { default: implants, GENDER_REVERSE_ITEM, GENDER_REVERSE_NAME } = await import('../web/data/implants.js');
+  const { default: passives } = await import('../web/data/passives.js');
+  const ids = new Set(passives.map((passive) => passive.id));
+  assert.equal(implants.length, 54);
+  assert.equal(new Set(implants.map((entry) => entry.passiveId)).size, implants.length);
+  for (const entry of implants) {
+    assert.deepEqual(Object.keys(entry).sort(), ['item', 'itemName', 'kind', 'passiveId'], entry.passiveId);
+    assert.ok(ids.has(entry.passiveId), `passives.js にない: ${entry.passiveId}`);
+    if (entry.kind === 'free') assert.deepEqual([entry.item, entry.itemName], ['', ''], entry.passiveId);
+    else if (entry.kind === 'reusable') {
+      assert.match(entry.item, /^PalPassiveSkillChange_(?!Consumable_)/, entry.passiveId);
+      assert.match(entry.itemName, /^インプラント：/, entry.passiveId);
+    } else {
+      assert.equal(entry.kind, 'consumable', entry.passiveId);
+      assert.match(entry.item, /^PalPassiveSkillChange_Consumable_/, entry.passiveId);
+      assert.match(entry.itemName, /^使い切りインプラント：/, entry.passiveId);
+    }
+  }
+  // v1.0.5 の表: アイテム不要 19・インプラント 14・使い切り 21
+  assert.deepEqual(['free', 'reusable', 'consumable'].map((kind) => implants.filter((entry) => entry.kind === kind).length), [19, 14, 21]);
+  assert.deepEqual([GENDER_REVERSE_ITEM, GENDER_REVERSE_NAME], ['PalGenderReverse', 'パルリバーサー']);
+  const source = fs.readFileSync('web/data/implants.js', 'utf8');
+  assert.match(source, /自動生成/);
+  assert.match(source, /手で編集しない/);
+  // 値はどれも文字列（表の数値〔Price〕を書き出さない。SalePrice_Up_1 などパッシブ ID の中の語は除く）
+  assert.doesNotMatch(source.replace(/^\s*\/\/.*$/gm, ''), /"price"|:\s*-?\d|Combi|Breed/i);
+  // 判定の関数（core/implants.js）は配合表・遺伝の仕組みを読まない（読むのは表と、目標の判定・値の形の確かめだけ）
+  const core = fs.readFileSync('web/js/core/implants.js', 'utf8');
+  assert.deepEqual([...core.matchAll(/from '([^']+)'/g)].map((match) => match[1]), ['../../data/implants.js', './ideal-goals.js', './boundary.js']);
+  // 取り出しのスクリプトも、残すのはパッシブとアイテムの列だけ（Price は読み進めるために読むが残さない）
+  const script = fs.readFileSync('scripts/extract-implants.mjs', 'utf8');
+  assert.match(script, /const KEEP = \['PassiveSkill', 'RequireItemId'\];/);
+  assert.match(script, /keep: \(name\) => KEEP\.includes\(name\)/);
+});

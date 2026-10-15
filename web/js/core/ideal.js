@@ -968,3 +968,180 @@ export function fastestCake(speeds) {
   const best = Math.min(...makeable.map(([, speed]) => speed));
   return makeable.find(([, speed]) => best > speed * CAKE_FASTER)[0];
 }
+
+// ---------------------------------------------------------------------------
+// パルリバーサーの案内（implants・D17）: パル手術台のパルリバーサーで、目標の種族の親の候補の 1 体の性別を変えると、
+// 今の 1 番の完全体作成組より完成までの平均が 1 割以上少なくなる（完全体作成組がなければ、完全体作成組ができる）個体を探す。
+// 案内するだけで、配合の計画（idealPlan）の一覧と並びは変えない（判断事項 3）
+// ---------------------------------------------------------------------------
+
+/** 案内する速さ: 今の 1 番の完全体作成組の平均のこの割合以下（1 割以上少ない。丸めた比較キーで比べる。ケーキの提案の CAKE_FASTER と同じ物差し） */
+export const REVERSER_FASTER = 0.9;
+/** 名前を出す個体の数（残りは数だけ） */
+export const REVERSER_SHOWN = 3;
+
+/**
+ * パルリバーサーの案内（区切らずに最後まで求める。入力と戻り値は genderFlipSteps と同じ）
+ */
+export function genderFlipHints(input, before = null) {
+  return drain(genderFlipSteps(input, before));
+}
+
+/**
+ * パルリバーサーの案内を区切って求める（ジェネレーター。個体の振り分け・組のループの中と、新しく作る世代の表の作成の中で yield する）。
+ * 目標の種族の親の候補（isParentCandidate・性別が分かる・palId === target）を 1 体ずつ X として、X の性別を変えたときに新しくできる組
+ *（X と、もとは X と同じ性別だった同じ種族の個体の組と、X の種族が反対の性別で入る登録済みの配合〔layouts〕の異なる種族の組）を、
+ * idealPlan と同じ計算（完全体作成組の条件・親の余計を広げた世代の表・1 回で作れる組）で求め、その中で並びのいちばん良い完全体作成組を
+ * X の値（eggs）と相手（partner）にする。
+ * X を含まない組は性別を変えても変わらず、今の 1 番以上なので「1 番より 1 割以上少ない」に入らない。X のもとの性別の組は消えるだけ。
+ * だから新しくできる組だけを見れば、1 体ずつ性別を変えて計画を計算し直し、新しい 1 番を今の 1 番と比べるのと同じ答えになる。
+ * ただし、同じ組み合わせで別の子も登録されている組（ambiguous。どちらかの登録が間違っている可能性がある）は案内しない
+ *（計画では確実な組の後ろに回る組で、性別を変える根拠にしない）。
+ * @param {object} input idealPlan と同じ入力（pals・index・target・passives・mode・targets・cake。limit・prefer・watch は使わない）
+ * @param {number | null} before 今の計画の 1 番の完全体作成組の完成までの平均（planSpeed。完全体作成組がなければ null）
+ * @returns {{ hints: { pal: object, to: 'M'|'F', partner: object, eggs: number }[], more: number, before: number | null }}
+ *   hints は値（eggs）の小さい順（同じなら計画の並びと同じ決め方）に REVERSER_SHOWN 体まで、more は残りの体数
+ */
+export function* genderFlipSteps({ pals, index, target, passives = [], mode = 'include', targets = {}, cake = 'none' }, before = null) {
+  let work = 0;
+  const base = Number.isFinite(before) ? before : null;
+  const none = { hints: [], more: 0, before: base };
+  const wanted = [...new Set(passives)].slice(0, MAX_WANTED);
+  const goal = talentTargets(targets);
+  const bonus = cake === 'talent';
+  const reach = bonus ? BONUS.length : 0;
+  // パッシブの条件そのものが満たせないなら、どの組も完成しない（idealPlan の impossible）
+  if (wanted.length > 0 && passiveChance(wanted.length, wanted.length, { mode, cake }) === 0) return none;
+  const layouts = breedingLayouts(index, target);
+  const species = new Set(layouts.flatMap((layout) => [layout.male, layout.female]));
+  const full = (1 << wanted.length) - 1;
+  const held = new Set();
+  const groups = new Map();
+  for (const pal of pals) {
+    if ((++work & PAIR_STEP) === 0) yield;
+    if (!species.has(pal.palId) || !isParentCandidate(pal) || (pal.gender !== 'M' && pal.gender !== 'F')) continue;
+    const own = [...new Set(pal.passives)];
+    let mask = 0;
+    wanted.forEach((id, bit) => { if (own.includes(id)) { mask |= 1 << bit; held.add(id); } });
+    const entry = {
+      pal, own, mask, extras: own.filter((id) => !wanted.includes(id)), stage: 0,
+      hit: TALENT_KEYS.map((key) => inheritedHit(pal.talent[key], goal[key], bonus)),
+      mean: TALENT_KEYS.map((key) => inheritedMean(pal.talent[key], bonus)),
+    };
+    const key = `${pal.palId}|${pal.gender}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  // 欲しいパッシブを候補のだれも持たなければ、性別を変えても完全体作成組はできない
+  if (wanted.some((id) => !held.has(id))) return none;
+  const usable = layouts.filter((layout) => !layout.ambiguous);
+  const sameUsable = usable.some((layout) => layout.male === target && layout.female === target);
+  // X が ♂ になって入る異なる種族の置き方（相手は ♀ の種族）と、♀ になって入る置き方（相手は ♂ の種族）
+  const crossAs = {
+    M: usable.filter((layout) => layout.male === target && layout.female !== target).map((layout) => groups.get(`${layout.female}|F`) ?? []),
+    F: usable.filter((layout) => layout.female === target && layout.male !== target).map((layout) => groups.get(`${layout.male}|M`) ?? []),
+  };
+  const sameOf = { M: groups.get(`${target}|M`) ?? [], F: groups.get(`${target}|F`) ?? [] };
+  // 新しくできる同じ種族の組（もとは同じ性別の 2 体）で、子を入れ替えながら作れる組の親の余計の最大（世代の表を必要な分だけ広げる。-1 は組がない）
+  let parentExtras = -1;
+  if (sameUsable) {
+    for (const list of [sameOf.M, sameOf.F]) {
+      const byMask = new Map();
+      for (const entry of list) {
+        if (entry.own.length > MAX_WANTED) continue;
+        const item = byMask.get(entry.mask) ?? { extras: 0, count: 0 };
+        byMask.set(entry.mask, { extras: Math.max(item.extras, entry.extras.length), count: item.count + 1 });
+      }
+      for (const [maskA, a] of byMask) {
+        for (const [maskB, b] of byMask) {
+          if ((maskA | maskB) !== full || (maskA === maskB && a.count < 2)) continue;
+          parentExtras = Math.max(parentExtras, a.extras, b.extras);
+        }
+      }
+    }
+  }
+  // 並べるときの表（キノコケーキは目安）。新しく作る表は区切って作る
+  const table = parentExtras >= 0
+    ? yield* generationTableSteps({ wanted: wanted.length, mode, cake, targets: goal, bound: bonus ? 'estimate' : 'upper', parentExtras }) : null;
+  if (table && bonus) {
+    for (const entry of [...sameOf.M, ...sameOf.F]) {
+      if ((++work & PAIR_STEP) === 0) yield;
+      entry.stage = TALENT_KEYS.reduce((code, key, s) => code + stageOf(entry.pal.talent[key], goal[key], table) * STAGES ** s, 0);
+    }
+  }
+  const random = TALENT_KEYS.map((key) => randomHit(goal[key], bonus));
+  const randomMean = RANDOM_MEAN[Number(bonus)];
+  const passiveRates = [];
+  const passiveRate = (pool) => (passiveRates[pool] ??= passiveChance(wanted.length, pool, { mode, cake }));
+  // 世代の平均は、両親の値の段階と余計なパッシブの数・共有数だけで決まるので、この呼び出しの間だけ覚えておく（キノコケーキのとき。idealPlan と同じ）
+  const eggsCache = new Map();
+  const generationsOf = (male, female, shared) => {
+    const extras = { maleExtras: male.extras.length, femaleExtras: female.extras.length, shared };
+    if (!bonus) return generationEggs(table, male.pal.talent, female.pal.talent, extras);
+    const key = (((male.stage * STAGES ** 3 + female.stage) * 5 + extras.maleExtras) * 5 + extras.femaleExtras) * 5 + shared;
+    let eggs = eggsCache.get(key);
+    if (eggs === undefined) eggsCache.set(key, eggs = generationEggs(table, male.pal.talent, female.pal.talent, extras));
+    return eggs;
+  };
+  const inherited = [0, 0, 0];
+  // 組（♂ male・♀ female の entry）が完全体作成組で、best（その X のいちばん良い組）より良ければ、組の形（comparePlan で比べる項目）を返す
+  const better = (male, female, same, best) => {
+    if ((male.mask | female.mask) !== full) return null;
+    let shared = 0;
+    for (const id of male.own) if (female.own.includes(id)) shared++;
+    const pool = male.own.length + female.own.length - shared;
+    const passive = passiveRate(pool);
+    // パッシブの条件を満たす子が産まれない組（blocked）
+    if (!passive) return null;
+    for (let s = 0; s < 3; s++) inherited[s] = (male.hit[s] + female.hit[s]) / 2;
+    const talent = combine(inherited, random);
+    const chance = passive * talent;
+    const oneShot = chance > 0
+      && TALENT_KEYS.every((key) => goal[key] <= 0 || Math.max(male.pal.talent[key], female.pal.talent[key]) + reach >= goal[key]);
+    let generations;
+    if (same && table && male.own.length <= MAX_WANTED && female.own.length <= MAX_WANTED) {
+      let common = 0;
+      for (const id of male.extras) if (female.extras.includes(id)) common++;
+      generations = generationsOf(male, female, common);
+    }
+    if (!oneShot && !Number.isFinite(generations)) return null;
+    const eggs = Math.min(generations ?? Infinity, chance > 0 ? 1 / chance : Infinity);
+    if (best && compareRounded(eggs, best.eggs) > 0) return null;
+    let expected = 0;
+    for (let s = 0; s < 3; s++) expected += INHERIT_RATE[s] * (male.mean[s] + female.mean[s]) / 2 + (1 - INHERIT_RATE[s]) * randomMean;
+    const candidate = {
+      male: male.pal, female: female.pal, rank: 0, ambiguous: false, eggs, prefer: 0, chance, expected, extraCount: pool - wanted.length,
+    };
+    return !best || comparePlan(candidate, best) < 0 ? candidate : null;
+  };
+  const found = [];
+  for (const from of ['M', 'F']) {
+    const to = from === 'M' ? 'F' : 'M';
+    for (const x of sameOf[from]) {
+      let best = null;
+      // 同じ種族の、もとは X と同じ性別の個体と（X が ♀ になるなら相手は ♂ のまま）
+      if (sameUsable) {
+        for (const y of sameOf[from]) {
+          if ((++work & PAIR_STEP) === 0) yield;
+          if (y === x) continue;
+          best = (to === 'F' ? better(y, x, true, best) : better(x, y, true, best)) ?? best;
+        }
+      }
+      // 登録済みの配合で、X の種族が反対の性別で入る異なる種族の組
+      for (const partners of crossAs[to]) {
+        for (const z of partners) {
+          if ((++work & PAIR_STEP) === 0) yield;
+          best = (to === 'M' ? better(x, z, false, best) : better(z, x, false, best)) ?? best;
+        }
+      }
+      if (!best) continue;
+      if (base !== null && compareRounded(best.eggs, base * REVERSER_FASTER) > 0) continue;
+      found.push({ pal: x.pal, to, partner: to === 'M' ? best.female : best.male, eggs: best.eggs, pair: best });
+    }
+  }
+  found.sort((a, b) => comparePlan(a.pair, b.pair));
+  return {
+    hints: found.slice(0, REVERSER_SHOWN).map(({ pal, to, partner, eggs }) => ({ pal, to, partner, eggs })),
+    more: Math.max(0, found.length - REVERSER_SHOWN), before: base,
+  };
+}
