@@ -746,6 +746,57 @@ img, svg { max-width: 100%; }
 .picker-option.is-dim .pal-tile { color: var(--md-sys-color-on-surface-variant); }
 .picker-option.is-dim .pal-label strong { font-weight: 400; }
 .picker-status { font-size: 12px; margin: 6px 0; }
+/* 候補の群の見出し（検索語が空のときの「データあり（N）」「その他（N）」。F077）と、完全に一致した行・候補が 1 件の行の印（矢印の位置は動かさない。F078） */
+.picker-group { padding: 8px 8px 2px; font-size: 11px; font-weight: 700; color: var(--md-sys-color-on-surface-variant); }
+.picker-option.is-suggested:not(.highlighted) { box-shadow: inset 0 0 0 1px var(--md-sys-color-outline); }
+/* ヘッダーのパル検索（pal-detail。G-03）。見出しは読み上げだけ、トリガーは小さい丸い欄で左に虫めがね・右に「/」の印 */
+.header-pal-search { flex: 0 1 auto; min-width: 0; }
+.header-pal-search .field-label, .pal-switch .field-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.header-pal-search .picker-trigger {
+  width: 156px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 34px 0 32px;
+  border-color: transparent;
+  border-radius: 100px;
+  background: var(--md-sys-color-surface-container-high);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.header-pal-search .picker-trigger::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: calc(50% - 7px);
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='m15.5 15.5 5 5'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='m15.5 15.5 5 5'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* 右の ∨ の代わりにキーの印「/」 */
+.header-pal-search .picker-trigger::after,
+.header-pal-search .picker-trigger[aria-expanded="true"]::after {
+  content: '/';
+  top: calc(50% - 9px);
+  right: 9px;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 4px;
+  transform: none;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.header-pal-search .picker-trigger > span { overflow: hidden; text-overflow: ellipsis; }
+.header-pal-search .picker-clear { display: none; }
+/* 幅が足りないときは文字を隠して虫めがねと「/」だけにする（ヘッダーで縮むのはセーブ連携のワールド名だけ。header-frame） */
+@media (max-width: 1240px) {
+  .header-pal-search .picker-trigger { width: 64px; padding-right: 30px; }
+  .header-pal-search .picker-trigger > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .header-pal-search .picker-trigger::after { right: 8px; }
+}
 .pal-icon { display: inline-grid; place-items: center; width: 64px; height: 64px; flex-shrink: 0; }
 .pal-icon img { width: 100%; height: 100%; object-fit: contain; }
 .pal-icon-large { width: 128px; height: 128px; }
@@ -1147,6 +1198,99 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 }
 /* パル詳細の hero は絵と属性だけ（名前と番号は見出しの h1。copy-dead-ends） */
 .pal-hero .pal-icon-large { flex: none; }
+/* パル詳細（views/pal-detail.js。ページと右のドロワーで共通。pal-detail）。ヒーローは 2 列: 左に絵と属性、右に英名・パートナースキル・所持の 1 行。
+   地は第 1 属性の色（--element）の淡いグラデーション */
+.pal-detail-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.pal-detail-heading .pal-switch, .pal-detail.is-drawer .pal-switch { width: 240px; max-width: 100%; }
+.pal-detail.is-drawer .pal-switch { margin: 0 0 12px; }
+.pal-detail .pal-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px 24px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--element, var(--Neutral)) 22%, var(--md-sys-color-surface-container-low)), var(--md-sys-color-surface-container-low) 72%);
+}
+.pal-hero-media { display: grid; justify-items: center; gap: 8px; }
+.pal-hero-info { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.pal-en { margin: 0; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
+.pal-partner { display: grid; gap: 2px; }
+.pal-partner-name { margin: 0; display: flex; flex-direction: column; gap: 1px; }
+.pal-partner-label { font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+.pal-partner-desc { margin: 2px 0 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.pal-partner-more > summary { font-size: 13px; line-height: 1.6; color: var(--md-sys-color-on-surface-variant); cursor: pointer; list-style: none; }
+.pal-partner-more > summary::-webkit-details-marker { display: none; }
+.pal-partner-more > summary::after { content: ' もっと見る'; color: var(--md-sys-color-primary); font-weight: 700; }
+.pal-partner-more[open] > summary { display: none; }
+.pal-owned-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 13px; }
+.pal-owned-label { font-weight: 700; }
+.pal-owned-none, .pal-owned-sep { color: var(--md-sys-color-on-surface-variant); }
+.pal-owned-parents { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.pal-owned-link { white-space: nowrap; }
+.pal-detail .pal-hero-actions { gap: 8px; margin: 12px 0; }
+.pal-action { display: inline-flex; align-items: center; gap: 6px; }
+.pal-action .tab-icon { width: 16px; height: 16px; stroke-width: 2; }
+.pal-action:hover { text-decoration: none; }
+.pal-owned-top { margin: 0 0 12px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; padding: 0 12px; }
+.pal-owned-top > summary { padding: 8px 0; font-size: 13px; font-weight: 700; cursor: pointer; }
+.pal-owned-top[open] > summary { border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.pal-records { margin-top: 12px; }
+.pal-records-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.pal-records-head .section-title { margin-bottom: 8px; }
+.pal-records-more { flex: none; font-size: 13px; font-weight: 700; }
+/* ドロワー（幅 360〜480px）: 絵は 96px、行き先のボタンは 2 列、所持個体の行は 3 段（パルと Lv ／ パッシブ ／ 個体値と場所） */
+.pal-detail.is-drawer .pal-hero { padding: 12px 14px; gap: 10px 14px; }
+.pal-detail.is-drawer .pal-icon-large { width: 96px; height: 96px; }
+.pal-detail.is-drawer .pal-hero-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pal-detail.is-drawer .pal-hero-actions > * { justify-content: center; min-width: 0; }
+.pal-detail.is-drawer .pal-records-head h3 { font-size: 14px; }
+.pal-detail.is-drawer .owned-row {
+  grid-template-columns: 184px minmax(0, 1fr);
+  grid-template-rows: auto;
+  grid-auto-rows: auto;
+  height: auto;
+  gap: 6px 12px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.pal-detail.is-drawer .owned-row > .owned-pal { grid-column: 1; grid-row: 1; }
+.pal-detail.is-drawer .owned-row > .owned-level { grid-column: 2; grid-row: 1; flex-direction: row; gap: 8px; align-items: baseline; }
+.pal-detail.is-drawer .owned-row > .owned-passives { grid-column: 1 / -1; grid-row: 2; }
+.pal-detail.is-drawer .owned-row > .owned-talent { grid-column: 1; grid-row: 3; }
+.pal-detail.is-drawer .owned-row > .owned-where { grid-column: 2; grid-row: 3; }
+.pal-detail.is-drawer .breeding-card { padding-left: 8px; padding-right: 8px; }
+/* 式の絵を 28px にして、5 文字の名前まで 1 行に収める（列 約 100px） */
+.pal-detail.is-drawer .breeding-equation > .pal-tile { gap: 5px; }
+.pal-detail.is-drawer .breeding-equation .pal-icon { width: 28px; height: 28px; }
+.pal-detail.is-drawer .pal-records .empty-state { padding: 12px; }
+/* ホバーの解説の板（ui/hover-card.js。F059）。body に浮かせる 1 つの板で、位置は placeFloating の --picker-* */
+.hover-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  top: var(--picker-top, auto);
+  bottom: var(--picker-bottom, auto);
+  left: var(--picker-left);
+  width: min(var(--picker-width, 260px), 320px);
+  max-height: var(--picker-max-height);
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--elevation-3);
+  font-size: 13px;
+}
+.hover-card p { margin: 0; }
+.hover-card-pal { display: grid; gap: 6px; }
+.hover-card-head { display: flex; align-items: center; gap: 8px; }
+.hover-card-head .pal-icon { width: 40px; height: 40px; }
+.hover-card-names { display: flex; flex-direction: column; line-height: 1.3; }
+.hover-card-title { display: flex; align-items: baseline; gap: 8px; }
+.hover-card-rank { font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+.hover-card-desc { margin-top: 4px; line-height: 1.6; overflow-wrap: anywhere; }
+.hover-card-facts { margin-top: 6px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.hover-card-passive p + p { margin-top: 4px; }
+.passive-chip[tabindex="0"]:focus-visible, .passive-chip.is-hover-pinned { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
 .button.small { min-height: 32px; padding: 4px 12px; border-radius: 100px; font-size: 12px; }
 .heading-actions { display: flex; gap: 8px; }
 .drafts-warning { margin: 8px 0; }
@@ -1931,7 +2075,7 @@ dialog .toast-region, #app.is-login ~ .toast-region, #app.is-login .update-banne
 .start-chips .picker-trigger .dex-label { display: none; }
 .start-chips .picker-clear { right: 28px; background: transparent; }
 .start-chips .picker-clear:hover { background: var(--state-hover); }
-/* 開始の所持個体（経路の下）。行は所持パルの行の部品で、列と見た目は理想個体の組の行と同じ（下の :is(.ideal-pair, .route-owned-rows)） */
+/* 開始の所持個体（経路の下）。行は所持パルの行の部品で、列と見た目は理想個体の組の行と同じ（下の :is(.ideal-pair, .route-owned-rows, .pal-owned-rows)） */
 .route-owned-box { padding: 10px 18px 6px; background: var(--md-sys-color-surface-container-low); border: 0; border-radius: 16px; margin: 12px 0 16px; }
 .route-owned-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .route-owned-box h2 { font-size: 15px; line-height: inherit; margin: 0; }
@@ -2446,14 +2590,14 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 /* 組の ♂♀ 行は所持パルの行と同じ列（--owned-cols）と高さ。列見出しがないので、個体値の 4 セルには小さな見出しを付ける */
 /* 組の行は描画を後回しにせず、はみ出しを切らない（.owned-row の contain: strict の paint のまま左の余白 0 だと、パル名のリンクのフォーカスの枠の左が切れる） */
 /* 継承ルートの開始の所持個体の行（.route-owned-rows）も同じ（route-cleanup） */
-:is(.ideal-pair, .route-owned-rows) .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
-:is(.ideal-pair, .route-owned-rows) > .owned-row:last-child { border-bottom: 0; }
-:is(.ideal-pair, .route-owned-rows) .owned-row:hover { background: transparent; }
-:is(.ideal-pair, .route-owned-rows) .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
-:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="hp"]::before { content: 'HP'; }
-:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="shot"]::before { content: '攻'; }
-:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="defense"]::before { content: '防'; }
-:is(.ideal-pair, .route-owned-rows) .talent-cell[data-key="total"]::before { content: '計'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .owned-row { padding-left: 0; padding-right: 0; content-visibility: visible; contain: layout style; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) > .owned-row:last-child { border-bottom: 0; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .owned-row:hover { background: transparent; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell::before { font-size: 10px; font-weight: 400; line-height: 1.2; color: var(--md-sys-color-on-surface-variant); }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="hp"]::before { content: 'HP'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="shot"]::before { content: '攻'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="defense"]::before { content: '防'; }
+:is(.ideal-pair, .route-owned-rows, .pal-owned-rows) .talent-cell[data-key="total"]::before { content: '計'; }
 /* 組の ♂♀ 行の強調（views/owned.js の ownedRowItem の highlight）。欲しいパッシブは先頭に ✓、それ以外は薄く。
    個体値は目標以上を primary の太字、目標未満は細字（目標までの差〔−N。D23〕は D30 で出さなくした。バーの目標の縦線は残す） */
 .passive-chip.is-extra { opacity: .55; }

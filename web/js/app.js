@@ -29,6 +29,8 @@ import { notificationMenu } from './ui/notifications.js';
 import { updateBanner } from './ui/update-banner.js';
 import { navIcon } from './ui/nav-icons.js';
 import { createDrawer, handlePalLink } from './ui/drawer.js';
+import { palPicker } from './ui/pal-picker.js';
+import { installHoverCards } from './ui/hover-card.js';
 import { palsById } from './ui/pal-icon.js';
 import { installRipple } from './ui/ripple.js';
 import { runningVersion, createVersionWatcher, servedVersion, CHECK_INTERVAL } from './version.js';
@@ -39,6 +41,7 @@ import { ownedView, OWNED_MEMORY } from './views/owned.js';
 import { idealView, IDEAL_MEMORY } from './views/ideal.js';
 import { palView, palDrawer } from './views/pal.js';
 import { settingsView, RIGHTS_NOTE } from './views/settings.js';
+import { palDataNotes } from './views/shared.js';
 import { TABS, tabLabel } from './views/tabs.js';
 import { ownedWorldId } from './core/owned-shared.js';
 
@@ -251,9 +254,24 @@ async function boot() {
   const save = saveStatus({ owned, autoRegister, store, onOpen: () => closeOthers(save) });
   // 名前の変更とログアウトに使うのは store と renamer だけ（context はこの後で作る）
   const account = accountMenu({ store, renamer, onOpen: () => closeOthers(account) });
-  // 並び（＝Tab の順）: ロゴ → 同期状況 → セーブ連携 → ベル → ID。常設の「＋ 登録」は外し、登録の入口は配合を探す・パル詳細の
+  // ヘッダーのパル検索（G-03。どの画面からでも、選んだパルを右のドロワーで開く。選んだら空に戻す）。ショートカットは「/」。
+  // 候補は「データあり（登録か所持がある種族）」→「その他」の 2 群（F077）。ドロワーは context の後で作るので、選んだときに引く
+  const palSearch = palPicker({
+    label: 'パルを探す', placeholder: 'パルを探す', popupHost: document.body, triggerLabel: 'パルを探す（/）',
+    describe: () => palDataNotes(store.state.index, owned.state.owned),
+    onChange: (id) => {
+      if (!id) return;
+      palSearch.setValue('');
+      drawer.open({ kind: 'pal', id }, { opener: palSearchTrigger });
+    },
+  });
+  palSearch.element.classList.add('header-pal-search');
+  const palSearchTrigger = palSearch.element.querySelector('.picker-trigger');
+  palSearchTrigger?.setAttribute('aria-keyshortcuts', '/');
+  if (palSearchTrigger) palSearchTrigger.title = 'パルを探す（/）';
+  // 並び（＝Tab の順）: ロゴ → パル検索 → 同期状況 → セーブ連携 → ベル → ID。常設の「＋ 登録」は外し、登録の入口は配合を探す・パル詳細の
   // 文脈のボタンと、ショートカット N にした（register-entry。D2）
-  header.append(brand, envChip, headerStatus, save.element, bell.element, account.element);
+  header.append(brand, envChip, palSearch.element, headerStatus, save.element, bell.element, account.element);
   // 新しい版の配信を知らせる案内（画面の下端に固定。本文の流れの外）。再読み込みすると、送信待ちの操作や読み込み中のセーブ、開いている入力画面が失われる。
   const version = runningVersion();
   const update = updateBanner({
@@ -424,6 +442,8 @@ async function boot() {
   const drawer = createDrawer({ context, render: drawerContents, main, url: () => urlOf(location.hash) });
   context.drawer = drawer;
   root.append(drawer.element);
+  // パルのタイル・パッシブのチップの解説の板（F059。委譲のリスナー 1 組）
+  const hoverCards = installHoverCards(root, { context });
 
   function loginView(signup = false, previousId = store.state.userId) {
     // 見出しは「ログイン」「新規登録」だけ（キャッチコピーはなくした）。説明は新規登録のときだけ
@@ -506,6 +526,8 @@ async function boot() {
   function render(reason = 'auth') {
     const needsLogin = !store.state.passcode || !store.state.userId;
     if (showingLogin && needsLogin) return;
+    // 解説の板は画面が替わると対象を見失うので外す
+    hoverCards.hide();
     // 前のエントリでスクロールした位置を書き切り、前の遷移で始めた位置の戻しをやめる
     saveScrolled.flush();
     scrolling?.cancel();
@@ -550,6 +572,7 @@ async function boot() {
     root.classList.toggle('is-login', showingLogin);
     nav.hidden = showingLogin;
     bell.element.hidden = showingLogin;
+    palSearch.element.hidden = showingLogin;
     save.element.hidden = showingLogin;
     account.element.hidden = showingLogin;
     // 同期状況（取得の失敗の文を含む）もログイン画面では出さない。ログインのエラーはフォームに出る
@@ -636,20 +659,28 @@ async function boot() {
     if (!plainClick(event) || root.contains?.(event.target)) return;
     sameScreenDestination(event, hrefOf(event.target?.closest?.('a') ?? null), afterClose(event.target?.closest?.('dialog')));
   });
-  // ショートカット N: 配合の登録を開く（配合を探すで親・子を選んでいればそれを初期値に）。文字を打っている・日本語の変換中・長押し・
-  // 修飾キーつき・ログイン画面・ダイアログが開いている・候補を開いている間は何もしない（register-entry。G-06）
-  document.addEventListener?.('keydown', (event) => {
-    if (event.key !== 'n' && event.key !== 'N') return;
-    if (event.isComposing || event.repeat || event.ctrlKey || event.altKey || event.metaKey || showingLogin) return;
-    if (!store.state.passcode || !store.state.userId) return;
-    if (document.querySelector?.('dialog[open]')) return;
+  // ショートカット（G-06）: N は配合の登録を開く（配合を探すで親・子を選んでいればそれを初期値に。ドロワーの中にフォーカスがあれば、その
+  // パル詳細の子を初期値に。register-entry）、「/」はヘッダーのパル検索を開く（pal-detail）。文字を打っている・日本語の変換中・長押し・
+  // 修飾キーつき・ログイン画面・ダイアログが開いている・候補を開いている間は何もしない
+  const shortcutBlocked = (event) => {
+    if (event.isComposing || event.repeat || event.ctrlKey || event.altKey || event.metaKey || showingLogin) return true;
+    if (!store.state.passcode || !store.state.userId) return true;
+    if (document.querySelector?.('dialog[open]')) return true;
     const active = document.activeElement;
     const tag = String(active?.tagName ?? '').toLowerCase();
     // 候補・ポップオーバーを開いている部品（aria-haspopup で開いている）だけ止める（開いた下書きの帯・details などでは止めない）
     const popupOpen = active?.getAttribute?.('aria-expanded') === 'true' && Boolean(active?.getAttribute?.('aria-haspopup'));
-    if (['input', 'select', 'textarea'].includes(tag) || active?.isContentEditable || popupOpen) return;
+    return ['input', 'select', 'textarea'].includes(tag) || Boolean(active?.isContentEditable) || popupOpen;
+  };
+  document.addEventListener?.('keydown', (event) => {
+    const key = event.key;
+    if (key !== 'n' && key !== 'N' && key !== '/') return;
+    if (shortcutBlocked(event)) return;
     event.preventDefault();
-    context.register(currentView?.registerInitial?.() ?? undefined);
+    if (key === '/') { palSearch.open(); return; }
+    const inDrawer = drawer.isOpen() && drawer.element.contains?.(document.activeElement);
+    const initial = inDrawer ? drawer.content()?.registerInitial?.() : currentView?.registerInitial?.();
+    context.register(initial ?? undefined);
   });
   window.addEventListener('scroll', () => {
     if (showingLogin) return;

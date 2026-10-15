@@ -79,7 +79,7 @@ export function routeView(routes, { annotate, badge, passives = [], note = '' } 
     if (carried) {
       carried.setAttribute('role', 'group');
       carried.setAttribute('aria-label', '運ぶパッシブ');
-      carried.append(...passives.map((id) => passiveChip(id, { compact: true })));
+      carried.append(...passives.map((id) => passiveChip(id, { compact: true, focusable: true })));
     }
     const extra = badge ? badge(route) : null;
     if (carried || extra) {

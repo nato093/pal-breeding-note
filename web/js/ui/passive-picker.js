@@ -16,11 +16,15 @@ const rankClass = (rank) => (rank > 0 ? `passive-rank-${Math.min(rank, 5)}` : ra
  * compact: 小さいチップ（文の中・候補の行・保存した目標の組み合わせ）。
  * focusGroup: × のフォーカスの目印（ui/focus.js。'passive:<ラベル>'）。× が消えたら同じ名前の追加欄へ、追加欄が押せなければ残った × の最後へ。
  * × の key は 'passive-chip:<ラベル>:<id>'（部品ごとに分ける。作り直した後に、別の画面の同じパッシブの × へ移らないように）
+ * data-passive-id はホバーの解説の対象（ui/hover-card.js）。focusable: チップそのものにフォーカスでき、Enter で解説を固定する
+ *（数の少ない所だけ。所持パルの行のように多い所では Tab の止まる所を増やさない）
  */
-export function passiveChip(id, { onRemove, focusGroup = '', compact = false } = {}) {
+export function passiveChip(id, { onRemove, focusGroup = '', compact = false, focusable = false } = {}) {
   const passive = passivesById.get(id);
   const rank = passive?.rank ?? 0;
   const chip = el('span', `passive-chip ${rankClass(rank)}${compact ? ' compact' : ''}`);
+  chip.setAttribute('data-passive-id', id);
+  if (focusable) chip.tabIndex = 0;
   chip.append(el('span', 'passive-name', passive?.ja ?? id));
   if (rank) {
     const icon = el('span', 'passive-rank');
@@ -43,9 +47,9 @@ export function passiveChip(id, { onRemove, focusGroup = '', compact = false } =
   return chip;
 }
 
-export function passiveList(ids, { compact = false } = {}) {
+export function passiveList(ids, { compact = false, focusable = false } = {}) {
   const wrapper = el('span', `passive-list${compact ? ' compact' : ''}`);
-  for (const id of ids) wrapper.append(passiveChip(id, { compact }));
+  for (const id of ids) wrapper.append(passiveChip(id, { compact, focusable }));
   return wrapper;
 }
 

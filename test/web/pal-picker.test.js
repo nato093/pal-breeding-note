@@ -360,3 +360,96 @@ test('パル選択: 候補を開いたまま setValue で値が変わったら�
   picker.setValue('');
   assert.match(options().find((node) => /is-selected/.test(node.className)).textContent, /パルを選択/);
 });
+
+test('パル選択: 閉じたトリガーで文字を打つと開いて検索欄に入れ、↓↑ でも開く（スペース・修飾キー・変換中は既定のまま）', async (t) => {
+  const { picker, trigger } = mountPicker(t);
+  for (const extra of [{ key: ' ' }, { key: 'a', ctrlKey: true }, { key: 'a', isComposing: true }, { key: 'Enter' }]) {
+    const result = await trigger.dispatch('keydown', extra);
+    assert.equal(result.defaultPrevented, false, JSON.stringify(extra));
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  }
+  const result = await trigger.dispatch('keydown', { key: 'も' });
+  assert.equal(result.defaultPrevented, true);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  const input = picker.element.querySelector('input');
+  assert.equal(input.value, 'も');
+  assert.equal(document.activeElement, input);
+  assert.match(picker.element.querySelector('.picker-status').textContent, /体のパル/);
+  await input.dispatch('keydown', { key: 'Escape' });
+  await trigger.dispatch('keydown', { key: 'ArrowDown' });
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  assert.equal(picker.element.querySelector('input').value, '');
+});
+
+test('パル選択: PageUp・PageDown は 10 行ずつ、Home・End は先頭・末尾（検索語が空か、矢印で選んでいるとき）', async (t) => {
+  const { picker, trigger } = mountPicker(t);
+  await trigger.dispatch('click');
+  const input = picker.element.querySelector('input');
+  const options = () => picker.element.querySelectorAll('[role="option"]');
+  const active = () => options().findIndex((node) => node.id === input.getAttribute('aria-activedescendant'));
+  await input.dispatch('keydown', { key: 'PageDown' });
+  assert.equal(active(), 10);
+  await input.dispatch('keydown', { key: 'PageDown' });
+  assert.equal(active(), 20);
+  await input.dispatch('keydown', { key: 'PageUp' });
+  assert.equal(active(), 10);
+  await input.dispatch('keydown', { key: 'End' });
+  assert.equal(active(), options().length - 1);
+  await input.dispatch('keydown', { key: 'Home' });
+  assert.equal(active(), 0);
+  // 文字を打っている間（矢印で選んでいない）の Home・End は検索欄のカーソルに任せる
+  input.value = 'ニャン';
+  await input.dispatch('input');
+  const home = await input.dispatch('keydown', { key: 'Home' });
+  assert.equal(home.defaultPrevented, false);
+  assert.equal(input.getAttribute('aria-activedescendant'), null);
+});
+
+test('パル選択: 完全に一致した行・候補が 1 件の行には印だけを付け、矢印で選ぶまで Enter では選ばない（df0ab4e の決まり）', async (t) => {
+  const { picker, trigger, changes } = mountPicker(t);
+  await trigger.dispatch('click');
+  const input = picker.element.querySelector('input');
+  input.value = 'モコロン';
+  await input.dispatch('input');
+  const suggested = picker.element.querySelectorAll('.picker-option').filter((node) => node.className.split(' ').includes('is-suggested'));
+  assert.equal(suggested.length, 1);
+  assert.match(suggested[0].textContent, /モコロン/);
+  assert.equal(input.getAttribute('aria-activedescendant'), null);
+  await input.dispatch('keydown', { key: 'Enter' });
+  assert.deepEqual(changes, []);
+  // 番号の完全一致（頭の 0 を外す）
+  input.value = '001';
+  await input.dispatch('input');
+  const byNumber = picker.element.querySelectorAll('.picker-option').filter((node) => node.className.split(' ').includes('is-suggested'));
+  assert.equal(byNumber.length, 1);
+  assert.match(byNumber[0].textContent, /No\.1\b/);
+});
+
+test('パル選択: groups を渡すと、検索語が空のときだけ「データあり（N）」→「その他（N）」の見出しで 2 群に分ける（見出しは選べない）', async (t) => {
+  const has = new Set(['MoonQueen', 'SheepBall']);
+  const { picker, trigger, changes } = mountPicker(t, { describe: () => ({ groups: { has, label: 'データあり', rest: 'その他' } }) });
+  await trigger.dispatch('click');
+  const list = picker.element.querySelector('.picker-options');
+  const headings = list.querySelectorAll('.picker-group');
+  assert.deepEqual(headings.map((node) => node.textContent), ['データあり（2）', `その他（${pals.filter((pal) => pal.active).length - 2}）`]);
+  assert.equal(headings[0].getAttribute('role'), 'presentation');
+  // 解除 → データありの 2 体（図鑑順）→ 見出し → その他
+  const names = list.children.map((node) => node.textContent);
+  assert.equal(names[0], 'パルを選択');
+  assert.equal(names[1], 'データあり（2）');
+  assert.match(names[2], /モコロン/);
+  assert.match(names[3], /セレムーン/);
+  assert.match(names[4], /その他/);
+  // 矢印は見出しを飛ばして行だけを動く（解除の行の次 → 2 つ目の行）
+  const input = picker.element.querySelector('input');
+  await input.dispatch('keydown', { key: 'ArrowDown' });
+  await input.dispatch('keydown', { key: 'ArrowDown' });
+  await input.dispatch('keydown', { key: 'Enter' });
+  assert.deepEqual(changes, ['MoonQueen']);
+  // 検索語があるときは群に分けない
+  await trigger.dispatch('click');
+  const search = picker.element.querySelector('input');
+  search.value = 'ニャン';
+  await search.dispatch('input');
+  assert.equal(picker.element.querySelectorAll('.picker-group').length, 0);
+});

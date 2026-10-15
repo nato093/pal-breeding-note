@@ -101,7 +101,7 @@ async function boot(t, { initial = {}, api = createDevelopmentApi(), hash = '#/s
 }
 
 // ログイン画面で隠す（ログインした後に出す）部品。sync-line は同期状況（取得の失敗のチップを含む）
-const signedInParts = ['navigation', 'notification-menu', 'save-status', 'account-chip', 'sync-line'];
+const signedInParts = ['navigation', 'notification-menu', 'save-status', 'account-chip', 'sync-line', 'header-pal-search'];
 // 読み上げで読まれる文（hidden・aria-hidden・inert の中は読まれない）
 const readable = (node) => (node.hidden || node.inert || node.getAttribute('aria-hidden') === 'true'
   ? '' : node.text + node.children.map(readable).join(''));
@@ -315,11 +315,15 @@ test('画面: 削除は応答前に結果から消し、送信待ちの間だけ
   assert.equal(leave().prevented, false);
 });
 
-test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → 同期状況 → セーブ連携 → ベル → ID の順で並ぶ（Tab の順。常設の「＋ 登録」はない）', async (t) => {
+test('画面: ヘッダーは 1 行に ロゴ → テスト環境 → パル検索 → 同期状況 → セーブ連携 → ベル → ID の順で並ぶ（Tab の順。常設の「＋ 登録」はない）', async (t) => {
   await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
   const header = byClass('app-header');
-  assert.deepEqual(header.children.map((node) => node.className.split(' ')[0]),
-    ['brand', 'env-chip', 'header-status', 'save-status', 'notification-menu', 'account-chip']);
+  assert.deepEqual(header.children.map((node) => node.className.split(' ').at(-1)),
+    ['brand', 'env-chip', 'header-pal-search', 'header-status', 'save-status', 'notification-menu', 'account-chip']);
+  // パル検索のトリガーの読み上げの名前とショートカット
+  const search = byClass('header-pal-search').querySelector('.picker-trigger');
+  assert.equal(search.getAttribute('aria-label'), 'パルを探す（/）');
+  assert.equal(search.getAttribute('aria-keyshortcuts'), '/');
   assert.equal(byClass('register-button'), undefined);
   assert.equal(byClass('header-actions'), undefined);
   assert.equal(byClass('environment-banner'), undefined);
@@ -710,6 +714,48 @@ test('画面: ショートカット N で登録を開く（配合を探すで選
   assert.ok(dialog);
   assert.match(dialog.querySelectorAll('.picker-trigger')[0].textContent, /モコロン/);
   // ダイアログを開いている間は開かない（2 つ目を重ねない）
+  assert.equal(press().prevented, false);
+});
+
+test('画面: ショートカット「/」でヘッダーのパル検索を開き、選んだパルを右のドロワーで開いて検索を空に戻す。入力欄・変換中・ダイアログ中は開かない。ドロワーの中の N はそのパルを子に開く', async (t) => {
+  const { documentEvents } = await boot(t, { initial: signedIn, api: createDevelopmentApi({ seed: '2' }), hash: '#/search' });
+  const keydown = documentEvents.get('keydown');
+  const press = (extra = {}) => {
+    const event = { key: '/', isComposing: false, repeat: false, ctrlKey: false, altKey: false, metaKey: false, prevented: false, preventDefault() { this.prevented = true; }, ...extra };
+    keydown(event);
+    return event;
+  };
+  const search = byClass('header-pal-search');
+  const trigger = search.querySelector('.picker-trigger');
+  // 変換中・修飾キー・入力欄では開かない（入力欄の「/」は文字として入る）
+  for (const extra of [{ isComposing: true }, { ctrlKey: true }, { altKey: true }]) {
+    assert.equal(press(extra).prevented, false, JSON.stringify(extra));
+    assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  }
+  const keyword = find((node) => node.placeholder === 'パル名・メモ・登録者（空白で複数）');
+  keyword.focus();
+  assert.equal(press().prevented, false);
+  document.activeElement = document.body;
+  assert.equal(press().prevented, true);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+  // 候補は浮かせて body に置く。名前で絞って ↓ → Enter で選ぶと、ドロワーで開き、検索は空に戻る
+  const input = find((node) => node.tagName === 'input' && node.getAttribute('aria-label') === 'パルを探すを検索');
+  assert.ok(input);
+  input.value = 'セレムーン';
+  await input.dispatch('input');
+  await input.dispatch('keydown', { key: 'ArrowDown' });
+  await input.dispatch('keydown', { key: 'Enter' });
+  assert.equal(byClass('side-drawer').hidden, false);
+  assert.match(byClass('side-drawer-title').textContent, /セレムーン/);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(trigger.getAttribute('aria-label'), 'パルを探す（/）');
+  assert.equal(document.activeElement, byClass('side-drawer-title'));
+  // ドロワーの中にフォーカスがあるときの N は、そのパルを子にして登録を開く
+  assert.equal(press({ key: 'n' }).prevented, true);
+  const dialog = find((node) => node.tagName === 'dialog' && node.open);
+  assert.ok(dialog);
+  assert.match(dialog.querySelectorAll('.picker-trigger')[2].textContent, /セレムーン/);
+  // ダイアログを開いている間は「/」で開かない
   assert.equal(press().prevented, false);
 });
 
