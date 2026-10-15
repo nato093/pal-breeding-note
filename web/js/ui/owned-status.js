@@ -104,8 +104,9 @@ const LEVELS_SHOWN = 8;
 /**
  * 表示中のデータのプレイ中・日数・Lv。データがなければ null。
  * @returns {null | { day: number | null, known: boolean, online: object[], levels: object[], at: string, label: string, fresh: boolean }}
- *   known はプレイ中が分かるプレイヤーがいるか（古いデータ・古い共有では false）、at は添える時刻（この PC は保存、共有は共有の時刻）、
- *   label は「保存」「共有」、fresh はその保存が新しい（いまもプレイ中とみなせる）か
+ *   known はプレイ中が分かるプレイヤーがいるか（古いデータ・古い共有では false）、at は添える時刻（プレイ中はその保存の時点の状態なので、
+ *   共有でも共有した時刻ではなくホストのセーブの時刻。Codex のレビュー）、label は「セーブ」「ホストのセーブ」、fresh はその保存が新しい
+ *  （いまもプレイ中とみなせる）か
  */
 export function presenceOf(state, { now = Date.now } = {}) {
   const owned = state?.owned;
@@ -121,8 +122,8 @@ export function presenceOf(state, { now = Date.now } = {}) {
     known: players.some((player) => typeof player.online === 'boolean'),
     online: players.filter((player) => player.online === true),
     levels: players.filter((player) => Number.isInteger(player.level) && player.level > 0),
-    at: shared ? meta.sharedAt || meta.saveUpdatedAt || '' : meta.saveUpdatedAt || '',
-    label: shared ? '共有' : '保存',
+    at: meta.saveUpdatedAt || '',
+    label: shared ? 'ホストのセーブ' : 'セーブ',
     fresh,
   };
 }
@@ -133,8 +134,12 @@ export function onlineUids(state, { now = Date.now } = {}) {
   return info?.fresh ? new Set(info.online.map((player) => player.uid)) : new Set();
 }
 
+/** onlineUids の印（同じなら選択肢を作り直さない。データが同じでも、時間がたって保存が古くなると変わる） */
+export const onlineKey = (state, options) => [...onlineUids(state, options)].sort().join(',');
+
 /**
- * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（保存 03:07 の時点）」。分からなければ出さない）・
+ * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（セーブ 03:07 の時点）」。参加者は「ホストのセーブ」。
+ * 分からなければ出さない）・
  * Lv（「Alice 52 · Bob 47」。分かる人だけ）
  */
 export function presenceItems(state, { now = Date.now } = {}) {

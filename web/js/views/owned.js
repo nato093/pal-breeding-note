@@ -8,7 +8,7 @@ import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
 import { icon } from '../ui/icons.js';
-import { ownedNotices, noticeList, grantWithReport, onlineUids } from '../ui/owned-status.js';
+import { ownedNotices, noticeList, grantWithReport, onlineUids, onlineKey } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { farmBoard } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
@@ -61,6 +61,11 @@ export const DEFAULT_PLACES = Object.freeze(PLACE_ORDER.filter((group) => group 
 
 const talentAtLeast = (value) => intIn(value, { min: 0, max: 100, fallback: 0 });
 const placeList = (value) => list(value, { max: PLACE_ORDER.length, map: (group) => oneOf(group, PLACE_ORDER, null), key: (group) => group });
+// 場所の一覧の版（2 は観賞用ケージ display を足した版。save-extras）。前の版の既定（グローバル以外のすべて）とすべての場所の条件は、前は
+//「不明」として出ていた観賞用ケージの個体が消えないよう display を足して読み替える（版 2 で利用者がケージだけを外した条件はそのまま）
+export const PLACES_VERSION = 2;
+const LEGACY_PLACE_SETS = [['party', 'palbox', 'base', 'dps', 'egg', 'unknown'], ['party', 'palbox', 'base', 'dps', 'global', 'egg', 'unknown']];
+const samePlaces = (a, b) => a.length === b.length && a.every((group) => b.includes(group));
 /**
  * 保存して読み戻す絞り込みの形（ui/view-memory.js が sessionStorage・履歴のエントリから読むときに、項目ごとに確かめる）。
  * 合わない項目は既定の値に戻す。読み戻した値は migrateFilter で今の形にする（前の形の項目 place・eggs・globals・所持者の base:／global も
@@ -72,6 +77,8 @@ export const OWNED_MEMORY = {
   holder: (value) => (typeof value === 'string' && value.length <= 80 && (value === '' || value === 'mine' || value === 'global' || /^(player|base):\S/.test(value)) ? value : HOLDER_DEFAULT),
   // 選んだ場所のグループ（PLACE_ORDER の値）。無い（前の形の保存）ときは undefined で、migrateFilter が place・eggs・globals から作る
   places: (value) => (Array.isArray(value) ? placeList(value) : undefined),
+  // 場所の一覧の版（PLACES_VERSION。無い・違う値は前の版で、migrateFilter が前の既定の一覧に観賞用ケージを足す）
+  placesVersion: (value) => (value === PLACES_VERSION ? value : undefined),
   // 拠点の ID（D29 より前の形。拠点ごとの絞り込みはなくした）。読み戻して migrateFilter に渡すだけ（場所を拠点とタマゴの中にする）。
   // 無ければ undefined（今の形の保存には書かない）
   bases: (value) => (Array.isArray(value) ? list(value, { max: BASES_MAX, map: (id) => idText(id, 40) || null, key: (id) => id }) : undefined),
@@ -106,6 +113,8 @@ export const OWNED_MEMORY = {
 export function migrateFilter(old) {
   const saved = cleanSaved(old, OWNED_MEMORY);
   let places = saved.places;
+  // 前の版の既定・すべての場所（観賞用ケージ display がない。前の保存・前のリンク）には display を足す
+  if (places && saved.placesVersion !== PLACES_VERSION && LEGACY_PLACE_SETS.some((set) => samePlaces(set, places))) places = [...places, 'display'];
   if (!places) {
     const shown = (groups) => groups.filter((group) => !(group === 'egg' && saved.eggs === false) && !(group === 'global' && saved.globals !== true));
     places = shown(saved.place ? [saved.place] : [...PLACE_ORDER]);
@@ -125,7 +134,7 @@ export function migrateFilter(old) {
     places = atBase.length ? atBase : ['base', 'egg'];
   }
   return {
-    holder, places: PLACE_ORDER.filter((group) => places.includes(group)), elements: saved.elements, palId: saved.palId,
+    holder, places: PLACE_ORDER.filter((group) => places.includes(group)), placesVersion: PLACES_VERSION, elements: saved.elements, palId: saved.palId,
     passives: saved.passives, passiveMode: saved.passiveMode, query: saved.query, ...sortOf(saved.sort, saved.dir), stars: saved.stars, talent: saved.talent,
   };
 }
@@ -1228,10 +1237,14 @@ export function ownedView(context, route) {
   let holderOptions = [['', 'すべて']];
   // 選択肢を作ったときの自分のプレイヤー（ログインの ID・ユーザーの一覧が後から届いて変わったら、選択肢と一覧を描き直す）
   let shownSelf = null;
+  // 選択肢を作ったときのプレイ中の仲間（ui/owned-status.js の onlineKey。保存が古くなると変わる）
+  let shownOnline = null;
   function renderHolders(state) {
     // 所持者の選択肢（理想個体と同じ名前。views/shared.js）
     // いまプレイ中の人には「（プレイ中）」（保存が新しいときだけ。save-extras）
-    const choices = holderChoices(state.owned, context.ideals, { online: onlineUids(state) });
+    const online = onlineUids(state);
+    shownOnline = [...online].sort().join(',');
+    const choices = holderChoices(state.owned, context.ideals, { online });
     holderOptions = choices;
     shownSelf = selfKey();
     renderWhenIdle(holderSelect.element, () => {
@@ -1803,7 +1816,11 @@ export function ownedView(context, route) {
   function update(state) {
     renderSummary(state);
     // データが変わったとき。データが無いままでも、読み込みが終わったら（ready）「読み込み中…」を案内に描き直す
-    if (state.owned === renderedOwned && (state.owned || state.ready === renderedReady)) return;
+    if (state.owned === renderedOwned && (state.owned || state.ready === renderedReady)) {
+      // データが同じでも、時間がたって保存が古くなったら「（プレイ中）」を外すため、所持者の選択肢だけ描き直す（save-extras。Codex のレビュー）
+      if (onlineKey(state) !== shownOnline) renderHolders(state);
+      return;
+    }
     renderedOwned = state.owned;
     renderedReady = state.ready;
     trackNew(state);

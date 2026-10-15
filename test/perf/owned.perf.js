@@ -27,6 +27,8 @@ test('性能: 共有の所持パル 20,000 行（27 列）の整え直しと画�
       talentHp: String(Math.floor(random() * 101)), talentShot: String(Math.floor(random() * 101)), talentDefense: String(Math.floor(random() * 101)),
       lucky: random() < 0.01 ? '1' : '', alpha: '', egg: '', place: pick(places), placeLabel: 'パルボックス 3 ページ・2 行 4 列',
       holderUid: '00000000-0000-0000-0000-000000000001', holder: 'Alice', baseId: '', lastOwner: '', skillIds: 'AirCanon|FireBall',
+      // 入手した時刻（save-extras の列。行ごとに形を確かめる）
+      ownedAt: new Date(Date.UTC(2026, 0, 1) + Math.floor(random() * 3e10)).toISOString(),
     };
     return OWNED_FIELDS.map((field) => value[field] ?? '');
   });
@@ -138,6 +140,8 @@ async function biasedOwned(count, seed) {
         passives: Array.from({ length: Math.floor(random() * 5) }, () => pick(passiveIds)), skills: ['AirCanon', 'FireBall'],
         talent: { hp: Math.floor(random() * 101), shot: Math.floor(random() * 101), defense: Math.floor(random() * 101) },
         lastOwnerUid: uid, location: { kind, playerUid: uid, baseId: kind === 'base' || kind === 'egg-incubator' ? base : '', slotIndex: i % 960 },
+        // 入手した時刻（入手の新しい順の並べ替え。save-extras）。1 割は時刻なし（タマゴ・古いデータ）
+        ownedAt: random() < 0.1 ? '' : new Date(Date.UTC(2026, 0, 1) + Math.floor(random() * 3e10)).toISOString(),
       };
     }),
   }, { pals, passives });

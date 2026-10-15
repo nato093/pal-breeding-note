@@ -199,30 +199,33 @@ test('入手の新しい順: 並べ替えに「入手の新しい順」があり
   view.destroy();
 });
 
-test('プレイ中・Day・Lv: ヘッダーのセーブ連携のパネルに、保存（共有）の時刻つきのプレイ中・ゲーム内の日数・Lv。分からない古いデータでは出さない', (t) => {
+test('プレイ中・Day・Lv: ヘッダーのセーブ連携のパネルに、セーブの時刻つきのプレイ中・ゲーム内の日数・Lv。分からない古いデータでは出さない', (t) => {
   installDom(t);
   const owned = fakeOwned();
   const now = () => NOW;
   const items = presenceItems(owned.state, { now });
   assert.deepEqual(items.map(([term]) => term), ['ゲーム内', 'プレイ中', 'Lv']);
   assert.equal(items[0][1], '624 日目');
-  assert.match(items[1][1], /^Alice（保存 \d{2}:\d{2} の時点）$/);
+  assert.match(items[1][1], /^Alice（セーブ \d{2}:\d{2} の時点）$/);
   assert.equal(items[2][1], 'Alice 52 · Bob 47');
   // 押す前の説明（title）にも出す
-  assert.match(saveStatusModel(owned.state, { now: NOW }).title, /ゲーム内: 624 日目\nプレイ中: Alice（保存/);
+  assert.match(saveStatusModel(owned.state, { now: NOW }).title, /ゲーム内: 624 日目\nプレイ中: Alice（セーブ/);
   // パネルを開くと行がある
   const status = saveStatus({ owned, now });
   status.element.querySelector('.save-status-button').dispatch('click');
   const panel = status.element.querySelector('.save-status-details') ?? globalThis.document.body.querySelector('.save-status-details');
   assert.ok(panel, 'パネル');
   assert.match(panel.textContent, /ゲーム内624 日目/);
-  assert.match(panel.textContent, /プレイ中Alice（保存/);
+  assert.match(panel.textContent, /プレイ中Alice（セーブ/);
   status.destroy();
-  // 参加者（共有）は共有の時刻を添える
-  const guest = fakeOwned(snapshot(), { source: 'shared' });
-  assert.match(presenceItems(guest.state, { now })[1][1], /^Alice（共有 \d{2}:\d{2} の時点）$/);
+  // 参加者（共有）も、プレイ中はホストのセーブの時点の状態なので、共有した時刻ではなくホストのセーブの時刻を添える（Codex のレビュー）
+  const guest = fakeOwned(snapshot({ saveAt: minutesAgo(30) }), { source: 'shared' });
+  guest.state.meta.sharedAt = minutesAgo(1);
+  const saved = new Date(NOW - 30 * 60000);
+  const hhmm = `${String(saved.getHours()).padStart(2, '0')}:${String(saved.getMinutes()).padStart(2, '0')}`;
+  assert.equal(presenceItems(guest.state, { now })[1][1], `Alice（ホストのセーブ ${hhmm} の時点）`);
   // だれもプレイしていない・プレイ中が分からない（古い共有・古いスナップショット）
-  assert.match(presenceItems(fakeOwned(snapshot({ players: [{ uid: P1, name: 'Alice', level: 52, online: false }] })).state, { now })[1][1], /^いません（保存/);
+  assert.match(presenceItems(fakeOwned(snapshot({ players: [{ uid: P1, name: 'Alice', level: 52, online: false }] })).state, { now })[1][1], /^いません（セーブ/);
   const unknown = fakeOwned({ ...snapshot({ players: [{ uid: P1, name: 'Alice', level: 0 }] }), world: { name: 'World9' } });
   assert.deepEqual(presenceItems(unknown.state, { now }), []);
   assert.equal(presenceOf({ owned: null, meta: null }), null);
@@ -242,9 +245,14 @@ test('プレイ中: 所持者の選択肢の「（プレイ中）」は保存が
   const shared = fakeOwned(snapshot({ saveAt: minutesAgo(9) }), { source: 'shared' });
   assert.deepEqual([...onlineUids(shared.state, { now })], [P1]);
   // 所持パルの画面の選択肢（今の時刻で決まる）
-  const view = ownedView(context(fakeOwned(snapshot({ saveAt: new Date().toISOString() }))), parseHash('#/owned'));
-  const labels = view.element.querySelector('[aria-label="所持者"]').querySelectorAll('option').map((node) => node.textContent);
-  assert.ok(labels.includes('Alice（プレイ中）'), labels.join(','));
+  const live = fakeOwned(snapshot({ saveAt: new Date().toISOString() }));
+  const view = ownedView(context(live), parseHash('#/owned'));
+  const labels = () => view.element.querySelector('[aria-label="所持者"]').querySelectorAll('option').map((node) => node.textContent);
+  assert.ok(labels().includes('Alice（プレイ中）'), labels().join(','));
+  // データが同じまま時間がたって保存が古くなったら（ゲームを閉じた）、次の知らせで「（プレイ中）」を外す（Codex のレビュー）
+  live.state.meta = { ...live.state.meta, saveUpdatedAt: new Date(Date.now() - 6 * 60000).toISOString() };
+  live.emit();
+  assert.ok(labels().includes('Alice') && !labels().includes('Alice（プレイ中）'), labels().join(','));
   view.destroy();
 });
 

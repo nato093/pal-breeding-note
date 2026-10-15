@@ -18,7 +18,7 @@ import { passiveCounts, ownedCounts, ownedRouteStarts } from '../core/owned.js';
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
-import { onlineUids } from '../ui/owned-status.js';
+import { onlineUids, onlineKey } from '../ui/owned-status.js';
 import { cakeLine } from '../ui/farm-board.js';
 import {
   idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, MAX_WANTED, CAKES, PASSIVE_MODES, TALENT_KEYS, PLAN_GROUPS,
@@ -290,6 +290,8 @@ export function idealView(context, route) {
   // 選択肢を作ったときの自分のプレイヤー（後から分かった・変わったら描き直す。下の store の購読）
   const selfKey = () => [...(ideals?.selfUids?.() ?? [])].join(',');
   let shownSelf = null;
+  // 選択肢を作ったときのプレイ中の仲間（保存が古くなると変わる。save-extras）
+  let shownOnline = null;
   const holderSelect = el('select');
   holderSelect.addEventListener('change', () => {
     conditions.holder = holderSelect.value;
@@ -301,7 +303,9 @@ export function idealView(context, route) {
   let syncingHolders = false;
   function renderHolders() {
     // いまプレイ中の人には「（プレイ中）」（保存が新しいときだけ。save-extras）
-    const choices = holderChoices(owned?.state?.owned, ideals, { online: owned?.state ? onlineUids(owned.state) : new Set() });
+    const online = owned?.state ? onlineUids(owned.state) : new Set();
+    shownOnline = [...online].sort().join(',');
+    const choices = holderChoices(owned?.state?.owned, ideals, { online });
     shownSelf = selfKey();
     syncingHolders = true;
     try {
@@ -1533,7 +1537,11 @@ export function idealView(context, route) {
   let lastOwned = owned.state.owned;
   let lastReady = owned.state.ready;
   const unsubscribe = owned.subscribe((ownedState) => {
-    if (ownedState.owned === lastOwned && ownedState.ready === lastReady) return;
+    if (ownedState.owned === lastOwned && ownedState.ready === lastReady) {
+      // データが同じでも、時間がたって保存が古くなったら「（プレイ中）」を外すため、所持者の選択肢だけ描き直す（save-extras）
+      if (!destroyed && onlineKey(ownedState) !== shownOnline) renderHolders();
+      return;
+    }
     lastOwned = ownedState.owned;
     lastReady = ownedState.ready;
     update();
