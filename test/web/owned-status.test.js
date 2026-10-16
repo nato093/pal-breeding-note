@@ -219,3 +219,25 @@ test('次元ストレージの読み漏れ（参加者）: 共有のデータで
   // ホストの画面の案内（この PC で読んだセーブ）は、自分のプレイヤーによらない
   assert.equal(dimensionNotice(gapState(), { selfUids: new Set() }).action, 'editWorld');
 });
+
+test('案内（share-upload）: 同じセーブが共有済み・共有の方が新しいは、今読んでいるセーブを送った結果のときだけ出す。送れなかったときは警告', async () => {
+  const { uploadNotice } = await import('../../web/js/ui/owned-status.js');
+  const local = { world: { signature: 'sig-1' } };
+  const upload = (extra) => ({
+    status: '', at: '', error: '', worldId: 'W', result: '', signature: 'sig-1', stamp: '638650000000000001',
+    published: { saveStamp: '638650000000000001', uploadedBy: 'Alice', uploadedAt: SAVED }, ...extra,
+  });
+  const notices = (extra) => ownedNotices(ownedState({ local, upload: upload(extra) }));
+  assert.deepEqual(notices({ status: 'same', result: 'unchanged' }), [{ text: '同じセーブが共有済み（Alice の PC から）', kind: 'info' }]);
+  assert.deepEqual(notices({ status: 'same', result: 'same', published: { saveStamp: '1', uploadedBy: '', uploadedAt: SAVED } }), [{ text: '同じセーブが共有済み', kind: 'info' }]);
+  assert.deepEqual(notices({ status: 'stale', result: 'stale' }), [{ text: '共有されているセーブの方が新しいため、そちらを表示しています', kind: 'info' }]);
+  // 送っている間・自分の共有が載ったときは出さない
+  for (const status of ['', 'sending', 'done']) assert.deepEqual(notices({ status }), [], status);
+  // 前のセーブを送った結果（その後に新しいセーブを読んだ）は出さない
+  assert.deepEqual(notices({ status: 'same', signature: 'sig-0' }), []);
+  assert.equal(uploadNotice(ownedState({ local, upload: upload({ status: 'stale', signature: 'sig-0' }) })), null);
+  // 送れなかった知らせは、どのセーブの分でも出す
+  assert.deepEqual(notices({ status: 'error', error: 'サーバに接続できません', signature: 'sig-0' }), [{ text: '共有できませんでした（サーバに接続できません）', kind: 'warning' }]);
+  // 前の形の state（印がない）でも今までどおり
+  assert.deepEqual(ownedNotices(ownedState({ upload: { status: 'stale', at: '', error: '', worldId: 'W' } })).map((notice) => notice.text), ['共有されているセーブの方が新しいため、そちらを表示しています']);
+});

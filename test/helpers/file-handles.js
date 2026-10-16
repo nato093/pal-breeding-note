@@ -41,6 +41,22 @@ export function hostFiles(time = T0, { players = ['00000000000000000000000000000
 
 export const asDropped = (files) => Object.entries(files).map(([path, handle]) => ({ path, name: handle.name, handle }));
 
+/**
+ * 所持パルの共有の送信（owned.js の uploadLocal）が終わるまで待つ。中身の印（contentHash）の SHA-256 は crypto.subtle で計算するので、
+ * setTimeout の 1 回では終わらないことがある（share-upload）。終わった後の片付け（キャッシュの保存・再試行の予約）の分も 1 回待つ
+ */
+export async function settleUpload(store, { limit = 200 } = {}) {
+  const turn = () => new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < limit; i++) {
+    await turn();
+    if (store.state.upload.status !== 'sending') {
+      await turn();
+      return;
+    }
+  }
+  throw new Error('共有の送信が終わりません');
+}
+
 /** idbPersist と同じ形の保存先。strict を false にすると、setStrict・removeStrict が失敗する（保存できないブラウザ）。 */
 export function memoryPersist() {
   const map = new Map();

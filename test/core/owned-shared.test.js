@@ -103,3 +103,10 @@ test('cleanPresenceInput: ページ・PC の ID・役割・真偽を検査し、
     assert.equal(cleanPresenceInput(broken), null, JSON.stringify(broken));
   }
 });
+
+test('共有の形の版（OWNED_FORMAT。share-upload）: 狭めて送るときに外した列の数だけ下げても 1 以上（識別の検査を通る）', async () => {
+  const { OWNED_FORMAT, OWNED_ADDED_FIELDS, ownedUploadIdentity } = await import('../../web/js/core/owned-shared.js');
+  assert.ok(Number.isInteger(OWNED_FORMAT) && OWNED_FORMAT > OWNED_ADDED_FIELDS.length);
+  const identity = (format) => ownedUploadIdentity({ saveStamp: '638650000000000001', contentHash: 'a'.repeat(64), format, fileCount: 3, missingCount: 0 });
+  for (let removed = 0; removed <= OWNED_ADDED_FIELDS.length; removed++) assert.equal(identity(OWNED_FORMAT - removed).format, OWNED_FORMAT - removed);
+});

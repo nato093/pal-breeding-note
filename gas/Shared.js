@@ -208,6 +208,11 @@ function ownedInGameDay(value) {
 
 // 共有の書き込みの結果の種類（GAS の ownedUpload の応答の result）。stored（書いたか）も今どおり返す
 const OWNED_RESULTS = ['new', 'newer', 'stale', 'unchanged', 'resent', 'same'];
+// 共有の形の版の番号（画面が送る world.format。sync-fixes の share-upload）。同じセーブの送り直しで版が上がれば、decideOwnedUpload は
+// 前の中身を書き直す（resent）。今の形は 4（後から足した列〔OWNED_ADDED_FIELDS〕のない 26 列の形を 1 とし、列を足すごとに上げた数）。
+// 形を変えたら（列を足す・players の JSON の鍵を足すなど）1 つ上げる。古い GAS に合わせて末尾の列を外して送るときは、外した列の数だけ
+// 下げて送る（劣った中身として扱わせ、全部の列で送り直したときに書き直されるように）ので、OWNED_ADDED_FIELDS の数より大きく保つ
+const OWNED_FORMAT = 4;
 // 識別の数の上限（共有の形の版・読めたファイルの数・読めなかったファイルの数）
 const OWNED_FORMAT_MAX = 1000;
 const OWNED_FILE_COUNT_MAX = 10000;

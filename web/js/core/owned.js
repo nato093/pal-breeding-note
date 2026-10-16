@@ -1125,6 +1125,35 @@ export function sharedUpload(owned) {
   };
 }
 
+// 鍵の名前の順に並べ直した写し（配列の順は変えない）
+const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys)
+  : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);
+const cellText = (cell) => (typeof cell === 'string' ? cell : cell === null || cell === undefined ? '' : String(cell));
+
+/**
+ * 共有の中身の印（world.contentHash。送る側が UTF-8 の SHA-256 にする。web/js/owned.js）の元にする文字列（sync-fixes の share-upload）。
+ * upload は送る形 { worldId, world: { name, hostName, inGameDay? }, players, bases, farms?, columns, rows }（古い GAS に合わせて列を
+ * 狭めたときは狭めた後の形）。次の順の配列を JSON にする:
+ *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns, rows]
+ * - 入れないもの: world の識別の項目（saveStamp・contentHash・format・fileCount・missingCount・force）、saveUpdatedAt（セーブのファイルの
+ *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる
+ * - players・bases・farms の中の object は鍵の名前の順に並べ直す（組み立ての順が変わっても、同じ中身なら同じ文字列）
+ * - 列の名前と行のセルは文字列にする（シートには文字列で残る。null・undefined は ''）
+ */
+export function ownedContentText(upload) {
+  const source = isObject(upload) ? upload : {};
+  const world = isObject(source.world) ? source.world : {};
+  return JSON.stringify([
+    cellText(source.worldId), cellText(world.name), cellText(world.hostName),
+    typeof world.inGameDay === 'number' && Number.isFinite(world.inGameDay) ? world.inGameDay : null,
+    sortedKeys(Array.isArray(source.players) ? source.players : []),
+    sortedKeys(Array.isArray(source.bases) ? source.bases : []),
+    Array.isArray(source.farms) ? sortedKeys(source.farms) : null,
+    Array.isArray(source.columns) ? source.columns.map(cellText) : [],
+    Array.isArray(source.rows) ? source.rows.map((row) => (Array.isArray(row) ? row.map(cellText) : [])) : [],
+  ]);
+}
+
 /**
  * 共有の牧場（短い鍵）を画面用の形に戻す（farm-data）。s: 'u' は読めない牧場、eggs がなければ中身が分からない（null）、eggCount は n。
  * n のない古い形（古い GAS・古いホストの画面）は、タマゴの情報なし（eggs: null・eggCount: 0）で farmsCounted: false。

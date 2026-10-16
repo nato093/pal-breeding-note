@@ -8,7 +8,7 @@ import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
   keywordTerms, keywordNotes, workEntries, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
-  PLACE_ORDER, PLACE_LABELS, cakeInfo, dpsLabel, boxShort, dpsMissing,
+  PLACE_ORDER, PLACE_LABELS, cakeInfo, dpsLabel, boxShort, dpsMissing, ownedContentText,
 } from '../../web/js/core/owned.js';
 import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS, OWNED_DPS_GAP_MAX, cleanOwnedPlayer } from '../../web/js/core/owned-shared.js';
@@ -990,4 +990,42 @@ test('次元ストレージの読み漏れ: cleanOwnedPlayer（GAS と共有）�
   assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: OWNED_DPS_GAP_MAX }), { uid: P1, name: 'Alice', dpsGap: OWNED_DPS_GAP_MAX });
   const many = sharedUpload({ ...owned, players: [{ uid: P1, name: 'Alice', level: 1, online: null, dpsGap: OWNED_DPS_GAP_MAX + 5 }] });
   assert.equal(many.players[0].dpsGap, OWNED_DPS_GAP_MAX);
+});
+
+test('共有の中身の印の元（ownedContentText。share-upload）: 決まった順の配列の JSON。識別・送った人・ファイルの更新日時は入れず、object の鍵の順と行のセルの型によらない', () => {
+  const columns = ['instanceId', 'palId', 'level'];
+  const base = {
+    userId: 'ホスト', worldId: 'ABCDEF0123456789ABCDEF0123456789', saveUpdatedAt: '2026-10-05T10:00:00.000Z',
+    world: { name: 'World9', hostName: 'Alice', inGameDay: 12, saveStamp: '638650000000000001', contentHash: 'a'.repeat(64), format: 4, fileCount: 3, missingCount: 0, force: true },
+    players: [{ uid: 'u1', name: 'Alice', level: 50, online: true }], bases: [{ id: 'b1', label: '拠点 1' }],
+    farms: [{ id: 'f1', baseId: 'b1', parents: ['p1', 'p2'], n: 1, eggs: [{ id: 'e1', p: 'SheepBall' }] }],
+    columns, rows: [['p1', 'SheepBall', '5'], ['p2', 'PinkCat', '7']],
+  };
+  const text = ownedContentText(base);
+  assert.equal(text, JSON.stringify([
+    base.worldId, 'World9', 'Alice', 12,
+    [{ level: 50, name: 'Alice', online: true, uid: 'u1' }], [{ id: 'b1', label: '拠点 1' }],
+    [{ baseId: 'b1', eggs: [{ id: 'e1', p: 'SheepBall' }], id: 'f1', n: 1, parents: ['p1', 'p2'] }],
+    columns, base.rows,
+  ]));
+  // 識別・送った人・ファイルの更新日時が違っても、鍵の順が違っても、セルが数でも同じ
+  const same = {
+    ...base, userId: '別の人', saveUpdatedAt: '2026-10-06T00:00:00.000Z',
+    world: { hostName: 'Alice', name: 'World9', inGameDay: 12, saveStamp: '1', force: false },
+    players: [{ online: true, uid: 'u1', level: 50, name: 'Alice' }],
+    farms: [{ eggs: [{ p: 'SheepBall', id: 'e1' }], parents: ['p1', 'p2'], n: 1, baseId: 'b1', id: 'f1' }],
+    rows: [['p1', 'SheepBall', 5], ['p2', 'PinkCat', 7]],
+  };
+  assert.equal(ownedContentText(same), text);
+  // 中身が違えば違う（行・列の幅・牧場の有無・日数・個体の並び）
+  for (const changed of [
+    { ...base, rows: [['p1', 'SheepBall', '6'], ['p2', 'PinkCat', '7']] },
+    { ...base, columns: columns.slice(0, 2), rows: base.rows.map((row) => row.slice(0, 2)) },
+    { ...base, farms: undefined },
+    { ...base, world: { ...base.world, inGameDay: 13 } },
+    { ...base, rows: [...base.rows].reverse() },
+  ]) assert.notEqual(ownedContentText(changed), text);
+  // 牧場を送らないときは null、日数がないときも null
+  const bare = JSON.parse(ownedContentText({ worldId: 'W', world: { name: 'N', hostName: '' }, players: [], bases: [], columns: [], rows: [] }));
+  assert.deepEqual(bare, ['W', 'N', '', null, [], [], null, [], []]);
 });

@@ -2,7 +2,7 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems, dimensionNotice } from './owned-status.js';
+import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems, dimensionNotice, uploadNotice } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -52,6 +52,9 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   // パル次元ストレージの読み漏れ（dps-missing）も押す前の説明に出す（チップの色は変えない。所持パルは読めた分で出ている）
   const gap = dimensionNotice(state, { selfUids });
   if (gap) lines.push(gap.text);
+  // 共有の送信の結果（同じセーブが共有済み・共有の方が新しい。share-upload）も押す前の説明に出す（チップの色は変えない）
+  const sent = uploadNotice(state);
+  if (sent) lines.push(sent.text);
   if (meta.source === 'local') {
     const stale = Boolean(auto.enabled) && olderThan(meta.importedAt, STALE_LOCAL_MS, now);
     if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんは 1 分ごとに読み直します）`);
@@ -143,6 +146,9 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? state.meta.palCount ?? 0} 体` : '（データなし）'}` : 'なし']);
       const lines = timeLines(state);
       if (lines.length) items.push(['更新', lines.join('\n')]);
+      // 共有の送信の結果（「同じセーブが共有済み（Alice の PC から）」など。share-upload）
+      const sent = uploadNotice(state);
+      if (sent) items.push(['共有', sent.text]);
       // ゲーム内の日数・プレイ中の仲間（保存か共有の時刻つき）・Lv（save-extras。F006）
       items.push(...presenceItems(state, { now }));
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);
