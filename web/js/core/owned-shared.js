@@ -16,6 +16,8 @@ export const OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId', 'ownedAt'];
 const OWNED_TEXT_MAX = { skillIds: 1000, eggItemId: 64, ownedAt: 30 };
 // プレイヤーの Lv（players の JSON の中。save-extras）の上限
 const OWNED_PLAYER_LEVEL_MAX = 999;
+// パル次元ストレージの読み漏れの数（players の JSON の中の dpsGap。dps-missing）の上限（共有できる行数と同じ）
+export const OWNED_DPS_GAP_MAX = 20000;
 // ゲーム内の日数（ワールドの行の列 inGameDay。save-extras）の上限
 const OWNED_DAY_MAX = 1000000;
 export const OWNED_MAX_ROWS = 20000;
@@ -112,8 +114,10 @@ export function ownedWorldId(value) {
 }
 
 /**
- * 共有のプレイヤー 1 人（uid・name と、save-extras で足した level〔1〜999 の整数〕・online〔true・false〕）。uid がなければ null。
- * level・online は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
+ * 共有のプレイヤー 1 人（uid・name と、save-extras で足した level〔1〜999 の整数〕・online〔true・false〕、dps-missing で足した
+ * dpsGap〔1〜OWNED_DPS_GAP_MAX の整数。ホストの画面で、Level.sav のパル次元ストレージの個体のうち読めていない数。そのプレイヤーの
+ * _dps.sav が登録されていないかもしれない人〔候補〕だけに付く〕）。uid がなければ null。
+ * level・online・dpsGap は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
  */
 export function cleanOwnedPlayer(player) {
   if (!player || typeof player !== 'object') return null;
@@ -121,6 +125,7 @@ export function cleanOwnedPlayer(player) {
   if (!clean.uid) return null;
   if (Number.isInteger(player.level) && player.level > 0 && player.level <= OWNED_PLAYER_LEVEL_MAX) clean.level = player.level;
   if (typeof player.online === 'boolean') clean.online = player.online;
+  if (Number.isInteger(player.dpsGap) && player.dpsGap > 0 && player.dpsGap <= OWNED_DPS_GAP_MAX) clean.dpsGap = player.dpsGap;
   return clean;
 }
 

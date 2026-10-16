@@ -183,6 +183,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
       const actual = path ? actualPath(draft, path) : '';
       if (actual) node.append(el('small', 'owned-draft-path', actual));
       list.append(node);
+      return node;
     };
     const group = (title, className = '') => {
       const node = el('li', `owned-draft-group${className ? ` ${className}` : ''}`);
@@ -197,7 +198,9 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const host = group(guestOnly ? 'ホストの PC だけ（参加として登録できます）' : 'ホストの PC だけ', guestOnly ? 'is-dim' : '');
     for (const path of REQUIRED_FILES.host.filter((file) => file !== 'LocalData.sav')) item(host.list, path, has(path), path);
     const players = paths.filter((path) => path.startsWith('Players/')).length;
-    item(host.list, `Players\\ の中のファイル全部${players ? `（${players} 件）` : ''}`, players > 0, 'Players/');
+    // 次元ストレージの Players\<UID>_dps.sav は、使い始めたときにできる（登録の後にできた分は読まれない。dps-missing）ので、ここから足せると添える
+    item(host.list, `Players\\ の中のファイル全部${players ? `（${players} 件）` : ''}`, players > 0, 'Players/')
+      .append(el('small', 'owned-draft-note', '後からパル次元ストレージを使い始めた人の _dps.sav も、ここにドロップして足せます'));
     item(host.list, '..\\GlobalPalStorage.sav（任意）', has('../GlobalPalStorage.sav'), '../GlobalPalStorage.sav');
     save.disabled = saving || !previewed;
     renderPathStatus();

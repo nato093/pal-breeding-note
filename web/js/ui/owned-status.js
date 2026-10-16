@@ -5,6 +5,7 @@ import { el, button, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 import { isObject, int } from '../core/boundary.js';
 import { userIdKey } from '../core/user.js';
+import { dpsMissing } from '../core/owned.js';
 
 // 許可切れの案内（autoreg-visibility。ヘッダーのセーブ連携・所持パルの案内・設定の状態の 3 か所で permissionNotice の同じ文を出す）。
 // Chrome は「今回のみ」で許可したファイルの読む許可を、タブがしばらく裏にあると外すことがある（何分で外れるかは実機で確かめていない）
@@ -194,13 +195,54 @@ export function timeLines(state) {
 // セーブのファイル（ワールド）が登録されていないときの案内。ボタン「ワールドを登録」でこの画面から登録のモーダルを開く
 const UNREGISTERED_TEXT = 'セーブのファイルが登録されていません。';
 
+// ---- パル次元ストレージの読み漏れ（dps-missing） ----
+// Level.sav には全員の次元ストレージの個体の一覧があるが、中身は各プレイヤーの Players\<UID>_dps.sav にある。登録の後に次元ストレージを
+// 使い始めた人の _dps.sav は登録されておらず、その人の個体が出ない。欠けの数は分かっても、だれの分かは分からない（一覧のキーは 0）ので、
+// 候補（Players\<UID>.sav は読めたのに _dps.sav を読めていない人）を「かもしれない」として挙げる（人数で割らない・1 人に決めない）
+
+/**
+ * ホストの画面（この PC で読んだセーブ）の案内。読めていない個体がなければ・数のない古い解析結果なら null。
+ * 候補がいればファイル名と名前を挙げ、ワールドの編集（editWorld）へ。候補がいなければ、ファイルが足りないか保存の途中に読んだかもしれない
+ * @returns {null | { text: string, kind: 'warning', action?: 'editWorld' }}
+ */
+export function dimensionGap(snapshot) {
+  const gap = dpsMissing(snapshot);
+  if (!gap?.missing) return null;
+  const head = `Level.sav ではパル次元ストレージに ${gap.expected} 体いますが、${gap.missing} 体を読めていません`;
+  if (!gap.candidates.length) return { text: `${head}（ファイルが足りないか、保存の途中に読んだ可能性があります）。`, kind: 'warning' };
+  const files = gap.candidates.map((player) => `Players\\${player.file}（${player.name || '名前なし'}）`);
+  return { text: `${head}。${files.join('、')}が登録されていないかもしれません。`, kind: 'warning', action: 'editWorld' };
+}
+
+/**
+ * パル次元ストレージの読み漏れの案内（所持パルの案内・ヘッダーのセーブ連携・理想個体の結果の上で同じ文）。
+ * この PC で読んだセーブを出しているときはホストの案内（dimensionGap）。共有を出しているときは、自分のプレイヤー（selfUids。
+ * 「このワールドでの自分」などで決めたもの。ideals.selfUids）がホストの画面の候補（dpsGap のあるプレイヤー）のときだけ、
+ * 自分の _dps.sav をホストに足してもらう案内。ほかの人が候補のときは出さない
+ * @param {{ selfUids?: Set<string> }} [options]
+ * @returns {null | { text: string, kind: 'warning', action?: 'editWorld' }}
+ */
+export function dimensionNotice(state, { selfUids = new Set() } = {}) {
+  const source = state?.meta?.source;
+  if (source === 'local') return dimensionGap(state.data?.snapshot);
+  if (source !== 'shared') return null;
+  const mine = (state.owned?.players ?? []).filter((player) => selfUids.has(player.uid) && Number.isInteger(player.dpsGap) && player.dpsGap > 0);
+  if (!mine.length) return null;
+  const count = Math.max(...mine.map((player) => player.dpsGap));
+  const files = mine.map((player) => `Players\\${player.uid.replace(/-/g, '').toUpperCase()}_dps.sav`);
+  return {
+    text: `パル次元ストレージの ${count} 体が出ていません。ホストの登録にあなたの ${files.join('・')} がないかもしれません。ホストに足してもらってください。`,
+    kind: 'warning',
+  };
+}
+
 /**
  * 所持パルのタブの上に出す案内。対応が要るものだけ（読み込み中・確認中・共有中は出さない。ヘッダーのセーブ連携の状態が知らせる）。
  * 案内は 1 文と行き先のボタン（「設定タブの〜」とだけ書かない。copy-dead-ends）。action はボタンの名前（views/owned.js の noticeActions。
  * grant＝読む許可・register＝ワールドの登録のモーダル・settings＝設定のセーブ連携〔読んでいるワールドの行〕へ・editWorld＝読んでいるワールドの
- * 編集のモーダル・unknownPlace＝場所の分からないパル）
+ * 編集のモーダル・unknownPlace＝場所の分からないパル）。selfUids は自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dimensionNotice）
  */
-export function ownedNotices(state, { userId = '', now = Date.now } = {}) {
+export function ownedNotices(state, { userId = '', now = Date.now, selfUids = new Set() } = {}) {
   const notices = [];
   if (!state.ready) return notices;
   const auto = state.auto ?? {};
@@ -222,6 +264,11 @@ export function ownedNotices(state, { userId = '', now = Date.now } = {}) {
   if (state.role === 'guest' && hasData) {
     const summary = roleSummary(state, { userId, now });
     if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}) });
+  }
+  // パル次元ストレージの読み漏れ（共有を出しているとき。自分が候補のときだけ。この PC で読んだセーブの分は、下の読めなかったファイルの後）
+  if (state.meta?.source === 'shared') {
+    const gap = dimensionNotice(state, { selfUids });
+    if (gap) notices.push(gap);
   }
   if (state.error) notices.push({ text: `セーブを読み込めませんでした: ${state.error}`, kind: 'warning' });
   const upload = state.upload ?? {};
@@ -246,6 +293,9 @@ export function ownedNotices(state, { userId = '', now = Date.now } = {}) {
         notices.push({ text: `登録されていないプレイヤーのファイルがあります: ${names.join('、')}。`, kind: 'warning', action: 'editWorld' });
       }
     }
+    // パル次元ストレージの読み漏れ（Level.sav の一覧のうち、読めた _dps.sav にない個体。dps-missing）
+    const gap = dimensionGap(snapshot);
+    if (gap) notices.push(gap);
     // 解析の数（この PC で読んだデータだけにある。古い IndexedDB では無い・形が違うことがあるので、数として確かめてから使う）。
     // 参照されていないタマゴ（orphanEggs）は、ふだんから 0 でないことがあるので出さない
     const stats = isObject(snapshot.stats) ? snapshot.stats : {};

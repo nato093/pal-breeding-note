@@ -259,7 +259,11 @@ async function boot() {
   const closeOthers = (opened) => { for (const part of [bell, save, account]) if (part !== opened) part.close(); };
   const bell = notificationMenu(notifications, { onOpen: () => closeOthers(bell) });
   // 「配合牧場を見る」は右のドロワー（context の後で作るので、押したときに引く。farm-board）
-  const save = saveStatus({ owned, autoRegister, store, onOpen: () => closeOthers(save), openFarms: (opener) => drawer.open({ kind: 'farms', id: '' }, { opener }) });
+  // 自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dps-missing）は理想個体と同じ決め方（ideals.selfUids）
+  const save = saveStatus({
+    owned, autoRegister, store, onOpen: () => closeOthers(save), openFarms: (opener) => drawer.open({ kind: 'farms', id: '' }, { opener }),
+    selfUids: () => ideals.selfUids(),
+  });
   // 名前の変更とログアウトに使うのは store と renamer だけ（context はこの後で作る）
   const account = accountMenu({ store, renamer, onOpen: () => closeOthers(account) });
   // ヘッダーのパル検索（G-03。どの画面からでも、選んだパルを右のドロワーで開く。選んだら空に戻す）。ショートカットは「/」。

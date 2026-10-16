@@ -103,7 +103,7 @@ test('セーブ連携の状態: 読み込み中は busy の印だけを付ける
 });
 
 // ヘッダーの部品を、偽の owned・autoRegister・store で作る
-function setup(t, state = hostState()) {
+function setup(t, state = hostState(), { selfUids } = {}) {
   const dom = installDom(t);
   const listeners = { owned: new Set(), store: new Set(), auto: new Set() };
   const subscribe = (set) => (listener) => { set.add(listener); return () => set.delete(listener); };
@@ -117,7 +117,7 @@ function setup(t, state = hostState()) {
   };
   const autoRegister = { enabled: () => enabled, subscribe: subscribe(listeners.auto) };
   const store = { state: {}, subscribe: subscribe(listeners.store) };
-  const part = saveStatus({ owned, autoRegister, store, now: () => NOW });
+  const part = saveStatus({ owned, autoRegister, store, now: () => NOW, ...(selfUids ? { selfUids } : {}) });
   dom.body.append(part.element);
   const trigger = part.element.querySelector('.save-status-button');
   const emit = (patch = {}) => {
@@ -232,4 +232,51 @@ test('ヘッダーのセーブ連携（autoreg-visibility）: 許可切れは pe
   const { saveStatusModel } = await import('../../web/js/ui/save-status.js');
   assert.equal(saveStatusModel(hostState({ auto: { enabled: true, status: 'permission', worlds: [{ id: 'W1' }], error: '古い長い文', stoppedAt } }), { now: NOW }).text, '許可が必要');
   part.destroy();
+});
+
+// パル次元ストレージの読み漏れ（dps-missing）
+const BOB = '00000000-0000-0000-0000-000000000002';
+const HOST_GAP = 'Level.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players\\00000000000000000000000000000002_dps.sav（Bob）が登録されていないかもしれません。';
+const GUEST_GAP = 'パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。';
+const gapHost = (stats = { inLocker: 118, inLockerMissing: 27 }) => hostState({
+  data: { source: 'handles', snapshot: {
+    files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav', 'Players/00000000000000000000000000000001_dps.sav', 'Players/00000000000000000000000000000002.sav'], skipped: [] },
+    players: [{ uid: '00000000-0000-0000-0000-000000000001', name: '自分', level: 50 }, { uid: BOB, name: 'Bob', level: 40 }], stats,
+  } },
+});
+const gapGuest = () => guestState({ owned: { pals: [{}, {}], players: [{ uid: BOB, name: 'Bob', level: 40, dpsGap: 27 }] } });
+
+test('ヘッダーのセーブ連携（dps-missing）: パル次元ストレージの読み漏れは、押す前の説明とポップオーバーの困りごとに所持パルの案内と同じ文で出す（チップの色は変えない）', async (t) => {
+  const host = model(gapHost());
+  assert.equal(host.tone, 'ok');
+  assert.ok(host.title.split('\n').includes(HOST_GAP));
+  // 読み漏れがない・数のない古い stats では出さない
+  assert.equal(model(gapHost({ inLocker: 118, inLockerMissing: 0 })).title.includes('次元ストレージ'), false);
+  assert.equal(model(gapHost({})).title.includes('次元ストレージ'), false);
+  // 参加者は自分が候補のときだけ
+  assert.ok(model(gapGuest(), { selfUids: new Set([BOB]) }).title.split('\n').includes(GUEST_GAP));
+  assert.equal(model(gapGuest(), { selfUids: new Set(['other']) }).title.includes('次元ストレージ'), false);
+  assert.equal(model(gapGuest()).title.includes('次元ストレージ'), false);
+
+  const { trigger, part } = setup(t, gapHost());
+  await trigger.dispatch('click');
+  const issues = part.element.querySelector('.save-status-issues');
+  assert.equal(issues.hidden, false);
+  assert.deepEqual(issues.querySelectorAll('li').map((node) => node.textContent), [HOST_GAP]);
+  part.destroy();
+});
+
+test('ヘッダーのセーブ連携（dps-missing）: 参加者の困りごとには、自分のプレイヤー（selfUids。app.js は ideals.selfUids）が候補のときだけ出す', async (t) => {
+  const mine = setup(t, gapGuest(), { selfUids: () => new Set([BOB]) });
+  await mine.trigger.dispatch('click');
+  assert.deepEqual(mine.part.element.querySelector('.save-status-issues').querySelectorAll('li').map((node) => node.textContent), [GUEST_GAP]);
+  assert.ok(mine.trigger.title.split('\n').includes(GUEST_GAP));
+  mine.part.destroy();
+});
+
+test('ヘッダーのセーブ連携（dps-missing）: 自分が候補でない参加者には出さない', async (t) => {
+  const other = setup(t, gapGuest());
+  await other.trigger.dispatch('click');
+  assert.equal(other.part.element.querySelector('.save-status-issues').hidden, true);
+  other.part.destroy();
 });

@@ -9,7 +9,7 @@
 // - 個体値 0〜100（既定 0）・レベル 1〜999（既定 1、タマゴは 0）・ランク 1〜5（既定 1）: core/owned.js
 // - 後から足す項目は intOrNull などで「不明」（null）を表し、欠けと 0 を区別する
 import { sanitizeText } from './validate.js';
-import { OWNED_MAX_ROWS, cleanOwnedFarms, ownedWorldId } from './owned-shared.js';
+import { OWNED_MAX_ROWS, OWNED_DPS_GAP_MAX, cleanOwnedFarms, ownedWorldId } from './owned-shared.js';
 
 export const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -153,7 +153,8 @@ const DAY_MAX = 1000000;
 
 /**
  * 共有のプレイヤー（uid 40 字・名前 50 字。uid が空・40 字を超えるものは捨てる。uid は個体の所持者と比べるので切り詰めない）。
- * save-extras で足した Lv（1〜999 の整数）とプレイ中（true・false）は、形が合うときだけ写す（古い共有にはない）
+ * save-extras で足した Lv（1〜999 の整数）とプレイ中（true・false）、dps-missing で足したパル次元ストレージの読み漏れの数
+ *（dpsGap。1〜OWNED_DPS_GAP_MAX の整数）は、形が合うときだけ写す（古い共有にはない）
  */
 export const cleanSharedPlayers = (value) => list(value, {
   max: PLAYERS_MAX,
@@ -162,6 +163,7 @@ export const cleanSharedPlayers = (value) => list(value, {
     const clean = { uid: player.uid, name: text(player.name, 50) };
     if (Number.isInteger(player.level) && player.level > 0 && player.level <= PLAYER_LEVEL_MAX) clean.level = player.level;
     if (typeof player.online === 'boolean') clean.online = player.online;
+    if (Number.isInteger(player.dpsGap) && player.dpsGap > 0 && player.dpsGap <= OWNED_DPS_GAP_MAX) clean.dpsGap = player.dpsGap;
     return clean;
   },
 });
