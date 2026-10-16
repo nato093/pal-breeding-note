@@ -120,10 +120,36 @@ function assertLoginOnly() {
   assert.match(readable(byClass('app-header')), /^(テスト環境)?$/);
 }
 
-test('画面: 登録したセーブは 1 分ごとに読み直す（タブが裏にあっても）', async (t) => {
-  const { intervals } = await boot(t);
-  assert.deepEqual(intervals.map((timer) => timer.ms), [60 * 1000]);
-  assert.doesNotThrow(() => intervals[0].fn());
+test('画面（share-fetch）: 所持パルの読み直しは 10 秒ごとの 1 本。表のタブなら共有も読み直し（autoRefresh）、裏のタブでは共有を読まない（pollAuto。D26）', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-16T00:00:00.000Z') });
+  const api = createDevelopmentApi({ seed: '2' });
+  // 別の PC のホストが共有したワールド（見る人はファイルを登録していない）
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  const row = (id) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : field === 'palId' ? 'SheepBall' : ''));
+  const shared = await api({
+    action: 'ownedUpload', passcode: '入力', userId: 'ホスト', worldId: world, world: { name: 'World9', hostName: 'Alice' },
+    saveUpdatedAt: '2026-10-15T23:59:00.000Z', players: [], bases: [], columns: OWNED_FIELDS, rows: [row('p1'), row('p2')],
+  });
+  assert.equal(shared.stored, true);
+  const { intervals, ownedCalls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api });
+  for (let i = 0; i < 10; i++) await flush();
+  // 起動では一覧を読み、今のワールドの中身は ownedSince で受け取る
+  assert.deepEqual(ownedCalls.map((call) => call.action), ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual(intervals.map((timer) => timer.ms), [10 * 1000]);
+  const tick = async (visibility) => {
+    ownedCalls.length = 0;
+    t.mock.timers.tick(10 * 1000);
+    document.visibilityState = visibility;
+    assert.doesNotThrow(() => intervals[0].fn());
+    for (let i = 0; i < 10; i++) await flush();
+    return ownedCalls.map((call) => [call.action, call.uploadedAt ?? '']);
+  };
+  // 表のタブ: 持っている版を添えて ownedSince を 1 回（一覧は読まない）
+  assert.deepEqual(await tick('visible'), [['ownedSince', shared.world.uploadedAt]]);
+  // 裏のタブ: 共有を読まない（ファイルの登録がなければ何も読まない）
+  assert.deepEqual(await tick('hidden'), []);
+  // 表に戻れば、また読む
+  assert.deepEqual(await tick('visible'), [['ownedSince', shared.world.uploadedAt]]);
 });
 
 test('画面: 未ログイン時は ID とパスワードを表示し、旧招待 URL でもログインしない', async (t) => {

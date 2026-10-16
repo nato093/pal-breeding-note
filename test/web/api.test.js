@@ -149,11 +149,12 @@ test('API: 共有の所持パルは、行数を OWNED_MAX_ROWS に限り、配�
   const { OWNED_FIELDS, OWNED_MAX_ROWS } = await import('../../web/js/core/owned-shared.js');
   const row = (id) => [id, ...Array(OWNED_FIELDS.length - 1).fill('')];
   const good = { ...ownedBase, world: ownedWorld(), columns: OWNED_FIELDS, rows: [row('p1'), row('p2')] };
-  assert.deepEqual(await respond(good).request('owned', '入力', { worldId: WORLD }), good);
+  // 受け取った生の行の数（捨てる前）は receivedRows に残す（画面が palCount と比べる。share-fetch）
+  assert.deepEqual(await respond(good).request('owned', '入力', { worldId: WORLD }), { ...good, receivedRows: 2 });
   const big = await respond({ ...good, rows: Array.from({ length: OWNED_MAX_ROWS + 1 }, (_, i) => row(`p${i}`)) }).request('owned', '入力', { worldId: WORLD });
-  assert.equal(big.rows.length, OWNED_MAX_ROWS);
+  assert.deepEqual([big.rows.length, big.receivedRows], [OWNED_MAX_ROWS, OWNED_MAX_ROWS + 1]);
   const broken = await respond({ ...good, rows: [null, 'p', row('p1'), row('p1'), 5, row('p2')] }).request('owned', '入力', { worldId: WORLD });
-  assert.deepEqual(broken.rows.map((cells) => cells[0]), ['p1', 'p2']);
+  assert.deepEqual([broken.rows.map((cells) => cells[0]), broken.receivedRows], [['p1', 'p2'], 6]);
   // 共有されていないワールド（world: null）はそのまま
   assert.equal((await respond({ ...good, world: null, rows: [] }).request('owned', '入力', { worldId: WORLD })).world, null);
   // 形が根本から違う応答は今までどおり受け付けない

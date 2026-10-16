@@ -11,6 +11,7 @@ import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { parseHash } from '../../web/js/router.js';
 import { ownedView } from '../../web/js/views/owned.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
+import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
 
 function memoryStorage() {
   const map = new Map();
@@ -29,22 +30,32 @@ const snapshot = (n, name = 'テスト') => ({
   stats: {}, files: { used: [], skipped: [] },
 });
 
-// 開発用 API を GAS の代わりに使う
-function sharedServer({ scope = 'test', userId = 'ホスト' } = {}) {
-  const api = createDevelopmentApi();
+// 開発用 API を GAS の代わりに使う（環境〔scope〕ごとに別の API。同じ GAS でもパスワードでシートが分かれるのと同じ）。
+// rewrite(action, input, pass) で応答を差し替えられる（undefined なら開発用 API の応答。pass() で開発用 API の応答を取れる）
+function sharedServer({ scope = 'test', userId = 'ホスト', rewrite = null } = {}) {
+  const apis = new Map();
+  const apiOf = (key) => {
+    if (!apis.has(key)) apis.set(key, createDevelopmentApi());
+    return apis.get(key);
+  };
   const calls = [];
   const uploads = [];
   let currentScope = scope;
+  let currentEndpoint = 'https://example.test/exec';
   return {
     calls, uploads,
     setScope(value) { currentScope = value; },
+    setEndpoint(value) { currentEndpoint = value; },
     server: {
       scope: () => currentScope,
       userId: () => userId,
+      endpoint: () => currentEndpoint,
       async request(action, input = {}) {
         calls.push(action);
         if (action === 'ownedUpload') uploads.push(input.worldId);
-        const response = await api({ action, passcode: 'local', ...input });
+        const api = apiOf(currentScope);
+        const pass = () => api({ action, passcode: 'local', ...input });
+        const response = (await rewrite?.(action, input, pass)) ?? await pass();
         if (!response.ok) throw Object.assign(new Error(response.code), { code: response.code });
         return response;
       },
@@ -52,7 +63,7 @@ function sharedServer({ scope = 'test', userId = 'ホスト' } = {}) {
   };
 }
 
-function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null } = {}) {
+function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false } = {}) {
   const calls = { imports: 0 };
   let time = 1_000_000;
   const timers = [];
@@ -62,10 +73,11 @@ function setup({ server = null, persist = memoryPersist(), storage = memoryStora
     now: () => time,
     schedule: (fn, ms) => { timers.push({ fn, ms, cancelled: false }); return timers.length - 1; },
     cancel: (id) => { timers[id].cancelled = true; },
+    hidden,
   });
   const store = make();
   const register = async (worldId, files, target = store) => target.commitRegistration(await target.previewRegistration({ worldId, steamId: '7656', files: asDropped(files) }));
-  return { store, make, storage, persist, calls, timers, register, advance: (ms) => { time += ms; } };
+  return { store, make, storage, persist, calls, timers, register, advance: (ms) => { time += ms; }, time: () => time };
 }
 
 test('所持パル: 登録したファイルを読み込み、登録と設定はこのブラウザに残す', async () => {
@@ -106,7 +118,7 @@ test('所持パル: 自動の読み込みは間隔を空け、セーブが変わ
   assert.equal(calls.imports, 2);
 });
 
-test('所持パル: 共有の読み直し（開いている画面の 10 秒ごとの autoRefresh）は 10 秒以上空ける（D26。前は 30 秒で、参加している人の画面への反映が最大 約 41 秒だった）', async () => {
+test('所持パル: 共有の読み直し（app.js の 10 秒ごとの autoRefresh）は 10 秒空ける。タイマーが少し早く来ても次の回に回らないよう 1 秒の余裕（D26・share-fetch）', async () => {
   const shared = sharedServer();
   const { store, advance } = setup({ server: shared.server });
   await store.load();
@@ -114,11 +126,12 @@ test('所持パル: 共有の読み直し（開いている画面の 10 秒ご�
   await store.autoRefresh();
   assert.ok(shared.calls.includes('ownedWorlds'));
   shared.calls.length = 0;
-  advance(9999);
+  advance(8999);
   assert.equal(await store.autoRefresh(), 'skipped');
   assert.deepEqual(shared.calls, []);
   advance(1);
   await store.autoRefresh();
+  // 共有がない（目当てのワールドがない）ので、一覧を読む
   assert.deepEqual(shared.calls, ['ownedWorlds']);
 });
 
@@ -707,4 +720,436 @@ test('所持パル: 古い GAS（後から足した列を知らない）が列�
   host.advance(60 * 60 * 1000);
   assert.equal(await host.store.uploadLocal({ force: true }), 'error');
   assert.equal(host.store.state.upload.status, 'error');
+});
+
+// ---------------------------------------------------------------------------
+// share-fetch（docs/sync-fixes/README.md の 4）: 参加者の読み直し。今のワールドは ownedSince を 1 回・一覧は 5 分ごと・古い GAS は 2 回呼び・
+// 行の数の安全網・古い応答を捨てる
+// ---------------------------------------------------------------------------
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const sharedRow = (id) => [id, ...Array(OWNED_FIELDS.length - 1).fill('')];
+let publishClock = Date.parse('2026-10-05T01:00:00.000Z');
+// 別の PC のホストが共有する（呼ぶたびにセーブの時刻を進める）。今の環境（shared の scope）の開発用 API に入る
+async function publish(shared, { worldId = WORLD_A, prefix = 'p', n = 2, user = 'ホスト' } = {}) {
+  publishClock += 60000;
+  const response = await shared.server.request('ownedUpload', {
+    userId: user, worldId, world: { name: worldId.slice(0, 4), hostName: 'Alice' }, saveUpdatedAt: new Date(publishClock).toISOString(),
+    players: [], bases: [], columns: OWNED_FIELDS, rows: Array.from({ length: n }, (_, i) => sharedRow(`${prefix}${i}`)),
+  });
+  assert.equal(response.stored, true);
+  return response.world;
+}
+const ids = (store) => (store.state.owned?.pals ?? []).map((pal) => pal.id).sort();
+const sharedCache = (persist, scope = 'test') => persist.get(`pal-note.test.owned.shared.${scope}`);
+// 間隔を空けて autoRefresh を 1 回呼び、その間の操作を返す
+const refreshCalls = async (shared, viewer, step = 10000) => {
+  shared.calls.length = 0;
+  viewer.advance(step);
+  await viewer.store.autoRefresh();
+  return [...shared.calls];
+};
+
+test('所持パル（share-fetch）: 今のワールドの共有を持っていれば ownedSince を 1 回。変わっていなければ時刻・共有した人だけを入れ替え、所持パルは作り直さない', async () => {
+  const shared = sharedServer();
+  await shared.server.request('signup', { userId: 'ホスト', opId: crypto.randomUUID() });
+  const first = await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  shared.calls.length = 0;
+  assert.equal(await viewer.store.autoRefresh(), 'fetched');
+  // 起動: 一覧を読み、まだ持っていないので ownedSince（版なし）で中身を受け取る
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual(ids(viewer.store), ['a0', 'a1']);
+  const { owned } = viewer.store.state;
+  const { current } = viewer.store.state.shared;
+  // 変わっていない: ownedSince を 1 回だけ（一覧は読まない）。共有のデータも所持パルも同じ物のまま
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  assert.equal(viewer.store.state.shared.current, current);
+  assert.equal(viewer.store.state.owned, owned);
+  // 共有した人の ID が変わった（同じ版）: 共有した人だけを入れ替え、所持パルは作り直さない
+  await shared.server.request('rename', { opId: crypto.randomUUID(), userId: 'ホスト', newUserId: 'ホスト2' });
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  assert.equal(viewer.store.state.meta.uploadedBy, 'ホスト2');
+  assert.equal(viewer.store.state.shared.current.world.uploadedBy, 'ホスト2');
+  assert.equal(viewer.store.state.shared.current.rows, current.rows);
+  assert.equal(viewer.store.state.owned, owned);
+  // 変わった: 中身を受け取って作り直し、確定としてキャッシュにも書く
+  const second = await publish(shared, { prefix: 'b', n: 3 });
+  assert.notEqual(second.uploadedAt, first.uploadedAt);
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1', 'b2']);
+  assert.notEqual(viewer.store.state.owned, owned);
+  assert.deepEqual([viewer.store.state.meta.sharedAt, viewer.store.state.meta.palCount], [second.uploadedAt, 3]);
+  assert.equal((await sharedCache(viewer.persist)).current.world.uploadedAt, second.uploadedAt);
+  // 共有が消えた（ownedSince の world が null）ら出さない
+  await shared.server.request('ownedDelete', { worldId: WORLD_A });
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  assert.deepEqual([viewer.store.state.owned, viewer.store.state.shared.worlds], [null, []]);
+});
+
+test('所持パル（share-fetch）: ワールドの一覧は起動・force・目当てのワールドがない・前回から 5 分のときだけ読む', async () => {
+  const shared = sharedServer();
+  await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  shared.calls.length = 0;
+  await viewer.store.autoRefresh();
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince']);
+  // 5 分までは今のワールドの ownedSince だけ
+  for (let elapsed = 10000; elapsed < 5 * 60 * 1000; elapsed += 10000) {
+    assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince'], `${elapsed} ms`);
+  }
+  // 5 分たったら一覧を読む（持っている版と同じなら、中身は読まない）
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedWorlds']);
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  // force（登録の確定・ワールドの選び直しなど）は一覧も読む
+  shared.calls.length = 0;
+  assert.equal(await viewer.store.fetchShared({ force: true }), 'fetched');
+  assert.deepEqual(shared.calls, ['ownedWorlds']);
+  // 目当てのワールドが一覧にない（まだ共有されていないワールドを選んだ）間は、毎回一覧を読む
+  shared.calls.length = 0;
+  await viewer.store.setViewWorld(WORLD_B);
+  assert.deepEqual(shared.calls, ['ownedWorlds']);
+  assert.equal(viewer.store.state.owned, null);
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedWorlds']);
+  await publish(shared, { worldId: WORLD_B, prefix: 'b' });
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1']);
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  // ログインの切り替え（保存先が替わる）も一覧から読む
+  shared.setScope('prod');
+  shared.calls.length = 0;
+  await viewer.store.scopeChanged();
+  assert.deepEqual(shared.calls, ['ownedWorlds']);
+});
+
+test('所持パル（share-fetch）: 古い GAS（ownedSince が BAD_ACTION）なら、接続先と環境ごとに 1 時間覚えて、一覧 → owned の 2 回呼びに落とす', async () => {
+  let oldGas = true;
+  const shared = sharedServer({ rewrite: (action) => (oldGas && action === 'ownedSince' ? { ok: false, code: 'BAD_ACTION' } : undefined) });
+  await publish(shared, { prefix: 'a' });
+  shared.setScope('prod');
+  await publish(shared, { prefix: 'a' });
+  shared.setScope('test');
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  shared.calls.length = 0;
+  const markedAt = viewer.time();
+  assert.equal(await viewer.store.autoRefresh(), 'fetched');
+  // 試して BAD_ACTION なら、同じ回のうちに owned で読む
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince', 'owned']);
+  assert.deepEqual(ids(viewer.store), ['a0', 'a1']);
+  assert.equal(viewer.store.state.shared.error, '');
+  // 覚えている間は ownedSince を呼ばない（変わっていなければ一覧だけ、変わっていれば一覧 → owned）
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedWorlds']);
+  await publish(shared, { prefix: 'b' });
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedWorlds', 'owned']);
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1']);
+  // 接続先が違えば試し直す（BAD_ACTION なら一覧を読み、持っている版と同じ）
+  shared.setEndpoint('https://example.test/other');
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince', 'ownedWorlds']);
+  shared.setEndpoint('https://example.test/exec');
+  // 環境が違っても試し直す
+  shared.setScope('prod');
+  shared.calls.length = 0;
+  await viewer.store.scopeChanged();
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince', 'owned']);
+  shared.setScope('test');
+  shared.calls.length = 0;
+  await viewer.store.scopeChanged();
+  assert.deepEqual(shared.calls, ['ownedWorlds']);
+  // GAS を新しくしても、覚えてから 1 時間たつまでは 2 回呼びのまま。1 時間たったら ownedSince を試し直す
+  oldGas = false;
+  assert.deepEqual(await refreshCalls(shared, viewer, markedAt + 60 * 60 * 1000 - 10000 - viewer.time()), ['ownedWorlds']);
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1']);
+});
+
+test('所持パル（share-fetch）: 受け取った行の数が palCount と違う・PARTIAL なら、前の表示を残し（キャッシュにも書かない）、5 秒後に読み直す（3 回まで）', async () => {
+  let mode = '';
+  let hidden = false;
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (!['owned', 'ownedSince'].includes(action) || !mode) return undefined;
+      if (mode === 'partial') return { ok: false, code: 'PARTIAL' };
+      // 共有の書き込みと重なって行が 1 つ欠けた（古い GAS は数を確かめずに返す）
+      const response = await pass();
+      if (response.changed !== false) response.rows = response.rows.slice(1);
+      return response;
+    },
+  });
+  await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server, hidden: () => hidden });
+  await viewer.store.autoRefresh();
+  const first = viewer.store.state.shared.current;
+  const { owned } = viewer.store.state;
+  const kept = async () => {
+    assert.equal(viewer.store.state.shared.current, first);
+    assert.equal(viewer.store.state.owned, owned);
+    assert.equal(viewer.store.state.meta.sharedAt, first.world.uploadedAt);
+    assert.equal((await sharedCache(viewer.persist)).current.world.uploadedAt, first.world.uploadedAt);
+  };
+  const second = await publish(shared, { prefix: 'b', n: 3 });
+  mode = 'short';
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'partial');
+  await kept();
+  // 5 秒後に読み直す。3 回まで
+  for (let retry = 1; retry <= 3; retry++) {
+    const timer = viewer.timers.at(-1);
+    assert.deepEqual([viewer.timers.length, timer.ms, timer.cancelled], [retry, 5000, false]);
+    viewer.advance(5000);
+    assert.equal(await timer.fn(), 'partial');
+    await kept();
+  }
+  // それでも合わなければ、次の定期の読み直しに任せる（表示しているデータがあるので、案内には出ない）
+  assert.equal(viewer.timers.length, 3);
+  assert.match(viewer.store.state.shared.error, /共有の書き込みと重なった/);
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'partial');
+  assert.equal(viewer.timers.length, 3);
+  // 合えば受け取り、キャッシュにも書く
+  mode = '';
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'fetched');
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1', 'b2']);
+  assert.equal(viewer.store.state.shared.error, '');
+  assert.equal((await sharedCache(viewer.persist)).current.world.uploadedAt, second.uploadedAt);
+  // PARTIAL（新しい GAS が数の違いを返す）も同じ。タブが裏にある間は、予約した読み直しでも読まない
+  const third = await publish(shared, { prefix: 'c' });
+  mode = 'partial';
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'partial');
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1', 'b2']);
+  hidden = true;
+  shared.calls.length = 0;
+  assert.equal(await viewer.timers.at(-1).fn(), 'skipped');
+  assert.deepEqual(shared.calls, []);
+  // 読み直しで合えば受け取り、予約していた読み直しは取り消す
+  hidden = false;
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'partial');
+  const pending = viewer.timers.at(-1);
+  mode = '';
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'fetched');
+  assert.equal(pending.cancelled, true);
+  assert.deepEqual(ids(viewer.store), ['c0', 'c1']);
+  assert.equal(viewer.store.state.meta.sharedAt, third.uploadedAt);
+  // 表示しているデータがない（初めて読む）なら、3 回読み直しても合わなければ読めなかったことを知らせる
+  mode = 'short';
+  const fresh = setup({ server: shared.server });
+  assert.equal(await fresh.store.autoRefresh(), 'partial');
+  for (let retry = 1; retry <= 3; retry++) assert.equal(await fresh.timers.at(-1).fn(), 'partial');
+  assert.deepEqual([fresh.store.state.owned, fresh.timers.length], [null, 3]);
+  // 一覧は使う（どのワールドの共有かは出せる）
+  assert.deepEqual([fresh.store.state.meta.worldId, fresh.store.state.meta.worldName], [WORLD_A, WORLD_A.slice(0, 4)]);
+  assert.match(fresh.store.state.shared.error, /共有の書き込みと重なった/);
+  assert.equal((await sharedCache(fresh.persist))?.current ?? null, null);
+});
+
+test('所持パル（share-fetch）: ワールドや保存先（ログイン・環境）を変えた後に届いた古い応答は捨てる', async () => {
+  let gate = null;
+  let release = () => {};
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (!gate || action !== 'ownedSince') return undefined;
+      const response = await pass();
+      await gate;
+      return response;
+    },
+  });
+  const hold = () => { gate = new Promise((resolve) => { release = resolve; }); };
+  const open = () => { gate = null; release(); };
+  await publish(shared, { worldId: WORLD_A, prefix: 'a' });
+  await publish(shared, { worldId: WORLD_B, prefix: 'b' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.setViewWorld(WORLD_A);
+  assert.deepEqual(ids(viewer.store), ['a0', 'a1']);
+  // 共有のデータの先頭の個体（uploadedAt はワールドが違えば同じミリ秒になりうるので、中身で見分ける）
+  const seen = record(viewer.store, (state) => state.shared.current?.rows[0]?.[0] ?? '');
+  // ワールドを選び直す前に頼んだ、前のワールドの応答は使わない（選び直した後に、選んだワールドを読み直す）
+  await publish(shared, { worldId: WORLD_A, prefix: 'x' });
+  hold();
+  viewer.advance(10000);
+  const reading = viewer.store.autoRefresh();
+  await tick();
+  const switching = viewer.store.setViewWorld(WORLD_B);
+  open();
+  assert.equal(await reading, 'skipped');
+  assert.equal(await switching, 'fetched');
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1']);
+  assert.ok(!seen.includes('x0'));
+  // ログインの切り替えで保存先が替わった後に届いた、前の保存先の応答も使わない（どちらのキャッシュにも書かない）
+  const before = (await sharedCache(viewer.persist)).current.world.uploadedAt;
+  await publish(shared, { worldId: WORLD_B, prefix: 'y' });
+  hold();
+  viewer.advance(10000);
+  const old = viewer.store.autoRefresh();
+  await tick();
+  shared.setScope('prod');
+  const changing = viewer.store.scopeChanged();
+  open();
+  assert.equal(await old, 'skipped');
+  await changing;
+  // prod には共有がない
+  assert.deepEqual([viewer.store.state.owned, viewer.store.state.shared.worlds], [null, []]);
+  assert.ok(!seen.includes('y0'));
+  assert.equal((await sharedCache(viewer.persist, 'prod'))?.current ?? null, null);
+  assert.equal((await sharedCache(viewer.persist)).current.world.uploadedAt, before);
+});
+
+test('所持パル（share-fetch）: 読んでいる間に共有の削除が終わったら、読んだ応答で消したワールドを戻さない（応答の検査の後、反映の前に割り込まれても）', async () => {
+  let gate = null;
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (!gate || !['ownedSince', 'ownedDelete'].includes(action)) return undefined;
+      // ownedSince は削除の前の中身（削除と重なった読み込み）
+      const response = await pass();
+      await gate;
+      return response;
+    },
+  });
+  await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.autoRefresh();
+  await publish(shared, { prefix: 'b' });
+  let release;
+  gate = new Promise((resolve) => { release = resolve; });
+  viewer.advance(10000);
+  const reading = viewer.store.autoRefresh();
+  await tick();
+  const deleting = viewer.store.deleteShared(WORLD_A);
+  await tick();
+  gate = null;
+  release();
+  assert.equal(await deleting, true);
+  assert.equal(await reading, 'skipped');
+  assert.deepEqual([viewer.store.state.shared.worlds, viewer.store.state.shared.current, viewer.store.state.owned], [[], null, null]);
+  const cache = await sharedCache(viewer.persist);
+  assert.deepEqual([cache.worlds, cache.current], [[], null]);
+});
+
+test('所持パル（share-fetch）: 一覧を読んだ回の中身が PARTIAL でも、一覧は使い（5 分は読み直さない）、表示は前の版のまま（時刻も前の版）', async () => {
+  let partialFor = '';
+  const shared = sharedServer({ rewrite: (action, input) => (action === 'ownedSince' && input.worldId === partialFor ? { ok: false, code: 'PARTIAL' } : undefined) });
+  // ワールドを選んでいない人（いちばん新しく共有されたワールドを見る）。古い A1 ＜ B2 ＜ 新しい A2 の順に共有された
+  const first = await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.autoRefresh();
+  await publish(shared, { worldId: WORLD_B, prefix: 'b' });
+  const second = await publish(shared, { prefix: 'x' });
+  partialFor = WORLD_A;
+  // 前に一覧を読んでから 5 分たった回: 一覧を読み、中身は PARTIAL
+  assert.deepEqual(await refreshCalls(shared, viewer, 5 * 60 * 1000), ['ownedWorlds', 'ownedSince']);
+  // 一覧は読んだとおりに入れ、いちばん新しい A を見たまま。所持パルと時刻は前の版（A1）
+  assert.deepEqual(viewer.store.state.shared.worlds.map((world) => [world.worldId, world.uploadedAt]).sort(), [[WORLD_A, second.uploadedAt], [WORLD_B, viewer.store.state.shared.worlds.find((world) => world.worldId === WORLD_B).uploadedAt]].sort());
+  assert.deepEqual([viewer.store.state.meta.worldId, viewer.store.state.meta.sharedAt], [WORLD_A, first.uploadedAt]);
+  assert.deepEqual(ids(viewer.store), ['a0', 'a1']);
+  assert.equal((await sharedCache(viewer.persist)).current.world.uploadedAt, first.uploadedAt);
+  // 5 秒後の読み直しと、続く定期の読み直しでは、一覧を読み直さない（A を読む）
+  shared.calls.length = 0;
+  viewer.advance(5000);
+  assert.equal(await viewer.timers.at(-1).fn(), 'partial');
+  assert.deepEqual(shared.calls, ['ownedSince']);
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  // 合えば受け取る
+  partialFor = '';
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedSince']);
+  assert.deepEqual(ids(viewer.store), ['x0', 'x1']);
+  assert.equal(viewer.store.state.meta.sharedAt, second.uploadedAt);
+  // 一覧で、いちばん新しいワールドが替わった回（B3）の中身が PARTIAL なら、選び直さずに前の一覧と表示のまま（次の回に一覧から読み直す）
+  await publish(shared, { worldId: WORLD_B, prefix: 'y' });
+  partialFor = WORLD_B;
+  assert.deepEqual(await refreshCalls(shared, viewer, 5 * 60 * 1000), ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual([viewer.store.state.meta.worldId, ids(viewer.store)], [WORLD_A, ['x0', 'x1']]);
+  partialFor = '';
+  assert.deepEqual(await refreshCalls(shared, viewer), ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual([viewer.store.state.meta.worldId, ids(viewer.store)], [WORLD_B, ['y0', 'y1']]);
+  // 一覧を読んで間もないときに「自動」へ選び直し、新しく選ばれるワールドが PARTIAL でも、次の読み直しは一覧から（前のワールドに戻らない）
+  await publish(shared, { prefix: 'w' });
+  await viewer.store.setViewWorld(WORLD_A);
+  assert.deepEqual(ids(viewer.store), ['w0', 'w1']);
+  await publish(shared, { worldId: WORLD_B, prefix: 'z' });
+  partialFor = WORLD_B;
+  shared.calls.length = 0;
+  assert.equal(await viewer.store.setViewWorld(''), 'partial');
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual([viewer.store.state.meta.worldId, ids(viewer.store)], [WORLD_A, ['w0', 'w1']]);
+  partialFor = '';
+  shared.calls.length = 0;
+  viewer.advance(5000);
+  assert.equal(await viewer.timers.at(-1).fn(), 'fetched');
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual([viewer.store.state.meta.worldId, ids(viewer.store)], [WORLD_B, ['z0', 'z1']]);
+});
+
+test('所持パル（share-fetch）: 変わらない回はキャッシュを書き直さず、読んでいる途中の force は終わってから 1 回にまとめ、ワールドを替えたら予約した読み直しを取り消す', async () => {
+  let gate = null;
+  let partialOn = false;
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (partialOn && action === 'ownedSince' && input.worldId === WORLD_A) return { ok: false, code: 'PARTIAL' };
+      if (!gate || action !== 'ownedWorlds') return undefined;
+      await gate;
+      return pass();
+    },
+  });
+  await publish(shared, { worldId: WORLD_A, prefix: 'a' });
+  await publish(shared, { worldId: WORLD_B, prefix: 'b' });
+  const persist = memoryPersist();
+  const writes = [];
+  const set = persist.set;
+  persist.set = (key, value) => { if (key.includes('.owned.shared.')) writes.push(key); return set(key, value); };
+  const viewer = setup({ server: shared.server, persist });
+  await viewer.store.setViewWorld(WORLD_A);
+  assert.equal(writes.length, 1);
+  for (let i = 0; i < 3; i++) await refreshCalls(shared, viewer);
+  assert.equal(writes.length, 1);
+  // 読んでいる途中の force は、終わってからの 1 回にまとめる
+  let release;
+  gate = new Promise((resolve) => { release = resolve; });
+  shared.calls.length = 0;
+  const first = viewer.store.fetchShared({ force: true });
+  await tick();
+  const follows = [viewer.store.fetchShared({ force: true }), viewer.store.fetchShared({ force: true })];
+  gate = null;
+  release();
+  assert.deepEqual(await Promise.all([first, ...follows]), ['fetched', 'fetched', 'fetched']);
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedWorlds']);
+  // A の読み直しを予約している間に B へ替えたら、予約を取り消す
+  await publish(shared, { worldId: WORLD_A, prefix: 'x' });
+  partialOn = true;
+  viewer.advance(10000);
+  assert.equal(await viewer.store.autoRefresh(), 'partial');
+  const pending = viewer.timers.at(-1);
+  await viewer.store.setViewWorld(WORLD_B);
+  assert.equal(pending.cancelled, true);
+  assert.deepEqual(ids(viewer.store), ['b0', 'b1']);
+});
+
+test('所持パル（share-fetch）: 共有の送信の応答も、送っている間に保存先（ログイン・環境）が替わったら今の共有とキャッシュに入れない', async () => {
+  let gate = null;
+  let release = () => {};
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (!gate || action !== 'ownedUpload') return undefined;
+      const response = await pass();
+      await gate;
+      return response;
+    },
+  });
+  const host = setup({ server: shared.server });
+  gate = new Promise((resolve) => { release = resolve; });
+  await host.register(WORLD_A, hostFiles());
+  assert.equal(host.store.state.upload.status, 'sending');
+  shared.setScope('prod');
+  await host.store.scopeChanged();
+  gate = null;
+  release();
+  await tick();
+  await tick();
+  assert.deepEqual([host.store.state.upload.status, host.store.state.shared.worlds, host.store.state.shared.current], ['', [], null]);
+  assert.equal(await sharedCache(host.persist, 'prod'), null);
+  // 手元のセーブはそのまま出す
+  assert.equal(host.store.state.meta.source, 'local');
 });

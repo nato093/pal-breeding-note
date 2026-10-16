@@ -1,4 +1,5 @@
 import { createApi } from './api.js';
+import { API_URL } from './config.js';
 import { createStore, safeStorage } from './store.js';
 import { createDraftStore } from './drafts.js';
 import { createNotificationStore, releaseNoteSource } from './notifications.js';
@@ -50,8 +51,8 @@ import { palDataNotes } from './views/shared.js';
 import { TABS, tabLabel } from './views/tabs.js';
 import { ownedWorldId } from './core/owned-shared.js';
 
-// 登録したセーブを読み直す間隔
-const SAVE_POLL_INTERVAL = 60 * 1000;
+// 所持パルを読み直す間隔（全画面で 1 本。表のタブなら共有も、裏のタブでは登録したセーブだけ。share-fetch）
+const SAVE_POLL_INTERVAL = 10 * 1000;
 // スクロールした位置を今の履歴のエントリに書くまでの間引き
 const SCROLL_SAVE_DELAY = 300;
 // 画面ごとに保存する条件（viewState の中の入れ物の名前。'' は viewState そのもの）と、その形（各画面が export する）
@@ -88,6 +89,8 @@ async function boot() {
       scope: () => (store.state.passcode && store.state.userId && store.state.env ? store.state.env : ''),
       userId: () => store.state.userId,
       request: (action, input) => store.call(action, input),
+      // 接続先（GAS ができることを接続先と環境ごとに覚える。開発用 API は別の接続先）
+      endpoint: () => (transport ? 'local' : API_URL),
     },
   });
   let ownedScope = '';
@@ -895,11 +898,13 @@ async function boot() {
     setInterval(() => { if (document.visibilityState === 'visible') watcher.check(); }, CHECK_INTERVAL);
     watcher.check();
   }
-  // セーブのファイルを登録していれば、タブが裏にあっても 1 分ごとに読み直す（配合牧場の自動登録で、タマゴを拾う前に読むため）。
-  // 長く裏にあるタブのタイマーは、ブラウザが 1 分に 1 回まで遅らせる。
-  // 古いデータの印（時刻で変わる）も、このときに確かめ直す
+  // 所持パルの読み直しは、どの画面でもこの 10 秒ごとの 1 本で行う（画面ごとのタイマーは持たない。share-fetch）。
+  // 表のタブなら共有も読み直す（autoRefresh。ホストのセーブは 20 秒以上空ける）。裏のタブでは共有を読まず（D26）、セーブのファイルを
+  // 登録していれば読み直す（pollAuto。配合牧場の自動登録で、タマゴを拾う前に読むため）。長く裏にあるタブのタイマーは、ブラウザが
+  // 1 分に 1 回まで遅らせる。古いデータの印（時刻で変わる）も、このときに確かめ直す
   setInterval(() => {
-    owned.pollAuto().catch(() => {});
+    const refreshing = document.visibilityState === 'hidden' ? owned.pollAuto() : owned.autoRefresh();
+    refreshing.catch(() => {});
     save.update();
   }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {

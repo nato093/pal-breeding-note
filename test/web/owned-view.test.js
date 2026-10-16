@@ -494,9 +494,10 @@ test('所持パル画面: この PC で読んだセーブに場所の分から�
   view.destroy();
 });
 
-test('所持パル画面: 開いている間は 10 秒ごとに読み直し（タブが裏にある間は読まない）、閉じたら止める（D26 で 20.5 秒から 10 秒にした）', async (t) => {
+test('所持パル画面: 開いたときに 1 回読み直し、画面は自分でタイマーを持たない（開いている間の読み直しは app.js の 10 秒ごとの 1 本。share-fetch）', async (t) => {
   installDom(t);
   t.mock.timers.enable({ apis: ['setInterval'] });
+  const intervals = t.mock.method(globalThis, 'setInterval');
   const owned = fakeOwned();
   let refreshes = 0;
   owned.autoRefresh = () => { refreshes++; return Promise.resolve('skipped'); };
@@ -504,18 +505,10 @@ test('所持パル画面: 開いている間は 10 秒ごとに読み直し（�
   // 開いたときの 1 回
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(refreshes, 1);
-  t.mock.timers.tick(10 * 1000);
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 3);
-  document.visibilityState = 'hidden';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 3);
-  document.visibilityState = 'visible';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 4);
-  view.destroy();
   t.mock.timers.tick(60 * 1000);
-  assert.equal(refreshes, 4);
+  assert.equal(refreshes, 1);
+  assert.equal(intervals.mock.callCount(), 0);
+  view.destroy();
 });
 
 test('継承ルート: 所持パルの欄にデータ元の 1 行は出さず（上のバーのセーブ連携の表示と重なるため。D29）、読み込みの状態が変わっても欄を描き直さない', (t) => {
