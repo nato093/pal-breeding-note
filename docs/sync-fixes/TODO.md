@@ -53,10 +53,15 @@
 - [x] テスト（gas・harness・compareSaves・往復・古い GAS＋新しい画面・新しい GAS＋古い画面）
 - [x] `gas:push`（2026-10-16 13:29。Claude が統合ブランチの写しの作業フォルダから `clasp push --force`。HEAD だけが変わり、本番の deployment は版 10 のまま）
 - [x] GAS エディタで `setup()`（2026-10-16 にユーザーが実行。列 `saveKey` が test・prod に足された）
-- [ ] 版 11 を作る（`npx clasp create-version "owned-gas"`）→ テスト用の deployment（`npx clasp create-deployment -V 11 -d "owned-gas test"`。出た ID の /exec の URL を使う）。CLI は Claude が実行してよい（2026-10-16 のユーザーの答え）
-- [ ] 計測（`PAL_API_URL=<テスト用の /exec> node scripts/owned-bench.mjs`、負荷は `--mode=load`。別の時に `PAL_API_URL=… node scripts/api-check.mjs`）。**鍵とキャッシュは本番と共用なので、誰も遊んでいない時間に**（始める前にユーザーに確かめる）。テスト用パスワードはリポジトリ直下の `.env.local`
-- [ ] 巻き戻しのリハーサル（手順は OPERATIONS.md の「共有の世代とセーブの識別」。エディタの `compactOwnedTest()`・`resumeOwnedTest()` はユーザーが押す）
-- [ ] 計測の数字で、テーマ 4〜8 の値（間隔・閾値）を見直す
+- [x] 版 11 を作る → テスト用の deployment（2026-10-16 19:16 に統合ブランチ 8a3a293 の中身で `clasp push --force` をし直してから `create-version`〔版 11〕・`create-deployment -V 11 -d "owned-gas test (sync-fixes)"`。ID は `npx clasp list-deployments` の説明で見分ける。本番の deployment は版 10 のまま）
+- [x] 計測（2026-10-16 の夜。ユーザーに「誰も遊んでいない」と確かめてから。数字は下の「計測の結果」）と `api-check`（17 項目すべて OK）
+- [x] 巻き戻しのリハーサル（prepare → テスト用の deployment を版 10 → ユーザーが `compactOwnedTest()`〔2 ワールド・古い世代 100 行を消す〕→ legacy-write〔今の世代だけが読め、3 倍の体数も書けた〕→ ユーザーが `resumeOwnedTest()` → 版 11 → finish〔newer で書けて読め、ownedSince も変わらないを返し、ワールドを消した〕。すべて通った）
+- [ ] 計測の数字で、テーマ 4〜8 の値（間隔・閾値）を見直す（テーマ 5 の最短 15 秒は、1 回の共有 13〜15 秒に対してそのままでよい。6〜8 は P0 の結果と合わせて決める）
+- 計測の結果（テスト用の deployment・版 11。「中央値／95%／最大」）:
+  - ホスト 1 人・1 ワールド 4,600 行・読み手 3・30 秒ごと: ownedUpload 13.4／14.9／14.9 秒、ownedSince 2.9／5.9／7.0 秒、owned 4.6／6.0／6.4 秒、鍵の待ち（probe）2.8／15.4／39.6 秒。失敗 0
+  - 3 ワールド計 4,600 行・3 人が同時に 30 秒ごと: ownedUpload 11.4／27.2／27.4 秒、ownedSince 4.8／7.5／30.1 秒。同じく 15 秒ごと（実際よりずっと重い）: ownedUpload 11.3／19.4／22.7 秒、鍵の待ち 6.5／21.4／24.4 秒（上限 25 秒に近い）
+  - 3 回とも、途中の中身（世代の混ざり・数の食い違い）・PARTIAL・掃除の失敗は 0 回。同じ要求の送り直しはすべて unchanged
+  - **GAS の応答がまれに `doGet` の形になる**: echo の URL（`script.googleusercontent.com/macros/echo`）が 302 で `/exec` への GET に戻し、`doGet` が `{ ok, service, api }`（`env` なし）を返す。echo が 404 の HTML を返すこともある。どちらも `doPost` は動いた後で、応答だけを失う。画面の `api.js` は RESPONSE として 1 回送り直す（共有の送信なら識別のおかげで unchanged）。計測のスクリプトはこれを「テスト環境以外の応答」とみなして止めてしまう（最初の計測が止まり、後片付けを手で行った）。直すかはユーザーに提案中
 - [x] OPERATIONS.md（反映・巻き戻し・タイムゾーンの前提）・SAVE_FORMAT.md・release-notes
 
 ## 4. share-fetch（M）
@@ -110,10 +115,9 @@
 
 ## 次にやること
 
-- **2026-10-16 の夕方（セッション b47c1ba0）: テーマ 1〜5 は統合ブランチにマージ済み（先頭 1e36e38 の上にこの書き置き）。次は上から順に:**
-  1. **GAS の計測**: 上の 3 の残りの項目（版 11 → テスト用の deployment → 計測 → リハーサル）。始める前に「今だれも遊んでいないか」をユーザーに確かめる。計測の数字で、テーマ 5 の最短 15 秒・再試行の段も見直す。
-  2. **P0**: ユーザーがホストするとき（上の P0 の節）。結果でテーマ 6〜8 の値を決める。
-  3. テーマ 6〜8 → 「終わり」の項目。本番の GAS（版 11）への切り替えと配信は P0 と全体の報告の後に、ユーザーの確認を得てから。テーマ 7 の自動登録は、`state.upload`（`status`・`result`・送ったスナップショットの `signature`・`stamp`・`published`）を購読して応答ごとに決める（応答はキャッシュの保存の前に購読者へ知らせてある）。
+- **2026-10-16 の夜（セッション b47c1ba0）: テーマ 1〜5 は統合ブランチにマージ済み。GAS の版 11・テスト用の deployment・計測・`api-check`・巻き戻しのリハーサルも済み（上の 3 の節）。次は上から順に:**
+  1. **P0**: ユーザーがホストするとき（上の P0 の節）。結果でテーマ 6〜8 の値を決める。
+  2. テーマ 6〜8 → 「終わり」の項目。本番の GAS（版 11）への切り替えと配信は P0 と全体の報告の後に、ユーザーの確認を得てから。テーマ 7 の自動登録は、`state.upload`（`status`・`result`・送ったスナップショットの `signature`・`stamp`・`published`）を購読して応答ごとに決める（応答はキャッシュの保存の前に購読者へ知らせてある）。
 - **始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる**（2026-10-16 の夕方、別のセッションが同じテーマ 5 をこの作業ツリーで進めていて重なった。こちらが切ったブランチと相手の未コミットの変更がぶつかりかけた）。
 - 進め方で効いた形: テーマごとに実装担当のエージェント（general-purpose）を 1 体立て、`feature/<key>` へのコミットまで任せる。親は `git status`・`npm test`（終了コード）・差分の個人情報（実在のプレイヤー名・ワールド名・ID・ユーザー名入りのパス。調べる語の一覧は文書に書かず、親のメモリの「公開リポジトリに個人情報を書かない」から取る）を確かめてから `--no-ff` でマージする。担当には README の節を読ませ、「範囲の外は直さない・push しない・`Claude outputs/` に触れない」を必ず添える。
 - 気づいたこと: (a) 作業ツリーは担当がブランチを切り替えながら使うので、GAS の push のように統合ブランチの中身が要る作業は `git worktree add "Claude outputs/worktrees/<名前>" integrate/sync-fixes` の別の作業フォルダで行う（`.clasp.json` は Git の対象外なので写す。clasp はリポジトリの `node_modules/.bin/clasp` を使う。`build:gas` の後の gas/Shared.js の差分は改行だけ）。使い終わったら `git worktree remove`（`Claude outputs/worktrees/sync-gas` の空のフォルダが権限で消せずに残っている。消してよい）。(b) `npm run test:perf` は、ゲームが動いて CPU が埋まっていると、共有の 20,000 行の変換（予算 200ms）とパルリバーサーの D17（予算 2 秒）が揺れて落ちる。変更前のコードでも同じように落ちた（予算は変えない。`--test-concurrency=1` でも流して比べる）。(c) テーマ 4 で 10 秒ごとに `pollAuto` を呼ぶようになったので、ホストの裏のタブも 20 秒ごとにセーブを確かめる（長く裏にあると Chrome が 1 分に 1 回まで遅らせるのは同じ。見張りはテーマ 6）。(d) 本番の GAS は版 10 のままなので、新しい画面は ownedSince を 1 時間に 1 回試して BAD_ACTION で今の 2 回呼びに落ちる。
