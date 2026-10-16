@@ -1,8 +1,12 @@
 // 本番の GAS API に対して、テスト用シートで業務ルールを一通り確かめる（Node から。CORS・CSP はブラウザ側で確認する）。
 // テスト用パスワードは .env.local から読み、表示しない。応答の env が test でなければ即中断する（本番データに触れない）。
+// 接続先は環境変数 PAL_API_URL で変えられる（テスト用の deployment を確かめるとき。既定は web/js/config.js の本番の URL）。
+// 始めにテスト用シートの有効な記録を全部片付けるので、scripts/owned-bench.mjs とは同時に流さない。
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { API_URL } from '../web/js/config.js';
+import { API_URL as DEFAULT_URL } from '../web/js/config.js';
+
+const API_URL = process.env.PAL_API_URL || DEFAULT_URL;
 
 const env = Object.fromEntries(fs.readFileSync('.env.local', 'utf8').split(/\r?\n/)
   .map((l) => l.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/)).filter(Boolean).map((m) => [m[1], m[2]]));

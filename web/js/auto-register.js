@@ -10,6 +10,7 @@ import { createSpeciesResolver } from './core/owned.js';
 import { findConflict } from './core/index.js';
 import { userIdKey } from './core/user.js';
 import { isObject, isoTime, text, idText, list, screenHref } from './core/boundary.js';
+import { compareSaves, ownedSaveStamp } from './core/owned-shared.js';
 import { buildHash, settingsHash } from './router.js';
 import { notificationTags } from './notifications.js';
 
@@ -37,10 +38,14 @@ const MAPPING_MAX = 100;
 const LEGACY_NOTICE = /^auto-breed:[^:]*:mismatch:/;
 const RECORD_FIELDS = ['parent1Id', 'parent1Gender', 'parent2Id', 'parent2Gender', 'childId'];
 const isText = (value) => typeof value === 'string';
-const timeOf = (value) => Date.parse(value) || 0;
+// セーブの新旧（core/owned-shared.js の compareSaves）。saveStamp は Level.sav の中の保存時刻、savedAt はファイルの更新日時
+//（両方に saveStamp があればそれで比べる。前の版の記録にはないので、そのときは savedAt で比べる。sync-fixes の owned-gas）
+const saveOf = (value) => ({ stamp: value.saveStamp, updatedAt: value.savedAt });
 // 記録の新しさ: 新しいセーブで書いた方、同じセーブなら後から書いた方（rev が大きい方）
-const isNewer = (a, b) => timeOf(a.savedAt) > timeOf(b.savedAt)
-  || (timeOf(a.savedAt) === timeOf(b.savedAt) && (Number(a.rev) || 0) > (Number(b.rev) || 0));
+const isNewer = (a, b) => {
+  const order = compareSaves(saveOf(a), saveOf(b));
+  return order > 0 || (order === 0 && (Number(a.rev) || 0) > (Number(b.rev) || 0));
+};
 const palsById = new Map(pals.map((pal) => [pal.id, pal]));
 const palName = (id) => palsById.get(id)?.ja ?? id ?? '不明';
 
@@ -238,10 +243,11 @@ export function createAutoRegister({
     const local = o.local;
     if (!local || !enabled(local.world.id) || o.role !== 'host' || !o.uploadReady || o.busy || !local?.snapshot || local.world.id !== o.linkedWorldId) return null;
     if (!s.passcode || !s.userId || !s.env || s.cached || s.renaming) return null;
-    // savedAt: セーブのファイルの更新日時（なければ読み込んだ日時）。別のタブの古いセーブで記録を巻き戻さないために使う
+    // savedAt: セーブのファイルの更新日時（なければ読み込んだ日時）、saveStamp: Level.sav の中の保存時刻（生のティック。なければ ''）。
+    // 別のタブの古いセーブで記録を巻き戻さないために使う
     return {
       env: s.env, userId: s.userId, worldId: local.world.id, importedAt: local.importedAt,
-      savedAt: local.world.updatedAt || local.importedAt, snapshot: local.snapshot,
+      savedAt: local.world.updatedAt || local.importedAt, saveStamp: ownedSaveStamp(local.snapshot.world?.savedAtTicks), snapshot: local.snapshot,
     };
   }
   const same = (a, b) => Boolean(b) && a.env === b.env && a.userId === b.userId
@@ -281,11 +287,12 @@ export function createAutoRegister({
     const stored = readJson(key, null);
     const kept = memory.get(key) ?? null;
     const value = !stored || (kept && isNewer(kept, stored)) ? kept ?? stored : stored;
-    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', farms: null, seenEggs: null, pending: [] };
+    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', saveStamp: '', farms: null, seenEggs: null, pending: [] };
     return {
       rev: Number.isInteger(value.rev) ? value.rev : 0,
       importedAt: isText(value.importedAt) ? value.importedAt : '',
       savedAt: isText(value.savedAt) ? value.savedAt : '',
+      saveStamp: ownedSaveStamp(value.saveStamp),
       farms: cleanFarms(value.farms),
       // 見たことのあるタマゴ（前の版の記録にはない。そのときは、いまのタマゴを記録するだけ）
       seenEggs: Array.isArray(value.seenEggs) && value.seenEggs.every(isText) ? value.seenEggs : null,
@@ -306,7 +313,7 @@ export function createAutoRegister({
     const saved = readFarms(ctx);
     if (saved.importedAt === ctx.importedAt) return { pending: saved.pending, anomalies: [] };
     // 別のタブが新しいセーブで書いた記録を、このタブの古い（同じ）セーブで書き換えない
-    if (saved.savedAt && !(timeOf(ctx.savedAt) > timeOf(saved.savedAt))) return { pending: saved.pending, anomalies: [] };
+    if ((saved.savedAt || saved.saveStamp) && !(compareSaves(saveOf(ctx), saveOf(saved)) > 0)) return { pending: saved.pending, anomalies: [] };
     const previous = saved.farms ? { farms: saved.farms, eggs: saved.seenEggs } : null;
     const { candidates, anomalies, history } = findNewBreedings(ctx.snapshot, { resolveSpecies, table, history: previous });
     const pending = saved.pending.slice();
@@ -315,7 +322,7 @@ export function createAutoRegister({
       if (existing) existing.evidence = [...existing.evidence, ...candidate.evidence].slice(-EVIDENCE_MAX);
       else pending.push(candidate);
     }
-    const next = { importedAt: ctx.importedAt, savedAt: ctx.savedAt, farms: history.farms, seenEggs: history.eggs, pending: pending.slice(-PENDING_MAX) };
+    const next = { importedAt: ctx.importedAt, savedAt: ctx.savedAt, saveStamp: ctx.saveStamp, farms: history.farms, seenEggs: history.eggs, pending: pending.slice(-PENDING_MAX) };
     writeFarms(ctx, next);
     return { pending: next.pending, anomalies };
   }

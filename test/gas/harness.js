@@ -15,6 +15,7 @@ class FakeRange {
     Object.assign(this, { sheet, row, col, numRows, numCols });
   }
   getValues() {
+    this.sheet.record('getValues', { row: this.row, count: this.numRows });
     const out = [];
     for (let r = 0; r < this.numRows; r++) {
       const line = [];
@@ -28,11 +29,13 @@ class FakeRange {
       throw new Error('setValues: size mismatch');
     }
     // 保存値の検査を既定にし、往復を検証するテストだけ先頭の引用符を除去する。
+    this.sheet.record('setValues', { row: this.row, count: this.numRows });
     this.sheet.log.push({ op: 'setValues', row: this.row });
     values.forEach((line, r) => line.forEach((v, c) => this.sheet.setCell(this.row + r, this.col + c, v)));
     return this;
   }
   clearContent() {
+    this.sheet.record('clearContent', { row: this.row, count: this.numRows });
     this.sheet.log.push({ op: 'clearContent', row: this.row });
     for (let r = 0; r < this.numRows; r++) for (let c = 0; c < this.numCols; c++) this.sheet.setCell(this.row + r, this.col + c, '');
     return this;
@@ -79,8 +82,15 @@ class FakeProtection {
   setWarningOnly(w) { this.warningOnly = w; return this; }
 }
 
+/**
+ * シートの偽物。本物と同じく、シートの行数（maxRows。新しいシートは 1000 行）を超える getRange はエラーにし、deleteRows・insertRowsAfter で
+ * 行数が増減する。固定していない行を全部消す deleteRows もエラーにする。
+ * 失敗の注入: failNext(op, { times, when }) で、次の op（'getRange'・'getValues'・'setValues'・'clearContent'・'deleteRows'・'insertRowsAfter'）を
+ * 失敗させる。when（操作の { row, count } を受け取る）の中で別の操作を割り込ませることもできる（読み手と書き手の交錯）。
+ * journal（スプレッドシートで共有）に、シートの名前と操作を順に残す（flush との順番を確かめる）
+ */
 class FakeSheet {
-  constructor(name, { stripQuotes = false } = {}) {
+  constructor(name, { stripQuotes = false, journal = [] } = {}) {
     this.name = name;
     this.stripQuotes = stripQuotes;
     this.data = [];
@@ -88,6 +98,22 @@ class FakeSheet {
     this.protections = [];
     this.frozenRows = 0;
     this.log = [];
+    this.maxRows = 1000;
+    this.failures = [];
+    this.journal = journal;
+  }
+  /** 操作を記録し、注入した失敗に当たればエラーにする */
+  record(op, detail = {}) {
+    const failure = this.failures.find((item) => item.op === op && item.times > 0 && (!item.when || item.when(detail)));
+    if (failure) {
+      failure.times--;
+      throw new Error(`injected failure: ${this.name} ${op}`);
+    }
+    this.journal.push({ sheet: this.name, op, ...detail });
+  }
+  failNext(op, { times = 1, when } = {}) {
+    this.failures.push({ op, times, when });
+    return this;
   }
   getName() { return this.name; }
   cell(r, c) {
@@ -111,8 +137,14 @@ class FakeSheet {
     this.data.forEach((line) => line.forEach((v, i) => { if (v !== '' && v !== null && v !== undefined) max = Math.max(max, i + 1); }));
     return max;
   }
-  getMaxRows() { return Math.max(1000, this.data.length); }
-  getRange(row, col, numRows = 1, numCols = 1) { return new FakeRange(this, row, col, numRows, numCols); }
+  getMaxRows() { return Math.max(this.maxRows, this.data.length); }
+  getRange(row, col, numRows = 1, numCols = 1) {
+    this.record('getRange', { row, count: numRows });
+    if (row < 1 || col < 1 || numRows < 1 || numCols < 1 || row + numRows - 1 > this.getMaxRows()) {
+      throw new Error(`getRange: outside the dimensions of the sheet (${this.name} ${row}+${numRows} / ${this.getMaxRows()})`);
+    }
+    return new FakeRange(this, row, col, numRows, numCols);
+  }
   // A1 表記（例: G5）の単一セルだけに対応する
   getRangeList(notations) {
     if (!notations.length) throw new Error('getRangeList: empty');
@@ -130,14 +162,31 @@ class FakeSheet {
     };
   }
   setFrozenRows(n) { this.frozenRows = n; }
+  getFrozenRows() { return this.frozenRows; }
   getProtections() { return this.protections; }
-  deleteRows(start, count) { this.data.splice(start - 1, count); }
+  deleteRows(start, count) {
+    this.record('deleteRows', { row: start, count });
+    if (start < 1 || count < 1 || start + count - 1 > this.getMaxRows()) throw new Error('deleteRows: out of range');
+    if (this.getMaxRows() - count <= this.frozenRows) throw new Error('deleteRows: cannot delete all non-frozen rows');
+    this.maxRows = this.getMaxRows() - count;
+    this.data.splice(start - 1, count);
+  }
+  insertRowsAfter(after, count) {
+    this.record('insertRowsAfter', { row: after, count });
+    if (after < 1 || after > this.getMaxRows() || count < 1) throw new Error('insertRowsAfter: out of range');
+    if (this.data.length > after) this.data.splice(after, 0, ...Array.from({ length: count }, () => []));
+    this.maxRows = this.getMaxRows() + count;
+  }
   /** テスト用: ヘッダーとデータ行をまとめて入れる */
   seed(rows) { rows.forEach((line, r) => line.forEach((v, c) => this.setCell(r + 1, c + 1, v))); }
 }
 
 class FakeSpreadsheet {
-  constructor(options = {}) { this.options = options; this.sheets = [new FakeSheet('シート1', options)]; }
+  constructor(options = {}) {
+    this.journal = [];
+    this.options = { ...options, journal: this.journal };
+    this.sheets = [new FakeSheet('シート1', this.options)];
+  }
   getSheetByName(name) { return this.sheets.find((s) => s.name === name) || null; }
   insertSheet(name) {
     if (this.getSheetByName(name)) throw new Error('sheet exists: ' + name);
@@ -161,37 +210,60 @@ function createProperties(initial = {}) {
   };
 }
 
+/** GAS のファイル（{ name, code } の一覧）。既定は gas/ の全部。古い版は test/gas/legacy.js の legacyGasFiles */
+export function gasFiles() {
+  return fs.readdirSync(GAS_DIR).filter((f) => f.endsWith('.js')).sort().map((name) => ({ name, code: fs.readFileSync(path.join(GAS_DIR, name), 'utf8') }));
+}
+
 /**
  * GAS のコードを読み込んだ実行環境を作る。
  * events には flush と releaseLock の呼び出し順が記録される（flush → release の順序を検査するため）。
+ * lock.available（真偽値か、待つミリ秒を受け取る関数）で鍵の取れ方を変えられる。lock.waits に tryLock の待ち時間が残る。
+ * cache.fail（'get'・'put'・'getAll' の Set）でキャッシュの失敗を注入できる。
+ * spreadsheet・props・cacheEntries を渡すと、同じシートを別の版の GAS（files）から読み書きできる（古い GAS と新しい GAS の組み合わせ）
  */
-export function createGas({ properties = {}, lockAvailable = true, spreadsheet = new FakeSpreadsheet() } = {}) {
+export function createGas({ properties = {}, lockAvailable = true, spreadsheet = new FakeSpreadsheet(), files = gasFiles(), props: sharedProps, cacheEntries: sharedCache } = {}) {
   const events = [];
   const logs = { log: [], error: [] };
-  const props = createProperties(properties);
-  const cacheEntries = new Map();
+  const props = sharedProps ?? createProperties(properties);
+  const cacheEntries = sharedCache ?? new Map();
+  const failing = (op) => {
+    if (cache.fail.has(op)) throw new Error(`injected cache failure: ${op}`);
+  };
   const cache = {
-    get: (key) => cacheEntries.get(key) ?? null,
+    get: (key) => { failing('get'); return cacheEntries.get(key) ?? null; },
+    getAll: (keys) => {
+      failing('getAll');
+      return Object.fromEntries(keys.filter((key) => cacheEntries.has(key)).map((key) => [key, cacheEntries.get(key)]));
+    },
     put: (key, value, seconds) => {
+      failing('put');
       events.push('cachePut');
       cacheEntries.set(key, String(value));
       cache.puts.push({ key, seconds });
     },
     remove: (key) => cacheEntries.delete(key),
     puts: [],
+    fail: new Set(),
+    entries: cacheEntries,
   };
+  const lock = { available: lockAvailable, waits: [] };
 
   const sandbox = {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => spreadsheet,
-      flush: () => events.push('flush'),
+      flush: () => { events.push('flush'); spreadsheet.journal?.push({ op: 'flush' }); },
       ProtectionType: { RANGE: 'RANGE', SHEET: 'SHEET' },
     },
     PropertiesService: { getScriptProperties: () => props },
     CacheService: { getScriptCache: () => cache },
     LockService: {
       getScriptLock: () => ({
-        tryLock: () => { events.push('tryLock'); return lockAvailable; },
+        tryLock: (ms) => {
+          events.push('tryLock');
+          lock.waits.push(ms);
+          return typeof lock.available === 'function' ? lock.available(ms) : lock.available;
+        },
         releaseLock: () => events.push('releaseLock'),
       }),
     },
@@ -212,10 +284,8 @@ export function createGas({ properties = {}, lockAvailable = true, spreadsheet =
     },
   };
   const context = vm.createContext(sandbox);
-  for (const file of fs.readdirSync(GAS_DIR).filter((f) => f.endsWith('.js')).sort()) {
-    vm.runInContext(fs.readFileSync(path.join(GAS_DIR, file), 'utf8'), context, { filename: file });
-  }
-  return { gas: context, spreadsheet, props, events, logs, cache };
+  for (const { name, code } of files) vm.runInContext(code, context, { filename: name });
+  return { gas: context, spreadsheet, props, events, logs, cache, lock };
 }
 
 export { FakeSpreadsheet, FakeSheet };

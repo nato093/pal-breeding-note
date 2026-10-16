@@ -224,6 +224,16 @@ export function ticksToLocalIso(ticks) {
   return Number.isNaN(local.getTime()) ? '' : local.toISOString();
 }
 
+/**
+ * DateTime のティック（数か 10 進の文字列）を、そのままの 10 進の文字列にする（先頭の 0 は除く）。0・読めない値は ''。
+ * スナップショットの world.savedAtTicks（Level.sav の Timestamp。セーブの識別と新旧の比べ方に使う。sync-fixes の owned-gas）
+ */
+export function ticksText(ticks) {
+  const raw = typeof ticks === 'number' ? (Number.isSafeInteger(ticks) && ticks > 0 ? String(ticks) : '')
+    : typeof ticks === 'string' ? ticks.trim() : typeof ticks === 'bigint' && ticks > 0n ? ticks.toString() : '';
+  return /^\d{1,20}$/.test(raw) ? raw.replace(/^0+/, '') : '';
+}
+
 function bump(obj, key, n = 1) {
   obj[key] = (obj[key] || 0) + n;
 }
@@ -1291,6 +1301,9 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     name: m ? m.worldName : '',
     hostName: m ? m.hostPlayerName : '',
     savedAt: ticksToIso(level.savedAtTicks) || (m ? ticksToIso(m.timestampTicks) : ''),
+    // Level.sav の中の保存時刻の生のティック（10 進の文字列。読めなければ ''）。ISO の savedAt は日本時間の PC で 9 時間ずれ、ミリ秒より
+    // 細かい桁も落ちるので、同じセーブの見分けと新旧はこちらで比べる（core/owned-shared.js の compareSaves。sync-fixes の owned-gas）
+    savedAtTicks: ticksText(level.savedAtTicks),
     inGameDay: m && m.inGameDay > 0 ? m.inGameDay : Number.isFinite(gameTicks) && gameTicks > 0 ? Math.floor(gameTicks / TICKS_PER_DAY) : 0,
   };
 

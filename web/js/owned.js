@@ -5,7 +5,7 @@
 import pals from '../data/pals.js';
 import passives from '../data/passives.js';
 import { normalizeOwned, ownedFromShared, sharedUpload } from './core/owned.js';
-import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS } from './core/owned-shared.js';
+import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS, compareSaves } from './core/owned-shared.js';
 import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
 
@@ -148,12 +148,12 @@ function cleanSharedCache(value) {
   return { worlds: cleanOwnedWorlds(value.worlds), current: current?.world ? current : null, fetchedAt: isoTime(value.fetchedAt) };
 }
 
-const timeOf = (value) => {
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? time : 0;
-};
-
 const WORLD_ID = /^[0-9A-F]{32}$/i;
+
+// セーブの新旧を比べる形（core/owned-shared.js の compareSaves）。手元は Level.sav の中の保存時刻（snapshot.world.savedAtTicks）と
+// ファイルの更新日時、共有はワールドの行の saveStamp と saveUpdatedAt（どちらかに保存時刻がなければ更新日時で比べる）
+const localSave = (local) => ({ stamp: local.snapshot?.world?.savedAtTicks, updatedAt: local.world.updatedAt });
+const sharedSave = (world) => ({ stamp: world.saveStamp, updatedAt: world.saveUpdatedAt });
 
 /**
  * @param {object} options
@@ -238,7 +238,8 @@ export function createOwnedStore({
     if (state.linkedWorldId) return state.linkedWorldId;
     if (state.viewWorldId) return state.viewWorldId;
     if (state.local && !state.shared.worlds.length) return state.local.world.id;
-    return [...state.shared.worlds].sort((a, b) => timeOf(b.saveUpdatedAt) - timeOf(a.saveUpdatedAt))[0]?.worldId ?? '';
+    // いちばん新しいセーブ（同じなら先の方）
+    return state.shared.worlds.reduce((best, world) => (!best || compareSaves(sharedSave(world), sharedSave(best)) > 0 ? world : best), null)?.worldId ?? '';
   }
 
   let normalizedFrom = null;
@@ -249,7 +250,7 @@ export function createOwnedStore({
     const shared = current?.world && current.world.worldId === target ? current : null;
     const sharedMeta = state.shared.worlds.find((world) => world.worldId === target) ?? shared?.world ?? null;
     // 手元と共有で、セーブの新しい方を出す（同じなら手元）。参加している側では手元のデータ（前にホストしたときの残り）は出さない
-    const useLocal = local && state.role !== 'guest' && (!shared || timeOf(local.world.updatedAt) >= timeOf(shared.world.saveUpdatedAt));
+    const useLocal = local && state.role !== 'guest' && (!shared || compareSaves(localSave(local), sharedSave(shared.world)) >= 0);
     const source = useLocal ? local : shared;
     if (source !== normalizedFrom) {
       normalizedFrom = source;
