@@ -1,6 +1,9 @@
 // Node のテストと /dev/ 配信で同じモジュールを使うため、公開 URL に合わせる。
 const webRoot = new URL(import.meta.url.startsWith('file:') ? '../web/' : '../', import.meta.url);
-const [{ default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }, { validateUserId, userIdKey }, { OWNED_FIELDS, validateOwnedUpload, ownedWorldId }] = await Promise.all([
+const [
+  { default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }, { validateUserId, userIdKey },
+  { OWNED_FIELDS, OWNED_PRESENCE_MAX, OWNED_PRESENCE_TTL_S, validateOwnedUpload, ownedWorldId, decideOwnedUpload, cleanPresenceInput },
+] = await Promise.all([
   import(new URL('data/pals.js', webRoot)), import(new URL('js/core/pair.js', webRoot)), import(new URL('js/core/validate.js', webRoot)), import(new URL('js/core/user.js', webRoot)),
   import(new URL('js/core/owned-shared.js', webRoot)),
 ]);
@@ -12,6 +15,8 @@ const fields = {
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'], delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
   ownedWorlds: [], owned: ['worldId'], ownedDelete: ['worldId'],
   ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'],
+  // 共有が変わったか・ページを開いている PC（GAS の ownedSince・presence と同じ動き。owned-gas）
+  ownedSince: ['worldId', 'uploadedAt', 'presence'], presence: ['worldId', 'presence'],
 };
 const inputFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,12 +26,15 @@ const fail = (code, data = {}) => ({ ok: false, code, ...data });
 // as=viewer で入れておく共有ワールド（roles。X-12）。3 人・拠点 2・牧場 3・パル 30 体
 export const VIEWER_WORLD_ID = 'D1E2A3B4C5F60718293A4B5C6D7E8F90';
 
-export function createDevelopmentApi({ seed, passcode, as } = {}) {
+export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Date.now() } = {}) {
   const records = new Map();
   const users = [];
   const operations = new Map();
-  // 所持パルの共有（ワールド ID → { world, rows }）。GAS の OwnedPals / OwnedWorlds と同じ規則で扱う
+  // 所持パルの共有（ワールド ID → { world, rows, identity }）。GAS の OwnedPals / OwnedWorlds と同じ規則で扱う
+  //（世代は今の 1 つだけを持つ。メモリの中なので、書いている途中を読まれることはない）
   const ownedWorlds = new Map();
+  // ページを開いている PC（ワールド ID → ページの ID → { entry, at }）。GAS の CacheService と同じく 6 時間・1 ワールド 50 件
+  const presences = new Map();
   const palIds = new Set(pals.map((pal) => pal.id));
   let revision = 0;
   let acceptedPasscode = passcode?.trim();
@@ -208,29 +216,61 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
     const world = {
       worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
       uploadedAt: new Date(now - 3 * 60 * 1000).toISOString(), uploadedBy: 'Alice', palCount: input.rows.length, players: input.players, bases: input.bases, farms: input.farms,
-      inGameDay: input.inGameDay,
+      inGameDay: input.inGameDay, saveStamp: '',
     };
-    ownedWorlds.set(input.worldId, { world, rows: input.rows });
+    ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: null });
+  }
+
+  // ページを開いている PC の一覧（新しい順。期限切れは除く）
+  function presenceList(worldId) {
+    const pages = presences.get(worldId);
+    if (!pages) return [];
+    const at = clock();
+    for (const [pageId, item] of pages) if (at - item.at >= OWNED_PRESENCE_TTL_S * 1000) pages.delete(pageId);
+    // 新しい順（同じ時刻なら後に記録したページを先に。GAS と同じ）
+    return [...pages.values()].reverse().sort((a, b) => b.at - a.at).map((item) => ({ ...item.entry }));
+  }
+  function recordPresence(worldId, value) {
+    const input = cleanPresenceInput(value);
+    if (!input) return false;
+    const pages = presences.get(worldId) ?? new Map();
+    presences.set(worldId, pages);
+    const at = clock();
+    const { pageId, ...rest } = input;
+    pages.delete(pageId);
+    pages.set(pageId, { entry: { ...rest, at: new Date(at).toISOString() }, at });
+    // 古い順に 50 件を超えた分を外す
+    while (pages.size > OWNED_PRESENCE_MAX) pages.delete([...pages.entries()].sort((a, b) => a[1].at - b[1].at)[0][0]);
+    return true;
   }
 
   function owned(request) {
-    const serverTime = new Date().toISOString();
+    const serverTime = new Date(clock()).toISOString();
     if (request.action === 'ownedWorlds') return { worlds: [...ownedWorlds.values()].map((entry) => entry.world), serverTime };
     if (request.action === 'ownedUpload') {
       const checked = validateOwnedUpload(request);
       if (!checked.ok) return { ok: false, code: 'VALIDATION', errors: checked.errors };
       const input = checked.value;
+      const uploadedBy = String(request.userId ?? '').slice(0, 20);
       const existing = ownedWorlds.get(input.worldId);
-      if (existing && Date.parse(existing.world.saveUpdatedAt) > Date.parse(input.saveUpdatedAt)) {
-        return { stored: false, reason: 'STALE', world: existing.world, serverTime };
+      // 結果の種類は GAS と同じ関数で決める（core/owned-shared.js の decideOwnedUpload）
+      const decision = decideOwnedUpload(
+        existing ? { saveUpdatedAt: existing.world.saveUpdatedAt, uploadedBy: existing.world.uploadedBy, identity: existing.identity } : null,
+        { saveUpdatedAt: input.saveUpdatedAt, uploadedBy, identity: input.identity, force: input.force },
+      );
+      if (!decision.write) {
+        return { stored: false, result: decision.result, ...(decision.result === 'stale' ? { reason: 'STALE' } : {}), world: existing.world, cleanup: true, serverTime };
       }
+      // 同じミリ秒の送り直しでも、世代（uploadedAt）は前より後にする（GAS の ownedGenerationTime_ と同じ）
+      const previous = existing ? Date.parse(existing.world.uploadedAt) : NaN;
+      const uploadedAt = Number.isFinite(previous) && Date.parse(serverTime) <= previous ? new Date(previous + 1).toISOString() : serverTime;
       const world = {
         worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
-        uploadedAt: serverTime, uploadedBy: String(request.userId ?? '').slice(0, 20), palCount: input.rows.length, players: input.players, bases: input.bases,
-        farms: input.farms, inGameDay: input.inGameDay,
+        uploadedAt, uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases,
+        farms: input.farms, inGameDay: input.inGameDay, saveStamp: input.identity ? input.identity.stamp : '',
       };
-      ownedWorlds.set(input.worldId, { world, rows: input.rows });
-      return { stored: true, world, serverTime };
+      ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: input.identity });
+      return { stored: true, result: decision.result, world, cleanup: true, serverTime: uploadedAt };
     }
     const worldId = ownedWorldId(request.worldId);
     if (!worldId) return invalid('worldId', 'INVALID_WORLD');
@@ -239,7 +279,26 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
       ownedWorlds.delete(worldId);
       return { deleted: Boolean(existing), removed: existing?.rows.length ?? 0, serverTime };
     }
+    if (request.action === 'presence') {
+      if (!cleanPresenceInput(request.presence)) return invalid('presence', 'INVALID_PRESENCE');
+      const saved = recordPresence(worldId, request.presence);
+      return { presence: presenceList(worldId), saved, serverTime };
+    }
     const entry = ownedWorlds.get(worldId);
+    if (request.action === 'ownedSince') {
+      // 形の違う presence は記録しないだけ（本体は断らない。GAS と同じ）
+      if (request.presence !== undefined && request.presence !== null) recordPresence(worldId, request.presence);
+      const presence = presenceList(worldId);
+      const since = typeof request.uploadedAt === 'string' ? request.uploadedAt : '';
+      if (entry && since && entry.world.uploadedAt === since) {
+        const { world } = entry;
+        return {
+          changed: false, uploadedAt: world.uploadedAt, uploadedBy: world.uploadedBy, saveUpdatedAt: world.saveUpdatedAt,
+          palCount: world.palCount, saveStamp: world.saveStamp, presence, serverTime,
+        };
+      }
+      return { changed: true, world: entry?.world ?? null, columns: OWNED_FIELDS, rows: entry?.rows ?? [], serverTime, presence };
+    }
     return { world: entry?.world ?? null, columns: OWNED_FIELDS, rows: entry?.rows ?? [], serverTime };
   }
 
@@ -275,7 +334,10 @@ export function createDevelopmentApi({ seed, passcode, as } = {}) {
     if (unknown) return invalid(unknown, 'UNKNOWN_FIELD');
     const base = { ok: true, env: 'test', api: 'pal-note-local-v1' };
     if (request.action === 'snapshot') return { ...base, ...snapshot() };
-    if (request.action.startsWith('owned')) return structuredClone({ ...base, ...owned(request) });
+    if (request.action.startsWith('owned') || request.action === 'presence') {
+      const result = owned(request);
+      return structuredClone(result.ok === false ? result : { ...base, ...result });
+    }
     if (request.action === 'rename') {
       const result = rename(request);
       return structuredClone(result.ok === false ? result : { ...base, ...result });

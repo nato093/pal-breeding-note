@@ -105,7 +105,7 @@
 - DateTime（u64 のティック。2^53 を超えるので 10 進の文字列で読む）。持ち主のある個体には全部ある（ないのは持ち主のない NPC・タマゴなど）。パル次元ストレージ・グローバルパルボックスの個体にもある。
 - **ホストの PC のローカル時刻**（日本時間の PC なら日本時間）のティック。`Level.sav` の `Timestamp` と同じで、UTC として読む `ticksToIso` では 9 時間ずれる。`web/js/save/palworld.js` の `ticksToLocalIso` が、ブラウザのタイムゾーンで年月日時を組み立てて本当の時刻（ISO）にする（ページはホストの PC で動くため。BigInt で割るのでミリ秒まで合う）。手元のセーブで、バックアップより後に増えた 27 体は全部それより新しく、孵化させた時刻と合った。
 - 画面は個体の `ownedAt`（toISOString の形。空は分からない）。入手の新しい順の並べ替え（`OWNED_SORTS` の `ownedAt`。時刻のない個体は向きによらず最後）と、所持パルの「NEW」（前に所持パルの画面で見ていたデータのセーブの時刻より後に入手した個体。`web/js/owned-seen.js`）。共有は個体の列の末尾 `ownedAt`（`OWNED_ADDED_FIELDS`）。
-- なお、スナップショットの `world.savedAt`（`Level.sav` の `Timestamp` を `ticksToIso` で読んだもの）も同じく 9 時間ずれているが、画面では使っていない（セーブの更新日時はファイルの日時）。
+- なお、スナップショットの `world.savedAt`（`Level.sav` の `Timestamp` を `ticksToIso` で読んだもの）も同じく 9 時間ずれているが、画面では使っていない（セーブの更新日時はファイルの日時）。セーブの新旧と同じセーブの見分けには、生のティックの 10 進の文字列 `world.savedAtTicks`（`ticksText`。ISO にするとミリ秒より細かい桁が落ちる）を使う（下の「注意」の `Timestamp` の項目）。
 
 ### 魂の強化と状態
 
@@ -177,5 +177,6 @@
 - ブラウザ（Chrome・Edge）は `AppData` 配下のフォルダを File System Access API で開けない（フォルダのドラッグ＆ドロップも同じ制限。Chromium の blocklist で `DIR_LOCAL_APP_DATA` が `kBlockAllChildren`）。ただし、ドロップした**ファイル**はこの確認を受けず、`DataTransferItem.getAsFileSystemHandle()` のハンドルを IndexedDB に保存して後から読み直せる（Chrome 154 で確認。ゲームが保存し直した後も同じハンドルで最新を読める。「毎回のアクセスを許可」を選ぶと、開き直しても確認なしで読める）。自動の読み込みはこの仕組みを使う（`web/js/save/handles.js`）。
 - `Level.sav`・`LevelMeta.sav` にはワールド ID（フォルダ名）が入っていない（2026-10-05 に確認）。ファイルの登録では、貼ってもらったフォルダのパスから ID を取る。
 - ホストか参加かは `Level.sav` と `LocalData.sav` の更新日時で決める。ホストで保存すると 2 つはほぼ同時に書かれる（実測で `LocalData.sav` が後になるのは 1 秒ほど、先になるのは最大 18 秒）。参加すると `LocalData.sav` だけが書かれる。`LocalData.sav` が 10 秒以上新しければ参加（`Level.sav` は前にホストしたときの残り）。
-- `Level.sav` の `Timestamp` は PC のローカル時刻なので、セーブの更新日時にはファイルの更新日時を使う。
+- `Level.sav` の `Timestamp` は PC のローカル時刻なので、セーブの更新日時（画面の表示・古さの判定）にはファイルの更新日時を使う。
+- **セーブの新旧と同じセーブの見分けは、`Timestamp` の生のティックで比べる**（2026-10-16。sync-fixes の owned-gas）。SaveSync の同期でファイルの更新日時が書き換わっても、中の `Timestamp` は変わらない。スナップショットの `world.savedAtTicks`（10 進の文字列。2^53 を超えるので数にしない）を、共有の `saveStamp`（`OwnedWorlds` の列 `saveKey` の中）として送り、`web/js/core/owned-shared.js` の `compareSaves` で桁をそろえて比べる（GAS の共有・手元と共有の選択・自動登録の記録で同じ関数）。片方にない（古いデータ）ときだけ、ファイルの更新日時で比べる。ホストの PC のローカル時刻なので、**仲間が全員同じタイムゾーン（日本時間）で遊ぶ前提**（別のタイムゾーンの人がホストすると、交代の前後の新旧を誤る）。
 - ゲームの更新で構造が変わったら、`npm run check:save -- "<ワールドのフォルダ>"` で読み込みを確かめる。

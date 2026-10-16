@@ -135,6 +135,137 @@ export function ownedInGameDay(value) {
   return Number.isInteger(day) && day > 0 && day <= OWNED_DAY_MAX ? day : null;
 }
 
+// ---------------------------------------------------------------------------
+// セーブの識別と新旧（sync-fixes の owned-gas）
+// ---------------------------------------------------------------------------
+
+// 共有の書き込みの結果の種類（GAS の ownedUpload の応答の result）。stored（書いたか）も今どおり返す
+export const OWNED_RESULTS = ['new', 'newer', 'stale', 'unchanged', 'resent', 'same'];
+// 識別の数の上限（共有の形の版・読めたファイルの数・読めなかったファイルの数）
+const OWNED_FORMAT_MAX = 1000;
+const OWNED_FILE_COUNT_MAX = 10000;
+
+/**
+ * Level.sav の中の保存時刻（生のティック。10 進の文字列か、2^53 未満の整数）。1〜20 桁の数字で 0 でなければ、先頭の 0 を除いた文字列。
+ * 違えば ''（分からない）。ティックはホストの PC のローカル時刻なので、仲間が全員同じタイムゾーンで遊ぶ前提で新旧を比べる
+ */
+export function ownedSaveStamp(value) {
+  const raw = typeof value === 'number' ? (Number.isSafeInteger(value) && value > 0 ? String(value) : '')
+    : typeof value === 'string' ? value.trim() : '';
+  if (!/^\d{1,20}$/.test(raw)) return '';
+  return raw.replace(/^0+/, '');
+}
+
+const timeValue = (value) => {
+  const time = typeof value === 'string' ? Date.parse(value) : NaN;
+  return Number.isFinite(time) ? time : 0;
+};
+
+/**
+ * 2 つのセーブの新旧。a が新しければ 1、古ければ -1、同じなら 0。a・b は { stamp, updatedAt }。
+ * 両方に stamp（生のティック）があれば、桁をそろえて比べる（同期でファイルの更新日時が変わっても、同じセーブは同じと分かる）。
+ * どちらかになければ updatedAt（ISO。セーブのファイルの更新日時）で比べる（識別のない古い共有・古い画面のデータ）
+ */
+export function compareSaves(a, b) {
+  const left = ownedSaveStamp(a?.stamp);
+  const right = ownedSaveStamp(b?.stamp);
+  if (left && right) {
+    if (left.length !== right.length) return left.length > right.length ? 1 : -1;
+    return left === right ? 0 : left > right ? 1 : -1;
+  }
+  const x = timeValue(a?.updatedAt);
+  const y = timeValue(b?.updatedAt);
+  return x === y ? 0 : x > y ? 1 : -1;
+}
+
+const countIn = (value, max) => (Number.isInteger(value) && value >= 0 && value <= max ? value : null);
+
+// 識別の 5 つ（stamp・hash・format・fileCount・missingCount）が全部そろっていれば識別、1 つでも欠ける・形が違えば null（識別なし）
+function saveIdentity(stamp, hash, format, fileCount, missingCount) {
+  const clean = {
+    stamp: ownedSaveStamp(stamp),
+    hash: typeof hash === 'string' && /^[0-9a-f]{64}$/i.test(hash) ? hash.toLowerCase() : '',
+    format: Number.isInteger(format) && format >= 1 && format <= OWNED_FORMAT_MAX ? format : null,
+    fileCount: countIn(fileCount, OWNED_FILE_COUNT_MAX),
+    missingCount: countIn(missingCount, OWNED_FILE_COUNT_MAX),
+  };
+  return clean.stamp && clean.hash && clean.format !== null && clean.fileCount !== null && clean.missingCount !== null ? clean : null;
+}
+
+/** 共有の world の中の識別（saveStamp・contentHash・format・fileCount・missingCount）。そろっていなければ null */
+export function ownedUploadIdentity(world) {
+  if (!world || typeof world !== 'object') return null;
+  return saveIdentity(world.saveStamp, world.contentHash, world.format, world.fileCount, world.missingCount);
+}
+
+const identityText = (identity) => `${identity.stamp}|${identity.hash}|${identity.format}|${identity.fileCount}|${identity.missingCount}`;
+
+/** OwnedWorlds の列 saveKey の値（uploadedAt|stamp|hash|format|fileCount|missingCount）。識別がなければ '' */
+export function ownedSaveKey(uploadedAt, identity) {
+  return identity ? `${uploadedAt}|${identityText(identity)}` : '';
+}
+
+/**
+ * saveKey を読む。先頭の uploadedAt がその行の uploadedAt と違えば（識別を知らない古い版の GAS が後からその行を書いた）、識別なし（null）
+ */
+export function parseOwnedSaveKey(text, uploadedAt) {
+  const parts = String(text ?? '').split('|');
+  if (parts.length !== 6 || !uploadedAt || parts[0] !== uploadedAt) return null;
+  const int = (value) => (/^\d{1,6}$/.test(value) ? Number(value) : null);
+  return saveIdentity(parts[1], parts[2], int(parts[3]), int(parts[4]), int(parts[5]));
+}
+
+/**
+ * 共有の書き込みの結果の種類（docs/sync-fixes/README.md の 3 の表）。
+ * current: 今公開されているワールド { saveUpdatedAt, uploadedBy, identity }（なければ null）。incoming: 届いた共有 { saveUpdatedAt, uploadedBy, identity, force }。
+ * identity は ownedUploadIdentity・parseOwnedSaveKey の値（なければ null）。
+ * @returns {{ result: string, write: boolean }}
+ */
+export function decideOwnedUpload(current, incoming) {
+  if (!current) return { result: 'new', write: true };
+  const now = current.identity;
+  const next = incoming.identity;
+  if (now && next) {
+    const order = compareSaves({ stamp: next.stamp }, { stamp: now.stamp });
+    if (order > 0) return { result: 'newer', write: true };
+    if (order < 0) return { result: 'stale', write: false };
+    if (identityText(now) === identityText(next)) return { result: 'unchanged', write: false };
+    // 同じセーブ: 同じ人の送り直しで中身がよくなった（飛ばしたファイルが戻った・形の版が上がった）か、登録の確定（別の人でもよい）なら書く
+    const notWorse = next.format >= now.format && next.fileCount >= now.fileCount && next.missingCount <= now.missingCount;
+    const better = next.format > now.format || next.fileCount > now.fileCount || next.missingCount < now.missingCount;
+    const samePerson = Boolean(incoming.uploadedBy) && incoming.uploadedBy === current.uploadedBy;
+    if (notWorse && ((samePerson && better) || incoming.force === true)) return { result: 'resent', write: true };
+    return { result: 'same', write: false };
+  }
+  // どちらかに識別がない（古い画面・列を足す前・古い版の GAS が書いた行）: 今の更新日時の比較（同じ時刻なら上書き）
+  return compareSaves({ updatedAt: incoming.saveUpdatedAt }, { updatedAt: current.saveUpdatedAt }) < 0
+    ? { result: 'stale', write: false } : { result: 'newer', write: true };
+}
+
+// ---------------------------------------------------------------------------
+// ページを開いている PC（presence。sync-fixes の owned-gas・page-presence）
+// ---------------------------------------------------------------------------
+
+export const OWNED_PRESENCE_ROLES = ['host', 'guest', 'none'];
+// 1 ワールドで覚えるページの数と、覚える長さ（秒。サーバーのキャッシュの上限と同じ 6 時間）
+export const OWNED_PRESENCE_MAX = 50;
+export const OWNED_PRESENCE_TTL_S = 21600;
+// ページと PC の ID（画面が作るランダムな値。認証にも本人の証明にも使わない）
+const PRESENCE_ID = /^[A-Za-z0-9_-]{8,64}$/;
+
+/** 画面が送る presence（{ pageId, device, user, role, playing, canShare }）を検査して整える。形が違えば null */
+export function cleanPresenceInput(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (typeof value.pageId !== 'string' || !PRESENCE_ID.test(value.pageId)) return null;
+  if (typeof value.device !== 'string' || !PRESENCE_ID.test(value.device)) return null;
+  if (!OWNED_PRESENCE_ROLES.includes(value.role) || typeof value.playing !== 'boolean' || typeof value.canShare !== 'boolean') return null;
+  if (value.user !== undefined && typeof value.user !== 'string') return null;
+  return {
+    pageId: value.pageId, device: value.device, user: ownedText(value.user, 20),
+    role: value.role, playing: value.playing, canShare: value.canShare,
+  };
+}
+
 /**
  * 所持パルのアップロードを検証して整える。
  * @returns {{ ok: true, value: object } | { ok: false, errors: { field: string, code: string }[] }}
@@ -183,6 +314,10 @@ export function validateOwnedUpload(input) {
       bases: bases.map((base) => ({ id: ownedText(base && base.id, 40), label: ownedText(base && base.label, 60) })).filter((base) => base.id),
       // 牧場を送らない古い画面からの共有では null（牧場の情報がない）。セルに入るよう縮める（GAS・開発用 API・画面で同じ上限）
       farms: source.farms === undefined || source.farms === null ? null : fitOwnedFarms(cleanOwnedFarms(source.farms)),
+      // セーブの識別（owned-gas）。最上位の項目を増やさないよう world の中で受ける（古い GAS は捨てるだけ）。形が違えば識別なし（null）で、
+      // 断らずに今の更新日時で比べる。force は登録の確定のときだけ true
+      identity: ownedUploadIdentity(world),
+      force: world.force === true,
       rows: cleanRows,
     },
   };

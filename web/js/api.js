@@ -1,5 +1,6 @@
 import { API_URL } from './config.js';
-import { cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
+import { cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload, cleanPresenceList, isoTime, int, text } from './core/boundary.js';
+import { OWNED_MAX_ROWS, OWNED_RESULTS, ownedSaveStamp } from './core/owned-shared.js';
 
 const messages = {
   AUTH: 'パスワードが違います。もう一度入力してください。',
@@ -20,6 +21,7 @@ const messages = {
   CONNECTION: 'サーバに接続できません',
   TIMEOUT: '応答に時間がかかっています。右上の同期状況を押して、結果を確かめてください。',
   RESPONSE: 'サーバの応答を読み取れませんでした。もう一度お試しください。',
+  PARTIAL: '共有の書き込みと重なったため、所持パルを読み込めませんでした。少し待ってからお試しください。',
   RENAMING: 'ID を変更しています。終わってからもう一度お試しください。',
   STORAGE: 'この端末に保存できないため、ID を変更できません。',
   LOCAL_SAVE: 'この端末への保存（下書き・ウィッシュリスト・目標・このワールドでの自分）に失敗しています。保存できる状態にしてからお試しください。',
@@ -45,10 +47,15 @@ const actionFields = {
   merge: ['opId', 'sourceId', 'targetId', 'expectedEtags'],
   delete: ['opId', 'id', 'expectedEtag'], restore: ['opId', 'id', 'expectedEtag'],
   ownedWorlds: [], owned: ['worldId'], ownedDelete: ['worldId'],
+  // ownedUpload の最上位の項目は増やさない（古い GAS が UNKNOWN_FIELD で断る。セーブの識別は world の中に入れる）
   ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'],
+  // 共有が変わったか（uploadedAt は画面が持っている共有の版）と、ページを開いている PC（owned-gas。古い GAS は BAD_ACTION）
+  ownedSince: ['worldId', 'uploadedAt', 'presence'], presence: ['worldId', 'presence'],
 };
 // 所持パルの共有（スプレッドシート）。配合の全件（snapshot）は返さない
-const ownedActions = new Set(['ownedWorlds', 'owned', 'ownedUpload', 'ownedDelete']);
+const ownedActions = new Set(['ownedWorlds', 'owned', 'ownedUpload', 'ownedDelete', 'ownedSince', 'presence']);
+// ページを開いている PC として送る項目（core/owned-shared.js の cleanPresenceInput）
+const presenceFields = ['pageId', 'device', 'user', 'role', 'playing', 'canShare'];
 const recordFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 
 function pick(source, fields) {
@@ -60,6 +67,7 @@ export function buildRequest(action, passcode, input = {}) {
   const request = { action, passcode, ...pick(input, actionFields[action]) };
   if (request.record) request.record = pick(request.record, action === 'create' ? ['id', ...recordFields] : recordFields);
   if (request.expectedEtags) request.expectedEtags = pick(request.expectedEtags, ['source', 'target']);
+  if (request.presence && typeof request.presence === 'object') request.presence = pick(request.presence, presenceFields);
   return request;
 }
 
@@ -85,11 +93,17 @@ export function validateResponse(response, action) {
 
 function validateOwnedResponse(response, action) {
   const world = (value) => value && typeof value === 'object' && typeof value.worldId === 'string';
+  const payload = () => (response.world === null || world(response.world)) && Array.isArray(response.columns) && Array.isArray(response.rows);
+  // presence は配列か null（サーバーのキャッシュを読めなかった）
+  const presence = () => response.presence === null || Array.isArray(response.presence);
   const ok = ['prod', 'test'].includes(response.env) && response.api && typeof response.serverTime === 'string' && ({
     ownedWorlds: () => Array.isArray(response.worlds) && response.worlds.every(world),
-    owned: () => (response.world === null || world(response.world)) && Array.isArray(response.columns) && Array.isArray(response.rows),
+    owned: payload,
     ownedUpload: () => typeof response.stored === 'boolean' && world(response.world),
     ownedDelete: () => typeof response.deleted === 'boolean',
+    ownedSince: () => typeof response.changed === 'boolean' && presence()
+      && (response.changed ? payload() : typeof response.uploadedAt === 'string'),
+    presence: () => presence(),
   })[action]();
   if (!ok) throw new ApiError('RESPONSE');
   // 形を確かめた後で、中身を整える（壊れた要素だけを捨てる。core/boundary.js）
@@ -98,8 +112,24 @@ function validateOwnedResponse(response, action) {
   if (action === 'ownedUpload') {
     const [world] = cleanOwnedWorlds([response.world]);
     if (!world) throw new ApiError('RESPONSE');
-    return { ...response, world };
+    const cleaned = { ...response, world };
+    // 結果の種類（result）と、古い世代の掃除の成否（cleanup）は新しい GAS だけが返す。形が違えば付いていないものとして扱う
+    if (!OWNED_RESULTS.includes(cleaned.result)) delete cleaned.result;
+    if (typeof cleaned.cleanup !== 'boolean') delete cleaned.cleanup;
+    return cleaned;
   }
+  if (action === 'ownedSince') {
+    const list = cleanPresenceList(response.presence);
+    if (response.changed) return { ...response, ...cleanOwnedPayload(response), presence: list };
+    const cleaned = {
+      ...response, uploadedAt: isoTime(response.uploadedAt), uploadedBy: text(response.uploadedBy, 20),
+      saveUpdatedAt: isoTime(response.saveUpdatedAt), palCount: int(response.palCount, { min: 0, max: OWNED_MAX_ROWS }), presence: list,
+    };
+    if (typeof response.saveStamp === 'string') cleaned.saveStamp = ownedSaveStamp(response.saveStamp);
+    else delete cleaned.saveStamp;
+    return cleaned;
+  }
+  if (action === 'presence') return { ...response, presence: cleanPresenceList(response.presence), saved: response.saved === true };
   return response;
 }
 

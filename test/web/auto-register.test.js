@@ -658,6 +658,33 @@ test('自動登録: 別のタブが新しいセーブで書いた記録を、古
   assert.equal(t.creates.length, 0);
 });
 
+test('自動登録（owned-gas）: 記録の新旧は Level.sav の中の保存時刻で比べる（同期で更新日時だけが新しい同じセーブでは書き直さない）', async () => {
+  const ghosts = [parent('GhostDragon_Fire', 'Male'), parent('BOSS_GhostDragon_Fire', 'Female')];
+  const t = await setup({ farms: [], login: true });
+  const tab = (importedAt, updatedAt, savedAtTicks) => ({
+    state: { role: 'host', uploadReady: true, busy: false, linkedWorldId: 'W1',
+      local: { importedAt, world: { id: 'W1', updatedAt }, snapshot: { world: { savedAtTicks }, players: [], breedFarms: [farm('f1', ghosts, [])] } } },
+  });
+  const make = (owned) => createAutoRegister({ store: t.store, owned, storage: t.storage, namespace: 't3', loadTable: async () => ({ default: data }) });
+  const saved = () => JSON.parse(t.storage.get('t3.autoBreeding.farms.test.W1'));
+  const first = make(tab('a1', '2026-10-06T10:00:00.000Z', '638650000000000010'));
+  first.evaluate(); await first.idle();
+  assert.deepEqual([saved().importedAt, saved().saveStamp], ['a1', '638650000000000010']);
+  // 同じセーブ（同期で更新日時だけが新しい）: 書き直さない
+  const synced = make(tab('b1', '2026-10-06T10:05:00.000Z', '638650000000000010'));
+  synced.evaluate(); await synced.idle();
+  assert.equal(saved().importedAt, 'a1');
+  // 中の時刻が新しいセーブ（更新日時は古くても）: 読む
+  const newer = make(tab('c1', '2026-10-06T09:00:00.000Z', '638650000000000020'));
+  newer.evaluate(); await newer.idle();
+  assert.deepEqual([saved().importedAt, saved().saveStamp], ['c1', '638650000000000020']);
+  // 中の時刻がない（前の版の記録・読めない）: 今までどおり更新日時で比べる
+  const legacy = make(tab('d1', '2026-10-06T09:30:00.000Z', ''));
+  legacy.evaluate(); await legacy.idle();
+  assert.equal(saved().importedAt, 'd1');
+  assert.equal(t.creates.length, 0);
+});
+
 test('自動登録: ブラウザに保存できない端末でも、ページを開いている間は登録する', async () => {
   const t = await setup({ storage: safeStorage(null) });
   await t.run();

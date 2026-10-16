@@ -31,7 +31,7 @@
 
 ## 2. dps-missing（M）
 
-- 状態: 実装済（feature/dps-missing。マージは親が確かめてから）
+- 状態: 実装済（feature/dps-missing。integrate/sync-fixes へのマージのコミット 5dcfcce）
 - [x] buildSnapshot で集合の差（`stats.inLocker`・`stats.inLockerMissing`）
 - [x] `dimensionGap` と案内（所持パル・ヘッダー・理想個体）
 - [x] 参加者への `dpsGap`（sharedUpload → cleanOwnedPlayer → build:gas → boundary の cleanSharedPlayers → ownedFromShared）と参加者の案内
@@ -41,18 +41,18 @@
 
 ## 3. owned-gas（L）
 
-- 状態: 未
-- [ ] スナップショットに `world.savedAtTicks`、`compareSaves`（core/owned-shared.js）、boundary の cleanWorld で保存印を残す
-- [ ] 送る world の中の識別（saveStamp・contentHash・format・fileCount・missingCount・force）と列 `saveKey`（先頭に uploadedAt）
-- [ ] 結果の種類（new・newer・stale・unchanged・resent・same・識別なし）と応答の published・cleanup
-- [ ] F1 世代の書き込み（①行 → ②公開 → ③掃除）と読み込み（世代で絞る・PARTIAL）・削除
-- [ ] `ownedSince`・`presence`（CacheService・索引の短い鍵・env の分離）
-- [ ] `compactOwned(env)`・`resumeOwned(env)`・停止の印
-- [ ] api.js・mock-api
-- [ ] `scripts/owned-bench.mjs`（URL を環境変数で・テスト環境の確認・自分の worldId だけを片付ける）と api-check の URL の指定
-- [ ] テスト（gas・harness・compareSaves・往復・古い GAS＋新しい画面・新しい GAS＋古い画面）
-- [ ] ユーザーに依頼: gas:push → setup() → テスト用の deployment → 計測 → 巻き戻しのリハーサル
-- [ ] OPERATIONS.md（反映・巻き戻し・タイムゾーンの前提）・release-notes
+- 状態: 実装済（feature/owned-gas。GAS の反映はユーザーに依頼）
+- [x] スナップショットに `world.savedAtTicks`、`compareSaves`（core/owned-shared.js）、boundary の cleanWorld で保存印を残す
+- [x] 送る world の中の識別（saveStamp・contentHash・format・fileCount・missingCount・force）と列 `saveKey`（先頭に uploadedAt）
+- [x] 結果の種類（new・newer・stale・unchanged・resent・same・識別なし）と応答の published・cleanup
+- [x] F1 世代の書き込み（①行 → ②公開 → ③掃除）と読み込み（世代で絞る・PARTIAL）・削除
+- [x] `ownedSince`・`presence`（CacheService・索引の短い鍵・env の分離）
+- [x] `compactOwned(env)`・`resumeOwned(env)`・停止の印
+- [x] api.js・mock-api
+- [x] `scripts/owned-bench.mjs`（URL を環境変数で・テスト環境の確認・自分の worldId だけを片付ける）と api-check の URL の指定
+- [x] テスト（gas・harness・compareSaves・往復・古い GAS＋新しい画面・新しい GAS＋古い画面）
+- [ ] ユーザーに依頼: gas:push → setup() → テスト用の deployment → 計測 → 巻き戻しのリハーサル（手順は OPERATIONS.md の「共有の世代とセーブの識別」）
+- [x] OPERATIONS.md（反映・巻き戻し・タイムゾーンの前提）・SAVE_FORMAT.md・release-notes
 
 ## 4. share-fetch（M）
 

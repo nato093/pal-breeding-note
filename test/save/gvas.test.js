@@ -413,7 +413,7 @@ test('palworld: synthetic world → snapshot', async () => {
   const meta = parseLevelMeta(finishGvas(mw));
 
   const snap = buildSnapshot({ level, players: [player], dps: [{ playerUid: P1, data: dps }], meta });
-  assert.deepEqual(snap.world, { name: 'テスト', hostName: 'Alice', savedAt: '1970-01-01T00:00:01.000Z', inGameDay: 3 });
+  assert.deepEqual(snap.world, { name: 'テスト', hostName: 'Alice', savedAt: '1970-01-01T00:00:01.000Z', savedAtTicks: '621355968010000000', inGameDay: 3 });
   // GameTimeSaveData のないセーブでは、プレイ中かは分からない（null。save-extras）
   assert.deepEqual(snap.players, [{ uid: P1, name: 'Alice', level: 10, online: null }]);
   assert.deepEqual(snap.guilds, [{ id: GUILD, name: 'ギルド', baseIds: [BASE2, BASE1], playerUids: [P1] }]);
