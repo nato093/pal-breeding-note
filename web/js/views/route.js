@@ -15,8 +15,8 @@ import { farmNames } from '../core/ideal-farms.js';
 import { implantOf, canImplant, IMPLANT_KINDS } from '../core/implants.js';
 
 function holderSummary(carriers) {
-  // 要約なので、パルボックスのページと位置までは出さない（開始の候補は親にできる個体だけなので、タマゴの分かれ道はない。R-15）
-  const place = (pal) => (pal.place === 'palbox' ? PLACE_LABELS.palbox : pal.placeLabel);
+  // 要約なので、パルボックス・パル次元ストレージのページと位置までは出さない（開始の候補は親にできる個体だけなので、タマゴの分かれ道はない。R-15）
+  const place = (pal) => (pal.place === 'palbox' || pal.place === 'dps' ? PLACE_LABELS[pal.place] : pal.placeLabel);
   const where = (pal) => (pal.holder === place(pal) ? pal.holder : `${pal.holder}・${place(pal)}`);
   const names = [...new Set(carriers.map(where))];
   return names.length > 2 ? `${names.slice(0, 2).join('、')} ほか` : names.join('、');

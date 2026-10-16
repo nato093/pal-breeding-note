@@ -59,20 +59,46 @@ export function palboxLabel({ page, row, column }) {
   return `${PLACE_LABELS.palbox} ${page} ページ・${row} 行 ${column} 列`;
 }
 
+/**
+ * パル次元ストレージの位置の文字（placeLabel。共有の列にもこのまま載る）。並びはパルボックスと同じ 1 ページ 30 枠・横 6 列で、通し番号は
+ * 次元ストレージの中の添字（2026-10-12 に実セーブで、0 → 1 ページ 1 行 1 列・7820 → 261 ページ 4 行 3 列と確認）。
+ * 書式を変えると、共有から位置（parseBoxLabel の 'dps'）が読めなくなるので変えない
+ */
+export function dpsLabel({ page, row, column }) {
+  return `${PLACE_LABELS.dps} ${page} ページ・${row} 行 ${column} 列`;
+}
+
 const BOX_LABEL = /^パルボックス (\d{1,4}) ページ・(\d) 行 (\d) 列$/;
+const DPS_LABEL = /^パル次元ストレージ (\d{1,4}) ページ・(\d) 行 (\d) 列$/;
+// 位置のある場所ごとの、位置の文字の書式と読み取り
+const BOX_FORMATS = new Map([['palbox', [palboxLabel, BOX_LABEL]], ['dps', [dpsLabel, DPS_LABEL]]]);
 const BOX_ROWS = PALBOX_PAGE_SIZE / PALBOX_COLUMNS;
 /**
- * placeLabel（palboxLabel の書式）からパルボックスの位置を読む（共有のデータには位置の列がないので、文字から読み戻す）。
- * 書式が違う・範囲の外なら null（古い共有の「パルボックス」など。画面は文字だけを出す）
+ * placeLabel（palboxLabel・dpsLabel の書式）から、kind の場所（palbox・dps）の位置を読む（共有のデータには位置の列がないので、文字から読み戻す）。
+ * 書式が違う・場所が違う・範囲の外なら null（古い共有の「パルボックス」「パル次元ストレージ」など。画面は文字だけを出す）
+ * @param {string} label
+ * @param {'palbox'|'dps'} [kind]
  * @returns {{ page: number, row: number, column: number } | null}
  */
-export function parseBoxLabel(label) {
+export function parseBoxLabel(label, kind = 'palbox') {
   if (typeof label !== 'string') return null;
-  const match = BOX_LABEL.exec(label);
+  const pattern = BOX_FORMATS.get(kind)?.[1];
+  if (!pattern) return null;
+  const match = pattern.exec(label);
   if (!match) return null;
   const [page, row, column] = [Number(match[1]), Number(match[2]), Number(match[3])];
   if (page < 1 || row < 1 || row > BOX_ROWS || column < 1 || column > PALBOX_COLUMNS) return null;
   return { page, row, column };
+}
+
+/**
+ * 位置の短い表記（所持パル・理想個体の行と案内）。パルボックスは「P2 · 1-6」、パル次元ストレージは「次元 P2 · 1-6」。
+ * 位置が分からなければ ''（場所の文字を出す）
+ */
+export function boxShort(pal) {
+  if (!pal?.box) return '';
+  const short = `P${pal.box.page} · ${pal.box.row}-${pal.box.column}`;
+  return pal.place === 'dps' ? `次元 ${short}` : short;
 }
 
 /**
@@ -407,9 +433,10 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     else if (kind === 'egg-guild') holder = 'ギルド保管庫';
     else holder = playerName(players, holderUid) || '不明';
     let placeDetail = PLACE_LABELS[kind];
-    // パルボックスはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
-    const boxAt = kind === 'palbox' ? palboxPosition(location.slotIndex) : null;
-    if (boxAt) placeDetail = palboxLabel(boxAt);
+    // パルボックス・パル次元ストレージはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
+    const boxFormat = BOX_FORMATS.get(kind);
+    const boxAt = boxFormat ? palboxPosition(location.slotIndex) : null;
+    if (boxAt) placeDetail = boxFormat[0](boxAt);
     else if (kind === 'base') placeDetail = baseLabel(location.baseId);
     else if ((egg || kind === 'display') && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
     const passiveIds = cleanPassives(source.passives);
@@ -444,7 +471,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       place: kind,
       placeGroup: placeGroup(kind),
       placeLabel: text(placeDetail, 200),
-      // パルボックスの位置（ページ・行・列。ボックス順の並べ替えと行の小さな図）。パルボックス以外・位置が分からなければ null
+      // パルボックス・パル次元ストレージの位置（ページ・行・列。ボックス順の並べ替えと行の小さな図）。ほかの場所・位置が分からなければ null
       box: boxAt,
       holderUid,
       holder: text(holder, 60),
@@ -793,7 +820,8 @@ const rankSum = (pal) => {
   for (const id of pal.passives) sum += passiveRanks.get(id) ?? 0;
   return sum;
 };
-// ボックスの位置（パルボックスの外・位置の分からない個体は、同じ所持者・場所のグループの最後）
+// ボックスの位置（パルボックス・パル次元ストレージの外・位置の分からない個体は、同じ所持者・場所のグループの最後。場所のグループで先に
+// 分けるので、パルボックスと次元ストレージの位置は混ざらない）
 const boxIndex = (pal) => (pal.box ? (pal.box.page * 100 + pal.box.row) * 100 + pal.box.column : Infinity);
 
 /**
@@ -1134,8 +1162,8 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       // eggItemId は後から足した列（farm-board）。列のない共有（GAS の setup() の前・古い画面）では空
       eggItemId: egg ? text(get(EGG_ITEM), 64) : '',
       place: kind, placeGroup: placeGroup(kind), placeLabel,
-      // 共有には位置の列がないので、placeLabel の文字から読む（書式の違う古い共有は null で、文字だけを出す）
-      box: kind === 'palbox' ? parseBoxLabel(placeLabel) : null,
+      // 共有には位置の列がないので、placeLabel の文字から読む（パルボックス・パル次元ストレージ。書式の違う古い共有は null で、文字だけを出す）
+      box: parseBoxLabel(placeLabel, kind),
       holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
       // ownedAt は後から足した列（save-extras）。列のない共有（GAS の setup() の前・古い画面）では空。魂の強化と状態は共有しない（null）
       ownedAt: ownedTime(get(OWNED_AT)), soul: null, condition: null,
