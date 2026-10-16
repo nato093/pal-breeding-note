@@ -1135,13 +1135,9 @@ const sortedList = (items) => items.map((item) => {
   const value = sortedKeys(item);
   return { value, text: JSON.stringify(value) ?? 'null' };
 }).sort((a, b) => textOrder(a.text, b.text)).map((item) => item.value);
-// 行（セルは文字列）を、先頭のセル（個体 ID）から順に比べて並べ直す
-const rowOrder = (a, b) => {
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    if (a[i] !== b[i]) return textOrder(a[i], b[i]);
-  }
-  return a.length - b.length;
-};
+// 行（セルを文字列にした配列）の JSON を、その文字列の順に並べる（先頭は個体 ID なので、ほぼ個体 ID の順。文字列の比べ方は
+// Array.prototype.sort の既定と同じ UTF-16 の順で、環境によらない）。20,000 行でも 1 行ずつ比べるより速い
+const sortedRowTexts = (rows) => rows.map((row) => JSON.stringify(Array.isArray(row) ? row.map(cellText) : [])).sort();
 
 /**
  * 共有の中身の印（world.contentHash。送る側が UTF-8 の SHA-256 にする。web/js/owned.js）の元にする文字列（sync-fixes の share-upload）。
@@ -1150,22 +1146,25 @@ const rowOrder = (a, b) => {
  *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns, rows]
  * - 入れないもの: world の識別の項目（saveStamp・contentHash・format・fileCount・missingCount・force）、saveUpdatedAt（セーブのファイルの
  *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる
- * - 並びによらない: 行は先頭のセル（個体 ID）の順、players・bases・farms は要素の JSON の順に並べ直し、object の鍵は名前の順にする
- *  （個体の並びは登録したファイルの順〔_dps.sav など〕で変わり、PC ごとに登録の順が違うことがある）。列の並びは中身なので変えない
+ * - 並びによらない: 行は行の JSON の順（先頭のセルが個体 ID なので、ほぼ個体 ID の順）、players・bases・farms は要素の JSON の順に
+ *   並べ直し、object の鍵は名前の順にする（個体の並びは登録したファイルの順〔_dps.sav など〕で変わり、PC ごとに登録の順が違うことが
+ *   ある）。列の並びは中身なので変えない
  * - 列の名前と行のセルは文字列にする（シートには文字列で残る。null・undefined は ''）
  */
 export function ownedContentText(upload) {
   const source = isObject(upload) ? upload : {};
   const world = isObject(source.world) ? source.world : {};
-  return JSON.stringify([
+  const head = JSON.stringify([
     cellText(source.worldId), cellText(world.name), cellText(world.hostName),
     typeof world.inGameDay === 'number' && Number.isFinite(world.inGameDay) ? world.inGameDay : null,
     sortedList(Array.isArray(source.players) ? source.players : []),
     sortedList(Array.isArray(source.bases) ? source.bases : []),
     Array.isArray(source.farms) ? sortedList(source.farms) : null,
     Array.isArray(source.columns) ? source.columns.map(cellText) : [],
-    Array.isArray(source.rows) ? source.rows.map((row) => (Array.isArray(row) ? row.map(cellText) : [])).sort(rowOrder) : [],
   ]);
+  // 行は最後の要素。並べた行の JSON をつないで、配列ごとの JSON と同じ文字列にする
+  const rows = Array.isArray(source.rows) ? sortedRowTexts(source.rows) : [];
+  return `${head.slice(0, -1)},[${rows.join(',')}]]`;
 }
 
 /**
