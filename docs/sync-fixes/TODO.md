@@ -22,12 +22,12 @@
 
 ## 1. dps-position（S）
 
-- 状態: 未
-- [ ] `dpsLabel`・`DPS_LABEL`・`parseBoxLabel(label, kind)`・`boxShort(pal)`（core/owned.js。palboxLabel と BOX_LABEL は変えない）
-- [ ] `normalizeOwned` で dps にも位置、`ownedFromShared` で dps も読み戻す
-- [ ] 表示（fillWhereCell・palBrief・holderSummary）
-- [ ] テスト（core/owned・owned-view・route-view）と所持パルの perf の前後の比較
-- [ ] OPERATIONS.md・release-notes
+- 状態: 実装済（feature/dps-position。マージは親が確かめてから）
+- [x] `dpsLabel`・`DPS_LABEL`・`parseBoxLabel(label, kind)`・`boxShort(pal)`（core/owned.js。palboxLabel と BOX_LABEL は変えない）
+- [x] `normalizeOwned` で dps にも位置、`ownedFromShared` で dps も読み戻す
+- [x] 表示（fillWhereCell・palBrief・holderSummary）
+- [x] テスト（core/owned・owned-view・route-view）と所持パルの perf の前後の比較
+- [x] OPERATIONS.md・release-notes
 
 ## 2. dps-missing（M）
 

@@ -14,7 +14,7 @@ import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { eggMatches, goalProgress, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { goalOwnedHash } from '../ideals.js';
-import { passiveCounts, ownedCounts, ownedRouteStarts, itemStock, stockText } from '../core/owned.js';
+import { passiveCounts, ownedCounts, ownedRouteStarts, itemStock, stockText, boxShort } from '../core/owned.js';
 import { implantOf, implantNeed, canImplant, cleanSurgery, IMPLANT_KINDS } from '../core/implants.js';
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
@@ -227,7 +227,7 @@ function goalGap(goal, near) {
 // 目標の一覧の状態の欄は狭いので、付けるものの括弧は在庫（手元で読んだホストのデータ〔data の items〕のときだけ）か、在庫が分からなければ
 // インプラントの種類の 1 つだけにし（前は「使い切りインプラント・在庫 4」で、920px で 5 行に折れた。フェーズ 4 の終わりのレビューの操作性 7）、
 // 種類と在庫の両方は title に出す。アイテム名は「使い切りインプラント：〈パッシブ〉」でパッシブ名と重なるので出さない。
-// パルボックスの場所は行と同じ短い形（P4 · 2-5）
+// パルボックス・パル次元ストレージの場所は行と同じ短い形（P4 · 2-5・次元 P4 · 2-5）
 function surgeryLine({ pal, add, count }, data) {
   const parts = add.map((id) => {
     const entry = implantOf(id);
@@ -241,11 +241,11 @@ function surgeryLine({ pal, add, count }, data) {
     title: `${head}${parts.map((part) => `＋${part.name}（${[part.kind, part.stock].filter(Boolean).join('・')}）`).join('')}${more}`,
   };
 }
-// 個体の短い呼び名「アヌビス♂ Lv52（P4 · 2-5）」（パルボックスは行と同じ短い場所。ほかは場所の文字。手術で完成できる個体の 1 行と
-// パルリバーサーの案内で使う）
+// 個体の短い呼び名「アヌビス♂ Lv52（P4 · 2-5）」（パルボックス・パル次元ストレージ〔「次元 P4 · 2-5」〕は行と同じ短い場所。ほかは
+// 場所の文字。手術で完成できる個体の 1 行とパルリバーサーの案内で使う）
 function palBrief(pal) {
   const sex = pal.gender === 'M' ? '♂' : pal.gender === 'F' ? '♀' : '';
-  const where = pal.box ? `P${pal.box.page} · ${pal.box.row}-${pal.box.column}` : pal.placeLabel;
+  const where = boxShort(pal) || pal.placeLabel;
   return `${pal.name}${sex} Lv${pal.level}${where ? `（${where}）` : ''}`;
 }
 // data は所持パルのデータ（在庫を添えるため。implants）

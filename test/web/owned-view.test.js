@@ -119,6 +119,34 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   view.destroy();
 });
 
+test('所持パル画面: パル次元ストレージの行も「次元 P ページ · 行-列」と 6×5 の図で位置を出し（全文は title と隠した文）、位置のない古い共有は場所の文字だけ', (t) => {
+  installDom(t);
+  const list = normalizeOwned({ ...snapshot, pals: [
+    { instanceId: 'd', characterId: 'SheepBall', gender: 'Female', level: 5, rank: 1, passives: [], talent: {}, location: { kind: 'dps', playerUid: P1, slotIndex: 7820 } },
+    { instanceId: 'p', characterId: 'SheepBall', gender: 'Female', level: 5, rank: 1, passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1, slotIndex: 7820 } },
+  ] }, { pals, passives }).pals;
+  const row = ownedRowItem(list[0]);
+  const where = row.element.querySelector('.owned-where');
+  assert.equal(where.querySelector('strong').textContent, 'Alice');
+  assert.equal(where.querySelector('.owned-box').textContent, '次元 P261 · 4-3');
+  assert.equal(where.querySelector('.owned-box').getAttribute('aria-hidden'), 'true');
+  const map = where.querySelector('.box-map');
+  assert.deepEqual([map.style.getPropertyValue('--r'), map.style.getPropertyValue('--c')], ['4', '3']);
+  assert.equal(where.title, 'パル次元ストレージ 261 ページ・4 行 3 列');
+  assert.equal(where.querySelector('.visually-hidden').textContent, 'パル次元ストレージ 261 ページ・4 行 3 列');
+  // 同じ位置のパルボックスの個体に変われば、短い表記も全文も書き換える（頭の「次元 」が残らない）
+  assert.equal(row.update(list[1]), true);
+  assert.equal(where.querySelector('.owned-box').textContent, 'P261 · 4-3');
+  assert.equal(where.title, 'パルボックス 261 ページ・4 行 3 列');
+  // 位置の分からない次元ストレージ（古い共有の「パル次元ストレージ」だけ）は、所持者と場所の文字（図も title もない）
+  assert.equal(row.update({ ...list[0], placeLabel: 'パル次元ストレージ', box: null }), true);
+  assert.equal(where.querySelector('.owned-box'), null);
+  assert.equal(where.querySelector('.box-map'), null);
+  assert.deepEqual(where.children.map((node) => node.textContent), ['Alice', 'パル次元ストレージ']);
+  assert.equal(where.title, '');
+  row.destroy();
+});
+
 test('所持パル画面: 場所のチップでタマゴを外し・グローバルパルボックスを足し、パッシブで絞り込む（所持者の選択肢はプレイヤーだけ）', async (t) => {
   installDom(t);
   const owned = fakeOwned();
@@ -581,6 +609,28 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルを
   assert.equal(box.querySelector('.route-owned-open').textContent, '所持パルで開く');
   assert.equal(box.querySelector('.route-owned-open').href, '#/owned?pal=SheepBall&p=CraftSpeed_up2');
   assert.equal(box.querySelector('.route-owned-more').hidden, true);
+  routeView.destroy();
+});
+
+test('継承ルート: 開始のチップの要約は、パル次元ストレージも場所の名前まで（ページと位置は出さない）。所持個体の行には位置を出す', (t) => {
+  installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const carrier = (instanceId, location) => ({ instanceId, characterId: 'SheepBall', gender: 'Female', level: 12, rank: 1, passives: ['CraftSpeed_up2'], talent: {}, location });
+  const owned = fakeOwned({ ...fakeOwned().state.data, snapshot: { ...snapshot, pals: [
+    carrier('d1', { kind: 'dps', playerUid: P1, slotIndex: 55 }),
+    carrier('d2', { kind: 'dps', playerUid: P1, slotIndex: 77 }),
+    { instanceId: 'b', characterId: 'PinkCat', gender: 'Male', level: 3, rank: 1, passives: [], talent: {}, location: { kind: 'party', playerUid: P1 } },
+  ] } });
+  const app = context(owned, records);
+  const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  const chips = view.element.querySelectorAll('.start-chip');
+  assert.equal(chips[1].querySelector('.start-chip-count').textContent, '最短 1 回 · 2 体 · Alice・パル次元ストレージ');
+  view.destroy();
+  const routeView = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  const rows = routeView.element.querySelector('.route-owned-box').querySelectorAll('.owned-row');
+  assert.deepEqual(rows.map((row) => row.querySelector('.owned-box').textContent).sort(), ['次元 P2 · 5-2', '次元 P3 · 3-6']);
   routeView.destroy();
 });
 

@@ -8,7 +8,7 @@ import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
   keywordTerms, keywordNotes, workEntries, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
-  PLACE_ORDER, PLACE_LABELS, cakeInfo,
+  PLACE_ORDER, PLACE_LABELS, cakeInfo, dpsLabel, boxShort,
 } from '../../web/js/core/owned.js';
 import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
 import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
@@ -276,6 +276,76 @@ test('所持パル: パルボックスの位置（box）はセーブの通し番
     OWNED_FIELDS.map((field) => ({ instanceId: 'old', palId: 'SheepBall', place: 'palbox', placeLabel: 'パルボックス' })[field] ?? ''),
   ] }, { pals, passives });
   assert.deepEqual([old.pals[0].box, old.pals[0].placeLabel], [null, 'パルボックス']);
+});
+
+test('所持パル: パル次元ストレージの位置（box）も添字から求め、placeLabel・短い表記・共有の読み戻しはパルボックスと分ける', () => {
+  // 2026-10-12 に実セーブで確かめた位置（次元ストレージの添字 → ページ・行・列）
+  const local = normalizeOwned({ ...snapshot, pals: [
+    pal('d0', 'SheepBall', { kind: 'dps', slotIndex: 0 }),
+    pal('d55', 'SheepBall', { kind: 'dps', slotIndex: 55 }),
+    pal('d77', 'SheepBall', { kind: 'dps', slotIndex: 77 }),
+    pal('d7820', 'SheepBall', { kind: 'dps', slotIndex: 7820 }),
+    pal('dnone', 'SheepBall', { kind: 'dps', slotIndex: undefined }),
+    pal('box', 'SheepBall', { kind: 'palbox', slotIndex: 55 }),
+  ] }, { pals, passives });
+  assert.deepEqual(local.pals.map((item) => item.box && [item.box.page, item.box.row, item.box.column]), [[1, 1, 1], [2, 5, 2], [3, 3, 6], [261, 4, 3], null, [2, 5, 2]]);
+  assert.deepEqual(local.pals.map((item) => item.placeLabel), [
+    'パル次元ストレージ 1 ページ・1 行 1 列', 'パル次元ストレージ 2 ページ・5 行 2 列', 'パル次元ストレージ 3 ページ・3 行 6 列',
+    'パル次元ストレージ 261 ページ・4 行 3 列', 'パル次元ストレージ', 'パルボックス 2 ページ・5 行 2 列',
+  ]);
+  // 所持者は次元ストレージの持ち主のまま
+  assert.deepEqual(local.pals.map((item) => item.holder), ['Alice', 'Alice', 'Alice', 'Alice', 'Alice', 'Alice']);
+  // 短い表記は、次元ストレージだけ頭に「次元 」（位置が分からなければ空）
+  assert.deepEqual(local.pals.map(boxShort), ['次元 P1 · 1-1', '次元 P2 · 5-2', '次元 P3 · 3-6', '次元 P261 · 4-3', '', 'P2 · 5-2']);
+  assert.equal(boxShort(byId.a), '');
+  assert.equal(boxShort(null), '');
+  // 参加者の画面は placeLabel の文字から位置を読み戻す（パルボックスと同じ）
+  const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...sharedUpload(local) }, { pals, passives });
+  assert.deepEqual(shared.pals.map((item) => item.box), local.pals.map((item) => item.box));
+  assert.deepEqual(shared.pals.map((item) => item.placeLabel), local.pals.map((item) => item.placeLabel));
+  // パルボックスの書式は変えない（共有の互換。古い画面も同じ書式で位置を読む）
+  assert.equal(palboxLabel({ page: 2, row: 5, column: 2 }), 'パルボックス 2 ページ・5 行 2 列');
+  assert.deepEqual(parseBoxLabel('パルボックス 2 ページ・5 行 2 列'), { page: 2, row: 5, column: 2 });
+  // 書式（dpsLabel）と読み取り（parseBoxLabel の 'dps'）は往復し、場所が違えば読まない（パルボックスの文字を次元ストレージとして読まない・逆も）
+  for (const index of [0, 55, 77, 7820]) {
+    const position = palboxPosition(index);
+    assert.equal(dpsLabel(position), `パル次元ストレージ ${position.page} ページ・${position.row} 行 ${position.column} 列`);
+    assert.deepEqual(parseBoxLabel(dpsLabel(position), 'dps'), position);
+    assert.equal(parseBoxLabel(dpsLabel(position)), null);
+    assert.equal(parseBoxLabel(dpsLabel(position), 'palbox'), null);
+    assert.equal(parseBoxLabel(palboxLabel(position), 'dps'), null);
+    for (const kind of ['party', 'base', 'global', 'unknown', 'toString', '']) assert.equal(parseBoxLabel(dpsLabel(position), kind), null, kind);
+  }
+  // 形の違う文字・範囲の外の値は null
+  for (const label of ['パル次元ストレージ', 'パル次元ストレージ 2 ページ', 'パル次元ストレージ 0 ページ・1 行 1 列', 'パル次元ストレージ 1 ページ・6 行 1 列',
+    'パル次元ストレージ 1 ページ・1 行 7 列', 'パル次元ストレージ 10000 ページ・1 行 1 列', null]) {
+    assert.equal(parseBoxLabel(label, 'dps'), null, String(label));
+  }
+  // 古い共有（位置のない「パル次元ストレージ」）は位置なしで、文字だけを出す
+  const old = ownedFromShared({ world: { worldName: 'テスト' }, columns: OWNED_FIELDS, rows: [
+    OWNED_FIELDS.map((field) => ({ instanceId: 'old', palId: 'SheepBall', place: 'dps', placeLabel: 'パル次元ストレージ' })[field] ?? ''),
+    // 場所が dps 以外なのに次元ストレージの位置の文字（壊れた行）は位置を読まない
+    OWNED_FIELDS.map((field) => ({ instanceId: 'odd', palId: 'SheepBall', place: 'base', placeLabel: 'パル次元ストレージ 1 ページ・1 行 1 列' })[field] ?? ''),
+  ] }, { pals, passives });
+  assert.deepEqual(old.pals.map((item) => [item.box, item.placeLabel, boxShort(item)]), [
+    [null, 'パル次元ストレージ', ''], [null, 'パル次元ストレージ 1 ページ・1 行 1 列', ''],
+  ]);
+});
+
+test('所持パル: ボックス順で、パル次元ストレージも位置の順に並び、パルボックスとは混ざらない（所持者 → 場所 → 位置）', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('a-dps-p2', 'SheepBall', { kind: 'dps', playerUid: P1, slotIndex: 30 }),
+    pal('a-box-p3', 'SheepBall', { kind: 'palbox', playerUid: P1, slotIndex: 60 }),
+    pal('a-dps-r2', 'PinkCat', { kind: 'dps', playerUid: P1, slotIndex: 6 }),
+    pal('a-dps-none', 'PinkCat', { kind: 'dps', playerUid: P1, slotIndex: undefined }),
+    pal('a-box-p1', 'PinkCat', { kind: 'palbox', playerUid: P1, slotIndex: 0 }),
+    pal('a-dps-c1', 'PinkCat', { kind: 'dps', playerUid: P1, slotIndex: 0 }),
+    pal('b-dps-1', 'SheepBall', { kind: 'dps', playerUid: P2, slotIndex: 1 }),
+    pal('a-base', 'SheepBall', { kind: 'base', playerUid: '', baseId: BASE }),
+  ] }, { pals, passives }).pals;
+  // 拠点 2（所持者は拠点）→ Alice（パルボックス → 次元ストレージ。位置のない個体はグループの最後）→ Bob
+  assert.deepEqual(sortOwned(list, 'place').map((p) => p.id), ['a-box-p1', 'a-box-p3', 'a-dps-c1', 'a-dps-r2', 'a-dps-p2', 'a-dps-none', 'b-dps-1', 'a-base']);
+  assert.deepEqual(sortOwned(list, 'place', 'desc').map((p) => p.id), ['a-base', 'b-dps-1', 'a-dps-none', 'a-dps-p2', 'a-dps-r2', 'a-dps-c1', 'a-box-p3', 'a-box-p1']);
 });
 
 test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（レベル・★・個体値は含めない）', () => {

@@ -21,7 +21,7 @@ import { openWorldDialog } from './owned-settings.js';
 import { toast } from '../ui/toast.js';
 import { buildHash, settingsHash } from '../router.js';
 import {
-  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, eggName, isMutantEgg,
+  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, eggName, isMutantEgg, boxShort,
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
@@ -463,8 +463,8 @@ export function fillTalentCell(cell, talent, targets) {
   cell.setAttribute('aria-label', `個体値 ${spoken.join('・')}`);
 }
 
-// 所持者と場所。拠点の個体は拠点の名前と「Alice が預けた」（場所の行は重ねない）。パルボックスは「P2 · 1-6」と 6×5 の小さな図
-//（title に場所の全文）。位置が分からなければ場所の文字（個体の詳細のドロワーも使う）
+// 所持者と場所。拠点の個体は拠点の名前と「Alice が預けた」（場所の行は重ねない）。パルボックスは「P2 · 1-6」、パル次元ストレージは
+// 「次元 P2 · 1-6」と 6×5 の小さな図（title に場所の全文）。位置が分からなければ場所の文字（個体の詳細のドロワーも使う）
 export function fillWhereCell(cell, pal) {
   if (pal.place === 'base' && pal.holder === pal.placeLabel) {
     cell.replaceChildren(el('strong', '', pal.holder), ...(pal.lastOwner ? [el('small', 'muted', `${pal.lastOwner} が預けた`)] : []));
@@ -477,7 +477,7 @@ export function fillWhereCell(cell, pal) {
     return;
   }
   // 短い表記と図は見た目だけ（読み上げは隠し、場所の全文「パルボックス 2 ページ・1 行 2 列」を見た目は隠した文で読ませる）
-  const place = el('small', 'muted owned-box', `P${pal.box.page} · ${pal.box.row}-${pal.box.column}`);
+  const place = el('small', 'muted owned-box', boxShort(pal));
   place.setAttribute('aria-hidden', 'true');
   // 図は要素 1 つ（枠は背景の線、位置の印は ::after を --r・--c の枠に置く）
   const map = el('span', 'box-map');
