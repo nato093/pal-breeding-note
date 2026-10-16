@@ -15,13 +15,16 @@ const OTHER = 'ABCDEF0123456789ABCDEF0123456789';
 const quiet = () => {};
 const yieldNow = () => new Promise((resolve) => setImmediate(resolve));
 
-function harness({ rewrite } = {}) {
+// rewrite(body, response) は GAS が処理した後の応答を差し替える（応答を失った形）。before(body) が値を返せば、GAS に渡さずにそれを返す
+function harness({ rewrite, before } = {}) {
   const env = createGas({ properties: PROPS });
   env.gas.setup();
   const actions = [];
   const fetch = async (url, init) => {
     const body = JSON.parse(init.body);
     actions.push(body.action);
+    const early = before?.(body);
+    if (early) return { text: async () => JSON.stringify(early) };
     let response = JSON.parse(JSON.stringify(env.gas.handleRequest_(init.body)));
     if (rewrite) response = rewrite(body, response) ?? response;
     return { text: async () => JSON.stringify(response) };
@@ -106,6 +109,44 @@ test('owned-bench: 途中でテスト環境以外の応答を受けたら止め�
   const readerStopped = await runBench({ url: 'u', passcode: PROPS.TEST_PASSCODE, fetch: early.fetch, log: quiet, rounds: 2, readers: 1, probe: false, interval: 1, sizes: [2, 2, 2], sleep: waitWriters });
   assert.match(readerStopped.reason, /テスト環境以外/);
   assert.equal(early.actions.length, readerAt, JSON.stringify(early.actions.slice(readerAt)));
+});
+
+// GAS の doGet の応答（echo の URL が 302 で /exec への GET に戻したとき、doPost の応答の代わりに届く）
+const DO_GET = { ok: true, service: 'pal-breeding-note', api: 1 };
+const benchWorlds = (env) => JSON.parse(JSON.stringify(env.gas.handleRequest_(JSON.stringify({ action: 'ownedWorlds', passcode: PROPS.TEST_PASSCODE })))).worlds;
+
+test('owned-bench: doGet の形の応答（env なし・service あり）は止めずに失敗（NO_ENV）として数え、読むだけの確かめは読み直し、応答を失った世代も最後の読みで認める', async () => {
+  const seen = { ownedWorlds: 0, ownedUpload: 0, owned: 0 };
+  const { env, actions, fetch } = harness({ rewrite: (body) => {
+    const n = seen[body.action] === undefined ? 0 : ++seen[body.action];
+    // 最初の一覧（書き込みの前の確かめ）・4 回目の共有（書けた後に応答を失う。その世代は最後に書いた世代）・最初の最後の読み
+    if ((body.action === 'ownedWorlds' && n === 1) || (body.action === 'ownedUpload' && n === 4) || (body.action === 'owned' && n === 1)) return DO_GET;
+    return undefined;
+  } });
+  const result = await runBench({ url: 'u', passcode: PROPS.TEST_PASSCODE, fetch, log: quiet, rounds: 1, readers: 0, probe: false, interval: 0, sizes: [2, 2, 2], sleep: yieldNow });
+  assert.equal(result.ok, true, JSON.stringify(result.reason ?? result.stats?.torn));
+  assert.equal(result.cleaned, true);
+  assert.deepEqual(result.stats.torn, []);
+  assert.deepEqual(actions.slice(0, 3), ['ownedWorlds', 'ownedWorlds', 'ownedSince']);
+  for (const action of ['ownedWorlds', 'ownedUpload', 'owned']) assert.deepEqual(result.stats.ops[action].failures, ['NO_ENV'], action);
+  assert.deepEqual(benchWorlds(env), []);
+  // env も service もない ok の応答（形の分からない応答）は、今までどおりテスト環境以外の応答として止める
+  const unknown = harness({ rewrite: (body, response) => (body.action === 'ownedUpload' ? { ok: true, api: 1, stored: true } : undefined) });
+  const stopped = await runBench({ url: 'u', passcode: PROPS.TEST_PASSCODE, fetch: unknown.fetch, log: quiet, rounds: 1, readers: 0, probe: false, interval: 0, sizes: [2, 2, 2], sleep: yieldNow });
+  assert.match(stopped.reason, /テスト環境以外/);
+  assert.deepEqual(unknown.actions, ['ownedWorlds', 'ownedSince', 'ownedUpload']);
+});
+
+test('owned-bench: 送り直しで書けた世代も、最後の読みで載っている世代として扱う（前の送信が BUSY で書けなかったとき）', async () => {
+  let uploads = 0;
+  // 書き込みは 世代 1 → 世代 2 → 世代 3 → 世代 3 の送り直し（3 の倍数の回）。世代 3 の最初の送信だけ、書かずに BUSY を返す
+  const { env, fetch } = harness({ before: (body) => (body.action === 'ownedUpload' && ++uploads === 3 ? { ok: false, code: 'BUSY' } : undefined) });
+  const result = await runBench({ url: 'u', passcode: PROPS.TEST_PASSCODE, fetch, log: quiet, rounds: 2, readers: 0, probe: false, interval: 0, sizes: [2], sleep: yieldNow });
+  assert.equal(result.ok, true, JSON.stringify(result.stats?.torn));
+  assert.deepEqual(result.stats.torn, []);
+  assert.deepEqual(result.stats.ops.ownedUpload.failures, ['BUSY']);
+  assert.deepEqual(result.stats.results, { new: 1, newer: 2 });
+  assert.deepEqual(benchWorlds(env), []);
 });
 
 test('owned-bench: 読んだ中身の確かめ（世代の混ざり・数の食い違い）', () => {

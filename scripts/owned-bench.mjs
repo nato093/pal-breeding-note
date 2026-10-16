@@ -12,6 +12,10 @@
 // - probe（鍵を取る診断の操作）の行はテスト用の専用シート _probe_test に残る（診断ページ /diag.html が次に開いたときに消す）。
 // - 計るもの: 操作ごとの時間（中央値・95%・最大）と失敗率、読み手が受け取った途中の中身（世代の混ざり・数の食い違い。0 回が目標）、
 //   PARTIAL（読み直しを求める応答）の回数、鍵の待ち（probe の時間）、結果の種類の内訳。
+// - GAS の応答はまれに doGet の形（{ ok, service, api }。env がない）になる。echo の URL（script.googleusercontent.com/macros/echo）が
+//   302 で /exec への GET に戻し、doGet が答えるため（2026-10-16 の計測で確かめた。echo が 404 の HTML を返すこともある）。どちらも
+//   doPost は動いた後で応答だけを失ったので、テスト環境以外の応答とはみなさず、失敗（NO_ENV・NETWORK）として数える。読むだけの確かめ
+//  （書き込みの前・最後の読み・リハーサルの読み）は 2 回まで読み直し、書き込みの応答を失った世代は「書けたか分からない」として最後の読みで認める
 import fs from 'node:fs';
 import os from 'node:os';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -92,6 +96,18 @@ class Fatal extends Error {}
 
 const newStats = () => ({ ops: {}, torn: [], partial: 0, results: {}, cleanupFailed: 0 });
 
+// 応答を失った失敗（doPost は動いたかもしれない）。NETWORK は届かなかった・JSON でなかった（echo の 404 など）、NO_ENV は doGet の形
+const LOST = new Set(['NETWORK', 'NO_ENV']);
+// doGet の形の応答（GAS の Main.js の doGet。env を持たず service を持つ）
+const isDoGet = (json) => json.ok === true && json.env === undefined && json.service !== undefined;
+
+// 読むだけの呼び出しを、応答を失ったら 2 回まで読み直す
+async function readAgain(read) {
+  let response = await read();
+  for (let attempt = 0; attempt < 2 && !response.ok && LOST.has(response.code); attempt++) response = await read();
+  return response;
+}
+
 // 1 回の呼び出し（時間と失敗を stats に残す）。テスト環境以外の応答を受けたら Fatal を投げ、それ以後の呼び出しは送らずに
 // Fatal を投げる（並べて動かしている書き手・読み手・後片付けも、その場で止まる）
 function createCaller({ url, passcode, fetcher, now, stats }) {
@@ -107,6 +123,10 @@ function createCaller({ url, passcode, fetcher, now, stats }) {
     } catch (error) {
       op.failures.push('NETWORK');
       return { ok: false, code: 'NETWORK', message: String(error?.message ?? error) };
+    }
+    if (isDoGet(json)) {
+      op.failures.push('NO_ENV');
+      return { ok: false, code: 'NO_ENV' };
     }
     if (json.ok && json.env !== 'test') {
       halted = `テスト環境以外の応答を受けたため止めます（action=${action} env=${json.env}）`;
@@ -137,14 +157,16 @@ export async function runBench({
   const call = createCaller({ url, passcode, fetcher, now, stats });
 
   // 書き込みの前の確かめ（読み取りだけ）
-  const first = await call('ownedWorlds').catch((error) => ({ ok: false, code: error.message }));
+  const first = await readAgain(() => call('ownedWorlds')).catch((error) => ({ ok: false, code: error.message }));
   if (!first.ok) return { ok: false, reason: `テスト環境だと確かめられませんでした（${first.code}）。何も書いていません` };
   const worldIds = sizes.map(() => randomWorldId());
   if (first.worlds.some((world) => worldIds.includes(world.worldId))) return { ok: false, reason: 'ランダムな worldId が既にありました。何も書いていません' };
-  const since = await call('ownedSince', { worldId: worldIds[0], uploadedAt: '' }).catch((error) => ({ ok: false, code: error.message }));
+  const since = await readAgain(() => call('ownedSince', { worldId: worldIds[0], uploadedAt: '' })).catch((error) => ({ ok: false, code: error.message }));
   if (!since.ok) return { ok: false, reason: `ownedSince がありません（${since.code}。新しい版の deployment ではない）。何も書いていません` };
 
+  // 書けたと分かっている最後の世代と、応答を失って書けたか分からない世代（それより新しいときだけ。最後の読みで、どちらでも認める）
   const generation = worldIds.map(() => 0);
+  const uncertain = worldIds.map(() => null);
   const lastRequest = worldIds.map(() => null);
   const userId = 'owned-bench';
   const upload = async (index, gen, { resend = false } = {}) => {
@@ -161,7 +183,13 @@ export async function runBench({
     if (result.ok) {
       stats.results[result.result ?? 'stored'] = (stats.results[result.result ?? 'stored'] ?? 0) + 1;
       if (result.cleanup === false) stats.cleanupFailed++;
-      if (!resend && result.stored) generation[index] = gen;
+      // 書いた（stored）か、同じ要求の送り直しが unchanged（前の送信は応答を失っても書けていた）なら、その世代が載っている
+      if (result.stored || result.result === 'unchanged') {
+        generation[index] = gen;
+        uncertain[index] = null;
+      }
+    } else if (LOST.has(result.code) && gen > generation[index]) {
+      uncertain[index] = gen;
     }
     return result;
   };
@@ -221,11 +249,12 @@ export async function runBench({
     const stopped = await othersSettled;
     const failure = [...settled, ...stopped].find((item) => item.status === 'rejected');
     if (failure) throw failure.reason;
-    // 最後の世代を読んで、全部のワールドが最後に書いた世代か
+    // 最後の世代を読んで、全部のワールドが最後に書いた世代か（応答を失った世代があれば、それでもよい）
     for (let i = 0; i < worldIds.length; i++) {
-      const owned = await call('owned', { worldId: worldIds[i] });
+      const owned = await readAgain(() => call('owned', { worldId: worldIds[i] }));
       const check = owned.ok ? checkContent(owned.world, owned.rows, sizes[i]) : { ok: false, reason: owned.code };
-      if (!check.ok || check.gen !== generation[i]) stats.torn.push(`最後の読み ${worldIds[i].slice(0, 6)} ${check.reason ?? `世代 ${check.gen}≠${generation[i]}`}`);
+      const accepted = [generation[i], ...(uncertain[i] === null ? [] : [uncertain[i]])];
+      if (!check.ok || !accepted.includes(check.gen)) stats.torn.push(`最後の読み ${worldIds[i].slice(0, 6)} ${check.reason ?? `世代 ${check.gen}≠${accepted.join('か')}`}`);
     }
   } catch (error) {
     if (error instanceof Fatal) fatal = error.message;
@@ -305,17 +334,17 @@ export async function runRehearsal({
     players: [], bases: [], columns: OWNED_FIELDS, rows: benchRows(0, gen, count),
   });
   const readBack = async (id, gen, count = size) => {
-    const owned = await call('owned', { worldId: id });
+    const owned = await readAgain(() => call('owned', { worldId: id }));
     if (!owned.ok) return `読めません（${owned.code}）`;
     const check = checkContent(owned.world, owned.rows, count);
     if (!check.ok) return `中身が合いません（${check.reason}）`;
     return gen === undefined || check.gen === gen ? '' : `世代が ${check.gen}（期待 ${gen}）`;
   };
   try {
-    const first = await call('ownedWorlds');
+    const first = await readAgain(() => call('ownedWorlds'));
     if (!first.ok) return { ok: false, reason: `テスト環境だと確かめられませんでした（${first.code}）。何も書いていません` };
     if (step === 'prepare') {
-      const since = await call('ownedSince', { worldId: randomWorldId(), uploadedAt: '' });
+      const since = await readAgain(() => call('ownedSince', { worldId: randomWorldId(), uploadedAt: '' }));
       if (!since.ok) return { ok: false, reason: `ownedSince がありません（${since.code}。新しい版の deployment ではない）。何も書いていません` };
       const id = randomWorldId();
       fs.writeFileSync(recordFile, JSON.stringify({ url, worldId: id, at: new Date(now()).toISOString() }), 'utf8');
@@ -353,7 +382,7 @@ export async function runRehearsal({
     if (!result.stored || result.result !== 'newer') return { ok: false, reason: `結果が newer ではありません（${result.result}）`, worldId };
     const problem = await readBack(worldId, gen + 1);
     if (problem) return { ok: false, reason: problem, worldId };
-    const since = await call('ownedSince', { worldId, uploadedAt: result.world.uploadedAt });
+    const since = await readAgain(() => call('ownedSince', { worldId, uploadedAt: result.world.uploadedAt }));
     if (!since.ok || since.changed !== false) return { ok: false, reason: `ownedSince が「変わらない」を返しません（${since.code ?? since.changed}）`, worldId };
     const removed = await call('ownedDelete', { worldId });
     if (!removed.ok || !removed.deleted) return { ok: false, reason: `後片付けに失敗（${removed.code}）`, worldId };
