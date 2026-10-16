@@ -61,7 +61,7 @@
   - ホスト 1 人・1 ワールド 4,600 行・読み手 3・30 秒ごと: ownedUpload 13.4／14.9／14.9 秒、ownedSince 2.9／5.9／7.0 秒、owned 4.6／6.0／6.4 秒、鍵の待ち（probe）2.8／15.4／39.6 秒。失敗 0
   - 3 ワールド計 4,600 行・3 人が同時に 30 秒ごと: ownedUpload 11.4／27.2／27.4 秒、ownedSince 4.8／7.5／30.1 秒。同じく 15 秒ごと（実際よりずっと重い）: ownedUpload 11.3／19.4／22.7 秒、鍵の待ち 6.5／21.4／24.4 秒（上限 25 秒に近い）
   - 3 回とも、途中の中身（世代の混ざり・数の食い違い）・PARTIAL・掃除の失敗は 0 回。同じ要求の送り直しはすべて unchanged
-  - **GAS の応答がまれに `doGet` の形になる**: echo の URL（`script.googleusercontent.com/macros/echo`）が 302 で `/exec` への GET に戻し、`doGet` が `{ ok, service, api }`（`env` なし）を返す。echo が 404 の HTML を返すこともある。どちらも `doPost` は動いた後で、応答だけを失う。画面の `api.js` は RESPONSE として 1 回送り直す（共有の送信なら識別のおかげで unchanged）。計測のスクリプトはこれを「テスト環境以外の応答」とみなして止めてしまう（最初の計測が止まり、後片付けを手で行った）。直すかはユーザーに提案中
+  - **GAS の応答がまれに `doGet` の形になる**: echo の URL（`script.googleusercontent.com/macros/echo`）が 302 で `/exec` への GET に戻し、`doGet` が `{ ok, service, api }`（`env` なし）を返す。echo が 404 の HTML を返すこともある。どちらも `doPost` は動いた後で、応答だけを失う。画面の `api.js` は RESPONSE として 1 回送り直す（共有の送信なら識別のおかげで unchanged）。計測のスクリプトはこれを「テスト環境以外の応答」とみなして止めてしまっていた（最初の計測が止まり、後片付けを手で行った）→ ユーザーの答えで直した（fix/bench-doget-response。マージ 64baaf8。NO_ENV と数えて止めず、読むだけの確かめは読み直し、応答を失った・送り直しで書けた世代を最後の読みで認める。env が prod・形の分からない応答で止めるのは今までどおり）
 - [x] OPERATIONS.md（反映・巻き戻し・タイムゾーンの前提）・SAVE_FORMAT.md・release-notes
 
 ## 4. share-fetch（M）
