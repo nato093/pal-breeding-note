@@ -1,4 +1,4 @@
-import { el, empty, link, button, syncList, clearList, trackHeight, storageWarning, loadingState, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, storageWarning, loadingState, statusChip, setChipTone, setDisabled, setupHint } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
@@ -19,7 +19,7 @@ import { implantOf, implantNeed, canImplant, cleanSurgery, IMPLANT_KINDS } from 
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
-import { onlineUids, onlineKey } from '../ui/owned-status.js';
+import { onlineUids, onlineKey, dimensionNotice } from '../ui/owned-status.js';
 import { cakeLine } from '../ui/farm-board.js';
 import {
   idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, genderFlipSteps, talentTargets,
@@ -31,6 +31,7 @@ import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmC
 import { buildHash, settingsHash } from '../router.js';
 import { ownedWorldId } from '../core/owned-shared.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
+import { openWorldDialog } from './owned-settings.js';
 import {
   viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing,
   holderChoices, holderValue, HOLDER_DEFAULT, fieldHead, panelItem, panelLine,
@@ -546,6 +547,29 @@ export function idealView(context, route) {
   // 手術で付ける前提で計画しているとき（URL の s）の帯（implants の X-22。renderSurgeryBand）。s がなければ隠して場所も取らない
   const surgeryBand = el('div', 'ideal-surgery-band');
   surgeryBand.hidden = true;
+  // パル次元ストレージの読み漏れ（dps-missing）の 1 文。読めていない個体は親の候補にも入らないので、結果の上に出す。ホストは
+  // ［ワールドを編集］（所持パルの案内と同じ。登録したワールドが分からなければ設定のセーブ連携へ）、参加者は自分が候補のときだけ（ボタンなし）。
+  // なければ隠して場所も取らない。同じ文なら作り直さない
+  const dpsSlot = el('div', 'ideal-dps-hint');
+  dpsSlot.hidden = true;
+  let dpsShown = '';
+  function renderDpsHint() {
+    const notice = owned ? dimensionNotice(owned.state, { selfUids: ideals?.selfUids?.() ?? new Set() }) : null;
+    const key = notice ? JSON.stringify([notice.text, notice.action ?? '']) : '';
+    if (key === dpsShown) return;
+    dpsShown = key;
+    dpsSlot.hidden = !notice;
+    if (!notice) { dpsSlot.replaceChildren(); return; }
+    const action = notice.action === 'editWorld' ? {
+      label: 'ワールドを編集',
+      run: () => {
+        const world = owned.state.auto?.worlds?.find((item) => item.id === owned.state.linkedWorldId);
+        if (world) openWorldDialog(context, { world });
+        else context.navigate?.(settingsHash(owned.state.linkedWorldId ?? '', 'status'));
+      },
+    } : null;
+    dpsSlot.replaceChildren(setupHint({ text: notice.text, action, kind: 'warning' }));
+  }
   // 孵化させると完成するタマゴ（今の条件を満たすタマゴ。所持者で絞った個体のタマゴと、拠点に置かれた持ち主のないタマゴ。F048・N-16）。
   // 押すと所持パルをタマゴ・その種族・欲しいパッシブで開く。0 個なら出さない（目標を変えたときに下が動くのは利用者の操作なのでよい）
   const hatchBox = el('p', 'ideal-hatch');
@@ -1008,7 +1032,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
+  element.append(heading, panel, dpsSlot, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -1633,6 +1657,7 @@ export function idealView(context, route) {
     if (destroyed) return;
     const started = clock();
     renderSave();
+    renderDpsHint();
     renderSurgeryBand();
     // 消したパルリバーサーの案内を戻すリンク（目標を選ぶ前・データがないときも、消した目標があれば出す）
     renderRestore();

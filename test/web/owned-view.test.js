@@ -891,8 +891,10 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   // ドロップするファイルを 2 組（全員／ホストの PC だけ）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
   assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストの PC だけ']);
   const labels = () => dialog.querySelectorAll('.owned-draft-items').flatMap((list) => list.children)
-    .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', ''));
+    .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', '').replace(item.querySelector('.owned-draft-note')?.textContent ?? '', ''));
   assert.deepEqual(labels(), ['— LocalData.sav', '— Level.sav', '— LevelMeta.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
+  // 「Players\ の中のファイル全部」の行にだけ、後から次元ストレージを使い始めた人の _dps.sav も足せることを添える（dps-missing）
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-note').map((node) => node.textContent), ['後からパル次元ストレージを使い始めた人の _dps.sav も、ここにドロップして足せます']);
   assert.deepEqual(dialog.querySelectorAll('.owned-draft-path').map((node) => node.textContent), [
     '…\\SaveGames\\7656\\ABCD…\\LocalData.sav', '…\\SaveGames\\7656\\ABCD…\\Level.sav', '…\\SaveGames\\7656\\ABCD…\\LevelMeta.sav',
     '…\\SaveGames\\7656\\ABCD…\\Players\\', '…\\SaveGames\\7656\\GlobalPalStorage.sav',
@@ -1087,6 +1089,36 @@ test('所持パル画面: 登録した後に増えたプレイヤーの Players 
   await view.element.querySelector('.owned-notices').querySelector('button').dispatch('click');
   assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを編集');
   view.destroy();
+});
+
+test('所持パル画面（dps-missing）: ホストはパル次元ストレージの読み漏れを［ワールドを編集］つきで、参加者は自分のプレイヤーが候補のときだけ案内する（自分が変わったら描き直す）', async (t) => {
+  const { body } = installDom(t);
+  const P2 = '00000000-0000-0000-0000-000000000002';
+  const data = {
+    version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 'W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' },
+    snapshot: { ...snapshot, players: [...snapshot.players, { uid: P2, name: 'Bob', level: 10 }], stats: { inLocker: 118, inLockerMissing: 27 },
+      files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav', 'Players/00000000000000000000000000000001_dps.sav', 'Players/00000000000000000000000000000002.sav'], skipped: [] } },
+  };
+  const host = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  const notices = host.element.querySelector('.owned-notices');
+  assert.match(notices.textContent, /^Level\.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players.00000000000000000000000000000002_dps\.sav（Bob）が登録されていないかもしれません。ワールドを編集$/);
+  await notices.querySelector('button').dispatch('click');
+  assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを編集');
+  host.destroy();
+
+  // 参加者: 共有のデータの Bob に dpsGap がある。自分（ideals.selfUids）が Bob のときだけ
+  const shared = fakeOwned(data, { role: 'guest', meta: { worldId: 'W', worldName: 'テスト', hostName: 'Alice', source: 'shared', saveUpdatedAt: '2026-10-05T00:00:00.000Z', sharedAt: '2026-10-05T00:01:00.000Z', uploadedBy: 'ホスト', palCount: 3 } });
+  shared.state.owned = { ...shared.state.owned, players: shared.state.owned.players.map((player) => (player.uid === P2 ? { ...player, dpsGap: 27 } : { ...player, dpsGap: undefined })) };
+  let self = new Set();
+  const selfListeners = new Set();
+  const ctx = { ...context(shared), ideals: { selfUids: () => self }, self: { subscribe: (listener) => { selfListeners.add(listener); return () => selfListeners.delete(listener); } } };
+  const guest = ownedView(ctx, parseHash('#/owned'));
+  const guestNotices = () => guest.element.querySelector('.owned-notices').textContent;
+  assert.doesNotMatch(guestNotices(), /次元ストレージ/);
+  self = new Set([P2]);
+  for (const listener of selfListeners) listener();
+  assert.match(guestNotices(), /パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players.00000000000000000000000000000002_dps\.sav がないかもしれません。ホストに足してもらってください。/);
+  guest.destroy();
 });
 
 // モーダルを開いて、パスを貼り、ファイルをドロップするまで

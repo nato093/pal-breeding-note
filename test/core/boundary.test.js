@@ -4,7 +4,7 @@ import {
   isObject, int, intOrNull, intIn, bool, text, idText, internalName, oneOf, isoTime, list, worldId, screenHref, cleanSaved,
   cleanRecords, cleanUsers, cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload,
 } from '../../web/js/core/boundary.js';
-import { OWNED_FIELDS, OWNED_MAX_ROWS } from '../../web/js/core/owned-shared.js';
+import { OWNED_FIELDS, OWNED_MAX_ROWS, OWNED_DPS_GAP_MAX } from '../../web/js/core/owned-shared.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 
@@ -155,6 +155,16 @@ test('所持パルの共有: 正しいワールドの行はそのまま、worldI
   assert.deepEqual(players, [{ uid: 'u1', name: 'Alice' }, { uid: 'u2', name: 'Bob' }, { uid: 'u3', name: 'Carol', online: false }, { uid: 'u4', name: 'Dave' }, { uid: 'u5', name: 'Erin', online: true }]);
   assert.equal(cleanOwnedWorlds(Array.from({ length: 250 }, (_, i) => sharedWorld({ worldId: i.toString(16).toUpperCase().padStart(32, '0') }))).length, 200);
   assert.deepEqual(cleanOwnedWorlds('worlds'), []);
+});
+
+test('所持パルの共有（dps-missing）: プレイヤーのパル次元ストレージの読み漏れの数（dpsGap）は 1〜上限の整数だけ写す。API の応答とキャッシュの復元で同じ', () => {
+  const players = [
+    { uid: 'u1', name: 'Alice', dpsGap: 27 }, { uid: 'u2', name: 'Bob', dpsGap: 0 }, { uid: 'u3', name: 'Carol', dpsGap: '27' },
+    { uid: 'u4', name: 'Dave', dpsGap: 2.5 }, { uid: 'u5', name: 'Erin', dpsGap: OWNED_DPS_GAP_MAX + 1 }, { uid: 'u6', name: 'Frank', dpsGap: OWNED_DPS_GAP_MAX },
+  ];
+  const expected = [{ uid: 'u1', name: 'Alice', dpsGap: 27 }, { uid: 'u2', name: 'Bob' }, { uid: 'u3', name: 'Carol' }, { uid: 'u4', name: 'Dave' }, { uid: 'u5', name: 'Erin' }, { uid: 'u6', name: 'Frank', dpsGap: OWNED_DPS_GAP_MAX }];
+  assert.deepEqual(cleanOwnedWorlds([sharedWorld({ players })])[0].players, expected);
+  assert.deepEqual(cleanOwnedPayload({ world: sharedWorld({ players }), columns: OWNED_FIELDS, rows: [] }).world.players, expected);
 });
 
 test('所持パルの共有: 1 ワールドの行を列の幅にそろえ、壊れた行と重複を捨て、セルの長さと行数を限る', () => {

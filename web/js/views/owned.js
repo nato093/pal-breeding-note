@@ -1192,7 +1192,7 @@ export function ownedView(context, route) {
   let noticesKey = null;
   function renderSummary(state) {
     if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
-    const list = ownedNotices(state, { userId: context.store.state.userId });
+    const list = ownedNotices(state, { userId: context.store.state.userId, selfUids: context.ideals?.selfUids?.() ?? new Set() });
     const key = JSON.stringify(list);
     if (key === noticesKey) return;
     // 案内の帯はパネルより上にあるので、出入りすると下の一覧が上下する（一覧は overflow-anchor: none）。一覧の先頭がパネルの下に
@@ -1855,6 +1855,8 @@ export function ownedView(context, route) {
   const selfChanged = () => {
     if (destroyed) return;
     const sinceChanged = trackNew(owned.state);
+    // 参加者のパル次元ストレージの読み漏れの案内は、自分のプレイヤーで出し分ける（同じ案内なら描き直さない）
+    renderSummary(owned.state);
     if (selfKey() === shownSelf) {
       if (sinceChanged) renderResults({ keepPosition: true });
       return;

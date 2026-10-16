@@ -8,10 +8,10 @@ import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
   keywordTerms, keywordNotes, workEntries, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
-  PLACE_ORDER, PLACE_LABELS, cakeInfo, dpsLabel, boxShort,
+  PLACE_ORDER, PLACE_LABELS, cakeInfo, dpsLabel, boxShort, dpsMissing,
 } from '../../web/js/core/owned.js';
 import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
-import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
+import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS, OWNED_DPS_GAP_MAX, cleanOwnedPlayer } from '../../web/js/core/owned-shared.js';
 import { isParentCandidate } from '../../web/js/core/ideal.js';
 import palWork from '../../web/data/work.js';
 
@@ -929,4 +929,65 @@ test('save-extras: ケーキの名前と表の ID（アイコンのファイル�
   assert.deepEqual(cakeInfo('Cake02'), { name: 'キノコケーキ', icon: 'Cake02' });
   assert.deepEqual(cakeInfo('cake05'), { name: 'スペシャルケーキ', icon: 'Cake05' });
   assert.deepEqual(cakeInfo('Cake09'), { name: 'Cake09', icon: '' });
+});
+
+// ---- パル次元ストレージの読み漏れ（dps-missing） ----
+const P3 = 'ffff0000-0000-0000-0000-000000000003';
+const FILE = (uid) => `Players/${uid.replace(/-/g, '').toUpperCase()}`;
+const gapSnapshot = ({ inLocker = 118, inLockerMissing = 27, used = [FILE(P1) + '.sav', FILE(P1) + '_dps.sav', FILE(P2) + '.sav'], players = snapshot.players } = {}) => ({
+  ...snapshot, players, stats: { inLocker, inLockerMissing }, files: { used: ['Level.sav', ...used], skipped: [] },
+});
+
+test('次元ストレージの読み漏れ（dpsMissing）: Players/<uid>.sav は読めたのに _dps.sav を読めていない人を候補にする（Lv の分かる人だけ・ファイル名の大文字小文字は問わない）', () => {
+  const gap = dpsMissing(gapSnapshot());
+  assert.deepEqual(gap, { expected: 118, missing: 27, candidates: [{ uid: P2, name: 'Bob', file: `${P2.replace(/-/g, '').toUpperCase()}_dps.sav` }] });
+  // 候補が 2 人。欠けの数は人数で割らない
+  const two = dpsMissing(gapSnapshot({ used: [FILE(P1) + '.sav', FILE(P2).toLowerCase() + '.sav'] }));
+  assert.deepEqual([two.missing, two.candidates.map((player) => player.name)], [27, ['Alice', 'Bob']]);
+  // .sav も読めていない人（登録されていないプレイヤーのファイルの案内に任せる）・Lv の分からない人は候補にしない → 候補なし
+  const none = dpsMissing(gapSnapshot({ used: [FILE(P1) + '.sav', FILE(P1) + '_dps.sav'], players: [...snapshot.players, { uid: P3, name: 'Carol', level: 0 }] }));
+  assert.deepEqual(none.candidates, []);
+  assert.deepEqual(dpsMissing(gapSnapshot({ used: [FILE(P3) + '.sav'], players: [{ uid: P3, name: 'Carol', level: 0 }] })).candidates, []);
+  // 読めていない個体がなければ候補を探さない
+  assert.deepEqual(dpsMissing(gapSnapshot({ inLockerMissing: 0 })), { expected: 118, missing: 0, candidates: [] });
+});
+
+test('次元ストレージの読み漏れ（dpsMissing）: 数のない古い解析結果・壊れた数は「分からない」（null）。読み漏れが一覧の数より多ければ一覧の数まで', () => {
+  for (const stats of [undefined, {}, { inLocker: 118 }, { inLockerMissing: 3 }, { inLocker: 'x', inLockerMissing: 1 }]) {
+    assert.equal(dpsMissing({ ...snapshot, stats }), null, JSON.stringify(stats));
+  }
+  assert.equal(dpsMissing(null), null);
+  assert.equal(dpsMissing(gapSnapshot({ inLocker: 5, inLockerMissing: 9 })).missing, 5);
+  // files がない（古い形）ときは、読めたファイルが分からないので候補もない
+  assert.deepEqual(dpsMissing({ ...snapshot, stats: { inLocker: 3, inLockerMissing: 1 } }).candidates, []);
+});
+
+test('次元ストレージの読み漏れ: 候補のプレイヤーにだけ dpsGap（欠けの数）を付けて共有し、GAS の検査（cleanOwnedPlayer）を通って参加者の画面に戻る', () => {
+  const host = normalizeOwned(gapSnapshot({ used: [FILE(P1) + '.sav', FILE(P2) + '.sav'] }), { pals, passives });
+  assert.deepEqual(host.players.map((player) => [player.name, player.dpsGap]), [['Alice', 27], ['Bob', 27]]);
+  // 解析結果に残っていた値は使わない（ここで求めた値だけ）
+  const stray = normalizeOwned({ ...snapshot, players: [{ uid: P1, name: 'Alice', level: 50, dpsGap: 5 }] }, { pals, passives });
+  assert.equal('dpsGap' in stray.players[0], false);
+  const upload = sharedUpload(host);
+  assert.deepEqual(upload.players, [{ uid: P1, name: 'Alice', level: 50, dpsGap: 27 }, { uid: P2, name: 'Bob', level: 40, dpsGap: 27 }]);
+  // 候補でないプレイヤー・読み漏れのないセーブでは送らない
+  assert.equal(JSON.stringify(sharedUpload(normalizeOwned(gapSnapshot({ inLockerMissing: 0 }), { pals, passives })).players).includes('dpsGap'), false);
+  assert.deepEqual(sharedUpload(normalizeOwned(gapSnapshot(), { pals, passives })).players.map((player) => player.dpsGap), [undefined, 27]);
+  const checked = validateOwnedUpload({ worldId: 'ABCDEF0123456789ABCDEF0123456789', world: { name: 'World9' }, saveUpdatedAt: '2026-10-16T12:00:00.000Z', ...upload });
+  assert.deepEqual(checked.value.players, upload.players);
+  const shared = ownedFromShared({ world: { worldName: 'World9', players: checked.value.players }, columns: OWNED_FIELDS, rows: checked.value.rows }, { pals, passives });
+  assert.deepEqual(shared.players.map((player) => [player.name, player.dpsGap]), [['Alice', 27], ['Bob', 27]]);
+  // 古い共有（dpsGap がない）は付けない
+  const legacy = ownedFromShared({ world: { players: [{ uid: P1, name: 'Alice' }] }, columns: OWNED_FIELDS, rows: [] }, { pals, passives });
+  assert.equal('dpsGap' in legacy.players[0], false);
+});
+
+test('次元ストレージの読み漏れ: cleanOwnedPlayer（GAS と共有）は dpsGap を 1〜上限の整数だけ残す。送る側は上限で切る', () => {
+  for (const value of [0, -1, 1.5, '3', null, true, OWNED_DPS_GAP_MAX + 1, Infinity]) {
+    assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: value }), { uid: P1, name: 'Alice' }, String(value));
+  }
+  assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: 1 }), { uid: P1, name: 'Alice', dpsGap: 1 });
+  assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: OWNED_DPS_GAP_MAX }), { uid: P1, name: 'Alice', dpsGap: OWNED_DPS_GAP_MAX });
+  const many = sharedUpload({ ...owned, players: [{ uid: P1, name: 'Alice', level: 1, online: null, dpsGap: OWNED_DPS_GAP_MAX + 5 }] });
+  assert.equal(many.players[0].dpsGap, OWNED_DPS_GAP_MAX);
 });

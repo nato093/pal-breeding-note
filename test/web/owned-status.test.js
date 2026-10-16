@@ -151,3 +151,71 @@ test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で war
   assert.match(notices[0].hint, /「Bob」という名前のプレイヤーがいません/);
   assert.doesNotMatch(JSON.stringify(notices), /登録されていません。|動きません/);
 });
+
+// ---- パル次元ストレージの読み漏れ（dps-missing） ----
+const ALICE = '00000000-0000-0000-0000-000000000001';
+const BOB = '00000000-0000-0000-0000-000000000002';
+const CAROL = '00000000-0000-0000-0000-000000000003';
+const file = (uid, suffix = '') => `Players/${uid.replace(/-/g, '')}${suffix}.sav`;
+const gapState = ({ stats = { inLocker: 118, inLockerMissing: 27 }, used = [file(ALICE), file(ALICE, '_dps'), file(BOB)], players } = {}) => ownedState({
+  data: { source: 'handles', snapshot: {
+    files: { used: ['Level.sav', ...used], skipped: [] }, stats,
+    players: players ?? [{ uid: ALICE, name: 'Alice', level: 50 }, { uid: BOB, name: 'Bob', level: 40 }],
+  } },
+});
+
+test('次元ストレージの読み漏れ（ホスト）: 候補が 1 人なら、数と候補のファイル名・名前を挙げて［ワールドを編集］へ', async () => {
+  const { dimensionGap, dimensionNotice } = await import('../../web/js/ui/owned-status.js');
+  const state = gapState();
+  const text = 'Level.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players\\00000000000000000000000000000002_dps.sav（Bob）が登録されていないかもしれません。';
+  assert.deepEqual(dimensionGap(state.data.snapshot), { text, kind: 'warning', action: 'editWorld' });
+  assert.deepEqual(dimensionNotice(state), { text, kind: 'warning', action: 'editWorld' });
+  assert.deepEqual(ownedNotices(state), [{ text, kind: 'warning', action: 'editWorld' }]);
+  for (const notice of ownedNotices(state)) assert.doesNotMatch(notice.text, /設定タブ/);
+});
+
+test('次元ストレージの読み漏れ（ホスト）: 候補が複数なら全員を挙げ、欠けの数は人数で割らない。候補がいなければ「ファイルが足りないか、保存の途中に読んだ」', async () => {
+  const { dimensionGap } = await import('../../web/js/ui/owned-status.js');
+  const two = gapState({ used: [file(ALICE), file(BOB)], players: [{ uid: ALICE, name: 'Alice', level: 50 }, { uid: BOB, name: '', level: 40 }] });
+  assert.equal(dimensionGap(two.data.snapshot).text,
+    'Level.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players\\00000000000000000000000000000001_dps.sav（Alice）、Players\\00000000000000000000000000000002_dps.sav（名前なし）が登録されていないかもしれません。');
+  // 全員の _dps.sav を読めているのに欠けている（保存の途中など）。ボタンは出さない
+  const none = gapState({ used: [file(ALICE), file(ALICE, '_dps'), file(BOB), file(BOB, '_dps')] });
+  assert.deepEqual(ownedNotices(none), [{ text: 'Level.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません（ファイルが足りないか、保存の途中に読んだ可能性があります）。', kind: 'warning' }]);
+  // .sav も登録されていない人は、登録されていないプレイヤーのファイルの案内と並べる（その人を候補にはしない）
+  const unregistered = ownedNotices(gapState({ used: [file(ALICE), file(ALICE, '_dps')], players: [{ uid: ALICE, name: 'Alice', level: 50 }, { uid: CAROL, name: 'Carol', level: 3 }] }));
+  assert.deepEqual(unregistered.map((notice) => notice.action ?? ''), ['editWorld', '']);
+  assert.match(unregistered[0].text, /^登録されていないプレイヤーのファイルがあります: Carol/);
+  assert.match(unregistered[1].text, /読めていません（ファイルが足りないか/);
+});
+
+test('次元ストレージの読み漏れ（ホスト）: 欠けがない・数のない古い stats（IndexedDB）は案内を出さない', async () => {
+  const { dimensionGap } = await import('../../web/js/ui/owned-status.js');
+  assert.deepEqual(ownedNotices(gapState({ stats: { inLocker: 118, inLockerMissing: 0 } })), []);
+  for (const stats of [{}, null, 'x', { unknownLocation: 0 }, { inLocker: 118 }, { inLocker: 'many', inLockerMissing: 'x' }]) {
+    assert.deepEqual(ownedNotices(gapState({ stats })), [], JSON.stringify(stats));
+  }
+  assert.equal(dimensionGap(undefined), null);
+});
+
+test('次元ストレージの読み漏れ（参加者）: 共有のデータで自分（selfUids）が候補のときだけ、自分の _dps.sav をホストに足してもらう案内。ほかの人が候補・古い共有では出さない', async () => {
+  const { dimensionNotice } = await import('../../web/js/ui/owned-status.js');
+  const sharedState = (players, role = 'guest') => ownedState({
+    role, auto: { enabled: role === 'guest', status: 'ready', worlds: [], worldId: '', error: '' }, data: { world: {} },
+    owned: { pals: [], players, stats: {} }, meta: { ...ownedState().meta, source: 'shared', sharedAt: SAVED, uploadedBy: 'Alice' },
+  });
+  const players = [{ uid: ALICE, name: 'Alice', level: 50 }, { uid: BOB, name: 'Bob', level: 40, dpsGap: 27 }];
+  const text = 'パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。';
+  assert.deepEqual(dimensionNotice(sharedState(players), { selfUids: new Set([BOB]) }), { text, kind: 'warning' });
+  const guest = ownedNotices(sharedState(players), { selfUids: new Set([BOB]), now: () => Date.parse(SAVED) });
+  assert.deepEqual(guest.map((notice) => notice.text).slice(1), [text]);
+  // 自分が候補でない・自分が分からない・候補のない古い共有では出さない
+  assert.equal(dimensionNotice(sharedState(players), { selfUids: new Set([ALICE]) }), null);
+  assert.equal(dimensionNotice(sharedState(players)), null);
+  assert.equal(dimensionNotice(sharedState([{ uid: BOB, name: 'Bob', level: 40 }]), { selfUids: new Set([BOB]) }), null);
+  assert.equal(ownedNotices(sharedState(players), { selfUids: new Set([ALICE]), now: () => Date.parse(SAVED) }).some((notice) => /次元ストレージ/.test(notice.text)), false);
+  // 連携していない人が共有を見ているときも、自分が候補なら同じ案内
+  assert.deepEqual(ownedNotices(sharedState(players, ''), { selfUids: new Set([BOB]) }), [{ text, kind: 'warning' }]);
+  // ホストの画面の案内（この PC で読んだセーブ）は、自分のプレイヤーによらない
+  assert.equal(dimensionNotice(gapState(), { selfUids: new Set() }).action, 'editWorld');
+});

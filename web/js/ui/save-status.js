@@ -2,7 +2,7 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems } from './owned-status.js';
+import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems, dimensionNotice } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -24,10 +24,11 @@ export function saveStatusLine({ world = '', time = '', auto = '' }) {
 /**
  * 表示の中身を決める（DOM なし）。上の行ほど優先する。
  * busy は読み込み中（文は変えず、点を流れる光にする。前の文を残すのは saveStatus の側）。
+ * selfUids は自分のプレイヤー（パル次元ストレージの読み漏れの参加者の案内。ui/owned-status.js の dimensionNotice）。
  * @returns {{ tone: 'ok' | 'busy' | 'warn' | 'stale' | 'none', text: string, world: string, time: string, auto: string,
  *   title: string, action: 'grant' | null, busy: boolean }}
  */
-export function saveStatusModel(state, { autoEnabled = () => false, now = Date.now() } = {}) {
+export function saveStatusModel(state, { autoEnabled = () => false, now = Date.now(), selfUids = new Set() } = {}) {
   const meta = state.meta;
   const busy = Boolean(state.busy || (state.auto?.enabled && state.auto.status === 'checking'));
   const result = (tone, parts, title, action = null) => ({
@@ -48,6 +49,9 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   const world = meta.worldName ? `「${meta.worldName}」` : `ワールド ${String(meta.worldId ?? '').slice(0, 8)}`;
   // ゲーム内の日数・プレイ中・Lv（save-extras）も、押す前の説明（title）に出す
   const lines = [worldName(meta), ...timeLines(state), ...presenceItems(state, { now: () => now }).map(([term, detail]) => `${term}: ${detail}`)];
+  // パル次元ストレージの読み漏れ（dps-missing）も押す前の説明に出す（チップの色は変えない。所持パルは読めた分で出ている）
+  const gap = dimensionNotice(state, { selfUids });
+  if (gap) lines.push(gap.text);
   if (meta.source === 'local') {
     const stale = Boolean(auto.enabled) && olderThan(meta.importedAt, STALE_LOCAL_MS, now);
     if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんは 1 分ごとに読み直します）`);
@@ -61,8 +65,9 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   return result(stale ? 'stale' : 'ok', { world, time: `共有 ${formatShortTime(sharedAt, now, '不明')}` }, lines.join('\n'));
 }
 
-// ポップオーバーに出す、困っていること（なければ空）。許可切れは permissionNotice の文・止まった時刻・勧め
-function problems(state, now) {
+// ポップオーバーに出す、困っていること（なければ空）。許可切れは permissionNotice の文・止まった時刻・勧め、
+// パル次元ストレージの読み漏れは所持パルの案内と同じ文（dimensionNotice）
+function problems(state, now, { selfUids = new Set() } = {}) {
   const items = [];
   const auto = state.auto ?? {};
   const permission = permissionNotice(state, { now: () => now });
@@ -71,14 +76,17 @@ function problems(state, now) {
   if (state.upload?.status === 'error') items.push(`共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !state.meta?.source) items.push(`共有された所持パルを読めませんでした: ${state.shared.error}`);
   if (state.error) items.push(`セーブを読み込めませんでした: ${state.error}`);
+  const gap = dimensionNotice(state, { selfUids });
+  if (gap) items.push(gap.text);
   return items;
 }
 
 /**
  * ヘッダーの部品。中身は textContent・className・title だけを書き換える（作り直さない）。
  * ヘッダーはアプリと同じ寿命だが、テストのために destroy で購読を全部外せる。
+ * selfUids は自分のプレイヤーの UID を返す関数（app.js は ideals.selfUids。参加者のパル次元ストレージの読み漏れの案内）
  */
-export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen, openFarms }) {
+export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen, openFarms, selfUids = () => new Set() }) {
   const element = el('div', 'save-status');
   const trigger = button('', onClick, 'save-status-button');
   trigger.setAttribute('aria-haspopup', 'dialog');
@@ -139,7 +147,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       items.push(...presenceItems(state, { now }));
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);
       details.replaceChildren(...items.flatMap(([term, detail]) => [el('dt', '', term), el('dd', '', detail)]));
-      const found = problems(state, now());
+      const found = problems(state, now(), { selfUids: selfUids() });
       issues.replaceChildren(...found.map((item) => el('li', '', item)));
       issues.hidden = !found.length;
       grant.hidden = !(state.auto.enabled && state.auto.status === 'permission');
@@ -167,7 +175,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
   }
 
   function update() {
-    const model = saveStatusModel(owned.state, { autoEnabled: (worldId) => autoRegister?.enabled(worldId) ?? false, now: now() });
+    const model = saveStatusModel(owned.state, { autoEnabled: (worldId) => autoRegister?.enabled(worldId) ?? false, now: now(), selfUids: selfUids() });
     // 読み込み中は文を変えない（幅が揺れない）。最初の「確認中」だけは置き換える
     if (!(model.busy && shown && shown.tone !== 'busy')) shown = model;
     action = model.action;

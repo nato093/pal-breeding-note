@@ -22,7 +22,7 @@
 
 ## 1. dps-position（S）
 
-- 状態: 実装済（feature/dps-position。マージは親が確かめてから）
+- 状態: 実装済（feature/dps-position。integrate/sync-fixes へのマージのコミット 5087ea1）
 - [x] `dpsLabel`・`DPS_LABEL`・`parseBoxLabel(label, kind)`・`boxShort(pal)`（core/owned.js。palboxLabel と BOX_LABEL は変えない）
 - [x] `normalizeOwned` で dps にも位置、`ownedFromShared` で dps も読み戻す
 - [x] 表示（fillWhereCell・palBrief・holderSummary）
@@ -31,13 +31,13 @@
 
 ## 2. dps-missing（M）
 
-- 状態: 未
-- [ ] buildSnapshot で集合の差（`stats.inLocker`・`stats.inLockerMissing`）
-- [ ] `dimensionGap` と案内（所持パル・ヘッダー・理想個体）
-- [ ] 参加者への `dpsGap`（sharedUpload → cleanOwnedPlayer → build:gas → boundary の cleanSharedPlayers → ownedFromShared）と参加者の案内
-- [ ] 登録モーダルの 1 行・check-save の 1 行
-- [ ] テスト（集合の差・案内の各場合・往復）
-- [ ] OPERATIONS.md・SAVE_FORMAT.md・release-notes
+- 状態: 実装済（feature/dps-missing。マージは親が確かめてから）
+- [x] buildSnapshot で集合の差（`stats.inLocker`・`stats.inLockerMissing`）
+- [x] `dimensionGap` と案内（所持パル・ヘッダー・理想個体）
+- [x] 参加者への `dpsGap`（sharedUpload → cleanOwnedPlayer → build:gas → boundary の cleanSharedPlayers → ownedFromShared）と参加者の案内
+- [x] 登録モーダルの 1 行・check-save の 1 行
+- [x] テスト（集合の差・案内の各場合・往復）
+- [x] OPERATIONS.md・SAVE_FORMAT.md・release-notes
 
 ## 3. owned-gas（L）
 

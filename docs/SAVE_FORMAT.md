@@ -47,6 +47,7 @@
 - 拠点のパルには `OwnerPlayerUId` がない。`OldOwnerPlayerUIds` の最後を「預けた人」として出す。
 - パル次元ストレージ（`_dps.sav`）とグローバルパルボックス（`GlobalPalStorage.sav`）は、それぞれのファイルの `SaveParameterArray` から読む（空き枠は `CharacterID` が `None`）。
   パル次元ストレージの位置は `SaveParameterArray` の添字（スナップショットの `location.slotIndex`）で、パルボックスと同じ 1 ページ 30 枠・横 6 列（2026-10-12 に実セーブで 7820 → 261 ページ 4 行 3 列などを確認）。個体の中の `SlotId` は預ける前のパルボックスの位置なので使わない。
+- `Level.sav` の `worldSaveData.InLockerCharacterInstanceIDArray` は、パル次元ストレージの個体の `InstanceId` の一覧（全員の分。キーの `PlayerUId` は 0 で、誰の分かは分からない）。2026-10-16 に実セーブで 118 件が 2 人の `_dps.sav` の個体 27＋91＝118 と `InstanceId` が全部一致した（グローバルパルボックスの個体は含まない。ほかの 12 ワールドは 0 件）。`buildSnapshot` は、この一覧のうち読めた `_dps.sav` にない個体の数を `stats.inLockerMissing`（一覧の数は `stats.inLocker`）に残す（`_dps.sav` の読み漏れの検知。sync-fixes の dps-missing。`docs/OPERATIONS.md`）。
 - タマゴ（`DynamicItemSaveData` の卵）にも生まれるパルのパッシブが入っている。入っているアイテムの入れ物から場所を決める:
   配合牧場が地面に置いたタマゴ（建物 `Palegg`・`PalEgg_<属性>`）、孵化器、保管箱、プレイヤーの所持品。どこからも参照されないものは数えない。
 - 野生のボス（アルファ）は `CharacterID` に `BOSS_` が付く。捕まえた人間（`Male_Soldier01` など）はパルのマスターにないので、内部名のまま出す。

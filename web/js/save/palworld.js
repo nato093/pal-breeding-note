@@ -1054,6 +1054,10 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     orphanEggs: 0,
     orphanEggsDetail: { noParams: 0, noContainer: 0, unreferencedContainer: 0 },
     malformed: {},
+    // パル次元ストレージの読み漏れ（dps-missing）: Level.sav の InLockerCharacterInstanceIDArray の個体の数と、そのうち読めた _dps.sav に
+    // ない数（数だけ。個体の ID は残さない）。この 2 つがない古い解析結果は、画面の側で「分からない」として案内を出さない
+    inLocker: 0,
+    inLockerMissing: 0,
   };
   for (const [k, v] of Object.entries(level.malformed || {})) bump(stats.malformed, `level.${k}`, v);
 
@@ -1166,15 +1170,22 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     add(palEntry('level', p.instanceId, p, loc));
   }
 
+  // 正しく読めた _dps.sav の個体の ID（次元ストレージの読み漏れを数える）
+  const dpsIds = new Set();
   for (const d of dps || []) {
     const data = d && d.data;
     if (!data || !Array.isArray(data.pals)) continue;
     for (const [k, v] of Object.entries(data.malformed || {})) bump(stats.malformed, `dps.${k}`, v);
     const playerUid = normUid(d.playerUid);
     for (const p of data.pals) {
+      if (p.instanceId) dpsIds.add(p.instanceId);
       add(palEntry('dps', p.instanceId, p, location('dps', { playerUid, slotIndex: p.arrayIndex })));
     }
   }
+  // Level.sav の一覧は全員の次元ストレージの個体（キーの PlayerUId は 0 で誰の分かは分からない。グローバルパルボックスは含まない。
+  // 2026-10-16 に実セーブで 118 件が 2 人の _dps.sav の 27＋91 と全部一致）。読めた _dps.sav にない個体の数を、集合の差で数える
+  stats.inLocker = inLocker.size;
+  stats.inLockerMissing = [...inLocker].filter((id) => !dpsIds.has(id)).length;
 
   const gsInput = globalStorage && globalStorage.data ? globalStorage : (globalStorage ? { playerUid: '', data: globalStorage } : null);
   if (gsInput && gsInput.data && Array.isArray(gsInput.data.pals)) {

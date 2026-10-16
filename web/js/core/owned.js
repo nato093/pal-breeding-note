@@ -1,8 +1,8 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, ownedInGameDay } from './owned-shared.js';
-import { isObject, int, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
+import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay } from './owned-shared.js';
+import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
@@ -375,6 +375,40 @@ export function stockText(stock, { short = false } = {}) {
   return `在庫 ${stock.total}（${shown.map((place) => `${place.label} ${place.count}`).join('・')}${more ? ' ほか' : ''}）`;
 }
 
+// Players の中のファイル名の 32 桁（UID からハイフンを除いたもの。大文字）
+const playerFileId = (uid) => String(uid ?? '').replace(/-/g, '').toUpperCase();
+// 数の上限（壊れた値で文が崩れないように）
+const LOCKER_COUNT = { min: 0, max: 1000000 };
+
+/**
+ * パル次元ストレージの読み漏れ（dps-missing）。この PC で読んだセーブの解析結果（buildSnapshot の結果に files を足したもの。IndexedDB から
+ * 戻したものも）から、Level.sav の次元ストレージの個体の数（expected）・そのうち読めた _dps.sav にない数（missing）と、
+ * missing が 1 以上のときの候補（Players/<uid>.sav は読めたのに Players/<uid>_dps.sav を読めていないプレイヤー。Lv が分かる人だけ
+ *〔登録されていないプレイヤーのファイルの案内と同じ考え方〕。{ uid, name, file: 'XXXX_dps.sav' }）。
+ * 数を持たない古い解析結果は「分からない」で null。欠けは候補のだれの分かは分からないので、人数で割ったり、1 人に決めたりしない
+ * @returns {null | { expected: number, missing: number, candidates: { uid: string, name: string, file: string }[] }}
+ */
+export function dpsMissing(snapshot) {
+  const stats = isObject(snapshot?.stats) ? snapshot.stats : {};
+  const expected = intOrNull(stats.inLocker, LOCKER_COUNT);
+  const counted = intOrNull(stats.inLockerMissing, LOCKER_COUNT);
+  if (expected === null || counted === null) return null;
+  const missing = Math.min(counted, expected);
+  if (!missing) return { expected, missing, candidates: [] };
+  const used = new Set(list(snapshot?.files?.used, { map: (path) => (typeof path === 'string' ? path.toLowerCase() : null) }));
+  const candidates = list(snapshot?.players, {
+    max: PLAYERS_MAX,
+    map: (player) => {
+      if (!isObject(player) || !idText(player.uid, 40) || !(int(player.level, { fallback: 0 }) > 0)) return null;
+      const id = playerFileId(player.uid);
+      if (!used.has(`players/${id.toLowerCase()}.sav`) || used.has(`players/${id.toLowerCase()}_dps.sav`)) return null;
+      return { uid: player.uid, name: text(player.name, 50), file: `${id}_dps.sav` };
+    },
+    key: (player) => player.uid,
+  });
+  return { expected, missing, candidates };
+}
+
 /**
  * スナップショットを画面用の一覧にする。
  * @param {object} snapshot buildSnapshot の結果
@@ -390,10 +424,17 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   const objects = (value) => list(value, { map: (item) => (isObject(item) ? item : null) });
   // プレイヤーの Lv とプレイ中（save-extras）は形を確かめて入れ直す（古いスナップショットのプレイヤーには online がない＝分からない）。
   // 捕獲数（paldex）はパル ID ごとの回数にして、読めたプレイヤーだけに captures を付ける（古いスナップショットには項目がない）
+  // パル次元ストレージの読み漏れ（dps-missing）の候補のプレイヤーには、読めていない数（dpsGap）を付ける（共有で参加者に知らせる）。
+  // 解析結果のプレイヤーに同じ名前の項目があっても使わない（ここで求めた値だけ）
+  const gap = dpsMissing(snapshot);
+  const gapUids = new Set(gap?.candidates.map((player) => player.uid) ?? []);
   const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
-    .map(({ captures: raw, ...player }) => {
+    .map(({ captures: raw, dpsGap: _gap, ...player }) => {
       const captures = capturesOf(raw, resolve);
-      return [player.uid, { ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}) }];
+      return [player.uid, {
+        ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}),
+        ...(gapUids.has(player.uid) ? { dpsGap: gap.missing } : {}),
+      }];
     }));
   const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
   // ギルドが複数あるワールドでは、拠点の番号がギルドごとに重なるのでギルド名を添える
@@ -1067,10 +1108,12 @@ export function sharedUpload(owned) {
   return {
     // プレイヤーの Lv とプレイ中（save-extras）は players の JSON の中に足す（古い GAS は捨てるだけで、共有は止まらない）。
     // 分からない値（Lv 0・プレイ中 null）は送らない
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）も同じく players の中に、候補のプレイヤーにだけ付ける
     players: owned.players.map((player) => ({
       uid: player.uid, name: player.name,
       ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
       ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
+      ...(Number.isInteger(player.dpsGap) && player.dpsGap > 0 ? { dpsGap: Math.min(player.dpsGap, OWNED_DPS_GAP_MAX) } : {}),
     })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
     // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。牧場ごとにタマゴの数（n）と中身（eggs。20 個まで）を足し、セルに入るよう
@@ -1174,8 +1217,11 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   return {
     // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）
     world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay) },
-    // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）
-    players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', ...playerExtras(player) })),
+    // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）。
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある
+    players: cleanSharedPlayers(world.players).map((player) => ({
+      uid: player.uid, name: player.name || '不明', ...playerExtras(player), ...(player.dpsGap ? { dpsGap: player.dpsGap } : {}),
+    })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
