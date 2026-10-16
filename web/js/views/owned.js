@@ -13,7 +13,7 @@ import { virtualRows } from '../ui/virtual-list.js';
 import { farmBoard, cakesOut } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
 import {
-  viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
+  viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
   fieldHead, panelItem, panelLine,
 } from './shared.js';
 import { tabLabel } from './tabs.js';
@@ -1873,9 +1873,8 @@ export function ownedView(context, route) {
   renderFilters(owned.state);
   renderResults();
   warmKeywords(owned.state.owned);
+  // 開いたときに 1 回読み直す。開いている間の読み直しは、どの画面でも app.js の 10 秒ごとのタイマーが行う（画面はタイマーを持たない。share-fetch）
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
-  // 開いている間は読み直す（参加している人も、ホストが共有し直した所持パルが入る）
-  const stopRefreshing = keepRefreshing(owned);
   return {
     element, update,
     // 同じ画面のまま絞り込みつきの URL が来たとき（URL が条件のすべてを決める）・戻る・進むで app.js が履歴のエントリの条件を filter に
@@ -1895,7 +1894,6 @@ export function ownedView(context, route) {
       destroyed = true;
       // 見ていたデータのセーブの時刻を、次に開いたときの NEW の基準にする（save-extras）
       saveSeen();
-      stopRefreshing();
       stopSelf();
       stopSelfChoice();
       stopGoals();

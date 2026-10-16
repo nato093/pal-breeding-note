@@ -33,7 +33,7 @@ import { ownedWorldId } from '../core/owned-shared.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
 import { openWorldDialog } from './owned-settings.js';
 import {
-  viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing,
+  viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets,
   holderChoices, holderValue, HOLDER_DEFAULT, fieldHead, panelItem, panelLine,
 } from './shared.js';
 import { tabLabel } from './tabs.js';
@@ -2002,14 +2002,13 @@ export function idealView(context, route) {
   };
   const stopSelf = context.store.subscribe(selfChanged);
   const stopSelfChoice = context.self?.subscribe?.(selfChanged) ?? (() => {});
-  // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
-  // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）
+  // 開いて最初の読み込みが終わったら 1 回読み直す（閉じた後と、タブが裏にある間は読まない。destroyed は区切った計算と同じ印）。
+  // 開いている間の読み直し（孵化させて受け取ったパルも順位に入れる）は、どの画面でも app.js の 10 秒ごとのタイマーが行う（share-fetch）
   owned.load().then(() => {
     if (!destroyed && globalThis.document?.visibilityState !== 'hidden') return owned.autoRefresh();
   }).catch(() => {});
-  const stopRefreshing = keepRefreshing(owned);
   return {
     element, update, applyRoute, flushInputs,
-    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); stopSelf(); stopSelfChoice(); unsubscribeGoals(); view.destroy(); },
+    destroy() { destroyed = true; unsubscribe(); stopSelf(); stopSelfChoice(); unsubscribeGoals(); view.destroy(); },
   };
 }

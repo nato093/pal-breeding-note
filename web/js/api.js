@@ -106,9 +106,10 @@ function validateOwnedResponse(response, action) {
     presence: () => presence(),
   })[action]();
   if (!ok) throw new ApiError('RESPONSE');
-  // 形を確かめた後で、中身を整える（壊れた要素だけを捨てる。core/boundary.js）
+  // 形を確かめた後で、中身を整える（壊れた要素だけを捨てる。core/boundary.js）。所持パルの中身には、受け取った生の行の数（重複・壊れた行を
+  // 除く前）を receivedRows に残す（画面が world.palCount と比べ、違えば前の表示を残して読み直す。sync-fixes の share-fetch）
   if (action === 'ownedWorlds') return { ...response, worlds: cleanOwnedWorlds(response.worlds) };
-  if (action === 'owned') return { ...response, ...cleanOwnedPayload(response) };
+  if (action === 'owned') return { ...response, ...cleanOwnedPayload(response), receivedRows: response.rows.length };
   if (action === 'ownedUpload') {
     const [world] = cleanOwnedWorlds([response.world]);
     if (!world) throw new ApiError('RESPONSE');
@@ -120,7 +121,7 @@ function validateOwnedResponse(response, action) {
   }
   if (action === 'ownedSince') {
     const list = cleanPresenceList(response.presence);
-    if (response.changed) return { ...response, ...cleanOwnedPayload(response), presence: list };
+    if (response.changed) return { ...response, ...cleanOwnedPayload(response), receivedRows: response.rows.length, presence: list };
     const cleaned = {
       ...response, uploadedAt: isoTime(response.uploadedAt), uploadedBy: text(response.uploadedBy, 20),
       saveUpdatedAt: isoTime(response.saveUpdatedAt), palCount: int(response.palCount, { min: 0, max: OWNED_MAX_ROWS }), presence: list,

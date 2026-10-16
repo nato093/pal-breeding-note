@@ -73,7 +73,12 @@ test('owned-gas の api: ownedSince の 2 通りの応答と presence の一覧�
   const old = await respond({ ...withoutStamp, presence: null }).request('ownedSince', 'p', { worldId: WORLD });
   assert.deepEqual(['saveStamp' in old, old.presence], [false, null]);
   const changed = { ...base, changed: true, world: sharedWorld({ saveStamp: stamp(2) }), columns: OWNED_FIELDS, rows: [row('p1')], presence: [] };
-  assert.deepEqual(await respond(changed).request('ownedSince', 'p', { worldId: WORLD }), changed);
+  // 受け取った生の行の数（重複・壊れた行を除く前。画面が palCount と比べる。share-fetch）を receivedRows に残す
+  assert.deepEqual(await respond(changed).request('ownedSince', 'p', { worldId: WORLD }), { ...changed, receivedRows: 1 });
+  const messyRows = await respond({ ...changed, rows: [row('p1'), row('p1'), null, row('')] }).request('ownedSince', 'p', { worldId: WORLD });
+  assert.deepEqual([messyRows.rows.length, messyRows.receivedRows], [1, 4]);
+  const owned = await respond({ ...base, world: sharedWorld(), columns: OWNED_FIELDS, rows: [row('p1'), row('p1')] }).request('owned', 'p', { worldId: WORLD });
+  assert.deepEqual([owned.rows.length, owned.receivedRows], [1, 2]);
   assert.equal((await respond({ ...changed, world: null, rows: [] }).request('ownedSince', 'p', { worldId: WORLD })).world, null);
   for (const broken of [{ ...unchanged, changed: 'no' }, { ...unchanged, uploadedAt: 3 }, { ...unchanged, presence: {} }, { ...changed, rows: 'x' }]) {
     await assert.rejects(respond(broken).request('ownedSince', 'p', { worldId: WORLD }), { code: 'RESPONSE' });

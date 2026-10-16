@@ -543,30 +543,23 @@ test('理想個体画面: 欲しいパッシブ以外のパッシブは、確率
   view.destroy();
 });
 
-test('理想個体画面: 開いている間は 10 秒ごとに読み直し、閉じた後は読まない（D26 で 20.5 秒から 10 秒にした）', async (t) => {
+test('理想個体画面: 画面は自分でタイマーを持たず（開いている間の読み直しは app.js の 10 秒ごとの 1 本。share-fetch）、閉じた後は読まない', async (t) => {
   install(t);
+  const intervals = t.mock.method(globalThis, 'setInterval');
   let release;
   const owned = fakeOwned();
   let refreshes = 0;
   owned.autoRefresh = () => { refreshes++; return Promise.resolve('skipped'); };
   owned.load = () => new Promise((resolve) => { release = resolve; });
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
-  t.mock.timers.tick(10 * 1000);
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 2);
-  // タブが裏にある間は読まない
-  document.visibilityState = 'hidden';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 2);
-  document.visibilityState = 'visible';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 3);
-  view.destroy();
   t.mock.timers.tick(60 * 1000);
+  assert.equal(refreshes, 0);
+  assert.equal(intervals.mock.callCount(), 0);
+  view.destroy();
   // 閉じた後に最初の読み込みが終わっても、読み直さない
   release();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(refreshes, 3);
+  assert.equal(refreshes, 0);
 });
 
 test('理想個体画面: 開いて最初の読み込みが終わったら、一度読み直す', async (t) => {

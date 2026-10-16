@@ -41,7 +41,7 @@
 
 ## 3. owned-gas（L）
 
-- 状態: 実装済（feature/owned-gas。GAS の反映はユーザーに依頼）
+- 状態: 実装済（feature/owned-gas。integrate/sync-fixes へのマージのコミット faf146a。GAS の反映はユーザーに依頼）
 - [x] スナップショットに `world.savedAtTicks`、`compareSaves`（core/owned-shared.js）、boundary の cleanWorld で保存印を残す
 - [x] 送る world の中の識別（saveStamp・contentHash・format・fileCount・missingCount・force）と列 `saveKey`（先頭に uploadedAt）
 - [x] 結果の種類（new・newer・stale・unchanged・resent・same・識別なし）と応答の published・cleanup
@@ -56,11 +56,11 @@
 
 ## 4. share-fetch（M）
 
-- 状態: 未
-- [ ] fetchShared を ownedSince に（できることを覚える・BAD_ACTION で落とす・一覧は 5 分ごと・変わらなければ作り直さない）
-- [ ] 安全網（生の行数と palCount・PARTIAL・確定として保存しない・古い応答を捨てる・送信の応答も）
-- [ ] app.js の 10 秒の 1 本と keepRefreshing の廃止
-- [ ] テストと release-notes
+- 状態: 実装済（feature/share-fetch。マージは親が確かめてから）
+- [x] fetchShared を ownedSince に（できることを覚える・BAD_ACTION で落とす・一覧は 5 分ごと・変わらなければ作り直さない）
+- [x] 安全網（生の行数と palCount・PARTIAL・確定として保存しない・古い応答を捨てる・送信の応答も）
+- [x] app.js の 10 秒の 1 本と keepRefreshing の廃止
+- [x] テストと release-notes
 
 ## 5. share-upload（M）
 
