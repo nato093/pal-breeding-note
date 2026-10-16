@@ -280,3 +280,21 @@ test('ヘッダーのセーブ連携（dps-missing）: 自分が候補でない�
   assert.equal(other.part.element.querySelector('.save-status-issues').hidden, true);
   other.part.destroy();
 });
+
+test('セーブ連携の状態（share-upload）: 同じセーブが共有済みは、押す前の説明とパネルの「共有」の行に出す（チップの色は変えない）', async (t) => {
+  const state = hostState({
+    local: { world: { signature: 'sig-1' } },
+    upload: { status: 'same', at: at(2), error: '', worldId: 'A'.repeat(32), result: 'unchanged', signature: 'sig-1', stamp: '638650000000000001', published: { saveStamp: '638650000000000001', uploadedBy: 'Alice', uploadedAt: at(2) } },
+  });
+  const result = model(state);
+  assert.equal(result.tone, 'ok');
+  assert.match(result.title, /同じセーブが共有済み（Alice の PC から）/);
+  // 前のセーブを送った結果は出さない
+  assert.doesNotMatch(model({ ...state, local: { world: { signature: 'sig-2' } } }).title, /共有済み/);
+  const { trigger, part } = setup(t, state);
+  await trigger.dispatch('click');
+  const panel = part.element.querySelector('.save-status-panel');
+  assert.match(panel.textContent, /共有同じセーブが共有済み（Alice の PC から）/);
+  assert.equal(part.element.querySelector('.save-status-issues').hidden, true);
+  part.destroy();
+});

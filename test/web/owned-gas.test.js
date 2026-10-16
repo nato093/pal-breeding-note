@@ -7,12 +7,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGas, FakeSpreadsheet } from '../gas/harness.js';
 import { legacyGasFiles, legacyApi } from '../gas/legacy.js';
-import { createApi, buildRequest, errorMessage } from '../../web/js/api.js';
+import { createApi, buildRequest, errorMessage, ApiError } from '../../web/js/api.js';
 import { createOwnedStore } from '../../web/js/owned.js';
 import { safeStorage } from '../../web/js/store.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
-import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
-import { fakeHandle, hostFiles, asDropped, memoryPersist, T0 } from '../helpers/file-handles.js';
+import { OWNED_FIELDS, OWNED_FORMAT } from '../../web/js/core/owned-shared.js';
+import { fakeHandle, hostFiles, asDropped, memoryPersist, settleUpload, T0 } from '../helpers/file-handles.js';
 
 const PROPS = { PASSCODE: 'AAAA-BBBB-CCCC-DDDD', TEST_PASSCODE: 'EEEE-FFFF-GGGG-HHHH' };
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
@@ -178,7 +178,6 @@ function makeStore({ server, persist = memoryPersist(), storage = memoryStorage(
   return { store, persist, storage, register };
 }
 const offline = { scope: () => 'test', userId: () => 'ホスト', request: async () => { throw Object.assign(new Error('CONNECTION'), { code: 'CONNECTION' }); } };
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test('owned-gas の往復: 共有の saveStamp は API の受信 → キャッシュ → 復元を通り、手元と共有の選択は中の保存時刻で比べる', async () => {
   const env = gas();
@@ -196,7 +195,7 @@ test('owned-gas の往復: 共有の saveStamp は API の受信 → キャッ�
   const host = makeStore({ server, snapshot: hostSnapshot(stamp(10)) });
   await host.register(hostFiles(T0));
   await host.store.fetchShared({ force: true });
-  await tick();
+  await settleUpload(host.store);
   const state = host.store.state;
   assert.equal(state.shared.current.world.saveStamp, stamp(20));
   assert.equal(state.local.snapshot.world.savedAtTicks, stamp(10));
@@ -236,6 +235,66 @@ test('owned-gas の往復: 表示するワールドの既定（いちばん新�
 });
 
 // ---------------------------------------------------------------------------
+// share-upload: 画面の送信（識別つき）→ GAS（harness）・開発用 API の往復
+// ---------------------------------------------------------------------------
+
+test('share-upload の往復: 画面が送る識別は GAS（harness）と開発用 API の検査を通り、2 回目の同じ送信は unchanged（自分の共有）で書き直さない', async () => {
+  const env = gas();
+  const mock = createDevelopmentApi();
+  const mockApi = createApi({ transport: (request) => mock(request) });
+  const servers = {
+    gas: { scope: () => 'test', userId: () => 'ホスト', request: (action, input = {}) => env.api.request(action, PROPS.TEST_PASSCODE, input) },
+    mock: { scope: () => 'test', userId: () => 'ホスト', request: (action, input = {}) => mockApi.request(action, 'local', input) },
+  };
+  const results = {};
+  for (const [name, server] of Object.entries(servers)) {
+    const host = makeStore({ server, snapshot: hostSnapshot(stamp(30)) });
+    await host.register(hostFiles(T0));
+    await settleUpload(host.store);
+    const first = host.store.state.upload;
+    const again = await host.store.uploadLocal({ force: true });
+    const second = host.store.state.upload;
+    results[name] = [first.status, first.result, again, second.status, second.result, second.published.uploadedAt === first.published.uploadedAt, second.published.saveStamp];
+  }
+  assert.deepEqual(results.mock, results.gas);
+  assert.deepEqual(results.gas, ['done', 'new', 'unchanged', 'done', 'unchanged', true, stamp(30)]);
+  // GAS の列 saveKey に、画面が送った識別（保存時刻・中身の印・形の版・読めたファイル 3・読めなかったファイル 0）が残る
+  const sheet = env.spreadsheet.getSheetByName('OwnedWorlds_test');
+  const saveKey = String(sheet.data[1][sheet.data[0].indexOf('saveKey')]);
+  assert.match(saveKey, new RegExp(`\\|${stamp(30)}\\|[0-9a-f]{64}\\|${OWNED_FORMAT}\\|3\\|0$`));
+});
+
+test('share-upload の往復: 古い GAS に合わせて列を狭めた共有を新しい GAS が受けていても、全部の列で試し直すと resent で書き直す（形の版を下げて送るため）', async () => {
+  const env = gas();
+  let clock = T0;
+  let rejectFull = true;
+  const server = {
+    scope: () => 'test', userId: () => 'ホスト',
+    async request(action, input = {}) {
+      // GAS を更新する前に覚えた幅（入手時刻の列を知らない GAS が断った）
+      if (action === 'ownedUpload' && rejectFull && input.columns.length === OWNED_FIELDS.length) {
+        throw new ApiError('VALIDATION', { ok: false, code: 'VALIDATION', errors: [{ field: 'columns', code: 'INVALID_COLUMNS' }] });
+      }
+      return env.api.request(action, PROPS.TEST_PASSCODE, input);
+    },
+  };
+  const store = createOwnedStore({
+    persist: memoryPersist(), settings: safeStorage(memoryStorage()), namespace: 'pal-note.test', server,
+    runImport: async () => hostSnapshot(stamp(40)), now: () => clock, schedule: () => 0, cancel: () => {},
+  });
+  await store.commitRegistration(await store.previewRegistration({ worldId: WORLD, steamId: '7656', files: asDropped(hostFiles(T0)) }));
+  await settleUpload(store);
+  assert.deepEqual([store.state.upload.result, store.state.shared.current.columns.length], ['new', OWNED_FIELDS.length - 1]);
+  // 1 時間たって全部の列で試し直す。同じセーブ・同じ人で、形の版が上がったので書き直す
+  rejectFull = false;
+  clock += 60 * 60 * 1000;
+  assert.equal(await store.uploadLocal({ force: true }), 'uploaded');
+  assert.equal(store.state.upload.result, 'resent');
+  assert.equal((await env.request('owned', { worldId: WORLD })).rows[0].length, OWNED_FIELDS.length);
+  assert.equal(await store.uploadLocal({ force: true }), 'unchanged');
+});
+
+// ---------------------------------------------------------------------------
 // 版の組み合わせ（古い版は Git の履歴から取り出す。浅い複製では skip）
 // ---------------------------------------------------------------------------
 
@@ -257,8 +316,10 @@ test('owned-gas の組み合わせ: 古い GAS（版 10）＋新しい画面。w
   const server = { scope: () => 'test', userId: () => 'ホスト', request: (action, input = {}) => fresh.request(action, input) };
   const host = makeStore({ server, snapshot: hostSnapshot(stamp(9)) });
   await host.register(hostFiles(T0));
-  await tick();
+  await settleUpload(host.store);
   assert.equal(host.store.state.upload.status, 'done');
+  // 古い GAS は結果の種類と saveStamp を返さない（share-upload の結果は stored だけで決める）
+  assert.deepEqual([host.store.state.upload.result, host.store.state.upload.published.saveStamp], ['', '']);
   const guest = makeStore({ server, snapshot: hostSnapshot(stamp(9)) });
   assert.equal((await guest.register({ 'LocalData.sav': fakeHandle('LocalData.sav') })).result, 'guest');
   assert.deepEqual([guest.store.state.meta.source, guest.store.state.owned.pals.length], ['shared', 1]);

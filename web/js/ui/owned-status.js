@@ -177,10 +177,22 @@ export function roleLabel(state) {
     : state.role === 'guest' ? '参加者（ホストが共有した所持パルを表示します）' : '';
 }
 
-// 共有の結果の案内（送っている間〔sending〕は出さない。ヘッダーのセーブ連携の状態が読み込み中の印を出す）
-const uploadText = {
-  done: '共有しました', stale: '共有されているセーブの方が新しいため、そちらを表示しています', error: '共有できませんでした',
-};
+/**
+ * 共有の送信の結果の案内（所持パルの案内・ヘッダーのセーブ連携のパネルで同じ文。sync-fixes の share-upload）。
+ * 今読んでいるセーブ（state.local の印）を送った結果のときだけ出す。same は同じセーブを別の人（か同じ ID の別のタブ・PC）が共有済み、
+ * stale は共有されているセーブの方が新しい。送っている間・自分の共有が載った（done）ときは出さない。送れなかった（error）ときは
+ * 呼ぶ側が別に出す（ヘッダーは警告の色にする）
+ * @returns {null | { text: string, kind: 'info' }}
+ */
+export function uploadNotice(state) {
+  const upload = state?.upload ?? {};
+  if (!['same', 'stale'].includes(upload.status)) return null;
+  // 前のセーブを送った結果（その後に新しいセーブを読んだ）は出さない
+  if ((upload.signature ?? '') !== (state.local?.world?.signature ?? '')) return null;
+  if (upload.status === 'stale') return { text: '共有されているセーブの方が新しいため、そちらを表示しています', kind: 'info' };
+  const who = upload.published?.uploadedBy;
+  return { text: `同じセーブが共有済み${who ? `（${who} の PC から）` : ''}`, kind: 'info' };
+}
 
 /** 所持パルの更新時刻（セーブ・共有）。 */
 export function timeLines(state) {
@@ -271,10 +283,11 @@ export function ownedNotices(state, { userId = '', now = Date.now, selfUids = ne
     if (gap) notices.push(gap);
   }
   if (state.error) notices.push({ text: `セーブを読み込めませんでした: ${state.error}`, kind: 'warning' });
+  // 共有の結果（送っている間〔sending〕・共有した〔done〕ときは出さない。ヘッダーのセーブ連携の状態が読み込み中の印を出す）
   const upload = state.upload ?? {};
-  if (uploadText[upload.status] && upload.status !== 'done') {
-    notices.push({ text: `${uploadText[upload.status]}${upload.error ? `（${upload.error}）` : ''}`, kind: upload.status === 'error' ? 'warning' : 'info' });
-  }
+  if (upload.status === 'error') notices.push({ text: `共有できませんでした${upload.error ? `（${upload.error}）` : ''}`, kind: 'warning' });
+  const sent = uploadNotice(state);
+  if (sent) notices.push(sent);
   if (state.shared?.error && !hasData) notices.push({ text: `共有された所持パルを読めませんでした: ${state.shared.error}`, kind: 'warning' });
   // 読み込めなかったファイルや、場所の分からないパルがあれば知らせる（この PC で読み込んだとき。読んでいる間も前回の分を残す）
   const snapshot = state.meta?.source === 'local' ? state.data?.snapshot : null;

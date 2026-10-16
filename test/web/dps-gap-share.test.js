@@ -11,7 +11,7 @@ import { safeStorage } from '../../web/js/store.js';
 import { ownedNotices } from '../../web/js/ui/owned-status.js';
 import { ownPlayerUids } from '../../web/js/core/ideal-goals.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
-import { fakeHandle, hostFiles, asDropped, memoryPersist } from '../helpers/file-handles.js';
+import { fakeHandle, hostFiles, asDropped, memoryPersist, settleUpload } from '../helpers/file-handles.js';
 
 const PROPS = { PASSCODE: 'AAAA-BBBB-CCCC-DDDD', TEST_PASSCODE: 'EEEE-FFFF-GGGG-HHHH' };
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
@@ -80,14 +80,13 @@ function makeStore({ server, persist = memoryPersist(), storage = memoryStorage(
   return { store, persist, storage, register };
 }
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const gapNotices = (state, options) => ownedNotices(state, options).filter((notice) => /次元ストレージ/.test(notice.text));
 
 async function roundTrip(server) {
   // ホスト: 読んだセーブの案内を出し、候補の Bob にだけ dpsGap を付けて共有する
   const host = makeStore({ server });
   await host.register(hostFiles(undefined, { players: [hex(ALICE), hex(BOB)] }));
-  await tick();
+  await settleUpload(host.store);
   assert.equal(host.store.state.upload.status, 'done');
   assert.deepEqual(gapNotices(host.store.state), [{ text: HOST_TEXT, kind: 'warning', action: 'editWorld' }]);
   // IndexedDB に残した手元のデータ（cleanLocalData）を開き直しても、stats が通って同じ案内が出る
@@ -135,7 +134,7 @@ test('dps-missing の往復: 古い GAS（players の知らない項目を捨て
   const { server } = gasServer({ oldGas: true });
   const host = makeStore({ server });
   await host.register(hostFiles(undefined, { players: [hex(ALICE), hex(BOB)] }));
-  await tick();
+  await settleUpload(host.store);
   assert.equal(host.store.state.upload.status, 'done');
   assert.deepEqual(gapNotices(host.store.state).map((notice) => notice.text), [HOST_TEXT]);
   const guest = makeStore({ server });
