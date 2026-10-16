@@ -233,6 +233,9 @@ export function createOwnedStore({
   let retryAt = -Infinity;
   let uploadSeq = 0;
   let uploadEpoch = 0;
+  // 送るはずだった予約・送っている間の 1 回を、共有を止めている間（セーブの読み直しの途中）に取り消した・飛ばした。読み直せずに今のセーブの
+  // まま（runAuto の 'unchanged'）になったら、もう一度 uploadLocal を呼ぶ
+  let uploadOwed = false;
   // 登録の確定で読んだ手元のデータ（それを送るときだけ world.force を付ける。別のセーブを読んだら付けない）
   let commitLocal = null;
   // 共有で GAS が受け付けた列の幅と、幅を狭めた時刻（古い GAS。uploadLocal）
@@ -306,14 +309,16 @@ export function createOwnedStore({
     uploadEpoch++;
     cancelUploadTimer();
     uploadDirty = false;
+    uploadOwed = false;
     retryStep = 0;
     retryAt = -Infinity;
     commitLocal = null;
   }
   // セーブを読み直す間だけ共有を止める（読み終えたら uploadLocal が予約し直す）。再試行の段は残す（新しいセーブを読むたびに段が戻ると、
-  // 送れない間も保存のたびに送ってしまう）
+  // 送れない間も保存のたびに送ってしまう）。取り消した予約は、読み直せなかったときに uploadOwed で戻す
   function holdUpload() {
     state.uploadReady = false;
+    if (uploadTimer !== null) uploadOwed = true;
     cancelUploadTimer();
   }
 
@@ -628,7 +633,7 @@ export function createOwnedStore({
 
   // 予約した時刻に、そのときの最新を送る（間隔・再試行の待ちは予約の時刻で済んでいる）
   function scheduleUpload(wait) {
-    uploadTimer ??= schedule(() => { uploadTimer = null; uploadLocal({ force: true }).catch(() => {}); }, wait);
+    uploadTimer ??= schedule(() => { uploadTimer = null; uploadLocal({ force: true, resume: true }).catch(() => {}); }, wait);
   }
 
   /**
@@ -637,11 +642,17 @@ export function createOwnedStore({
    * 予約する。送れなかったら（UPLOAD_RETRY_CODES）UPLOAD_RETRY_DELAYS の段で予約し直す。
    * force は間隔・再試行の待ちを空けずに今送る（送っている途中なら終わってから。その後の 1 回が始まっていれば、それを待つ）。
    * commit は登録の確定（commitRegistration）から送るとき（そのセーブを送るときだけ GAS に world.force を送る）。
+   * resume は予約・送っている間の 1 回から呼ぶとき（共有を止めている間で送れなければ uploadOwed に残す）。
    * @returns {Promise<'skipped'|'queued'|'scheduled'|'uploaded'|'unchanged'|'same'|'stale'|'error'>}
    */
-  async function uploadLocal({ force = false, commit = false } = {}) {
+  async function uploadLocal({ force = false, commit = false, resume = false } = {}) {
     const local = state.local;
-    if (!canUpload(local)) return 'skipped';
+    if (!canUpload(local)) {
+      // セーブの読み直しの途中（holdUpload）など。止めた理由が登録の削除・解除なら blockUpload が消す
+      if (resume) uploadOwed = true;
+      return 'skipped';
+    }
+    uploadOwed = false;
     if (commit) commitLocal = local;
     if (uploading) {
       if (!force) {
@@ -670,21 +681,23 @@ export function createOwnedStore({
     } finally {
       if (uploading === sending) uploading = null;
     }
-    // 送っている間に共有を止めた（登録の削除・解除など）なら、次を予約しない
-    if (epoch !== uploadEpoch) return outcome.result;
-    if (outcome.retry) {
-      retryStep++;
-      const delay = UPLOAD_RETRY_DELAYS[Math.min(retryStep, UPLOAD_RETRY_DELAYS.length) - 1];
-      retryAt = now() + delay;
-      cancelUploadTimer();
-      scheduleUpload(delay);
-    } else {
-      retryStep = 0;
-      retryAt = -Infinity;
+    // 送っている間に共有を止めた（登録の削除・解除・別のワールドに替わったなど）なら、このセーブの再試行の段は動かさない（blockUpload が
+    // 消した）。止めた後に呼ばれた分（dirty。blockUpload が消した後に立った）は、今のワールドのセーブなので送る
+    if (epoch === uploadEpoch) {
+      if (outcome.retry) {
+        retryStep++;
+        const delay = UPLOAD_RETRY_DELAYS[Math.min(retryStep, UPLOAD_RETRY_DELAYS.length) - 1];
+        retryAt = now() + delay;
+        cancelUploadTimer();
+        scheduleUpload(delay);
+      } else {
+        retryStep = 0;
+        retryAt = -Infinity;
+      }
     }
     if (uploadDirty) {
       uploadDirty = false;
-      uploadLocal().catch(() => {});
+      uploadLocal({ resume: true }).catch(() => {});
     }
     return outcome.result;
   }
@@ -702,6 +715,8 @@ export function createOwnedStore({
     const epoch = sharedEpoch;
     const userId = server.userId?.() ?? '';
     const force = commitLocal === local;
+    // 登録の確定の後に別のセーブを読んだ（送るのはいつも今の手元のデータなので、前の印はもう使わない）
+    if (!force) commitLocal = null;
     const changed = () => scope() !== key || sharedEpoch !== epoch;
     try {
       const owned = normalizeOwned(local.snapshot, { pals, passives });
@@ -751,11 +766,14 @@ export function createOwnedStore({
       state.upload = { status, at: published.uploadedAt, error: '', worldId: local.world.id, result, signature, stamp, published };
       const others = state.shared.worlds.filter((item) => item.worldId !== response.world.worldId);
       state.shared.worlds = [...others, response.world];
-      if (response.stored || result === 'unchanged') {
-        // 書いた・同じ中身が載っている。送っている間に表示するワールドが替わっていたら、一覧だけに入れる（今のワールドの所持パルは置き換えない）
-        if (response.world.worldId === targetWorldId()) {
-          state.shared.current = { world: response.world, columns: sent.columns, rows: sent.rows.map((row) => row.map(String)) };
-        }
+      const wrote = response.stored || result === 'unchanged';
+      // 書いた・同じ中身が載っている。送っている間に表示するワールドが替わっていたら、一覧だけに入れる（今のワールドの所持パルは置き換えない）
+      if (wrote && response.world.worldId === targetWorldId()) {
+        state.shared.current = { world: response.world, columns: sent.columns, rows: sent.rows.map((row) => row.map(String)) };
+      }
+      // 結果はすぐ知らせる（キャッシュの保存・読み直しを待つ間に新しいセーブを読むと、runImportTask が結果を消すため）
+      update();
+      if (wrote) {
         await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
       } else if (status === 'stale') {
         // 共有されている方が新しい（別の PC から共有された）ので、そちらを読む。same（同じセーブの別の中身）は、この PC では手元のセーブを
@@ -914,7 +932,8 @@ export function createOwnedStore({
   function runAuto(options) {
     const epoch = linkEpoch;
     return serial(() => autoTask({ ...options, epoch })).then(async (result) => {
-      if (result === 'imported') uploadLocal().catch(() => {});
+      // 読み直しの間に取り消した予約は、読み直せずに今のセーブのまま（unchanged）でも送り直す（share-upload）
+      if (result === 'imported' || (result === 'unchanged' && uploadOwed)) uploadLocal().catch(() => {});
       // shared: false のとき（定期の読み直し）は共有を読み直さない
       if (options.shared !== false && (result === 'guest' || result === 'unchanged' || result === 'imported')) {
         await fetchShared({ force: result === 'guest' && !options.auto });

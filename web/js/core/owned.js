@@ -1125,10 +1125,23 @@ export function sharedUpload(owned) {
   };
 }
 
-// 鍵の名前の順に並べ直した写し（配列の順は変えない）
+// 鍵の名前の順に並べ直した写し（配列の中の順は変えない）
 const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys)
   : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);
 const cellText = (cell) => (typeof cell === 'string' ? cell : cell === null || cell === undefined ? '' : String(cell));
+const textOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+// 一覧（players・bases・farms）を、要素の JSON の順に並べ直す（要素の中の鍵も名前の順）
+const sortedList = (items) => items.map((item) => {
+  const value = sortedKeys(item);
+  return { value, text: JSON.stringify(value) ?? 'null' };
+}).sort((a, b) => textOrder(a.text, b.text)).map((item) => item.value);
+// 行（セルは文字列）を、先頭のセル（個体 ID）から順に比べて並べ直す
+const rowOrder = (a, b) => {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) return textOrder(a[i], b[i]);
+  }
+  return a.length - b.length;
+};
 
 /**
  * 共有の中身の印（world.contentHash。送る側が UTF-8 の SHA-256 にする。web/js/owned.js）の元にする文字列（sync-fixes の share-upload）。
@@ -1137,7 +1150,8 @@ const cellText = (cell) => (typeof cell === 'string' ? cell : cell === null || c
  *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns, rows]
  * - 入れないもの: world の識別の項目（saveStamp・contentHash・format・fileCount・missingCount・force）、saveUpdatedAt（セーブのファイルの
  *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる
- * - players・bases・farms の中の object は鍵の名前の順に並べ直す（組み立ての順が変わっても、同じ中身なら同じ文字列）
+ * - 並びによらない: 行は先頭のセル（個体 ID）の順、players・bases・farms は要素の JSON の順に並べ直し、object の鍵は名前の順にする
+ *  （個体の並びは登録したファイルの順〔_dps.sav など〕で変わり、PC ごとに登録の順が違うことがある）。列の並びは中身なので変えない
  * - 列の名前と行のセルは文字列にする（シートには文字列で残る。null・undefined は ''）
  */
 export function ownedContentText(upload) {
@@ -1146,11 +1160,11 @@ export function ownedContentText(upload) {
   return JSON.stringify([
     cellText(source.worldId), cellText(world.name), cellText(world.hostName),
     typeof world.inGameDay === 'number' && Number.isFinite(world.inGameDay) ? world.inGameDay : null,
-    sortedKeys(Array.isArray(source.players) ? source.players : []),
-    sortedKeys(Array.isArray(source.bases) ? source.bases : []),
-    Array.isArray(source.farms) ? sortedKeys(source.farms) : null,
+    sortedList(Array.isArray(source.players) ? source.players : []),
+    sortedList(Array.isArray(source.bases) ? source.bases : []),
+    Array.isArray(source.farms) ? sortedList(source.farms) : null,
     Array.isArray(source.columns) ? source.columns.map(cellText) : [],
-    Array.isArray(source.rows) ? source.rows.map((row) => (Array.isArray(row) ? row.map(cellText) : [])) : [],
+    Array.isArray(source.rows) ? source.rows.map((row) => (Array.isArray(row) ? row.map(cellText) : [])).sort(rowOrder) : [],
   ]);
 }
 

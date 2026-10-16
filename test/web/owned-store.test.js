@@ -1595,3 +1595,100 @@ test('所持パル（share-upload）: 新しいセーブを読んだら前の結
   const state = { ...other.store.state, upload: { ...other.store.state.upload, status: 'same', signature: 'old', published: { uploadedBy: 'ホスト' } } };
   assert.equal(uploadNotice(state), null);
 });
+
+test('所持パル（share-upload）: 送っている間に別のワールドのセーブを読んだら、前のワールドの再試行は捨てるが、新しいワールドの送信は終わった後に送る', async () => {
+  const up = uploadServer();
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const release = up.hold();
+  await host.register(WORLD_A, hostFiles(T0));
+  await until(() => up.sent.length === 1);
+  up.control.failures.push('CONNECTION');
+  // 送っている間に、もっと新しく遊んだワールド B を登録して読む（共有を止めて切り替え、B の送信は dirty で待つ）
+  host.advance(20000);
+  await host.register(WORLD_B, hostFiles(T0 + 60000));
+  assert.equal(host.store.state.linkedWorldId, WORLD_B);
+  release();
+  await until(() => up.sent.length === 2);
+  await settleUpload(host.store);
+  // A の失敗の再試行は予約しない。B は送れた
+  assert.deepEqual(up.sent.map((input) => input.worldId), [WORLD_A, WORLD_B]);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.upload.worldId, pendingTimers(host).length], ['done', WORLD_B, 0]);
+});
+
+test('所持パル（share-upload）: 予約の間に読み直したセーブが読めず、今のセーブのまま（unchanged）になっても、取り消した予約を戻して送る', async () => {
+  const up = uploadServer();
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const files = hostFiles();
+  up.control.failures.push('CONNECTION');
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  const [retry] = pendingTimers(host);
+  assert.equal(retry.ms, 15000);
+  // 「今すぐ読み込む」で読み直したが、ゲームの保存中で読めなかった（予約は読み直しの間に取り消される）
+  files['Level.sav'].readError = 'NotReadableError';
+  await assert.rejects(host.store.refreshAuto(), /ゲームの保存中かもしれません/);
+  assert.equal(retry.cancelled, true);
+  files['Level.sav'].readError = '';
+  // 次の定期の確かめはセーブが変わっていない（unchanged）。再試行の時刻を過ぎていれば、すぐ送る
+  host.advance(21000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  await settleUpload(host.store);
+  assert.deepEqual([up.sent.length, host.store.state.upload.status], [2, 'done']);
+  // 変わっていない回が続いても、もう送らない
+  host.advance(21000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  await settleUpload(host.store);
+  assert.equal(up.sent.length, 2);
+});
+
+test('所持パル（share-upload）: 結果は、キャッシュの保存を待つ間に新しいセーブの解析が終わって消えても、その前に購読者へ知らせる（7 の自動登録が応答を取りこぼさない）', async () => {
+  const up = uploadServer();
+  const persist = memoryPersist();
+  let host;
+  // 共有のキャッシュの保存（送れた後）を止める
+  let cacheGate = null;
+  let blocked = false;
+  const set = persist.set;
+  persist.set = async (key, value) => {
+    if (cacheGate && key.includes('.owned.shared.') && host.store.state.upload.status === 'done') {
+      blocked = true;
+      await cacheGate;
+    }
+    return set(key, value);
+  };
+  // セーブの解析を止める（解析の途中では画面に知らせない）
+  let parseGate = null;
+  let next = stampedSnapshot(tickOf(1), 2);
+  host = setup({ server: up.server, persist, runImport: async () => { if (parseGate) await parseGate; return next; } });
+  const seen = [];
+  host.store.subscribe((state) => seen.push(`${state.upload.status}:${state.upload.result}:${state.upload.stamp}`));
+  const files = hostFiles();
+  const releaseUpload = up.hold();
+  await host.register(WORLD_A, files);
+  await until(() => up.sent.length === 1);
+  // 送っている間に新しいセーブを読み始め、解析の途中で止める
+  let releaseParse;
+  parseGate = new Promise((resolve) => { releaseParse = resolve; });
+  next = stampedSnapshot(tickOf(2), 2);
+  files['Level.sav'].time += 30000;
+  files['LocalData.sav'].time += 30000;
+  host.advance(1000);
+  const reading = host.store.refreshAuto();
+  await until(() => host.store.state.progress === 'セーブを読み込み中…');
+  // 応答が届き（結果を入れて）、キャッシュの保存を待つ間に解析が終わる（新しいセーブを読んだので結果を消す）
+  let releaseCache;
+  cacheGate = new Promise((resolve) => { releaseCache = resolve; });
+  releaseUpload();
+  await until(() => blocked);
+  parseGate = null;
+  releaseParse();
+  assert.equal(await reading, 'imported');
+  // 前のセーブの結果は消えた（新しいセーブは、送っている途中の 1 回が終わった後に送る）が、消える前に購読者は done を受け取っている
+  assert.equal(host.store.state.upload.status, '');
+  assert.ok(seen.includes(`done:new:${tickOf(1)}`), seen.join(' '));
+  cacheGate = null;
+  releaseCache();
+  await settleUpload(host.store);
+  await fireUpload(host);
+  assert.deepEqual(up.sent.map((input) => input.world.saveStamp), [tickOf(1), tickOf(2)]);
+});

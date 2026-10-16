@@ -992,7 +992,7 @@ test('次元ストレージの読み漏れ: cleanOwnedPlayer（GAS と共有）�
   assert.equal(many.players[0].dpsGap, OWNED_DPS_GAP_MAX);
 });
 
-test('共有の中身の印の元（ownedContentText。share-upload）: 決まった順の配列の JSON。識別・送った人・ファイルの更新日時は入れず、object の鍵の順と行のセルの型によらない', () => {
+test('共有の中身の印の元（ownedContentText。share-upload）: 決まった順の配列の JSON。識別・送った人・ファイルの更新日時は入れず、行・一覧・object の鍵の並びとセルの型によらない', () => {
   const columns = ['instanceId', 'palId', 'level'];
   const base = {
     userId: 'ホスト', worldId: 'ABCDEF0123456789ABCDEF0123456789', saveUpdatedAt: '2026-10-05T10:00:00.000Z',
@@ -1017,13 +1017,20 @@ test('共有の中身の印の元（ownedContentText。share-upload）: 決ま�
     rows: [['p1', 'SheepBall', 5], ['p2', 'PinkCat', 7]],
   };
   assert.equal(ownedContentText(same), text);
-  // 中身が違えば違う（行・列の幅・牧場の有無・日数・個体の並び）
+  // 並びによらない（個体の並びは登録したファイルの順で変わる。PC ごとに登録の順が違うことがある）
+  const players = [{ uid: 'u2', name: 'Bob' }, { uid: 'u1', name: 'Alice', level: 50, online: true }];
+  const farms = [...base.farms, { id: 'f0', baseId: 'b1', parents: [], n: 0 }];
+  const ordered = { ...base, players, farms, bases: [...base.bases, { id: 'b0', label: '拠点 0' }] };
+  const reordered = { ...ordered, players: [...players].reverse(), farms: [...farms].reverse(), bases: [...ordered.bases].reverse(), rows: [...base.rows].reverse() };
+  assert.equal(ownedContentText(reordered), ownedContentText(ordered));
+  assert.deepEqual(JSON.parse(ownedContentText(reordered))[8].map((row) => row[0]), ['p1', 'p2']);
+  // 中身が違えば違う（行・列の幅・列の並び・牧場の有無・日数）
   for (const changed of [
     { ...base, rows: [['p1', 'SheepBall', '6'], ['p2', 'PinkCat', '7']] },
     { ...base, columns: columns.slice(0, 2), rows: base.rows.map((row) => row.slice(0, 2)) },
+    { ...base, columns: [...columns].reverse(), rows: base.rows.map((row) => [...row].reverse()) },
     { ...base, farms: undefined },
     { ...base, world: { ...base.world, inGameDay: 13 } },
-    { ...base, rows: [...base.rows].reverse() },
   ]) assert.notEqual(ownedContentText(changed), text);
   // 牧場を送らないときは null、日数がないときも null
   const bare = JSON.parse(ownedContentText({ worldId: 'W', world: { name: 'N', hostName: '' }, players: [], bases: [], columns: [], rows: [] }));
