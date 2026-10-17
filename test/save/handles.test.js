@@ -125,3 +125,30 @@ test('セーブのファイル: 許可は登録したすべてのファイルに
   await session.remove('B');
   assert.equal(session.has('B'), false);
 });
+
+test('セーブのファイル（save-watch）: read() は読んだ後のファイルの印を返す（list() の fileSignature と同じ形。消えたファイルは入れない）', async () => {
+  const persist = memoryPersist();
+  const source = createHandleSource({ persist, key: 'k' });
+  const files = { ...hostFiles(T0), 'Players/00000000000000000000000000000002.sav': fakeHandle('00000000000000000000000000000002.sav') };
+  files['Players/00000000000000000000000000000002.sav'].gone = true;
+  await source.commit({ worldId: WORLD, steamId: '7656', files });
+  const [world] = await source.list();
+  const read = await source.read(world);
+  assert.equal(read.fileSignature, world.fileSignature);
+  assert.doesNotMatch(read.fileSignature, /0002\.sav/);
+  // 読んでいる間に書き換わったら、印が変わる
+  let release;
+  files['Level.sav'].gate = new Promise((resolve) => { release = resolve; });
+  const reading = source.read(world);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  files['LevelMeta.sav'].time += 30000;
+  release();
+  assert.notEqual((await reading).fileSignature, world.fileSignature);
+  // 消えたファイルが戻っても変わる（getFile のほかの失敗は印を作れない＝''）
+  files['Level.sav'].gate = null;
+  files['LevelMeta.sav'].time -= 30000;
+  files['Players/00000000000000000000000000000002.sav'].gone = false;
+  assert.notEqual((await source.read(world)).fileSignature, world.fileSignature);
+  files['Players/00000000000000000000000000000002.sav'].error = 'NotReadableError';
+  assert.equal((await source.read(world)).fileSignature, '');
+});

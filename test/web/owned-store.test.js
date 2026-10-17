@@ -65,7 +65,8 @@ function sharedServer({ scope = 'test', userId = 'ホスト', rewrite = null } =
   };
 }
 
-function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false } = {}) {
+// watch はセーブのファイルの見張り（save/watch.js の createWatchClient）の代わり。渡さなければ本物（Node には Worker がないので 'timer'）
+function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false, watch = null } = {}) {
   const calls = { imports: 0 };
   let time = 1_000_000;
   const timers = [];
@@ -76,6 +77,7 @@ function setup({ server = null, persist = memoryPersist(), storage = memoryStora
     schedule: (fn, ms) => { timers.push({ fn, ms, cancelled: false }); return timers.length - 1; },
     cancel: (id) => { timers[id].cancelled = true; },
     hidden,
+    ...(watch ? { watch } : {}),
   });
   const store = make();
   const register = async (worldId, files, target = store) => target.commitRegistration(await target.previewRegistration({ worldId, steamId: '7656', files: asDropped(files) }));
@@ -221,14 +223,19 @@ test('所持パル: 前にホストしたワールドに参加したら、手元
   assert.equal(await store.uploadLocal({ force: true }), 'skipped');
 });
 
-test('所持パル: 必要なファイルが消えたら判定せずに共有を止め、Players が消えたときは知らせて読む', async () => {
+test('所持パル: 必要なファイルが消えたら判定せずに共有を止め、Players が消えたときはまず保留し、30 秒たっても同じなら知らせて読む（save-watch）', async () => {
   const { store, register, advance } = setup();
   const files = hostFiles();
   await register(WORLD_A, files);
+  const before = store.state.local;
   files[PLAYERS].gone = true;
   files['Level.sav'].time += 60000;
   files['LocalData.sav'].time += 60000;
   advance(25000);
+  // 一時的な消失かもしれないので、前のデータを残して読み直しを待つ
+  assert.equal(await store.autoRefresh(), 'held');
+  assert.equal(store.state.local, before);
+  advance(30000);
   assert.equal(await store.autoRefresh(), 'imported');
   assert.deepEqual(store.state.data.snapshot.files.skipped.map((file) => file.path), [PLAYERS]);
   files['LocalData.sav'].gone = true;
@@ -1453,7 +1460,13 @@ test('所持パル（share-upload）: 結果の種類（new・unchanged・newer�
   await settleUpload(other.store);
   assert.deepEqual(pick(other.store), { status: 'same', result: 'unchanged', signature: true, stamp: tickOf(10), by: 'ホスト', at: true, publishedStamp: tickOf(10) });
   theirs = stampedSnapshot(tickOf(10), 2, { skipped: [{ path: PLAYERS_2, reason: 'ファイルが見つかりません' }] });
-  await readNewSave(other, otherFiles, { ms: 15000 });
+  otherFiles['Level.sav'].time += 30000;
+  otherFiles['LocalData.sav'].time += 30000;
+  other.advance(15000);
+  // 読めなかったファイルのある一式は、まず保留し、同じ形が 30 秒続いたら採用する（save-watch）
+  assert.equal(await other.store.refreshAuto(), 'held');
+  other.advance(30000);
+  assert.equal(await other.store.refreshAuto(), 'imported');
   await settleUpload(other.store);
   assert.deepEqual(pick(other.store), { status: 'same', result: 'same', signature: true, stamp: tickOf(10), by: 'ホスト', at: true, publishedStamp: tickOf(10) });
   assert.equal(other.store.state.upload.error, '');
@@ -1691,4 +1704,353 @@ test('所持パル（share-upload）: 結果は、キャッシュの保存を待
   await settleUpload(host.store);
   await fireUpload(host);
   assert.deepEqual(up.sent.map((input) => input.world.saveStamp), [tickOf(1), tickOf(2)]);
+});
+
+// ---- セーブのファイルの見張り・読み直しの保留（sync-fixes の save-watch） ----
+
+const DPS = 'Players/00000000000000000000000000000001_dps.sav';
+const withDps = (time = T0) => ({ ...hostFiles(time), [DPS]: fakeHandle('00000000000000000000000000000001_dps.sav', { time }) });
+// ゲームの保存（Level.sav と LocalData.sav の時刻を進める）
+const newSave = (files) => {
+  files['Level.sav'].time += 30000;
+  files['LocalData.sav'].time += 30000;
+};
+// 見張り（save/watch.js の createWatchClient）の代わり。送られた対象と、owned.js が渡した知らせの受け口を残す
+function fakeWatch() {
+  const fake = { created: 0, updates: [], stops: 0, callbacks: null };
+  fake.client = (callbacks) => {
+    fake.created++;
+    fake.callbacks = callbacks;
+    return { update: (targets) => { fake.updates.push(targets); }, stop: () => { fake.stops++; } };
+  };
+  return fake;
+}
+// 対象の形（Observer に渡すファイルには * を付ける）
+const targetShape = (targets) => targets.map(({ worldId, host, files }) => [worldId, host, files.map(({ path, observe }) => `${path}${observe ? '*' : ''}`)]);
+// 読み直しの予約（ms の待ち）の時刻まで進めて動かし、その読み込みの結果を返す
+async function fireReread(host, ms) {
+  const timer = pendingTimers(host).filter((item) => item.ms === ms).at(-1);
+  assert.ok(timer, `${ms} ms の読み直しの予約がありません: ${pendingTimers(host).map((item) => item.ms).join(',')}`);
+  timer.fired = true;
+  host.advance(ms);
+  return timer.fn();
+}
+
+test('所持パル（save-watch）: 見張る対象は読めたワールドだけ。今のワールドは登録した全ファイル（Observer は直下だけで、Players・GlobalPalStorage.sav は 5 秒の確認）、ほかは Level.sav・LocalData.sav。同じ対象は送り直さない', async () => {
+  const fake = fakeWatch();
+  const { store, register, advance } = setup({ watch: fake.client });
+  const a = { ...withDps(T0 + 60000), '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav', { time: T0 + 60000 }) };
+  const b = hostFiles(T0);
+  await register(WORLD_A, a);
+  await register(WORLD_B, b);
+  assert.equal(fake.created, 1);
+  const last = () => fake.updates.at(-1);
+  assert.deepEqual(targetShape(last()), [
+    [WORLD_A, true, ['Level.sav*', 'LevelMeta.sav*', 'LocalData.sav*', PLAYERS, DPS, '../GlobalPalStorage.sav']],
+    [WORLD_B, true, ['Level.sav*', 'LocalData.sav*']],
+  ]);
+  // Players の中・上のフォルダのファイルは、Observer の対象にしない（SaveSync の同期を止めないため）
+  for (const target of fake.updates.flat()) {
+    for (const file of target.files) assert.equal(file.observe, !/[\\/]/.test(file.path), file.path);
+    assert.ok(target.files.every((file) => file.handle && typeof file.handle.getFile === 'function'));
+  }
+  // 同じ対象なら送り直さない
+  const count = fake.updates.length;
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'unchanged');
+  assert.equal(fake.updates.length, count);
+  // 許可のないワールドは外す
+  b['Level.sav'].permission = 'prompt';
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'permission');
+  assert.deepEqual(last().map((target) => target.worldId), [WORLD_A]);
+  // 使うワールドを選んだら、そのワールドだけ（今のワールドなので全ファイル）
+  b['Level.sav'].permission = 'granted';
+  await store.selectAutoWorld(WORLD_B);
+  assert.deepEqual(targetShape(last()), [[WORLD_B, true, ['Level.sav*', 'LevelMeta.sav*', 'LocalData.sav*', PLAYERS]]]);
+  assert.equal(fake.stops, 0);
+});
+
+test('所持パル（save-watch）: Observer も Worker もない環境（Node）では見張りが timer になり、登録をすべて消したら見張りを止める', async () => {
+  const { store, register } = setup();
+  assert.deepEqual(store.state.watch, { mode: '', lastSave: null });
+  await register(WORLD_A, hostFiles());
+  assert.equal(store.state.watch.mode, 'timer');
+  await store.removeWorld(WORLD_A);
+  assert.deepEqual(store.state.watch, { mode: '', lastSave: null });
+  // 偽の見張りでも、登録を消したら stop を呼ぶ
+  const fake = fakeWatch();
+  const other = setup({ watch: fake.client });
+  await other.register(WORLD_A, hostFiles());
+  fake.callbacks.onMode('observer');
+  assert.equal(other.store.state.watch.mode, 'observer');
+  await other.store.removeWorld(WORLD_A);
+  assert.equal(fake.stops > 0, true);
+  assert.deepEqual(other.store.state.watch, { mode: '', lastSave: null });
+});
+
+test('所持パル（save-watch）: refreshFromWatch は見張りから読み（共有は読まない）、読み込み中・順番待ちの間の知らせは 1 回にまとめる。最後の保存は今のワールドの知らせから', async () => {
+  const fake = fakeWatch();
+  const shared = sharedServer();
+  const { store, register, advance, calls } = setup({ server: shared.server, watch: fake.client });
+  const files = hostFiles();
+  await register(WORLD_A, files);
+  await settleUpload(store);
+  // 見張っていないワールドは読まない
+  assert.equal(await store.refreshFromWatch(WORLD_B), 'skipped');
+  shared.calls.length = 0;
+  let release;
+  files['Level.sav'].gate = new Promise((resolve) => { release = resolve; });
+  newSave(files);
+  advance(1000);
+  const first = store.refreshFromWatch(WORLD_A);
+  await tick();
+  assert.equal(store.state.busy, true);
+  // 読み込みの途中に続けて来た知らせは、終わった後の 1 回にまとめる
+  const at = T0 + 30000;
+  fake.callbacks.onSettled({ type: 'settled', generation: 1, worldId: WORLD_A, changed: ['LocalData.sav', 'Level.sav', 'LevelMeta.sav', PLAYERS], firstAt: at, lastAt: at + 800, reason: 'quiet' });
+  const second = store.refreshFromWatch(WORLD_A);
+  assert.equal(store.refreshFromWatch(WORLD_A), second);
+  assert.deepEqual(store.state.watch.lastSave, { at: new Date(at + 800).toISOString(), files: 4, spanMs: 800 });
+  // 見張っていないワールドの知らせは捨てる
+  fake.callbacks.onSettled({ type: 'settled', generation: 1, worldId: WORLD_B, changed: ['LocalData.sav'], firstAt: at + 5000, lastAt: at + 5000, reason: 'quiet' });
+  assert.equal(store.state.watch.lastSave.files, 4);
+  files['Level.sav'].gate = null;
+  release();
+  assert.equal(await first, 'imported');
+  assert.equal(await second, 'unchanged');
+  assert.equal(calls.imports, 2);
+  // 共有は読まない（読んだセーブの送信は今までどおり）
+  assert.deepEqual(shared.calls.filter((action) => ['ownedWorlds', 'ownedSince', 'owned'].includes(action)), []);
+});
+
+test('所持パル（save-watch）: 読む前と後でファイルの印が違えば（保存の途中に読んだ）採用せず、前のデータを残して 1 秒後に読み直す', async () => {
+  const host = setup();
+  const { store, register, advance, calls } = host;
+  const files = hostFiles();
+  await register(WORLD_A, files);
+  const before = store.state.local;
+  let release;
+  files['Level.sav'].gate = new Promise((resolve) => { release = resolve; });
+  newSave(files);
+  advance(25000);
+  const reading = store.autoRefresh();
+  await tick();
+  // Level.sav を読んでいる間に LevelMeta.sav が書かれた
+  files['LevelMeta.sav'].time += 30000;
+  files['Level.sav'].gate = null;
+  release();
+  assert.equal(await reading, 'held');
+  assert.equal(store.state.local, before);
+  assert.equal(calls.imports, 1);
+  assert.deepEqual([store.state.error, store.state.auto.status, store.state.busy], ['', 'ready', false]);
+  assert.equal(await fireReread(host, 1000), 'imported');
+  assert.equal(calls.imports, 2);
+  assert.notEqual(store.state.local, before);
+  assert.deepEqual(pendingTimers(host), []);
+});
+
+test('所持パル（save-watch）: 登録した _dps.sav の一時的な消失は採用せず 1・3・10・30 秒で読み直し、戻れば全部読んで採用する（開き直した直後の最初の読み込みでも）', async () => {
+  const host = setup();
+  const { store, register, advance } = host;
+  const files = withDps();
+  await register(WORLD_A, files);
+  const before = store.state.local;
+  files[DPS].gone = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'held');
+  // 前の完全なデータ・表示を残し、共有もそのまま
+  assert.deepEqual([store.state.local, store.state.uploadReady, store.state.error], [before, true, '']);
+  assert.deepEqual(pendingTimers(host).map((timer) => timer.ms), [1000]);
+  assert.equal(await fireReread(host, 1000), 'held');
+  // 次は最初に見た時刻から 3 秒
+  assert.deepEqual(pendingTimers(host).map((timer) => timer.ms), [2000]);
+  files[DPS].gone = false;
+  assert.equal(await fireReread(host, 2000), 'imported');
+  assert.deepEqual(store.state.local.snapshot.files.skipped, []);
+  assert.deepEqual(pendingTimers(host), []);
+  // 開き直した直後の最初の読み込みでも同じ（保存済みのデータを出したまま、共有はしない）
+  files[DPS].gone = true;
+  newSave(files);
+  const reopened = host.make();
+  await reopened.load();
+  const saved = reopened.state.local;
+  assert.equal(await reopened.autoRefresh(), 'held');
+  assert.deepEqual([reopened.state.local, reopened.state.uploadReady], [saved, false]);
+  files[DPS].gone = false;
+  assert.equal(await fireReread(host, 1000), 'imported');
+  assert.equal(reopened.state.uploadReady, true);
+});
+
+test('所持パル（save-watch）: 30 秒を超えて消えたままなら飛ばして採用し、同じ形なら次から待たない。形が変われば待ち直し、全部読めたら忘れる', async () => {
+  const host = setup();
+  const { store, register, advance } = host;
+  const files = withDps();
+  await register(WORLD_A, files);
+  files[DPS].gone = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'held');
+  for (const ms of [1000, 2000, 7000]) assert.equal(await fireReread(host, ms), 'held', String(ms));
+  assert.equal(await fireReread(host, 20000), 'imported');
+  assert.deepEqual(store.state.local.snapshot.files.skipped.map((file) => file.path), [DPS]);
+  // 消したままの次のセーブは、待たずに採用する（毎回 30 秒遅れない）
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'imported');
+  // 形が変わった（Players も消えた）ので待ち直す
+  files[PLAYERS].gone = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'held');
+  // 全部戻れば採用し、受け入れた形を忘れる（次に _dps.sav が消えたら、また待つ）
+  files[PLAYERS].gone = false;
+  files[DPS].gone = false;
+  assert.equal(await fireReread(host, 1000), 'imported');
+  assert.deepEqual(store.state.local.snapshot.files.skipped, []);
+  files[DPS].gone = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'held');
+});
+
+test('所持パル（save-watch）: 印の変わらない壊れたファイル（解析で読めない）も保留し、30 秒たって同じなら飛ばして採用する（その後は読み直さない）', async () => {
+  let broken = false;
+  const runImport = async (files) => ({ ...snapshot(files.length + 1), files: { used: [], skipped: broken ? [{ path: DPS, reason: '解凍後の大きさが合いません' }] : [] } });
+  const host = setup({ runImport });
+  const { store, register, advance } = host;
+  const files = withDps();
+  await register(WORLD_A, files);
+  broken = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'held');
+  advance(30000);
+  assert.equal(await store.autoRefresh(), 'imported');
+  assert.deepEqual(store.state.local.snapshot.files.skipped, [{ path: DPS, reason: '解凍後の大きさが合いません' }]);
+  assert.deepEqual(pendingTimers(host), []);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'unchanged');
+});
+
+test('所持パル（save-watch）: 見張りから読んだときの読めない失敗（解析・NOT_READABLE）は、エラーを出さずに 1・3・10 秒で読み直し、3 回目もだめなら今の扱い（定期の確認ではすぐ）', async () => {
+  let failing = false;
+  const fake = fakeWatch();
+  const runImport = async (files) => {
+    if (failing) throw new Error('Level.sav を解析できませんでした（テスト）');
+    return snapshot(files.length + 1);
+  };
+  const host = setup({ watch: fake.client, runImport });
+  const { store, register, advance } = host;
+  const files = hostFiles();
+  await register(WORLD_A, files);
+  const before = store.state.local;
+  failing = true;
+  newSave(files);
+  advance(1000);
+  assert.equal(await store.refreshFromWatch(WORLD_A), 'held');
+  assert.deepEqual([store.state.error, store.state.auto.status, store.state.local], ['', 'ready', before]);
+  assert.equal(await fireReread(host, 1000), 'held');
+  assert.equal(await fireReread(host, 2000), 'held');
+  assert.equal(await fireReread(host, 7000), 'error');
+  assert.match(store.state.error, /解析できませんでした/);
+  assert.equal(store.state.local, before);
+  assert.deepEqual(pendingTimers(host), []);
+  // 読めるようになれば読む（エラーも消える）
+  failing = false;
+  advance(1000);
+  assert.equal(await store.refreshFromWatch(WORLD_A), 'imported');
+  assert.equal(store.state.error, '');
+  // ゲームの保存中（NotReadableError）も同じく待つ
+  files['Level.sav'].readError = 'NotReadableError';
+  newSave(files);
+  advance(1000);
+  assert.equal(await store.refreshFromWatch(WORLD_A), 'held');
+  files['Level.sav'].readError = '';
+  assert.equal(await fireReread(host, 1000), 'imported');
+  // 定期の確認（見張りからでない）では、今までどおりすぐ失敗にする
+  failing = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'error');
+  assert.match(store.state.error, /解析できませんでした/);
+  assert.deepEqual(pendingTimers(host), []);
+});
+
+test('所持パル（save-watch）: 見張りから読んだときに必須のファイルが一時的に消えていても、別のワールドに替えたり止めたりせずに読み直す', async () => {
+  const fake = fakeWatch();
+  const host = setup({ watch: fake.client });
+  const { store, register, advance } = host;
+  const a = hostFiles(T0 + 60000);
+  await register(WORLD_B, hostFiles(T0));
+  await register(WORLD_A, a);
+  assert.equal(store.state.linkedWorldId, WORLD_A);
+  a['Level.sav'].gone = true;
+  a['LocalData.sav'].time += 30000;
+  advance(1000);
+  assert.equal(await store.refreshFromWatch(WORLD_A), 'held');
+  assert.deepEqual([store.state.linkedWorldId, store.state.data.world.id, store.state.auto.status, store.state.role], [WORLD_A, WORLD_A, 'ready', 'host']);
+  a['Level.sav'].gone = false;
+  a['Level.sav'].time += 30000;
+  assert.equal(await fireReread(host, 1000), 'imported');
+  assert.equal(store.state.data.world.id, WORLD_A);
+});
+
+test('所持パル（save-watch）: 保留の間も前の完全なデータの共有を止めない（取り消した再試行の予約は、今のセーブのまま戻す）', async () => {
+  const up = uploadServer();
+  let next = stampedSnapshot(tickOf(1), 2);
+  const host = setup({ server: up.server, runImport: async () => next });
+  const files = withDps();
+  up.control.failures.push('CONNECTION');
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  const [retry] = pendingTimers(host);
+  assert.equal(retry.ms, 15000);
+  // 新しいセーブを読んだが、_dps.sav が一時的に消えていた（保留）
+  next = stampedSnapshot(tickOf(2), 3);
+  files[DPS].gone = true;
+  newSave(files);
+  host.advance(5000);
+  assert.equal(await host.store.refreshAuto({ auto: true }), 'held');
+  await tick();
+  assert.equal(retry.cancelled, true);
+  // 再試行の予約（時刻は最初の段のまま）と、読み直しの予約
+  assert.deepEqual(pendingTimers(host).map((timer) => timer.ms).sort((x, y) => x - y), [1000, 10000]);
+  assert.equal(host.store.state.uploadReady, true);
+  const resend = pendingTimers(host).find((timer) => timer.ms === 10000);
+  resend.fired = true;
+  host.advance(10000);
+  resend.fn();
+  await settleUpload(host.store);
+  assert.deepEqual(up.sent.map((input) => input.world.saveStamp), [tickOf(1), tickOf(1)]);
+  assert.equal(host.store.state.upload.status, 'done');
+});
+
+test('所持パル（save-watch）: 別のワールドに替わった・登録を消したら、読み直しの予約を止める', async () => {
+  const host = setup();
+  const { store, register, advance } = host;
+  const files = withDps();
+  await register(WORLD_A, files);
+  files[DPS].gone = true;
+  newSave(files);
+  advance(25000);
+  assert.equal(await store.autoRefresh(), 'held');
+  const [waiting] = pendingTimers(host);
+  // もっと新しく遊んだワールド B を登録して読む
+  await register(WORLD_B, hostFiles(T0 + 120000));
+  assert.equal(store.state.linkedWorldId, WORLD_B);
+  assert.equal(waiting.cancelled, true);
+  // 登録を消す
+  const other = setup();
+  const otherFiles = withDps();
+  await other.register(WORLD_A, otherFiles);
+  otherFiles[DPS].gone = true;
+  newSave(otherFiles);
+  other.advance(25000);
+  assert.equal(await other.store.autoRefresh(), 'held');
+  const [timer] = pendingTimers(other);
+  await other.store.removeWorld(WORLD_A);
+  assert.equal(timer.cancelled, true);
+  assert.equal(await timer.fn(), 'skipped');
 });

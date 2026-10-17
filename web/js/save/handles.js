@@ -96,6 +96,20 @@ export function fileSignature(infos) {
 
 const timeIso = (ms) => (ms ? new Date(ms).toISOString() : '');
 
+// 今のファイルの印（inspectFiles の infos から作る fileSignature と同じ形。消えたファイルは入れない）。ほかの失敗で印を作れなければ ''
+async function signatureNow(files) {
+  const infos = {};
+  for (const path of Object.keys(files)) {
+    try {
+      const { lastModified, size } = await fileInfo(files[path]);
+      infos[path] = { lastModified, size };
+    } catch (error) {
+      if (!isMissing(error)) return '';
+    }
+  }
+  return fileSignature(infos);
+}
+
 /**
  * ハンドルの読み取り（許可の確認・更新日時・役割）。登録済みのワールドにも、確定前の登録にも使う。
  * @returns {Promise<{ status: 'ok'|'permission'|'missing'|'error', role: string, files: string[], missing: string[], infos: object, error: string }>}
@@ -205,12 +219,18 @@ export function createHandleSource({ persist, key }) {
       return worlds.sort((a, b) => b.playedAt.localeCompare(a.playedAt));
     },
 
-    /** list() で返したワールドを読む。list() の時点で消えていたファイルも skipped に入れる。 */
+    /**
+     * list() で返したワールドを読む。list() の時点で消えていたファイルも skipped に入れる。
+     * fileSignature は読んだ後のファイルの印（list() の fileSignature と同じ形）。違えば保存の途中に読んだかもしれない（sync-fixes の save-watch）
+     */
     async read(world) {
       const record = records.get(world.id);
       if (!record) throw errorWithCode('このワールドは登録されていません', 'NOT_REGISTERED');
       const result = await readFiles(record.files, world.files, REQUIRED_FILES[record.kind]);
-      return { files: result.files, skipped: [...(world.missing ?? []).map((path) => ({ path, reason: 'ファイルが見つかりません' })), ...result.skipped] };
+      return {
+        files: result.files, skipped: [...(world.missing ?? []).map((path) => ({ path, reason: 'ファイルが見つかりません' })), ...result.skipped],
+        fileSignature: await signatureNow(record.files),
+      };
     },
 
     /**
