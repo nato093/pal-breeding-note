@@ -83,12 +83,14 @@
 
 ## 6. save-watch（L・P0 の後）
 
-- 状態: 未
-- [ ] 見張り（Observer の張り直し・unknown・許可・世代番号・Worker への切り替え）
-- [ ] 一式の書き終わりの確認（前後の印・登録したファイルの失敗と消失を 30 秒まで読み直す・壊れたファイル）
-- [ ] watchTargets・refreshFromWatch・パネルの「監視」の行（**Observer に渡すのはワールドのフォルダの直下のファイルだけ。`Players` の中は Worker の 5 秒ごとの確認だけ**。見張ると SaveSync の同期を壊す〔README の「P0 の結果」の事故〕。テストで確かめる）
-- [ ] 「1 分ごと」の文言
-- [ ] テスト（watch・owned-store・app・wording）と OPERATIONS.md・release-notes
+- 状態: 実装済（feature/save-watch。integrate/sync-fixes へのマージのコミット 960bfd9）。実装は担当のエージェント（481a4b8〜09b48b2）、親が 6d01d93（Observer を今のワールドだけに）と、Codex のレビュー 2 回（1 回目 中 2・低 1 → 5b482e5 で直した。2 回目「高・中の問題は残っていない」）、49bf897（「今すぐ読み込む」の held の知らせ）。`npm test`・UTC は 1887 件すべて通過。`test:perf` はゲームが動いている間に変更後 8 件・5 件、変更前（89d13c8）6 件が落ち、落ちたのはどちらも配合の計画・理想個体・共有の行の変換の予算（テーマ 6 は触れていない。CPU の混み具合による揺れ）。実機は未確認（下の「次にやること」）
+- 決めたこと（詳しくは OPERATIONS.md の「セーブの見張り」）: 見張りは `web/js/save/watch.js`（Worker の中の `createSaveWatcher` と画面側の `createWatchClient`。Worker は `save/worker.js` の `type: 'watch'`・`'stop'`）。**Observer に渡すのは今のワールドの直下のファイルだけ**（画面側の `watchTargets()` の `observe` と Worker 側の `observable()` の 2 か所で守る）。ほかの登録したワールド（Level.sav・LocalData.sav）・`Players`・`GlobalPalStorage.sav` は 5 秒ごとの確認だけ（README のプランの「他の登録したワールドも Observer」から変えた。Chrome が押さえるフォルダを 1 つにする）。見張る対象から外すのは許可のないワールドだけ（一時的に読めないワールドは残す）。読み直しの保留は `readAuto` の `'held'`（前後の印の違いは 1 秒後、登録したファイルの失敗・消失は 1・3・10・30 秒で 30 秒続いた形は受け入れて覚える、見張りからの読めない失敗は 1・3・10 秒）。保留のタイマーは画面のスレッド（裏のタブで遅れるかは未実測）
+- [x] 見張り（Observer の張り直し・unknown・許可・世代番号・Worker への切り替え）
+- [x] 一式の書き終わりの確認（前後の印・登録したファイルの失敗と消失を 30 秒まで読み直す・壊れたファイル）
+- [x] watchTargets・refreshFromWatch・パネルの「監視」の行（**Observer に渡すのはワールドのフォルダの直下のファイルだけ。`Players` の中は Worker の 5 秒ごとの確認だけ**。見張ると SaveSync の同期を壊す〔README の「P0 の結果」の事故〕。テストで確かめる）（→ `test/save/watch.test.js` と `test/web/owned-store.test.js` で、Players・GlobalPalStorage.sav のハンドルが `observe()` に渡らないこと、止めた見張りに張り直さないことを確かめている）
+- [x] 「1 分ごと」の文言（→ `HOST_SUMMARY` は「ゲームが保存するたびにセーブを読みます」。過去の release-notes は直さない。`docs/COMPARISON.md:17` の「1 分ごとに読み直す」は範囲の外として残した）
+- [x] テスト（watch・owned-store・app・wording）と OPERATIONS.md・release-notes
+- [ ] 実機の確認（ユーザーがホスト。Chrome）: パネルの「監視」が「ファイルの変更」になり、「最後の保存」が約 30 秒ごとに進む・タブを裏に 5 分より長く置いても遅れない。**同期を受け取る前に、DevTools かパネルで `Players` を見張っていないことを確かめてから**（README の「P0 の結果」の事故）。IndexedDB から読み出したハンドルを Worker に送って observe できるか（P0 で確かめたのはドロップした直後のハンドル）、Edge
 
 ## 7. host-rotation（M・P0 の後）
 
@@ -116,9 +118,10 @@
 
 ## 次にやること
 
-- **2026-10-17 の朝（セッション b47c1ba0）: テーマ 1〜5 は統合ブランチにマージ済み。GAS の版 11・テスト用の deployment・計測・`api-check`・巻き戻しのリハーサル・P0 も済み（P0 の結果と決めた値は README の「P0 の結果」「P0 で決めたこと」）。次は上から順に:**
-  1. **テーマ 6 save-watch**: `git switch -c feature/save-watch integrate/sync-fixes` から。README の 6 の節と「P0 の結果」「P0 で決めたこと」（`quietMs` 1,000 ms・ホストのワールドは Level.sav が変わってから数える・`maxWaitMs` 10,000 ms・Worker の Observer を第一に・**Observer はワールドのフォルダの直下のファイルだけ。`Players` の中を見張ると SaveSync が同期を受け取るときに止まり、ワールドが消えた状態になる〔2026-10-17 の事故と再現〕**）を読む。
-  2. テーマ 7〜8 → 「終わり」の項目。本番の GAS（版 11）への切り替えと配信は P0 と全体の報告の後に、ユーザーの確認を得てから。テーマ 7 の自動登録は、`state.upload`（`status`・`result`・送ったスナップショットの `signature`・`stamp`・`published`）を購読して応答ごとに決める（応答はキャッシュの保存の前に購読者へ知らせてある）。
+- **2026-10-17 の昼（セッション a95dcb3f）: テーマ 1〜6 は統合ブランチにマージ済み（テーマ 6 は 960bfd9）。GAS の版 11・テスト用の deployment・計測・`api-check`・巻き戻しのリハーサル・P0 も済み。次は上から順に:**
+  1. **テーマ 7 host-rotation**: `git switch -c feature/host-rotation integrate/sync-fixes` から。README の 7 の節と「P0 で決めたこと」のテーマ 7（「直近 2 分の中に、間が 20〜90 秒の変化を続けて 2 回」はそのまま）を読む。「ゲーム中」の判定の変化は、テーマ 6 の見張りの知らせ（`owned.js` の `onSettled` → `refreshFromWatch`。`state.watch.lastSave`）と、読み込んだスナップショットの保存時刻から取れる。自動登録は、`state.upload`（`status`・`result`・送ったスナップショットの `signature`・`stamp`・`published`）を購読して応答ごとに決める（応答はキャッシュの保存の前に購読者へ知らせてある）。読み直しの保留（`'held'`）の間は、手元のデータ（`state.local`）が前のセーブのまま変わらないことに注意。
+  2. テーマ 8 → 「終わり」の項目。本番の GAS（版 11）への切り替えと配信は全体の報告の後に、ユーザーの確認を得てから。
+  3. テーマ 6 の実機の確認（6 の最後の項目）は、次にユーザーがホストするとき。テーマ 7・8 と一緒でもよい。
 - **始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる**（2026-10-16 の夕方、別のセッションが同じテーマ 5 をこの作業ツリーで進めていて重なった。こちらが切ったブランチと相手の未コミットの変更がぶつかりかけた）。
 - 進め方で効いた形: テーマごとに実装担当のエージェント（general-purpose）を 1 体立て、`feature/<key>` へのコミットまで任せる。親は `git status`・`npm test`（終了コード）・差分の個人情報（実在のプレイヤー名・ワールド名・ID・ユーザー名入りのパス。調べる語の一覧は文書に書かず、親のメモリの「公開リポジトリに個人情報を書かない」から取る）を確かめてから `--no-ff` でマージする。担当には README の節を読ませ、「範囲の外は直さない・push しない・`Claude outputs/` に触れない」を必ず添える。
 - 気づいたこと: (a) 作業ツリーは担当がブランチを切り替えながら使うので、GAS の push のように統合ブランチの中身が要る作業は `git worktree add "Claude outputs/worktrees/<名前>" integrate/sync-fixes` の別の作業フォルダで行う（`.clasp.json` は Git の対象外なので写す。clasp はリポジトリの `node_modules/.bin/clasp` を使う。`build:gas` の後の gas/Shared.js の差分は改行だけ）。使い終わったら `git worktree remove`（`Claude outputs/worktrees/sync-gas` の空のフォルダが権限で消せずに残っている。消してよい）。(b) `npm run test:perf` は、ゲームが動いて CPU が埋まっていると、共有の 20,000 行の変換（予算 200ms）とパルリバーサーの D17（予算 2 秒）が揺れて落ちる。変更前のコードでも同じように落ちた（予算は変えない。`--test-concurrency=1` でも流して比べる）。(c) テーマ 4 で 10 秒ごとに `pollAuto` を呼ぶようになったので、ホストの裏のタブも 20 秒ごとにセーブを確かめる（長く裏にあると Chrome が 1 分に 1 回まで遅らせるのは同じ。見張りはテーマ 6）。(d) 本番の GAS は版 10 のままなので、新しい画面は ownedSince を 1 時間に 1 回試して BAD_ACTION で今の 2 回呼びに落ちる。
