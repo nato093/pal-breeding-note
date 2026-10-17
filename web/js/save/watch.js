@@ -1,5 +1,5 @@
 // セーブのファイルの見張り（sync-fixes の save-watch）。ゲームが保存したら、一式を書き終えたところで画面に知らせる。
-// - Worker の中（createSaveWatcher）: FileSystemObserver を第一に、落ちたファイルは 5 秒ごとの getFile() の確認で拾う。変化はワールドごとに
+// - Worker の中（createSaveWatcher）: FileSystemObserver を第一に、落ちたファイルは 5 秒ごとの getFile() の確認で拾う（戻ったら張り直す）。変化はワールドごとに
 //   まとめ、最後の変化から quietMs（ホストのワールドは Level.sav が変わってから数える）か、最初の変化から maxWaitMs で settled を送る
 // - 画面のスレッド（createWatchClient）: Worker を作り、見張る対象を世代番号と組で送る。Worker を作れなければ app.js の定期の確認だけ
 // 最上位では self・Worker・FileSystemObserver に触れない（test/static/build-release.test.js が Node で import する）。
@@ -27,6 +27,9 @@ async function markOf(handle) {
     return { mark: error?.name === 'NotFoundError' ? 'missing' : `error:${error?.name || 'Error'}`, time: null };
   }
 }
+
+// getFile() が通った印か（消えた・読めない印でない）
+const present = (mark) => mark !== 'missing' && !mark.startsWith('error:');
 
 // 通知の、変わったハンドル（2026-10-15・17 の Chrome 155 は changedHandle の 1 つ。changedHandles〔配列〕の形でも読む）
 const changedOf = (record) => {
@@ -163,17 +166,18 @@ export function createSaveWatcher({
     });
   }
 
-  // 1 つのファイルを照らし合わせ、前に見た印から変わっていれば変化として数える
+  // 1 つのファイルを照らし合わせ、前に見た印から変わっていれば変化として数える。今の印を返す
   async function check(world, file, token) {
     const { mark } = await markOf(file.handle);
-    if (!live(token) || mark === file.seen) return;
+    if (!live(token) || mark === file.seen) return mark;
     file.seen = mark;
     touch(world, file.path, token);
+    return mark;
   }
 
   // 張り直す。ゲームはファイルを置き換えて保存するので、保存のたびに disappeared・errored で見張りが止まる（P0 では毎回 1 回目で成功）。
   // getFile() が通ったら await observe() し、成功したら張り直す間の変化を見落とさないよう照らし合わせる。通らなければ rearmWaits の段で
-  // 試し、全部の段で通らなければ、そのファイルは 5 秒ごとの確認だけにする（次の watch() で張り直す）
+  // 試し、全部の段で通らなければ、そのファイルは 5 秒ごとの確認だけにする（確認でファイルが戻ったのに気づいたら、poll から張り直す）
   async function rearm(world, file, token) {
     if (file.rearming) return;
     file.rearming = true;
@@ -244,15 +248,21 @@ export function createSaveWatcher({
     }
   }
 
-  // 5 秒ごとに、全ワールドの全ファイル（Players・GlobalPalStorage.sav も）を照らし合わせる。前の回が終わっていなければ飛ばす
+  // 5 秒ごとに、全ワールドの全ファイル（Players・GlobalPalStorage.sav も）を照らし合わせる。前の回が終わっていなければ飛ばす。
+  // Observer で見張るはずのファイル（observedFiles。Players の中・GlobalPalStorage.sav は入らない）で見張りが外れたまま（張り直しを
+  // 諦めた・最初の observe() で失敗した）のものは、ファイルが戻っていれば張り直す。SaveSync は同期を受け取るときに LocalData.sav 以外を
+  // 消してから書き直すので、1.3 秒の段では間に合わず、張り直さないとページを読み込み直すまで 5 秒ごとの確認だけになる（P0）。
+  // 消えている・読めない間は張り直さない（確認のたびに 1.3 秒の段を回さない）
   async function poll(token) {
     if (!live(token) || polling) return;
     polling = true;
     try {
       for (const world of worlds) {
+        const watched = observedFiles(world);
         for (const file of world.files) {
-          await check(world, file, token);
+          const mark = await check(world, file, token);
           if (!live(token)) return;
+          if (world.observer && watched.includes(file) && !file.watching && !file.rearming && present(mark)) rearm(world, file, token);
         }
       }
     } finally {

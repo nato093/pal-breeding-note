@@ -304,6 +304,139 @@ test('見張り（save-watch）: 4 段（10・50・250・1000 ms）で張り直�
   assert.deepEqual(modes(), ['observer', 'poll', 'observer']);
 });
 
+test('見張り（save-watch）: 1.3 秒より長く消えて張り直しを諦めたファイルは、戻ったことに 5 秒ごとの確認で気づいたら張り直す（消えている間は試さない。SaveSync の同期の受け取り）', async () => {
+  // 消えている間は observe() も失敗する
+  const Observer = fakeObserverClass({ refuse: (handle) => handle.gone });
+  const { clock, watcher, modes, settled } = setup({ Observer });
+  const local = { 'LocalData.sav': fakeHandle('LocalData.sav') };
+  const handle = local['LocalData.sav'];
+  await watcher.watch({ generation: 1, targets: [target('W1', local, { host: false })] });
+  await flush();
+  assert.deepEqual(modes(), ['observer']);
+  // SaveSync が消してから書き直す（4 段の 1.3 秒より長く消えている）→ 張り直しを諦める
+  handle.gone = true;
+  Observer.instances[0].notify('disappeared', handle);
+  await clock.advance(10 + 50 + 250 + 1000);
+  assert.equal(Observer.calls.length, 1);
+  assert.deepEqual(modes(), ['observer', 'poll']);
+  // 消えている間は、5 秒ごとの確認（5・10 秒）で張り直しを試さない（getFile() は確認の 1 回ずつだけ。段を回さない）
+  let reads = 0;
+  const getFile = handle.getFile.bind(handle);
+  handle.getFile = async () => { reads++; return getFile(); };
+  await clock.advance(10090);
+  assert.equal(reads, 2);
+  assert.equal(Observer.calls.length, 1);
+  assert.deepEqual(modes(), ['observer', 'poll']);
+  // ファイルが戻る → 次の確認（15 秒）で気づいて張り直し、Observer に戻る
+  handle.gone = false;
+  save(handle, T0 + 30000);
+  await clock.advance(3610);
+  assert.equal(Observer.calls.length, 2);
+  assert.equal(Observer.calls[1], handle);
+  assert.deepEqual(modes(), ['observer', 'poll', 'observer']);
+  await clock.advance(1000);
+  assert.deepEqual(settled().map(({ changed, firstAt }) => [changed, firstAt]), [[['LocalData.sav'], null], [['LocalData.sav'], T0 + 30000]]);
+  // その後の保存は Observer の通知で知らせる（次の 5 秒ごとの確認〔20 秒〕を待たない）
+  save(handle, T0 + 60000);
+  Observer.instances[0].notify('disappeared', handle);
+  await clock.advance(1100);
+  assert.ok(clock.now() < 20000);
+  assert.deepEqual(settled().map(({ firstAt }) => firstAt), [null, T0 + 30000, T0 + 60000]);
+  assert.equal(Observer.calls.length, 3);
+  assert.deepEqual(modes(), ['observer', 'poll', 'observer']);
+});
+
+test('見張り（save-watch）: 始めたときにファイルがなく observe() に失敗したファイルも、戻ったら 5 秒ごとの確認で張り直す', async () => {
+  const Observer = fakeObserverClass({ refuse: (handle) => handle.gone });
+  const { clock, watcher, modes } = setup({ Observer });
+  const local = { 'LocalData.sav': fakeHandle('LocalData.sav') };
+  local['LocalData.sav'].gone = true;
+  await watcher.watch({ generation: 1, targets: [target('W1', local, { host: false })] });
+  await clock.advance(10 + 50 + 250 + 1000);
+  assert.equal(Observer.calls.length, 1);
+  assert.deepEqual(modes(), ['poll']);
+  local['LocalData.sav'].gone = false;
+  await clock.advance(5000 - 1310 + 10);
+  assert.equal(Observer.calls.length, 2);
+  assert.deepEqual(modes(), ['poll', 'observer']);
+});
+
+test('見張り（save-watch）: 5 秒ごとの確認からの張り直しでも、Players・GlobalPalStorage.sav（誤って observe を付けても）と observe の付いていないファイルは Observer に渡さない', async () => {
+  const Observer = fakeObserverClass({ refuse: (handle) => handle.gone });
+  const { clock, watcher } = setup({ Observer });
+  const files = worldFiles();
+  // 呼び出し側の誤り: Players・GlobalPalStorage.sav にも observe を付け、LevelMeta.sav には付けない
+  const files0 = Object.entries(files).map(([path, handle]) => ({ path, handle, observe: path !== 'LevelMeta.sav' }));
+  await watcher.watch({ generation: 1, targets: [{ worldId: 'W1', host: true, files: files0 }] });
+  await flush();
+  assert.deepEqual(Observer.calls.map((handle) => handle.name), ['Level.sav', 'LocalData.sav']);
+  // SaveSync の受け取り: LocalData.sav 以外が 1.3 秒より長く消えてから戻る
+  const gone = Object.entries(files).filter(([path]) => path !== 'LocalData.sav').map(([, handle]) => handle);
+  for (const handle of gone) handle.gone = true;
+  Observer.instances[0].notify('disappeared', files['Level.sav']);
+  await clock.advance(10 + 50 + 250 + 1000);
+  for (const handle of gone) {
+    handle.gone = false;
+    save(handle, T0 + 30000);
+  }
+  await clock.advance(20000);
+  // 張り直すのは Level.sav だけ（確認からの張り直しが動いたことの確かめも兼ねる）
+  assert.deepEqual(Observer.calls.map((handle) => handle.name), ['Level.sav', 'LocalData.sav', 'Level.sav']);
+  for (const path of [PLAYER, DPS, GLOBAL, 'LevelMeta.sav']) assert.ok(!Observer.calls.includes(files[path]), path);
+});
+
+test('見張り（save-watch）: 対象を送り直した後・止めた後の古い世代では、5 秒ごとの確認から張り直さない', async () => {
+  const Observer = fakeObserverClass({ refuse: (handle) => handle.gone });
+  const { clock, watcher, posts } = setup({ Observer });
+  const local = { 'LocalData.sav': fakeHandle('LocalData.sav') };
+  const handle = local['LocalData.sav'];
+  const getFile = handle.getFile.bind(handle);
+  // 見張って、1.3 秒より長く消して張り直しを諦めさせ、ファイルを戻す（次の確認で張り直す状態）
+  const lapse = async (generation) => {
+    await watcher.watch({ generation, targets: [target('W1', local, { host: false })] });
+    await flush();
+    handle.gone = true;
+    Observer.instances.at(-1).notify('disappeared', handle);
+    await clock.advance(10 + 50 + 250 + 1000);
+    handle.gone = false;
+  };
+  // 確認の getFile() を待っている間に、別のワールドに替える
+  await lapse(1);
+  const old = Observer.instances.at(-1);
+  const before = Observer.calls.length;
+  let release = null;
+  handle.getFile = async () => {
+    if (!release) await new Promise((resolve) => { release = resolve; });
+    return getFile();
+  };
+  await clock.advance(5000 - 1310 + 10);
+  assert.equal(typeof release, 'function');
+  const other = { 'LocalData.sav': fakeHandle('LocalData.sav') };
+  await watcher.watch({ generation: 2, targets: [target('W2', other, { host: false })] });
+  release();
+  await clock.advance(20000);
+  assert.equal(old.disconnected, true);
+  assert.deepEqual(Observer.calls.slice(before), [other['LocalData.sav']]);
+  // 確認から張り直しを始め、その getFile() を待っている間に止める
+  await lapse(3);
+  const calls = Observer.calls.length;
+  let reads = 0;
+  release = null;
+  handle.getFile = async () => {
+    reads++;
+    if (reads === 2) await new Promise((resolve) => { release = resolve; });
+    return getFile();
+  };
+  await clock.advance(5000 - 1310 + 10);
+  assert.equal(typeof release, 'function');
+  const sent = posts.length;
+  watcher.stop();
+  release();
+  await clock.advance(20000);
+  assert.equal(Observer.calls.length, calls);
+  assert.equal(posts.length, sent);
+});
+
 test('見張り（save-watch）: unknown はそのワールドの全ファイル（Players も）を照らし合わせる', async () => {
   const { clock, watcher, Observer, settled } = setup();
   const files = worldFiles();
@@ -351,10 +484,13 @@ test('見張り（save-watch）: Observer がない・作れないときは poll
   await clock.advance(5000);
   await clock.advance(1000);
   assert.deepEqual(settled().map(({ changed }) => changed), [['Level.sav', GLOBAL]]);
+  // 5 秒ごとの確認でも張り直さない（poll のまま）
+  assert.deepEqual(modes(), ['poll']);
 
   class Broken { constructor() { throw new Error('not supported'); } }
   const other = setup({ Observer: Broken });
   await other.watcher.watch({ generation: 1, targets: [target('W1', worldFiles())] });
+  await other.clock.advance(11000);
   assert.deepEqual(other.modes(), ['poll']);
 });
 
