@@ -1513,7 +1513,7 @@ test('所持パル（share-upload）: ページを読み込み直しても、同
   const firstAt = host.store.state.upload.published.uploadedAt;
   const reopened = host.make();
   await reopened.load();
-  assert.deepEqual(reopened.state.upload, { status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', published: null });
+  assert.deepEqual(reopened.state.upload, { status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', savedAt: '', scope: '', userId: '', published: null });
   host.advance(60000);
   assert.equal(await reopened.autoRefresh(), 'imported');
   await settleUpload(reopened);
@@ -1596,7 +1596,7 @@ test('所持パル（share-upload）: 新しいセーブを読んだら前の結
   // 15 秒たたずに新しいセーブを読んだ（送るのは予約）: 前の結果は消え、案内も出ない
   next = stampedSnapshot(tickOf(9), 2);
   await readNewSave(other, files, { ms: 3000 });
-  assert.deepEqual(other.store.state.upload, { status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', published: null });
+  assert.deepEqual(other.store.state.upload, { status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', savedAt: '', scope: '', userId: '', published: null });
   assert.equal(uploadNotice(other.store.state), null);
   // 送れなかった知らせは、新しいセーブを読んでも次の応答まで残す
   up.control.failures.push('CONNECTION');
@@ -2175,4 +2175,51 @@ test('所持パル（host-rotation）: 見張りの対象が変わったら（�
   host.advance(30000);
   assert.equal(await host.store.refreshFromWatch(WORLD_A), 'imported');
   assert.deepEqual(host.store.state.play, { worldId: WORLD_A, role: 'host', value: playTicksMs(secondsTick(90)), changes: [] });
+});
+
+// ---- Codex のレビューの直し（host-rotation） ----
+
+test('所持パル（host-rotation・Codex のレビュー）: 共有の結果に、送ったセーブの更新日時（saveUpdatedAt と同じ値）と、送ったときの環境・ID を残す（送っている間・送れなかったときも）', async () => {
+  const up = uploadServer();
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const release = up.hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => up.sent.length === 1);
+  const savedAt = host.store.state.local.world.updatedAt;
+  assert.equal(up.sent[0].saveUpdatedAt, savedAt);
+  const pick = () => {
+    const { status, savedAt: at, scope, userId } = host.store.state.upload;
+    return [status, at, scope, userId];
+  };
+  assert.deepEqual(pick(), ['sending', savedAt, 'test', 'ホスト']);
+  release();
+  await settleUpload(host.store);
+  assert.deepEqual(pick(), ['done', savedAt, 'test', 'ホスト']);
+  up.control.failures.push('VALIDATION');
+  assert.equal(await host.store.uploadLocal({ force: true }), 'error');
+  assert.deepEqual(pick(), ['error', savedAt, 'test', 'ホスト']);
+});
+
+test('所持パル（host-rotation・Codex のレビュー）: 共有を確かめたワールドを shared.fetchedWorldId に残す（取得に成功したときだけ。保存先が替われば空）', async () => {
+  let failing = false;
+  const shared = sharedServer({ rewrite: (action) => (failing && action !== 'ownedUpload' ? { ok: false, code: 'CONNECTION' } : undefined) });
+  await publish(shared, { worldId: WORLD_A });
+  await publish(shared, { worldId: WORLD_B });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  assert.equal(viewer.store.state.shared.fetchedWorldId, '');
+  await viewer.store.setViewWorld(WORLD_A);
+  assert.equal(viewer.store.state.shared.fetchedWorldId, WORLD_A);
+  // 別のワールドに替えて、その取得に失敗した: 確かめたのは前のワールドのまま
+  failing = true;
+  await viewer.store.setViewWorld(WORLD_B);
+  assert.deepEqual([viewer.store.state.shared.fetchedWorldId, Boolean(viewer.store.state.shared.error)], [WORLD_A, true]);
+  failing = false;
+  await viewer.store.setViewWorld(WORLD_B);
+  assert.equal(viewer.store.state.shared.fetchedWorldId, WORLD_B);
+  // 保存先（ログイン中の環境）が替われば空（読めなければ空のまま）
+  failing = true;
+  shared.setScope('prod');
+  await viewer.store.scopeChanged();
+  assert.equal(viewer.store.state.shared.fetchedWorldId, '');
 });

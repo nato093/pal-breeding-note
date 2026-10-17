@@ -266,7 +266,7 @@ const guestPlaying = (overrides = {}) => ({
   ready: true, role: 'guest', linkedWorldId: 'W', error: '',
   auto: { enabled: true, status: 'ready', worlds: [{ id: 'W' }], worldId: '', error: '' },
   play: playRecord(), upload: { status: '', at: '', error: '', worldId: '' },
-  shared: { worlds: [], current: null, fetchedAt: msAgo(5000), error: '' },
+  shared: { worlds: [], current: null, fetchedAt: msAgo(5000), fetchedWorldId: 'W', error: '' },
   meta: { source: 'shared', worldId: 'W', worldName: 'テスト', hostName: 'Host', uploadedBy: 'Alice', sharedAt: msAgo(12 * 60000), saveUpdatedAt: msAgo(12 * 60000) },
   owned: { players: [], pals: [] }, data: { world: {} },
   ...overrides,
@@ -336,4 +336,20 @@ test('ゲーム中の推定の行（host-rotation）: ホストは「ホスト�
   assert.equal(playSummary(guestPlaying(), { now }), '参加中（推定）');
   assert.equal(playSummary(guestPlaying({ play: playRecord('OTHER') }), { now }), '');
   assert.equal(playSummary(guestPlaying({ role: '' }), { now }), '');
+});
+
+test('共有が止まっている案内（host-rotation・Codex のレビュー）: 共有を確かめたワールドが今のワールドと違う・共有の取得に失敗しているときは出さない', async () => {
+  const { shareLagNotice } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  assert.notEqual(shareLagNotice(guestPlaying(), { now }), null);
+  for (const change of [{ fetchedWorldId: 'OTHER' }, { fetchedWorldId: '' }, { fetchedWorldId: undefined }, { error: '接続できません' }]) {
+    assert.equal(shareLagNotice(guestPlaying({ shared: { ...guestPlaying().shared, ...change } }), { now }), null, JSON.stringify(change));
+  }
+  // W の取得に成功した直後に W2 に替わり、W2 の取得が失敗した（W2 を「まだ共有されていません」と誤って出さない）
+  const switched = guestPlaying({
+    linkedWorldId: 'W2', play: playRecord('W2'), meta: { worldId: 'W2', worldName: '', hostName: '' },
+    shared: { ...guestPlaying().shared, error: '接続できません' },
+  });
+  assert.equal(shareLagNotice(switched, { now }), null);
+  assert.equal(shareLagNotice({ ...switched, shared: { ...switched.shared, error: '' } }, { now }), null);
 });

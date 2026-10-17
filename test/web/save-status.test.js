@@ -327,7 +327,7 @@ test('ヘッダーのセーブ連携（save-watch）: パネルの「監視」�
 const GUEST_WORLD = 'B'.repeat(32);
 // 直近に 30 秒ごとの変化を 2 回見た記録（owned.js の state.play）
 const playing = (worldId = GUEST_WORLD, role = 'guest') => ({ worldId, role, value: 60000, changes: [{ at: NOW - 40000, gap: 30000 }, { at: NOW - 10000, gap: 30000 }] });
-const checkedNow = { worlds: [], current: null, fetchedAt: at(0), error: '' };
+const checkedNow = { worlds: [], current: null, fetchedAt: at(0), fetchedWorldId: GUEST_WORLD, error: '' };
 // ゲーム中の参加者。共有は今確かめ、共有のセーブは 20 分前（guestState）
 const lagging = (overrides = {}) => guestState({ linkedWorldId: GUEST_WORLD, play: playing(), shared: checkedNow, ...overrides });
 
@@ -346,6 +346,8 @@ test('セーブ連携の状態（host-rotation）: 参加者がゲーム中な�
   assert.equal(model(lagging({ play: null, meta: { worldId: GUEST_WORLD, worldName: '', hostName: '' } })).text, '共有待ち');
   // 送れない警告の方が先
   assert.equal(model(lagging({ upload: { status: 'error', at: '', error: '通信できません', worldId: '' } })).text, '共有できません');
+  // 共有を確かめたのが別のワールド（今のワールドを確かめていない）なら出さない（Codex のレビュー）
+  assert.equal(model(lagging({ shared: { ...checkedNow, fetchedWorldId: 'C'.repeat(32) } })).text, '「仲間の島」· 共有 09:20');
 });
 
 test('ヘッダーのセーブ連携（host-rotation）: 共有が止まっている案内はパネルの困りごとにも同じ文で出し、「ゲーム」の行に参加中（推定）', async (t) => {

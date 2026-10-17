@@ -1106,10 +1106,14 @@ function readSave(t, seconds, farms) {
     snapshot: { ...local.snapshot, world: { savedAtTicks: ticks(seconds) }, breedFarms: farms },
   };
 }
-// 共有の結果（owned.js の state.upload。stamp は送ったセーブの中の保存時刻、uploadedBy は今公開されている共有を送った人）
-function answer(t, status, seconds, { result = '', worldId = t.owned.state.local.world.id, uploadedBy = '' } = {}) {
-  const published = uploadedBy ? { saveStamp: ticks(seconds), uploadedBy, uploadedAt: '' } : null;
-  t.owned.state.upload = { status, at: '', error: '', worldId, result, signature: '', stamp: ticks(seconds), published };
+// 共有の結果（owned.js の state.upload）。stamp・savedAt は送ったセーブの中の保存時刻と更新日時、scope・userId は送ったときの環境と ID、
+// uploadedBy は今公開されている共有を送った人
+function uploadOf(status, seconds, { result = '', worldId = 'W1', uploadedBy = '', stamp = ticks(seconds), savedAt = readAt(seconds), scope = 'test', userId = '自分' } = {}) {
+  const published = uploadedBy ? { saveStamp: stamp, uploadedBy, uploadedAt: '' } : null;
+  return { status, at: '', error: '', worldId, result, signature: '', stamp, savedAt, scope, userId, published };
+}
+function answer(t, status, seconds, options = {}) {
+  t.owned.state.upload = uploadOf(status, seconds, { worldId: t.owned.state.local.world.id, ...options });
 }
 // このページがホスト中（推定）。owned.js の state.play（core/playing.js の trackPlay の形）で、直近に 30 秒ごとの保存を 2 回見た
 function hosting(t, worldId = 'W1') {
@@ -1408,4 +1412,113 @@ test('自動登録（host-rotation）: 結果は送ったワールドの記録�
   await t.auto.idle();
   assert.equal(verdicts().length, 20);
   assert.deepEqual(verdicts().at(-1), { kind: 'stale', stamp: ticks(25 * 30) });
+});
+
+// ---- Codex のレビューの直し（host-rotation） ----
+
+// 次の読み込みの途中（牧場を比べた後、記録を書く前。absorb がホスト中の推定〔owned.state.play〕を読むところ）で、fn を 1 回だけ動かす
+function interrupt(t, fn) {
+  let play = t.owned.state.play;
+  let pending = fn;
+  Object.defineProperty(t.owned.state, 'play', {
+    configurable: true, enumerable: true,
+    get() {
+      if (pending) {
+        const run = pending;
+        pending = null;
+        run();
+      }
+      return play;
+    },
+    set(value) { play = value; },
+  });
+}
+// 同じ保存先を使う別のタブ（ホストとして判定しない。共有の結果の記録だけをする）
+function otherTab(t) {
+  const owned = { state: { role: '', linkedWorldId: '', upload: null } };
+  const auto = createAutoRegister({ store: t.store, owned, storage: t.storage, namespace: 't', loadTable: async () => ({ default: data }), now: () => t.clock.now });
+  return { owned, auto };
+}
+const verdictsOf = (t, env = 'test', worldId = 'W1') => JSON.parse(t.storage.get(`t.autoBreeding.farms.${env}.${worldId}`) ?? '{}').verdicts ?? [];
+
+test('自動登録（host-rotation・Codex のレビュー）: 別のタブが読み込みの途中に same を記録しても、書き戻しで判定を消さず、捨てた候補を戻さない', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'error', 0);
+  await t.run();
+  const tab = otherTab(t);
+  // このタブが次のセーブ（S2）を読む途中で、別のタブが「S1 は別の人が共有済み」と記録して S1 の候補を捨てる
+  interrupt(t, () => {
+    tab.owned.state.upload = uploadOf('same', 0, { result: 'same', uploadedBy: '仲間' });
+    tab.auto.evaluate();
+  });
+  readSave(t, 30, [sheepFarm()]);
+  await t.run();
+  assert.deepEqual(verdictsOf(t), [{ kind: 'same', stamp: ticks(0) }]);
+  assert.deepEqual(unitsOf(t), []);
+  // 後で自分の S2 が載っても、捨てた S1 の候補は登録しない
+  answer(t, 'done', 30, { result: 'newer' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+});
+
+test('自動登録（host-rotation・Codex のレビュー）: 別のタブが読み込みの途中に mine を記録しても、書き戻しで保留に戻さず登録する', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  const tab = otherTab(t);
+  interrupt(t, () => {
+    tab.owned.state.upload = uploadOf('done', 0, { result: 'new' });
+    tab.auto.evaluate();
+  });
+  readSave(t, 30, [sheepFarm()]);
+  await t.run();
+  assert.deepEqual(verdictsOf(t), [{ kind: 'mine', stamp: ticks(0) }]);
+  assert.deepEqual(registered(t.store), [SHEEP]);
+});
+
+test('自動登録（host-rotation・Codex のレビュー）: 識別のない（中の保存時刻が読めない）次のセーブが自分の共有として載れば、その更新日時以前の保留の候補を登録する', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'error', 0);
+  await t.run();
+  // 次のセーブは中の保存時刻が読めない
+  const { local } = t.owned.state;
+  t.owned.state.local = { ...local, importedAt: readAt(30), world: { ...local.world, updatedAt: readAt(30) }, snapshot: { ...local.snapshot, world: {} } };
+  await t.run();
+  // 更新日時が S1 より前の判定・same・stale では決めない（更新日時は同期で書き換わるので、同じセーブの判定には使わない）
+  for (const [status, savedAt] of [['done', readAt(-30)], ['same', readAt(30)], ['stale', readAt(30)]]) {
+    answer(t, status, 30, { stamp: '', savedAt, result: status === 'done' ? 'new' : status });
+    await t.run();
+  }
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(verdictsOf(t), [{ kind: 'mine', stamp: '', savedAt: readAt(-30) }]);
+  answer(t, 'done', 30, { stamp: '', result: 'new' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+  assert.deepEqual(verdictsOf(t).at(-1), { kind: 'mine', stamp: '', savedAt: readAt(30) });
+});
+
+test('自動登録（host-rotation・Codex のレビュー）: 環境を切り替えても、前の環境で受けた共有の結果を新しい環境の判定として記録しない', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  assert.deepEqual(verdictsOf(t), [{ kind: 'mine', stamp: ticks(0) }]);
+  t.store.state.env = 'prod';
+  t.auto.evaluate();
+  await t.auto.idle();
+  assert.deepEqual(verdictsOf(t, 'prod'), []);
+});
+
+test('自動登録（host-rotation・Codex のレビュー）: 自分の ID の same は、送ったときの ID と比べる（その後に ID が替わっていても）', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'same', 0, { result: 'same', uploadedBy: '前の名前', userId: '前の名前' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
 });

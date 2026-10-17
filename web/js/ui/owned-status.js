@@ -88,7 +88,9 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
 // ---- ゲーム中の推定と、共有が止まっていることの案内（sync-fixes の host-rotation） ----
 // 参加者がゲーム中なのに、共有のセーブがこれより古い（または共有がない）と、今のホストの画面が閉じているとみなす
 export const SHARE_LAG_MS = 5 * 60 * 1000;
-// 共有をこの間の中に確かめたときだけ案内する（参加者のタブは裏では共有を読まない〔D26〕ので、表に戻った直後の古い共有で誤って出さない）
+// 共有をこの間の中に確かめたときだけ案内する（参加者のタブは裏では共有を読まない〔D26〕ので、表に戻った直後の古い共有で誤って出さない）。
+// 確かめたのは今のワールドで（owned.js の shared.fetchedWorldId）、取得に失敗していないこと（ワールドを替えた直後の失敗で、前のワールドを
+// 確かめた時刻を使って「まだ共有されていません」と誤って出さない。Codex のレビュー）
 export const SHARE_CHECKED_MS = 60 * 1000;
 
 /** この PC が今のワールド・今の役割でゲーム中か（owned.js の state.play。core/playing.js の isPlaying） */
@@ -108,16 +110,17 @@ export function playSummary(state, { now = Date.now } = {}) {
 
 /**
  * 参加者がゲーム中なのに、共有が止まっている（共有のセーブが SHARE_LAG_MS より古い・このワールドの共有がない）ときの案内。所持パルの案内
- *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」）に同じ文で出す。共有を SHARE_CHECKED_MS の中に確かめて
- * いなければ出さない
+ *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」）に同じ文で出す。今のワールドの共有を SHARE_CHECKED_MS の中に
+ * 確かめていなければ（取得の失敗を含む）出さない
  * @returns {null | { text: string, kind: 'warning', action: 'editWorld' }}
  */
 export function shareLagNotice(state, { now = Date.now } = {}) {
   if (state?.role !== 'guest') return null;
   const time = now();
   if (!playingNow(state, time)) return null;
-  const checked = Date.parse(state.shared?.fetchedAt ?? '');
-  if (!Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
+  const shared = state.shared ?? {};
+  const checked = Date.parse(shared.fetchedAt ?? '');
+  if (shared.error || shared.fetchedWorldId !== state.linkedWorldId || !Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
   const meta = state.meta ?? {};
   const help = '今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。';
   if (meta.source !== 'shared') return { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${help}`, kind: 'warning', action: 'editWorld' };

@@ -194,11 +194,14 @@ function isOtherGenderResult(table, record, existing) {
  * 1 つの判定（{ kind, stamp: S }）で、保留の候補（stamp が S 以前）を決める。決めるのは S 以前の候補だけ（S より後に読んだ候補は、その判定では
  * 決めない）。mine → 登録してよい。same → stamp が S と同じ候補は捨てる（null。そのセーブは別の PC の担当）、S より前は保留のまま。
  * stale → このページがホスト中（推定）の間に読んだ候補は登録してよい（自分のプレイの証拠）、それ以外は保留のまま（推定が立たなかった
- * だけで、同期で受け取ったとは言い切れないため）。一度登録してよいになった候補は、後の判定で取り消さない
+ * だけで、同期で受け取ったとは言い切れないため）。一度登録してよいになった候補は、後の判定で取り消さない。
+ * 識別のないセーブの mine（{ kind: 'mine', stamp: '', savedAt }）は、候補の更新日時（savedAt）が送ったセーブの更新日時以前かで決める
  */
 function judge(unit, verdict) {
   if (unit.state !== HOLD || !unit.stamp) return unit;
-  const order = compareSaves({ stamp: unit.stamp }, { stamp: verdict.stamp });
+  if (!verdict.stamp && verdict.kind !== 'mine') return unit;
+  const order = verdict.stamp ? compareSaves({ stamp: unit.stamp }, { stamp: verdict.stamp })
+    : compareSaves({ stamp: unit.stamp, updatedAt: unit.savedAt }, { stamp: '', updatedAt: verdict.savedAt });
   if (order > 0) return unit;
   if (verdict.kind === 'mine') return { ...unit, state: OK };
   if (verdict.kind === 'same') return order === 0 ? null : unit;
@@ -317,11 +320,18 @@ export function createAutoRegister({
       record: Object.fromEntries(RECORD_FIELDS.map((f) => [f, value.record[f]])), evidence,
     };
   }
-  // 牧場の記録に残した判定（形の違うものは捨てる）
+  // 牧場の記録に残した判定（形の違うものは捨てる）。stamp が空なのは、識別のないセーブの mine（送ったセーブの更新日時 savedAt で決める）だけ
   const cleanVerdicts = (value) => list(value, {
-    map: (item) => (isObject(item) && Object.values(VERDICT_KINDS).includes(item.kind) && ownedSaveStamp(item.stamp)
-      ? { kind: item.kind, stamp: ownedSaveStamp(item.stamp) } : null),
+    map: (item) => {
+      if (!isObject(item) || !Object.values(VERDICT_KINDS).includes(item.kind)) return null;
+      const stamp = ownedSaveStamp(item.stamp);
+      if (stamp) return { kind: item.kind, stamp };
+      const savedAt = isoTime(item.savedAt);
+      return item.kind === 'mine' && savedAt ? { kind: 'mine', stamp: '', savedAt } : null;
+    },
   }).slice(-VERDICTS_MAX);
+  // 同じ判定か（種類・保存時刻・識別のないセーブの mine は更新日時も）
+  const sameVerdict = (a, b) => a.kind === b.kind && a.stamp === b.stamp && (a.savedAt ?? '') === (b.savedAt ?? '');
   // 7 日たっても保留のままの候補を外す
   const unexpired = (pending, time = now()) => pending.filter((unit) => unit.state !== HOLD || time - Date.parse(unit.seenAt) <= HOLD_MAX_MS);
   // 判定を古い順に当てる（捨てた候補は外す）
@@ -363,12 +373,19 @@ export function createAutoRegister({
         ? value.pending.map(cleanCandidate).filter((c) => c && !finished.get(key)?.has(c.key)) : [],
     };
   }
-  // 書くたびに rev を増やす。保存先への書き込みだけ失敗したとき（同じセーブのまま候補を外したなど）も、メモリの新しい方を使う
+  // 書くたびに rev を増やす。保存先への書き込みだけ失敗したとき（同じセーブのまま候補を外したなど）も、メモリの新しい方を使う。
+  // 別のタブが、この記録を読んでから書くまでの間に判定を足していることがある（保存先はタブの間で共通）ので、書く直前の最新の記録の判定と
+  // 和を取り（最新の並びを先に、ないものだけ足す）、書く候補にその判定を当て直してから書く（判定が消えて、捨てた候補が戻る・登録してよい
+  // 候補が保留に戻るのを防ぐ。Codex のレビュー）。候補そのものの和は取らない（読み込みどうしの重なりは前からある競合）。書いた記録を返す
   function writeFarms(ctx, value) {
     const key = farmsKey(ctx.env, ctx.worldId);
-    const next = { ...value, rev: readFarms(ctx).rev + 1 };
+    const latest = readFarms(ctx);
+    const added = (value.verdicts ?? []).filter((verdict) => !latest.verdicts.some((other) => sameVerdict(verdict, other)));
+    const verdicts = [...latest.verdicts, ...added].slice(-VERDICTS_MAX);
+    const next = { ...value, verdicts, pending: judgeAll(value.pending ?? [], verdicts), rev: latest.rev + 1 };
     memory.set(key, next);
     storage.set(key, JSON.stringify(next));
+    return next;
   }
 
   // 新しく読んだセーブの牧場を前と比べ、新しいタマゴの候補を「まだ登録を終えていない候補」に足す
@@ -402,8 +419,8 @@ export function createAutoRegister({
       importedAt: ctx.importedAt, savedAt: ctx.savedAt, saveStamp: ctx.saveStamp, farms: history.farms, seenEggs: history.eggs,
       verdicts: saved.verdicts, pending: pending.slice(-PENDING_MAX),
     };
-    writeFarms(ctx, next);
-    return { pending: next.pending, anomalies };
+    // 書いた記録（別のタブが足した判定を当て直した後）の候補で登録する
+    return { pending: writeFarms(ctx, next).pending, anomalies };
   }
 
   /**
@@ -415,20 +432,26 @@ export function createAutoRegister({
   function noteVerdict() {
     const s = store.state;
     const upload = owned.state.upload ?? {};
-    // 同じセーブを共有済み（same）でも、公開しているのが自分の ID なら、同じ PC の別のタブ（中身の良い方）が載せた自分の共有
-    //（牧場の記録はタブの間で共通なので、捨てると、そのタブの mine で決める候補がなくなる）
-    const own = Boolean(s.userId) && userIdKey(upload.published?.uploadedBy ?? '') === userIdKey(s.userId);
+    // 送ったときの環境の結果だけ（環境を切り替えた後に残っている前の環境の結果を、新しい環境の判定にしない。Codex のレビュー）
+    if (!s.passcode || !s.env || upload.scope !== s.env) return;
+    // 同じセーブを共有済み（same）でも、公開しているのが自分の ID（送ったときの ID）なら、同じ PC の別のタブ（中身の良い方）が載せた自分の
+    // 共有（牧場の記録はタブの間で共通なので、捨てると、そのタブの mine で決める候補がなくなる）
+    const own = isText(upload.userId) && Boolean(upload.userId) && userIdKey(upload.published?.uploadedBy ?? '') === userIdKey(upload.userId);
     const kind = upload.status === 'same' && own ? 'mine' : VERDICT_KINDS[upload.status];
     const stamp = ownedSaveStamp(upload.stamp);
+    const savedAt = isoTime(upload.savedAt);
     const worldId = isText(upload.worldId) ? upload.worldId : '';
-    if (!kind || !stamp || !worldId || !s.passcode || !s.env) return;
-    const mark = [s.env, worldId, kind, stamp].join('|');
+    if (!kind || !worldId) return;
+    // 識別のないセーブ（stamp が空）は、自分の共有が載ったとき（mine）だけ、送ったセーブの更新日時で判定する（same・stale は同じセーブかを
+    // 見分けられないので何もしない。更新日時は同期で書き換わるので、同じセーブの判定には使わない。Codex のレビュー）
+    const verdict = stamp ? { kind, stamp } : kind === 'mine' && savedAt ? { kind, stamp: '', savedAt } : null;
+    if (!verdict) return;
+    const mark = JSON.stringify([s.env, worldId, verdict]);
     if (mark === lastVerdict) return;
     lastVerdict = mark;
     const ctx = { env: s.env, worldId };
     const saved = readFarms(ctx);
-    if (saved.verdicts.some((v) => v.kind === kind && v.stamp === stamp)) return;
-    const verdict = { kind, stamp };
+    if (saved.verdicts.some((other) => sameVerdict(other, verdict))) return;
     const pending = judgeAll(unexpired(saved.pending), [verdict]);
     writeFarms(ctx, { ...saved, verdicts: [...saved.verdicts, verdict].slice(-VERDICTS_MAX), pending });
     // 登録待ち（登録してよい候補）が変わったかもしれない
