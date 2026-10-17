@@ -31,6 +31,11 @@ const guestState = (overrides = {}) => ownedState({
   ...overrides,
 });
 const model = (state, options = {}) => saveStatusModel(state, { now: NOW, ...options });
+// パネルの見出し（dt）の行の文（dd）。その見出しがなければ null
+const rowOf = (panel, term) => {
+  const index = panel.querySelectorAll('dt').findIndex((node) => node.textContent === term);
+  return index < 0 ? null : panel.querySelectorAll('dd')[index].textContent;
+};
 
 test('セーブ連携の状態: 上の行ほど優先して、状態ごとの文・色・押したときの動きを決める', () => {
   const cases = [
@@ -237,7 +242,7 @@ test('ヘッダーのセーブ連携（autoreg-visibility）: 許可切れは pe
 // パル次元ストレージの読み漏れ（dps-missing）
 const BOB = '00000000-0000-0000-0000-000000000002';
 const HOST_GAP = 'Level.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players\\00000000000000000000000000000002_dps.sav（Bob）が登録されていないかもしれません。';
-const GUEST_GAP = 'パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。';
+const GUEST_GAP = 'ワールド全体で、パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。';
 const gapHost = (stats = { inLocker: 118, inLockerMissing: 27 }) => hostState({
   data: { source: 'handles', snapshot: {
     files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav', 'Players/00000000000000000000000000000001_dps.sav', 'Players/00000000000000000000000000000002.sav'], skipped: [] },
@@ -288,15 +293,17 @@ test('セーブ連携の状態（share-upload）: 同じセーブが共有済み
   });
   const result = model(state);
   assert.equal(result.tone, 'ok');
-  assert.match(result.title, /同じセーブが共有済み（Alice の PC から）/);
+  assert.match(result.title, /同じセーブは Alice の PC から共有済みです。/);
   // 前のセーブを送った結果は出さない
   assert.doesNotMatch(model({ ...state, local: { world: { signature: 'sig-2' } } }).title, /共有済み/);
   const { trigger, part } = setup(t, state);
   await trigger.dispatch('click');
   const panel = part.element.querySelector('.save-status-panel');
-  assert.match(panel.textContent, /共有同じセーブが共有済み（Alice の PC から）/);
+  assert.equal(rowOf(panel, '共有'), '同じセーブは Alice の PC から共有済みです。');
   assert.equal(part.element.querySelector('.save-status-issues').hidden, true);
   part.destroy();
+  // 共有したのが送ったときの自分の ID なら、同じ ID の別のタブか PC
+  assert.match(model({ ...state, upload: { ...state.upload, result: 'same', userId: 'alice' } }).title, /同じセーブはあなたの別のタブか PC から共有済みです。/);
 });
 
 test('ヘッダーのセーブ連携（save-watch）: パネルの「監視」の行に見張りの方式と最後の保存を出す（自動の読み込みが有効で登録があるときだけ）', async (t) => {
@@ -315,6 +322,11 @@ test('ヘッダーのセーブ連携（save-watch）: パネルの「監視」�
   assert.doesNotMatch(panel.textContent, /監視/);
   emit({ watch: { mode: 'observer', lastSave }, auto: { enabled: false, status: 'off', worlds: [], worldId: '', error: '' } });
   assert.doesNotMatch(panel.textContent, /監視/);
+  // 参加者は LocalData.sav をゲーム中の推定のためだけに見張り、セーブは読まない（「この PC では読み込みません」）ので出さない（最終レビュー）
+  emit({ auto: hostState().auto });
+  assert.match(rowOf(panel, '監視'), /^ファイルの変更/);
+  emit({ role: 'guest' });
+  assert.equal(rowOf(panel, '監視'), null);
   part.destroy();
   // 違う日の保存は日付も出す。state.watch のない古い形でも落ちない
   const { watchSummary } = await import('../../web/js/ui/owned-status.js');
@@ -335,9 +347,9 @@ test('セーブ連携の状態（host-rotation）: 参加者がゲーム中な�
   const stopped = model(lagging());
   assert.deepEqual([stopped.tone, stopped.text, stopped.action], ['warn', '共有が止まっています', null]);
   assert.match(stopped.title, /^ゲーム中のようですが、共有は 20 分前のセーブのままです。今のホストの PC でこのページが開いているか確かめてください/);
-  // 共有がないときも（共有待ちより前）
+  // 共有がないときも（共有待ちより前）。まだ一度も共有されていないので「共有されていません」
   const none = model(lagging({ meta: { worldId: GUEST_WORLD, worldName: '', hostName: '' } }));
-  assert.deepEqual([none.tone, none.text], ['warn', '共有が止まっています']);
+  assert.deepEqual([none.tone, none.text], ['warn', '共有されていません']);
   assert.match(none.title, /このワールドはまだ共有されていません/);
   // ゲーム中でない・共有を最近確かめていない・共有が新しいときは今までどおり
   assert.equal(model(lagging({ play: null })).text, '「仲間の島」· 共有 09:20');
@@ -351,26 +363,32 @@ test('セーブ連携の状態（host-rotation）: 参加者がゲーム中な�
 });
 
 test('ヘッダーのセーブ連携（host-rotation）: 共有が止まっている案内はパネルの困りごとにも同じ文で出し、「ゲーム」の行に参加中（推定）', async (t) => {
-  const { trigger, part } = setup(t, lagging());
+  // 最後の共有は 30 分前（Alice の PC から。10 分より前の古い共有）
+  const { trigger, part } = setup(t, lagging({ meta: { ...guestState().meta, uploadedBy: 'Alice', sharedAt: at(30), saveUpdatedAt: at(31) } }));
   assert.equal(trigger.textContent, '共有が止まっています');
   assert.equal(trigger.className, 'save-status-button tone-warn');
   await trigger.dispatch('click');
   const panel = part.element.querySelector('.save-status-panel');
   const issues = part.element.querySelector('.save-status-issues').querySelectorAll('li').map((node) => node.textContent);
   assert.equal(issues.length, 1);
-  assert.match(issues[0], /^ゲーム中のようですが、共有は 20 分前のセーブのままです。/);
-  assert.match(panel.textContent, /ゲーム参加中（推定）/);
+  assert.match(issues[0], /^ゲーム中のようですが、共有は 31 分前のセーブのままです。/);
+  // ゲーム中の推定は「この PC」の行の 1 行目（前の「ゲーム」の行は「ゲーム内」と紛らわしいのでまとめた）。役割の 1 行は、共有が古くても
+  // 警告の文にしない（警告は困りごとの 1 つだけ。最終レビュー）
+  const row = rowOf(panel, 'この PC');
+  assert.match(row, /^参加中（推定）\nこの PC では読み込みません。配合牧場の自動登録はホストの画面が行います（ホストが.* · 最後の共有 30 分前（Alice の PC から）$/);
+  assert.doesNotMatch(row, /止まります/);
+  assert.equal(rowOf(panel, 'ゲーム'), null);
   part.destroy();
 });
 
-test('ヘッダーのセーブ連携（host-rotation）: パネルの「ゲーム」の行は、ホストならホスト中（推定）とホスト用のセーブあり（保存が続けて見えていない）を分ける', async (t) => {
+test('ヘッダーのセーブ連携（host-rotation）: パネルの「この PC」の行の 1 行目は、ホストならホスト中（推定）とホスト用のセーブあり（保存が続けて見えていない）を分ける', async (t) => {
   const world = 'A'.repeat(32);
   const { trigger, part, emit } = setup(t, hostState({ linkedWorldId: world, play: playing(world, 'host') }));
   await trigger.dispatch('click');
   const panel = part.element.querySelector('.save-status-panel');
-  assert.match(panel.textContent, /ゲームホスト中（推定）/);
+  assert.match(rowOf(panel, 'この PC'), /^ホスト中（推定）\nこのページを開いている間（タブが裏でもよい）、ゲームが保存するたびにセーブを読みます。/);
   emit({ play: { worldId: world, role: 'host', value: 1, changes: [] } });
-  assert.match(panel.textContent, /ゲームホスト用のセーブあり（ゲームの保存は続けて見えていません）/);
+  assert.match(rowOf(panel, 'この PC'), /^ホスト用のセーブあり（ゲームの保存は続けて見えていません）\nこのページを開いている間/);
   // ホストのチップは変えない
   assert.equal(trigger.className, 'save-status-button tone-ok');
   part.destroy();
@@ -423,5 +441,28 @@ test('セーブ連携の状態（page-presence）: 共有が止まっている�
   const issues = part.element.querySelector('.save-status-issues').querySelectorAll('li').map((node) => node.textContent);
   assert.equal(issues.length, 1);
   assert.match(issues[0], /3 分以内に応答があったほかの PC: Alice（ホスト用のセーブあり・共有できる）。$/);
+  part.destroy();
+});
+
+test('ヘッダーのセーブ連携（最終レビュー）: パネルの行は この PC → 表示中 → 更新 → 共有 → 監視 → ページを開いている PC → ゲーム内 → プレイ中 → Lv の順。「ページを開いている PC」は見出しと一覧を表の幅いっぱいにする', async (t) => {
+  const world = 'A'.repeat(32);
+  const lastSave = { at: new Date(2026, 9, 12, 9, 28, 30).toISOString(), files: 7, spanMs: 800 };
+  const state = hostState({
+    linkedWorldId: world, play: playing(world, 'host'), watch: { mode: 'observer', lastSave },
+    local: { world: { signature: 'sig-1' } },
+    upload: { status: 'same', at: at(2), error: '', worldId: world, result: 'same', signature: 'sig-1', stamp: '1', published: { saveStamp: '1', uploadedBy: 'Bob', uploadedAt: at(2) } },
+    pages: pagesOf(world, [pageOf('自分', 'self-pc-0001', 0.5, { role: 'host', playing: true, canShare: true })]),
+    owned: { pals: [{}, {}, {}], world: { inGameDay: 624 }, players: [{ uid: 'u1', name: '自分', level: 52, online: true }] },
+  });
+  const { trigger, part } = setup(t, state);
+  await trigger.dispatch('click');
+  const details = part.element.querySelector('.save-status-details');
+  assert.deepEqual(details.querySelectorAll('dt').map((node) => node.textContent),
+    ['この PC', '表示中', '更新', '共有', '監視', 'ページを開いている PC', 'ゲーム内', 'プレイ中', 'Lv']);
+  // 幅いっぱいにするのは「ページを開いている PC」の見出しと一覧だけ（見出しの列を広げない）
+  const wide = (tag) => details.querySelectorAll(tag).map((node) => node.className === 'save-status-wide');
+  assert.deepEqual(wide('dt'), [false, false, false, false, false, true, false, false, false]);
+  assert.deepEqual(wide('dd'), wide('dt'));
+  assert.equal(rowOf(details, 'ページを開いている PC'), '● 自分（この PC） · たった今 · ホスト中 · 共有できる');
   part.destroy();
 });

@@ -381,6 +381,10 @@ img, svg { max-width: 100%; }
 .save-status-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
 .save-status-details dt { color: var(--muted); }
 .save-status-details dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+/* 見出しの長い行（ページを開いている PC）は、見出しと本文を表の幅いっぱいに重ねる。両方の列にまたがる要素は auto の見出しの列を
+   広げないので、ほかの行の本文が狭くならない */
+.save-status-details .save-status-wide { grid-column: 1 / -1; }
+.save-status-details dt.save-status-wide { margin-top: 4px; }
 .save-status-issues { margin: 10px 0 0; padding: 8px 12px 8px 28px; border-radius: 8px; font-size: 13px; color: var(--md-sys-color-warning); background: var(--md-sys-color-warning-container); }
 .header-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
 .save-status-settings { font-size: 13px; }

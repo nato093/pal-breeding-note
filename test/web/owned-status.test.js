@@ -147,7 +147,7 @@ test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で war
   // 10 分を超えたら warning と、今ホストしている人の画面が閉じていると止まること（最後に共有した人を今のホストと決めつけない。host-rotation）
   const stale = roleSummary(shared('guest', 11), { userId: '仲間', now });
   assert.equal(stale.kind, 'warning');
-  assert.match(stale.text, /最後の共有は 11 分前（Alice の PC から）です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。$/);
+  assert.equal(stale.text, '最後の共有は 11 分前（Alice の PC から）です。今ホストしている人の PC でこのページが閉じていると、共有も配合牧場の自動登録も止まります。');
   assert.equal(roleSummary(shared('guest', 10), { userId: '仲間', now }).kind, 'info');
   // 共有を見ているだけの人
   assert.equal(roleSummary(shared('', 125), { userId: '仲間', now }).text, 'Alice が共有した所持パルを表示しています · 最後の共有 2 時間前');
@@ -219,7 +219,7 @@ test('次元ストレージの読み漏れ（参加者）: 共有のデータで
     owned: { pals: [], players, stats: {} }, meta: { ...ownedState().meta, source: 'shared', sharedAt: SAVED, uploadedBy: 'Alice' },
   });
   const players = [{ uid: ALICE, name: 'Alice', level: 50 }, { uid: BOB, name: 'Bob', level: 40, dpsGap: 27 }];
-  const text = 'パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。';
+  const text = 'ワールド全体で、パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。';
   assert.deepEqual(dimensionNotice(sharedState(players), { selfUids: new Set([BOB]) }), { text, kind: 'warning' });
   const guest = ownedNotices(sharedState(players), { selfUids: new Set([BOB]), now: () => Date.parse(SAVED) });
   assert.deepEqual(guest.map((notice) => notice.text).slice(1), [text]);
@@ -241,19 +241,25 @@ test('案内（share-upload）: 同じセーブが共有済み・共有の方が
     status: '', at: '', error: '', worldId: 'W', result: '', signature: 'sig-1', stamp: '638650000000000001',
     published: { saveStamp: '638650000000000001', uploadedBy: 'Alice', uploadedAt: SAVED }, ...extra,
   });
+  const sent = (extra) => uploadNotice(ownedState({ local, upload: upload(extra) }));
   const notices = (extra) => ownedNotices(ownedState({ local, upload: upload(extra) }));
-  assert.deepEqual(notices({ status: 'same', result: 'unchanged' }), [{ text: '同じセーブが共有済み（Alice の PC から）', kind: 'info' }]);
-  assert.deepEqual(notices({ status: 'same', result: 'same', published: { saveStamp: '1', uploadedBy: '', uploadedAt: SAVED } }), [{ text: '同じセーブが共有済み', kind: 'info' }]);
-  assert.deepEqual(notices({ status: 'stale', result: 'stale' }), [{ text: '共有されているセーブの方が新しいため、そちらを表示しています', kind: 'info' }]);
+  assert.deepEqual(sent({ status: 'same', result: 'unchanged' }), { text: '同じセーブは Alice の PC から共有済みです。', kind: 'info' });
+  assert.deepEqual(sent({ status: 'same', result: 'same', published: { saveStamp: '1', uploadedBy: '', uploadedAt: SAVED } }), { text: '同じセーブは共有済みです。', kind: 'info' });
+  // 共有したのが送ったときの自分の ID（大文字小文字・全半角はそろえて比べる）なら、同じ ID の別のタブか PC
+  assert.deepEqual(sent({ status: 'same', result: 'same', userId: 'alice' }), { text: '同じセーブはあなたの別のタブか PC から共有済みです。', kind: 'info' });
+  assert.deepEqual(sent({ status: 'same', result: 'same', userId: 'Bob' }).text, '同じセーブは Alice の PC から共有済みです。');
+  assert.deepEqual(sent({ status: 'stale', result: 'stale' }), { text: '共有されているセーブの方が新しいため、そちらを表示しています。', kind: 'info' });
+  // 対応は要らないので、所持パルの案内の帯には出さない（ヘッダーのセーブ連携のパネルだけ）
+  for (const status of ['same', 'stale']) assert.deepEqual(notices({ status, result: status }), [], status);
   // 送っている間・自分の共有が載ったときは出さない
-  for (const status of ['', 'sending', 'done']) assert.deepEqual(notices({ status }), [], status);
+  for (const status of ['', 'sending', 'done']) assert.equal(sent({ status }), null, status);
   // 前のセーブを送った結果（その後に新しいセーブを読んだ）は出さない
-  assert.deepEqual(notices({ status: 'same', signature: 'sig-0' }), []);
-  assert.equal(uploadNotice(ownedState({ local, upload: upload({ status: 'stale', signature: 'sig-0' }) })), null);
-  // 送れなかった知らせは、どのセーブの分でも出す
+  assert.equal(sent({ status: 'same', signature: 'sig-0' }), null);
+  assert.equal(sent({ status: 'stale', signature: 'sig-0' }), null);
+  // 送れなかった知らせは、どのセーブの分でも所持パルの案内に出す
   assert.deepEqual(notices({ status: 'error', error: 'サーバに接続できません', signature: 'sig-0' }), [{ text: '共有できませんでした（サーバに接続できません）', kind: 'warning' }]);
   // 前の形の state（印がない）でも今までどおり
-  assert.deepEqual(ownedNotices(ownedState({ upload: { status: 'stale', at: '', error: '', worldId: 'W' } })).map((notice) => notice.text), ['共有されているセーブの方が新しいため、そちらを表示しています']);
+  assert.equal(uploadNotice(ownedState({ upload: { status: 'stale', at: '', error: '', worldId: 'W' } })).text, '共有されているセーブの方が新しいため、そちらを表示しています。');
 });
 
 // ---- ホストの交代（sync-fixes の host-rotation） ----
@@ -271,26 +277,51 @@ const guestPlaying = (overrides = {}) => ({
   owned: { players: [], pals: [] }, data: { world: {} },
   ...overrides,
 });
-const LAG_HELP = '今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。';
+// ヘッダーには押すボタンがないので、文にボタンの名前（［ワールドを編集］）を書かない
+const LAG_HELP = '今のホストの PC でこのページが開いているか確かめてください。あなたがホストなら、このワールドの編集で Level.sav・LevelMeta.sav・Players のファイルを足してください。';
+// 名前でない「ホスト」には前後の空白を入れない
+const GUEST_AUTO = 'この PC では読み込みません。配合牧場の自動登録はホストの画面が行います（ホストが自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）';
+const STALE_TAIL = '今ホストしている人の PC でこのページが閉じていると、共有も配合牧場の自動登録も止まります。';
 
 test('役割の 1 行（host-rotation）: 参加者の名指しは 3 通り。新しい共有を別の人が送った → その人の名前と PC、古い共有 → 「ホスト」と最後に共有した PC、自分が送った共有 → 「ホスト」と「あなたの PC から」', async () => {
-  const { roleSummary } = await import('../../web/js/ui/owned-status.js');
+  const { roleSummary, guestAutoText } = await import('../../web/js/ui/owned-status.js');
   const now = () => ROTATION_NOW;
-  const state = (minutes, uploadedBy = 'Alice') => guestPlaying({ meta: { ...guestPlaying().meta, uploadedBy, sharedAt: msAgo(minutes * 60000) } });
+  // ゲーム中でない参加者（共有が止まっている案内は出ない）
+  const state = (minutes, uploadedBy = 'Alice') => guestPlaying({ play: null, meta: { ...guestPlaying().meta, uploadedBy, sharedAt: msAgo(minutes * 60000) } });
   const fresh = roleSummary(state(3), { userId: 'Bob', now });
   assert.deepEqual([fresh.kind, fresh.text], ['info', 'この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います（Alice が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前（Alice の PC から）']);
+  // 古い共有は、名指しせず短い警告の文
   const stale = roleSummary(state(120), { userId: 'Bob', now });
-  assert.deepEqual([stale.kind, stale.text], ['warning', 'この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います（ホスト が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。最後の共有は 2 時間前（Alice の PC から）です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。']);
+  assert.deepEqual([stale.kind, stale.text], ['warning', `最後の共有は 2 時間前（Alice の PC から）です。${STALE_TAIL}`]);
   assert.doesNotMatch(stale.text, /Alice の画面/);
   // 自分が送った共有（ID は大文字小文字・全半角をそろえて比べる）
   const mine = roleSummary(state(3, 'ＢＯＢ'), { userId: 'bob', now });
-  assert.deepEqual([mine.kind, mine.text], ['info', 'この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います（ホスト が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前（あなたの PC から）']);
+  assert.deepEqual([mine.kind, mine.text], ['info', `${GUEST_AUTO} · 最後の共有 3 分前（あなたの PC から）`]);
   const mineStale = roleSummary(state(30, 'Bob'), { userId: 'Bob', now });
-  assert.equal(mineStale.kind, 'warning');
-  assert.match(mineStale.text, /配合牧場の自動登録は ホスト の画面が行います.*最後の共有は 30 分前（あなたの PC から）です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。$/);
+  assert.deepEqual([mineStale.kind, mineStale.text], ['warning', `最後の共有は 30 分前（あなたの PC から）です。${STALE_TAIL}`]);
   // 送った人が分からない古い共有の形は、今までどおりホスト名で（PC は添えない）
   const unknown = roleSummary(state(3, ''), { userId: 'Bob', now });
   assert.equal(unknown.text, 'この PC では読み込みません。配合牧場の自動登録は Host の画面が行います（Host が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前');
+  // 名前がなければ「ホスト」（前後に空白を入れない）
+  assert.equal(guestAutoText(), `${GUEST_AUTO}。`);
+  const nameless = { ...state(3, ''), meta: { ...state(3, '').meta, hostName: '' } };
+  assert.equal(roleSummary(nameless, { userId: 'Bob', now }).text, `${GUEST_AUTO} · 最後の共有 3 分前`);
+  assert.equal(roleSummary({ ...nameless, role: '' }, { now }).text, 'ホストが共有した所持パルを表示しています · 最後の共有 3 分前');
+});
+
+test('役割の 1 行（最終レビュー）: 共有が止まっている案内（shareLagNotice）が出るときは、古い共有でも警告にせず info の形にする（同じ内容の警告を 2 つ並べない）', async () => {
+  const { roleSummary, shareLagNotice } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  // ゲーム中の参加者。共有は 2 時間前（Alice の PC から）、共有のセーブは 12 分前
+  const state = (uploadedBy = 'Alice', minutes = 120) => guestPlaying({ meta: { ...guestPlaying().meta, uploadedBy, sharedAt: msAgo(minutes * 60000) } });
+  assert.notEqual(shareLagNotice(state(), { now }), null);
+  const lagging = roleSummary(state(), { userId: 'Bob', now });
+  assert.deepEqual([lagging.kind, lagging.text], ['info', `${GUEST_AUTO} · 最後の共有 2 時間前（Alice の PC から）`]);
+  assert.doesNotMatch(lagging.text, /止まります|Alice の画面/);
+  // 自分が送った古い共有も同じ
+  assert.deepEqual(roleSummary(state('Bob', 30), { userId: 'Bob', now }).text, `${GUEST_AUTO} · 最後の共有 30 分前（あなたの PC から）`);
+  // 新しい共有（10 分以内）は今までどおり名指しの info
+  assert.match(roleSummary(state('Alice', 3), { userId: 'Bob', now }).text, /自動登録は Alice の画面が行います/);
 });
 
 test('共有が止まっている案内（host-rotation）: 参加者がゲーム中で、共有のセーブが 5 分以上古い・共有がないときだけ。共有を 60 秒より前にしか確かめていなければ出さない', async () => {
@@ -317,10 +348,13 @@ test('共有が止まっている案内（host-rotation）: 参加者がゲー�
   assert.notEqual(shareLagNotice(guestPlaying({ shared: { ...guestPlaying().shared, fetchedAt: msAgo(60000) } }), { now }), null);
   // ホストには出さない
   assert.equal(shareLagNotice(guestPlaying({ role: 'host', play: playRecord('W', 'host') }), { now }), null);
-  // 所持パルの案内: 役割の 1 行の後に［ワールドを編集］つきで。共有がないときは、共有を待つ 1 行の代わりに
+  // 所持パルの案内: 役割の 1 行の後に［ワールドを編集］つきで。共有がないときは、共有を待つ 1 行の代わりに。役割の 1 行は、共有が
+  // 古くても（12 分前）警告にしない（警告は共有が止まっている案内の 1 つだけ。最終レビュー）
   const notices = ownedNotices(guestPlaying(), { userId: 'Bob', now });
-  assert.deepEqual(notices.map((notice) => [notice.kind, notice.action ?? '']), [['warning', ''], ['warning', 'editWorld']]);
+  assert.deepEqual(notices.map((notice) => [notice.kind, notice.action ?? '']), [['info', ''], ['warning', 'editWorld']]);
+  assert.equal(notices[0].text, `${GUEST_AUTO} · 最後の共有 12 分前（Alice の PC から）`);
   assert.equal(notices[1].text, old.text);
+  assert.doesNotMatch(old.text, /［/);
   const none = ownedNotices(guestPlaying({ meta: { worldId: 'W', worldName: '', hostName: '' }, owned: null, data: null }), { now });
   assert.deepEqual(none.map((notice) => notice.text), [`ゲーム中のようですが、このワールドはまだ共有されていません。${LAG_HELP}`]);
   const waiting = ownedNotices(guestPlaying({ meta: { worldId: 'W', worldName: '', hostName: '' }, owned: null, data: null, play: null }), { now });

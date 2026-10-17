@@ -98,7 +98,7 @@ test('owned-gas の api: ownedUpload の応答の result・cleanup・world.saveS
   assert.deepEqual(['result' in legacy, 'saveStamp' in legacy.world], [false, false]);
   // 共有の書き込みと重なった読み込み（PARTIAL）は再試行できるエラー
   await assert.rejects(respond({ ok: false, code: 'PARTIAL' }).request('owned', 'p', { worldId: WORLD }), { code: 'PARTIAL', message: errorMessage('PARTIAL') });
-  assert.match(errorMessage('PARTIAL'), /少し待って/);
+  assert.match(errorMessage('PARTIAL'), /^共有の書き込みと重なりました。少し待つと自動で読み直します。$/);
 });
 
 // ---------------------------------------------------------------------------

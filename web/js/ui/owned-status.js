@@ -45,9 +45,13 @@ export function timeAgo(value, now = Date.now()) {
   return hours < 24 ? `${hours} 時間前` : `${Math.floor(hours / 24)} 日前`;
 }
 
-/** 参加しているワールドの自動登録の説明（設定の参加のワールドの行と、参加者の 1 行。参加者に「自動登録は動きません」と言わない。X-06） */
-export function guestAutoText(host = 'ホスト') {
-  return `この PC では読み込みません。配合牧場の自動登録は ${host} の画面が行います（${host} が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。`;
+/**
+ * 参加しているワールドの自動登録の説明（設定の参加のワールドの行と、参加者の 1 行。参加者に「自動登録は動きません」と言わない。X-06）。
+ * host は共有した人の名前。なければ「ホスト」（名前のときだけ前後に空白を入れる）
+ */
+export function guestAutoText(host = '') {
+  const subject = host ? `${host} ` : 'ホスト';
+  return `この PC では読み込みません。配合牧場の自動登録は${host ? ' ' : ''}${subject}の画面が行います（${subject}が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。`;
 }
 
 /**
@@ -55,7 +59,9 @@ export function guestAutoText(host = 'ホスト') {
  *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
  * いなければ hint に 1 行（X-07。一致したときは出さない）。
  * 参加者の文は、最後に共有した人を今のホストと決めつけない（ホストは仲間内で交代する。sync-fixes の host-rotation）: 新しい共有を別の人が
- * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える
+ * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える。
+ * 古い共有は警告の短い文にするが、共有が止まっている案内（shareLagNotice）が出るときは古さをそちらに任せ、info の形にする（同じ内容の
+ * 警告を 2 つ並べない）
  * @returns {null | { text: string, kind: 'info' | 'warning', hint: string }}
  */
 export function roleSummary(state, { userId = '', now = Date.now } = {}) {
@@ -63,7 +69,7 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
   if (state.role === 'host') return { text: HOST_SUMMARY, kind: 'info', hint: '' };
   const meta = state.meta ?? {};
   const shared = meta.source === 'shared';
-  const host = meta.uploadedBy || meta.hostName || 'ホスト';
+  const host = meta.uploadedBy || meta.hostName || '';
   const sharedAt = meta.sharedAt || meta.saveUpdatedAt || '';
   const ago = shared ? timeAgo(sharedAt, now()) : '';
   const stale = shared && Number.isFinite(Date.parse(sharedAt)) && now() - Date.parse(sharedAt) > SHARED_STALE_MS;
@@ -73,16 +79,16 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
     // 共有した PC（送った人は ID で比べる。分からなければ添えない）
     const mine = Boolean(userId && meta.uploadedBy) && userIdKey(meta.uploadedBy) === userIdKey(userId);
     const from = mine ? '（あなたの PC から）' : meta.uploadedBy ? `（${meta.uploadedBy} の PC から）` : '';
-    if (stale) {
+    if (stale && !shareLagNotice(state, { now })) {
       return {
-        text: `${guestAutoText()}最後の共有は ${ago}${from}です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。`,
+        text: `最後の共有は ${ago}${from}です。今ホストしている人の PC でこのページが閉じていると、共有も配合牧場の自動登録も止まります。`,
         kind: 'warning', hint,
       };
     }
-    return { text: `${guestAutoText(mine ? 'ホスト' : host).replace(/。$/, '')} · 最後の共有 ${ago}${from}`, kind: 'info', hint };
+    return { text: `${guestAutoText(mine || stale ? '' : host).replace(/。$/, '')} · 最後の共有 ${ago}${from}`, kind: 'info', hint };
   }
   if (!shared) return null;
-  return { text: `${host} が共有した所持パルを表示しています · 最後の共有 ${ago}`, kind: stale ? 'warning' : 'info', hint };
+  return { text: `${host ? `${host} が` : 'ホストが'}共有した所持パルを表示しています · 最後の共有 ${ago}`, kind: stale ? 'warning' : 'info', hint };
 }
 
 // ---- ゲーム中の推定と、共有が止まっていることの案内（sync-fixes の host-rotation） ----
@@ -99,8 +105,8 @@ export function playingNow(state, now = Date.now()) {
 }
 
 /**
- * ヘッダーのセーブ連携のパネルの「ゲーム」の行。ホストはゲームの保存が続けて見えているか（「ホスト中（推定）」）と、ホスト用のセーブが
- * あるだけか（同期で受け取った・ゲームを終えた後）を分ける。参加者はゲーム中のときだけ。ほかは ''
+ * ヘッダーのセーブ連携のパネルの「この PC」の行の 1 行目（ゲーム中の推定）。ホストはゲームの保存が続けて見えているか（「ホスト中（推定）」）と、
+ * ホスト用のセーブがあるだけか（同期で受け取った・ゲームを終えた後）を分ける。参加者はゲーム中のときだけ。ほかは ''
  */
 export function playSummary(state, { now = Date.now } = {}) {
   const playing = playingNow(state, now());
@@ -110,8 +116,8 @@ export function playSummary(state, { now = Date.now } = {}) {
 
 /**
  * 参加者がゲーム中なのに、共有が止まっている（共有のセーブが SHARE_LAG_MS より古い・このワールドの共有がない）ときの案内。所持パルの案内
- *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」）に同じ文で出す。今のワールドの共有を SHARE_CHECKED_MS の中に
- * 確かめていなければ（取得の失敗を含む）出さない
+ *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」、共有がなければ「共有されていません」）に同じ文で出す。ヘッダーには
+ * 押すボタンがないので、文にはボタンの名前を書かない。今のワールドの共有を SHARE_CHECKED_MS の中に確かめていなければ（取得の失敗を含む）出さない
  * @returns {null | { text: string, kind: 'warning', action: 'editWorld' }}
  */
 export function shareLagNotice(state, { now = Date.now } = {}) {
@@ -123,7 +129,7 @@ export function shareLagNotice(state, { now = Date.now } = {}) {
   if (shared.error || shared.fetchedWorldId !== state.linkedWorldId || !Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
   const meta = state.meta ?? {};
   // ページを開いているほかの PC の短い一覧を添える（分からなければ添えない。page-presence）
-  const help = `今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。${openPagesBrief(state, { now: () => time })}`;
+  const help = `今のホストの PC でこのページが開いているか確かめてください。あなたがホストなら、このワールドの編集で Level.sav・LevelMeta.sav・Players のファイルを足してください。${openPagesBrief(state, { now: () => time })}`;
   if (meta.source !== 'shared') return { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${help}`, kind: 'warning', action: 'editWorld' };
   const saved = Date.parse(meta.saveUpdatedAt ?? '');
   if (Number.isFinite(saved) && time - saved < SHARE_LAG_MS) return null;
@@ -191,7 +197,7 @@ export function openPages(state, { now = Date.now } = {}) {
 }
 
 /**
- * ヘッダーのセーブ連携のパネルの「ページを開いている PC」の行（1 台 1 行）。「● Alice · 1 分前 · ホスト中 · 共有できる」
+ * ヘッダーのセーブ連携のパネルの「ページを開いている PC」の行（1 台 1 行。表の幅いっぱい）。「● Alice · 1 分前 · ホスト中 · 共有できる」
  *「○ Bob · 最近の応答なし（3 時間前）」。分からない・6 時間以内の応答がなければ []
  */
 export function openPagesLines(state, { now = Date.now } = {}) {
@@ -329,7 +335,8 @@ export function roleLabel(state) {
 }
 
 /**
- * 共有の送信の結果の案内（所持パルの案内・ヘッダーのセーブ連携のパネルで同じ文。sync-fixes の share-upload）。
+ * 共有の送信の結果の知らせ（ヘッダーのセーブ連携のパネルの「共有」の行と、押す前の説明。sync-fixes の share-upload）。対応は要らないので、
+ * 所持パルの案内の帯には出さない（同期を受け取っただけの PC で帯に出たままにならないように）。
  * 今読んでいるセーブ（state.local の印）を送った結果のときだけ出す。same は同じセーブを別の人（か同じ ID の別のタブ・PC）が共有済み、
  * stale は共有されているセーブの方が新しい。送っている間・自分の共有が載った（done）ときは出さない。送れなかった（error）ときは
  * 呼ぶ側が別に出す（ヘッダーは警告の色にする）
@@ -340,9 +347,12 @@ export function uploadNotice(state) {
   if (!['same', 'stale'].includes(upload.status)) return null;
   // 前のセーブを送った結果（その後に新しいセーブを読んだ）は出さない
   if ((upload.signature ?? '') !== (state.local?.world?.signature ?? '')) return null;
-  if (upload.status === 'stale') return { text: '共有されているセーブの方が新しいため、そちらを表示しています', kind: 'info' };
-  const who = upload.published?.uploadedBy;
-  return { text: `同じセーブが共有済み${who ? `（${who} の PC から）` : ''}`, kind: 'info' };
+  if (upload.status === 'stale') return { text: '共有されているセーブの方が新しいため、そちらを表示しています。', kind: 'info' };
+  const who = upload.published?.uploadedBy ?? '';
+  // 共有したのが送ったときの自分の ID なら、同じ ID の別のタブか PC（ID は大文字小文字・全半角をそろえて比べる）
+  const mine = Boolean(who && upload.userId) && userIdKey(who) === userIdKey(upload.userId);
+  const from = mine ? 'あなたの別のタブか PC から' : who ? ` ${who} の PC から` : '';
+  return { text: `同じセーブは${from}共有済みです。`, kind: 'info' };
 }
 
 // ---- セーブのファイルの見張り（sync-fixes の save-watch。owned.js の state.watch） ----
@@ -411,7 +421,7 @@ export function dimensionGap(snapshot) {
  * パル次元ストレージの読み漏れの案内（所持パルの案内・ヘッダーのセーブ連携・理想個体の結果の上で同じ文）。
  * この PC で読んだセーブを出しているときはホストの案内（dimensionGap）。共有を出しているときは、自分のプレイヤー（selfUids。
  * 「このワールドでの自分」などで決めたもの。ideals.selfUids）がホストの画面の候補（dpsGap のあるプレイヤー）のときだけ、
- * 自分の _dps.sav をホストに足してもらう案内。ほかの人が候補のときは出さない
+ * 自分の _dps.sav をホストに足してもらう案内。ほかの人が候補のときは出さない。数はワールド全体の欠け（だれの分かは分からない）
  * @param {{ selfUids?: Set<string> }} [options]
  * @returns {null | { text: string, kind: 'warning', action?: 'editWorld' }}
  */
@@ -424,7 +434,7 @@ export function dimensionNotice(state, { selfUids = new Set() } = {}) {
   const count = Math.max(...mine.map((player) => player.dpsGap));
   const files = mine.map((player) => `Players\\${player.uid.replace(/-/g, '').toUpperCase()}_dps.sav`);
   return {
-    text: `パル次元ストレージの ${count} 体が出ていません。ホストの登録にあなたの ${files.join('・')} がないかもしれません。ホストに足してもらってください。`,
+    text: `ワールド全体で、パル次元ストレージの ${count} 体が出ていません。ホストの登録にあなたの ${files.join('、')} がないかもしれません。ホストに足してもらってください。`,
     kind: 'warning',
   };
 }
@@ -467,11 +477,10 @@ export function ownedNotices(state, { userId = '', now = Date.now, selfUids = ne
     if (gap) notices.push(gap);
   }
   if (state.error) notices.push({ text: `セーブを読み込めませんでした: ${state.error}`, kind: 'warning' });
-  // 共有の結果（送っている間〔sending〕・共有した〔done〕ときは出さない。ヘッダーのセーブ連携の状態が読み込み中の印を出す）
+  // 共有の結果は、送れなかったときだけ（送っている間〔sending〕はヘッダーのセーブ連携の状態が読み込み中の印を出す。同じセーブが共有済み・
+  // 共有の方が新しい〔uploadNotice〕は対応が要らないので、ヘッダーのセーブ連携のパネルだけに出す）
   const upload = state.upload ?? {};
   if (upload.status === 'error') notices.push({ text: `共有できませんでした${upload.error ? `（${upload.error}）` : ''}`, kind: 'warning' });
-  const sent = uploadNotice(state);
-  if (sent) notices.push(sent);
   if (state.shared?.error && !hasData) notices.push({ text: `共有された所持パルを読めませんでした: ${state.shared.error}`, kind: 'warning' });
   // 読み込めなかったファイルや、場所の分からないパルがあれば知らせる（この PC で読み込んだとき。読んでいる間も前回の分を残す）
   const snapshot = state.meta?.source === 'local' ? state.data?.snapshot : null;

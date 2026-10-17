@@ -978,7 +978,7 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   await select.dispatch('change');
   assert.deepEqual(calls, [['enabled', false, 'W'], ['mapping', P1, '仲間', 'W']]);
   // 参加しているだけのワールドでは、自動登録はホストの画面が行うこと（「自動登録は動きません」とは言わない。X-06）
-  assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います/);
+  assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録はホストの画面が行います（ホストが/);
   // 交代でホストするなら［編集］でホストの組のファイルを足すこと（host-rotation）
   assert.equal(guest.querySelector('.owned-rotation-note').textContent, '交代でホストするなら、［編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください（ホストしたときに共有と自動登録が動きます）。');
   assert.equal(host.querySelector('.owned-rotation-note'), null);
@@ -1113,7 +1113,7 @@ test('所持パル画面（dps-missing）: ホストはパル次元ストレー�
   assert.doesNotMatch(guestNotices(), /次元ストレージ/);
   self = new Set([P2]);
   for (const listener of selfListeners) listener();
-  assert.match(guestNotices(), /パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players.00000000000000000000000000000002_dps\.sav がないかもしれません。ホストに足してもらってください。/);
+  assert.match(guestNotices(), /ワールド全体で、パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players.00000000000000000000000000000002_dps\.sav がないかもしれません。ホストに足してもらってください。/);
   guest.destroy();
 });
 
@@ -3183,7 +3183,7 @@ test('ワールドの登録（roles）: 背景のクリックでは閉じず、�
   await tick();
   const [, host] = dialog.querySelectorAll('.owned-draft-group');
   assert.match(host.className, /is-dim/);
-  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストする PC（交代でホストする人も。なくても参加として登録できます）');
+  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストする PC（交代でホストする人も。なくても参加者として登録できます）');
   // 参加者として登録する結果欄には、交代でホストするならホストの組のファイルも足すこと（host-rotation）
   assert.equal(dialog.querySelector('.owned-dialog-result').textContent, '参加者として登録します（交代でホストするなら Level.sav・LevelMeta.sav・Players のファイルも足すと、ホストしたときに共有と自動登録が動きます）');
   assert.equal(register.disabled, false);

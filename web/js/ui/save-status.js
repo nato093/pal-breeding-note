@@ -45,9 +45,10 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   if (auto.enabled && ['error', 'empty'].includes(auto.status)) return result('warn', { time: 'セーブを読めません' }, auto.error || 'セーブを読めませんでした');
   if (state.upload?.status === 'error') return result('warn', { time: '共有できません' }, `共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !meta?.source) return result('warn', { time: '共有を読めません' }, `共有された所持パルを読めませんでした: ${state.shared.error}`);
-  // 参加者がゲーム中なのに共有が止まっている（今のホストの画面が閉じているかもしれない。host-rotation）
+  // 参加者がゲーム中なのに共有が止まっている（今のホストの画面が閉じているかもしれない。host-rotation）。まだ一度も共有されていなければ
+  // 「共有されていません」
   const lag = shareLagNotice(state, { now: () => now });
-  if (lag) return result('warn', { time: '共有が止まっています' }, lag.text);
+  if (lag) return result('warn', { time: meta?.source === 'shared' ? '共有が止まっています' : '共有されていません' }, lag.text);
   if (!meta?.source) {
     return state.role === 'guest'
       ? result('none', { time: '共有待ち' }, 'ホストがまだこのワールドの所持パルを共有していません')
@@ -148,29 +149,36 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     panel.replaceChildren(el('h2', '', 'セーブ連携'), details, issues, actions);
     const render = () => {
       const state = owned.state;
+      // 行の並び: この PC → 表示中 → 更新 → 共有 → 監視 → ページを開いている PC（ここまで、このページと共有の状態）→ ゲーム内 → プレイ中 →
+      // Lv（セーブの中身）→ 読み込み。[見出し, 文, 幅いっぱいにするか]
       const items = [];
-      // 役割の説明（ホスト・参加者・共有を見ている人。roles）
+      // この PC: 1 行目にゲーム中の推定（ホストは「ホスト中（推定）」と「ホスト用のセーブあり」を分ける。host-rotation）、続けて役割の説明
+      //（ホスト・参加者・共有を見ている人。roles）。前は「ゲーム」の別の行で、「ゲーム内」と紛らわしかった
       const role = roleSummary(state, { userId: store?.state?.userId ?? '', now });
-      if (role) items.push(['この PC', role.hint ? `${role.text}\n${role.hint}` : role.text]);
+      const playing = playSummary(state, { now });
+      const self = [playing, role?.text, role?.hint].filter(Boolean);
+      if (self.length) items.push(['この PC', self.join('\n')]);
       items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? state.meta.palCount ?? 0} 体` : '（データなし）'}` : 'なし']);
       const lines = timeLines(state);
       if (lines.length) items.push(['更新', lines.join('\n')]);
-      // セーブのファイルの見張りの方式と最後の保存（自動の読み込みが有効で登録があるときだけ。save-watch）
-      const watching = watchSummary(state, { now });
-      if (watching) items.push(['監視', watching]);
-      // ゲーム中の推定（ホストは「ホスト中（推定）」と「ホスト用のセーブあり」を分ける。host-rotation）
-      const playing = playSummary(state, { now });
-      if (playing) items.push(['ゲーム', playing]);
-      // 共有の送信の結果（「同じセーブが共有済み（Alice の PC から）」など。share-upload）
+      // 共有の送信の結果（「同じセーブは Alice の PC から共有済みです。」など。share-upload）
       const sent = uploadNotice(state);
       if (sent) items.push(['共有', sent.text]);
-      // ページを開いている PC（3 分以内に応答があった PC は役割など、それより前は「最近の応答なし」。page-presence）
+      // セーブのファイルの見張りの方式と最後の保存（自動の読み込みが有効で登録があるときだけ。save-watch）。参加者は LocalData.sav を
+      // ゲーム中の推定のためだけに見張り、セーブは読まない（「この PC では読み込みません」）ので出さない
+      const watching = state.role === 'guest' ? '' : watchSummary(state, { now });
+      if (watching) items.push(['監視', watching]);
+      // ページを開いている PC（3 分以内に応答があった PC は役割など、それより前は「最近の応答なし」。page-presence）。見出しが長いので、
+      // 見出しと一覧を表の幅いっぱいに重ねる（見出しの列を広げて、ほかの行の本文を狭めない）
       const pages = openPagesLines(state, { now });
-      if (pages.length) items.push(['ページを開いている PC', pages.join('\n')]);
+      if (pages.length) items.push(['ページを開いている PC', pages.join('\n'), true]);
       // ゲーム内の日数・プレイ中の仲間（保存か共有の時刻つき）・Lv（save-extras。F006）
       items.push(...presenceItems(state, { now }));
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);
-      details.replaceChildren(...items.flatMap(([term, detail]) => [el('dt', '', term), el('dd', '', detail)]));
+      details.replaceChildren(...items.flatMap(([term, detail, wide = false]) => {
+        const className = wide ? 'save-status-wide' : '';
+        return [el('dt', className, term), el('dd', className, detail)];
+      }));
       const found = problems(state, now(), { selfUids: selfUids() });
       issues.replaceChildren(...found.map((item) => el('li', '', item)));
       issues.hidden = !found.length;
