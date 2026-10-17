@@ -298,3 +298,27 @@ test('セーブ連携の状態（share-upload）: 同じセーブが共有済み
   assert.equal(part.element.querySelector('.save-status-issues').hidden, true);
   part.destroy();
 });
+
+test('ヘッダーのセーブ連携（save-watch）: パネルの「監視」の行に見張りの方式と最後の保存を出す（自動の読み込みが有効で登録があるときだけ）', async (t) => {
+  const lastSave = { at: new Date(2026, 9, 12, 9, 28, 30).toISOString(), files: 7, spanMs: 800 };
+  const { trigger, part, emit } = setup(t, hostState({ watch: { mode: 'observer', lastSave } }));
+  await trigger.dispatch('click');
+  const panel = part.element.querySelector('.save-status-panel');
+  assert.match(panel.textContent, /監視ファイルの変更 · 最後の保存 09:28:30（7 ファイル・0\.8 秒）/);
+  emit({ watch: { mode: 'poll', lastSave: null } });
+  assert.match(panel.textContent, /監視5 秒ごとの確認/);
+  assert.doesNotMatch(panel.textContent, /最後の保存/);
+  emit({ watch: { mode: 'timer', lastSave: null } });
+  assert.match(panel.textContent, /監視定期の確認（タブが裏だと 1 分ごと）/);
+  // 見張っていない・自動の読み込みが無効なときは出さない
+  emit({ watch: { mode: '', lastSave: null } });
+  assert.doesNotMatch(panel.textContent, /監視/);
+  emit({ watch: { mode: 'observer', lastSave }, auto: { enabled: false, status: 'off', worlds: [], worldId: '', error: '' } });
+  assert.doesNotMatch(panel.textContent, /監視/);
+  part.destroy();
+  // 違う日の保存は日付も出す。state.watch のない古い形でも落ちない
+  const { watchSummary } = await import('../../web/js/ui/owned-status.js');
+  const yesterday = { at: new Date(2026, 9, 11, 23, 59, 5).toISOString(), files: 1, spanMs: 0 };
+  assert.equal(watchSummary(hostState({ watch: { mode: 'poll', lastSave: yesterday } }), { now: () => NOW }), '5 秒ごとの確認 · 最後の保存 10/11 23:59:05（1 ファイル・0.0 秒）');
+  assert.equal(watchSummary(hostState(), { now: () => NOW }), '');
+});

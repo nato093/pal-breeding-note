@@ -152,6 +152,24 @@ test('画面（share-fetch）: 所持パルの読み直しは 10 秒ごとの 1 
   assert.deepEqual(await tick('visible'), [['ownedSince', shared.world.uploadedAt]]);
 });
 
+test('画面（save-watch）: FileSystemObserver も Worker もない Node でも起動し、所持パルの読み直しは 10 秒ごとの 1 本のまま（見張りは定期の確認に落ちる）', async (t) => {
+  assert.equal(typeof globalThis.Worker, 'undefined');
+  assert.equal(typeof globalThis.FileSystemObserver, 'undefined');
+  const { intervals } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' } });
+  for (let i = 0; i < 10; i++) await flush();
+  assert.deepEqual(intervals.map((timer) => timer.ms), [10 * 1000]);
+  // 表と裏のタブの定期の確認も落ちない
+  for (const visibility of ['visible', 'hidden']) {
+    document.visibilityState = visibility;
+    assert.doesNotThrow(() => intervals[0].fn());
+    for (let i = 0; i < 10; i++) await flush();
+  }
+  assert.equal(byClass('startup-error'), undefined);
+  // セーブ連携のパネルに「監視」の行は出さない（登録がない）
+  byClass('save-status-button').dispatch('click');
+  assert.doesNotMatch(byClass('save-status-panel').textContent, /監視/);
+});
+
 test('画面: 未ログイン時は ID とパスワードを表示し、旧招待 URL でもログインしない', async (t) => {
   const { calls } = await boot(t);
   assertLoginOnly();
