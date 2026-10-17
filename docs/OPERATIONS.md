@@ -115,22 +115,29 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 
 1. 統合ブランチに入れた後、`npm run gas:push`（HEAD だけが変わる。本番の deployment は版 10 のまま）。
 2. GAS の編集画面（HEAD のコード）で **`setup()`** を 1 回実行し、`OwnedWorlds`・`OwnedWorlds_test` の末尾に列 `saveKey` を足す。版 10 は知らない列を無視するので、本番には影響しない。新しい権限は要らない（使う Google のサービスは今と同じ）。
-3. 版を作り、テスト用の deployment を作る: `npx clasp create-version "owned-gas"`（版 11 になるはず）→ `npx clasp create-deployment -V 11 -d "owned-gas test"`（表示された deployment ID がテスト用。URL は `https://script.google.com/macros/s/<テスト用 ID>/exec`）。テスト用と本番は同じスプレッドシート・同じ鍵とキャッシュを使い、パスワードでシートを分けるだけなので、**計測は遊んでいない時間に**。
+3. 版を作り、テスト用の deployment を作る: `npx clasp create-version "owned-gas"`（版 11 になるはず）→ `npx clasp create-deployment -V 11 -d "owned-gas test (sync-fixes)"`（表示された deployment ID がテスト用。URL は `https://script.google.com/macros/s/<テスト用 ID>/exec`）。テスト用と本番は同じスプレッドシート・同じ鍵とキャッシュを使い、パスワードでシートを分けるだけなので、**計測は遊んでいない時間に**。
 4. 計測（テスト用パスワードと `.env.local` の `PAL_TEST_PASSCODE`。テスト環境だと確かめてから書き、自分のランダムな worldId だけを消す）:
    - Git Bash: `PAL_API_URL=https://script.google.com/macros/s/<テスト用 ID>/exec node scripts/owned-bench.mjs`（ふつうの 30 秒ごと）、`... --mode=load`（15 秒ごと）。PowerShell は `$env:PAL_API_URL='https://…/exec'; node scripts/owned-bench.mjs`。
    - 出るもの: 操作ごとの時間（中央値・95%・最大）と失敗率、途中の中身（0 回が目標）、`PARTIAL` の回数、結果の種類の内訳、probe（鍵を取る）の時間＝鍵の待ちの目安。`_probe_test` に probe の行が残る（`/diag.html` が次に消す）。
    - 失敗の `NO_ENV` は、GAS の応答が `doGet` の形（`{ ok, service, api }`）で届いたもの。echo の URL（`script.googleusercontent.com/macros/echo`）がまれに 302 で `/exec` への GET に戻すために起き、echo が 404 の HTML を返す（`NETWORK`）こともある（2026-10-16 の計測で確かめた）。どちらも `doPost` は動いた後で応答だけを失ったもので、画面の `api.js` は RESPONSE として 1 回送り直す。計測は止めずに数え、読むだけの確かめは読み直し、書き込みの応答を失った世代は最後の読みで認める。`env` が `prod` の応答や形の分からない応答を受けたら、今までどおりその場で止める。
    - 別の時に `PAL_API_URL=… node scripts/api-check.mjs`（テスト用シートの記録を全部片付けるので、ベンチと同時に流さない）。`/diag.html` は本番の URL のまま。
 5. 巻き戻しのリハーサル（テスト用の deployment で）: `PAL_API_URL=… node scripts/owned-bench.mjs --rehearsal=prepare`（新しい版で 2 世代のワールドを作り、worldId を出す。worldId と接続先を OS の一時フォルダの `pal-owned-bench-rehearsal.json` に残し、後の手順はそのワールドにしか触らない）→ `npx clasp update-deployment <テスト用 ID> -V 10` → GAS の編集画面で `compactOwnedTest()` → `… --rehearsal=legacy-write --world=<ID>`（古い版で 2 世代が重ならずに読め、体数を 3 倍にしても書けること）→ `resumeOwnedTest()` → `npx clasp update-deployment <テスト用 ID> -V 11` → `… --rehearsal=finish --world=<ID>`（新しい版で書けて読め、ワールドと記録を消す）。
-6. 本番（P0 の後）: `npx clasp update-deployment <本番の ID> -V 11 -d "owned-gas"` → `npx clasp list-deployments` で本番が版 11 になったことを確かめる → 画面を配信 → ホストの PC のタブを読み込み直す。終わったらテスト用の deployment は `npx clasp delete-deployment <テスト用 ID>` で消してよい。
-   - `-V` を付けない `update-deployment` は HEAD から新しい版（12）を作って向けるので、計測した版 11 を指定する。
+6. 版 12（2026-10-17。sync-fixes の最終レビューで、今の行に識別があり届いた送信に識別がない同じ時刻を `same` にした〔古いタブが同じセーブの共有を劣った中身で上書きしない〕）: `npm run gas:push` → `npx clasp create-version "final-review (sync-fixes)"`（版 12）→ `npx clasp update-deployment <テスト用 ID> -V 12 -d "owned-gas test (sync-fixes)"` → `PAL_API_URL=… node scripts/api-check.mjs`（テスト用）。
+7. 本番（P0 の後。ユーザーの確認を得てから）:
+   - 前に: 手元で `TZ=UTC npm test`（古い GAS との組み合わせのテストは、浅い複製の CI では飛ばされる）。誰も遊んでいない時間を選ぶ。GAS の編集画面で `resumeOwnedProd()` を 1 回実行する（停止の印 `OWNED_PAUSED_prod` が残っていると、新しい版の共有がすべて `BUSY` になるため。印がなければ何も変えない）。
+   - `npx clasp update-deployment <本番の ID> -V 12 -d "owned-gas"` → `npx clasp list-deployments` で、**ID を上の「デプロイ情報」と照らして**本番が版 12 になったことを確かめる（説明では見分けない。`-d` を付けない `update-deployment` は説明を空にする。`-V` を付けないと HEAD から新しい版を作って向けるので、確かめた版 12 を指定する）。
+   - 画面を配信する（main へマージして push → GitHub の Actions の成功を確かめる）。GAS が先なのは、新しい画面が版 10 の `BAD_ACTION` を 1 時間覚え、その間は `ownedSince`・ページを開いている PC を使わないため（古い画面は版 12 でも今までどおり動く）。
+   - 配信の後、**最後にホストした PC で最初に**ページを開く（読み込み直す）。パネルの「共有」の結果が出るのを確かめる。本番の行の `saveKey` は版 10 の間は空なので、版 12 の最初の共有だけは更新日時で比べる（先に同期を受け取った PC で開くと、プレイヤーの入れ替えの後の中身で上書きしうる）。
+   - それから全員に、開いているこのページを読み込み直すか閉じてもらう（裏のタブには新しいバージョンの帯が出ないので、直接頼む）。古いタブは識別を送らないので、同じセーブの `same` や自動登録の判定が効かない（版 12 では、識別のある共有を古いタブが同じ時刻で上書きすることはない。古いタブには「共有されているセーブの方が新しいため…」と出る）。
+   - テスト用の deployment は確かめ終わるまで残す。消すときは ID を照らしてから `npx clasp delete-deployment <テスト用 ID>`（本番の ID を消すと、全員の画面がつながらなくなる）。
+   - 巻き戻しの心配がなくなるまで、`npm run gas:push` は統合ブランチか main（マージの後）からだけ行う（巻き戻しの `compactOwnedProd` は HEAD のコードで動く）。
 
 #### 巻き戻し（本番を版 10 に戻す）
 
-1. `npx clasp update-deployment <本番の ID> -V 10`。
+1. `npx clasp update-deployment <本番の ID> -V 10 -d "rollback"`（ID は上の「デプロイ情報」と照らす）。画面は戻さなくてよい（新しい画面は版 10 でも動く。`ownedSince`・ページを開いている PC は `BAD_ACTION` で 1 時間ずつ止まる）。
 2. GAS の編集画面（HEAD のコード）で `compactOwnedProd()`（停止の印を立ててから、今の世代だけにして `saveKey` を空にする。遅れて届いた新しい版の呼び出しは印を見て書かない）。
 3. 共有を読み、2 世代が残っていない・`saveKey` が空なことを確かめる。戻してから圧縮するまでの間は、版 10 が世代を見ずに読むので、画面に 2 世代が重なって見えることがある（そのワールドの次の共有でも直る）。古い版は `saveKey` を書かないので、圧縮の後は空のまま。
-4. 新しい版に戻すときは `resumeOwnedProd()` → `npx clasp update-deployment <本番の ID> -V 11`。最初の共有は更新日時の比較で動く（古い版の行の `saveKey` は識別として使わない）。
+4. 新しい版に戻すときは `resumeOwnedProd()` → `npx clasp update-deployment <本番の ID> -V 12 -d "owned-gas"`。最初の共有は更新日時の比較で動く（古い版の行の `saveKey` は識別として使わない）。
 
 ### 設定（設定タブの「セーブ連携」）
 
