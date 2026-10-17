@@ -2631,3 +2631,75 @@ test('所持パル（最終レビュー）: 共有の送信は、中身の印の
   assert.deepEqual(widths, [['test', OWNED_FIELDS.length]]);
   assert.deepEqual([narrowing.store.state.upload.status, narrowing.store.state.shared.worlds], ['', []]);
 });
+
+test('所持パル（最終レビュー）: 送っている間に環境が替わって捨てた送信と、ログインの前に読んだセーブは、環境が決まったら新しい環境に送る（次の保存を待たない）', async (t) => {
+  const hashing = holdHashing(t);
+  // 印の計算中に替わった（送らずに捨てた）: 新しい環境に送る（送り始めの最短の間隔で予約する）
+  const up = uploadServer();
+  const scopes = recordUploadScopes(up);
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const release = hashing.hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => hashing.count > 0);
+  up.setScope('prod');
+  await host.store.scopeChanged();
+  release();
+  await settleUpload(host.store);
+  assert.deepEqual(scopes, []);
+  assert.equal(await fireUpload(host), 15000);
+  assert.deepEqual(scopes, ['prod']);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.upload.result, host.store.state.upload.scope], ['done', 'new', 'prod']);
+  assert.equal((await sharedCache(host.persist, 'prod')).current.world.worldId, WORLD_A);
+  assert.deepEqual(pendingTimers(host), []);
+  // GAS に届いた後に替わった（test に書いて応答を捨てた）: 同じく新しい環境に送る
+  const up2 = uploadServer();
+  const scopes2 = recordUploadScopes(up2);
+  const host2 = setup({ server: up2.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const respond = up2.hold();
+  await host2.register(WORLD_A, hostFiles());
+  await until(() => up2.sent.length === 1);
+  up2.setScope('prod');
+  await host2.store.scopeChanged();
+  respond();
+  await settleUpload(host2.store);
+  assert.equal(host2.store.state.upload.status, '');
+  await fireUpload(host2);
+  assert.deepEqual(scopes2, ['test', 'prod']);
+  assert.deepEqual([host2.store.state.upload.status, host2.store.state.upload.scope], ['done', 'prod']);
+  // 送っている間にログアウトした: ログインしていない間は送らず、ログインしたら（scopeChanged）送る
+  const up3 = uploadServer();
+  const scopes3 = recordUploadScopes(up3);
+  const host3 = setup({ server: up3.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const respond3 = up3.hold();
+  await host3.register(WORLD_A, hostFiles());
+  await until(() => up3.sent.length === 1);
+  up3.setScope('');
+  await host3.store.scopeChanged();
+  respond3();
+  await settleUpload(host3.store);
+  await tick();
+  assert.deepEqual([scopes3, pendingTimers(host3)], [['test'], []]);
+  host3.advance(60000);
+  up3.setScope('test');
+  await host3.store.scopeChanged();
+  await settleUpload(host3.store);
+  assert.deepEqual(scopes3, ['test', 'test']);
+  assert.deepEqual([host3.store.state.upload.status, host3.store.state.upload.result], ['done', 'unchanged']);
+  // ログインの前に読んだセーブ: ログインしたら送る
+  const up4 = uploadServer({ scope: '' });
+  const scopes4 = recordUploadScopes(up4);
+  const host4 = setup({ server: up4.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  await host4.register(WORLD_A, hostFiles());
+  await settleUpload(host4.store);
+  assert.deepEqual([scopes4, host4.store.state.upload.status], [[], '']);
+  up4.setScope('test');
+  await host4.store.scopeChanged();
+  await settleUpload(host4.store);
+  assert.deepEqual(scopes4, ['test']);
+  assert.deepEqual([host4.store.state.upload.status, host4.store.state.upload.scope], ['done', 'test']);
+  // 送ってしまえば、環境の切り替えのたびに送り直しはしない
+  up4.setScope('prod');
+  await host4.store.scopeChanged();
+  await tick();
+  assert.deepEqual([scopes4, pendingTimers(host4)], [['test'], []]);
+});

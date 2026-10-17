@@ -804,9 +804,11 @@ export function createOwnedStore({
     }
   }
 
-  // 共有してよいか（ホストとして、このページで読んだ、登録の残っているワールドのセーブ）
-  const canUpload = (local) => Boolean(server && scope() && local && state.uploadReady && state.role === 'host' && local.world.id === state.linkedWorldId)
+  // 共有してよいセーブか（ホストとして、このページで読んだ、登録の残っているワールドのセーブ）。ログインの環境は問わない
+  const shareable = (local) => Boolean(server && local && state.uploadReady && state.role === 'host' && local.world.id === state.linkedWorldId)
     && !(local.source === 'handles' && (!source.has(local.world.id) || removing.has(local.world.id)));
+  // 今共有してよいか（ログインしていて、共有してよいセーブ）
+  const canUpload = (local) => Boolean(scope()) && shareable(local);
 
   // 予約した時刻に、そのときの最新を送る（間隔・再試行の待ちは予約の時刻で済んでいる）
   function scheduleUpload(wait) {
@@ -825,8 +827,9 @@ export function createOwnedStore({
   async function uploadLocal({ force = false, commit = false, resume = false } = {}) {
     const local = state.local;
     if (!canUpload(local)) {
-      // セーブの読み直しの途中（holdUpload）など。止めた理由が登録の削除・解除なら blockUpload が消す
-      if (resume) uploadOwed = true;
+      // セーブの読み直しの途中（holdUpload）など。止めた理由が登録の削除・解除なら blockUpload が消す。ログインの前に読んだセーブは、
+      // 環境が決まったとき（scopeChanged）に送る
+      if (resume || (!scope() && shareable(local))) uploadOwed = true;
       return 'skipped';
     }
     uploadOwed = false;
@@ -871,8 +874,11 @@ export function createOwnedStore({
         retryStep = 0;
         retryAt = -Infinity;
       }
+      // 送っている間に環境が替わって捨てた: 新しい環境にはまだ送っていないので送る（共有を止めていれば送らない）。ログインしていなければ
+      // uploadOwed に残り、環境が決まったとき（scopeChanged）に送る
+      if (outcome.owed) uploadOwed = true;
     }
-    if (uploadDirty) {
+    if (uploadDirty || (outcome.owed && uploadOwed)) {
       uploadDirty = false;
       uploadLocal({ resume: true }).catch(() => {});
     }
@@ -898,10 +904,11 @@ export function createOwnedStore({
     // 登録の確定の後に別のセーブを読んだ（送るのはいつも今の手元のデータなので、前の印はもう使わない）
     if (!force) commitLocal = null;
     const changed = () => scope() !== key || sharedEpoch !== epoch;
-    // 送っている間にログイン・環境が替わった: 前の保存先への送信・応答なので、今の共有とキャッシュには入れず、再試行もしない
+    // 送っている間にログイン・環境が替わった: 前の保存先への送信・応答なので、今の共有とキャッシュには入れず、再試行もしない。
+    // 新しい環境にはまだ送っていない（owed。uploadLocal が送る）
     const dropped = (result) => {
       state.upload = emptyUpload();
-      return { result, retry: false };
+      return { result, retry: false, owed: true };
     };
     try {
       const owned = normalizeOwned(local.snapshot, { pals, passives });
@@ -1423,6 +1430,8 @@ export function createOwnedStore({
     async scopeChanged() {
       await loadShared();
       update();
+      // ログインの前に読んだセーブ・送っている間に環境が替わって捨てた送信を、新しい環境に送る（ログアウトしたなら uploadOwed に残す）
+      if (uploadOwed) uploadLocal({ resume: true }).catch(() => {});
       return fetchShared({ force: true });
     },
     /** 登録の確認（ドロップしたファイルを読んでみる）。結果を commitRegistration に渡すと登録する。 */
