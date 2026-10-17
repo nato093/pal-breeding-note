@@ -319,6 +319,8 @@ export function createOwnedStore({
   // セーブのファイルの見張り（save/watch.js）。送った対象の印（同じなら送り直さない）・対象のワールド・今のワールド・読み込みの後の 1 回
   let watcher = null;
   let watchKey = '';
+  // 今のワールドの見張りの対象の印（変わったらゲーム中の推定を数え直す。見張っていなければ ''）
+  let watchPlayKey = '';
   let watchedIds = new Set();
   let watchCurrent = '';
   let watchFollow = null;
@@ -1332,12 +1334,20 @@ export function createOwnedStore({
       state.watch.lastSave = null;
     }
     const targets = watchTargets();
-    const key = JSON.stringify(targets.map((target) => [target.worldId, target.host, target.current, target.revision, target.files.map((file) => file.path)]));
+    const shape = (target) => JSON.stringify([target.worldId, target.host, target.current, target.revision, target.files.map((file) => file.path)]);
+    // ワールド ID の順に並べてから作る（一覧の並び〔最後に遊んだ順〕が入れ替わっただけでは送り直さない）
+    const key = JSON.stringify(targets.map(shape).sort());
     if (key === watchKey) return;
     watchKey = key;
-    // 見張りをやり直したら、ゲーム中の推定を数え直す（次に読んだ値が基準）。見張っていなかったところから始めるとき（ページを開いた直後・
-    // 初めての登録）は、読んだばかりの基準を残す
-    if (watchedIds.size) state.play = emptyPlay();
+    // 今のワールドの見張りをやり直したら、ゲーム中の推定を数え直す（次に読んだ値が基準）。ほかのワールドの登録の削除・編集・許可の変化では
+    // 数え直さない（今のワールドの見張りは変わらない）。今のワールドを見張っていなかったところから始めるとき（ページを開いた直後・初めての
+    // 登録・許可が戻った）は、読んだばかりの基準を残す
+    const currentTarget = targets.find((target) => target.current);
+    const playKey = currentTarget ? shape(currentTarget) : '';
+    if (playKey !== watchPlayKey) {
+      if (watchPlayKey) state.play = emptyPlay();
+      watchPlayKey = playKey;
+    }
     watchedIds = new Set(targets.map((target) => target.worldId));
     if (!targets.length) {
       watcher?.stop();

@@ -2927,3 +2927,59 @@ test('所持パル（最終レビュー）: ホストのワールドで LocalDat
   await reopened.load();
   assert.equal(await reopened.autoRefresh(), 'imported');
 });
+
+test('所持パル（最終レビュー）: ゲーム中の推定を数え直すのは、今のワールドの見張りの対象が変わったときだけ（別のワールドの登録の編集・許可の変化・削除、一覧の並びの入れ替わりでは数え直さない）', async () => {
+  const WORLD_C = '0123456789ABCDEF0123456789ABCDEF';
+  const fake = fakeWatch();
+  let seconds = 0;
+  const host = setup({ watch: fake.client, runImport: async () => stampedSnapshot(secondsTick(seconds)) });
+  const a = hostFiles(T0 + 60000);
+  const b = hostFiles(T0);
+  const c = hostFiles(T0 - 60000);
+  await host.register(WORLD_B, b);
+  await host.register(WORLD_C, c);
+  await host.register(WORLD_A, a);
+  assert.equal(host.store.state.linkedWorldId, WORLD_A);
+  // 今のワールドが替わった（B → A）ので数え直してから、保存を続けて見る
+  for (const next of [30, 60, 90]) {
+    seconds = next;
+    newSave(a);
+    host.advance(30000);
+    assert.equal(await host.store.refreshFromWatch(WORLD_A), 'imported');
+  }
+  assert.equal(playingOf(host), true);
+  const play = host.store.state.play;
+  // 別のワールドの登録を編集した（ファイルを足した。見張りの対象は送り直す）
+  const sentTargets = fake.updates.length;
+  await host.register(WORLD_B, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
+  assert.equal(host.store.state.linkedWorldId, WORLD_A);
+  assert.equal(fake.updates.length, sentTargets + 1);
+  assert.equal(host.store.state.play, play);
+  // 別のワールドの許可が外れた・戻った
+  b['Level.sav'].permission = 'prompt';
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'permission');
+  assert.deepEqual(fake.updates.at(-1).map((target) => target.worldId).sort(), [WORLD_A, WORLD_C].sort());
+  assert.equal(host.store.state.play, play);
+  b['Level.sav'].permission = 'granted';
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  assert.equal(fake.updates.at(-1).length, 3);
+  assert.equal(host.store.state.play, play);
+  // 一覧の並び（最後に遊んだ順）だけが入れ替わった: 同じ対象なので送り直さない
+  const before = fake.updates.length;
+  c['Level.sav'].time = T0 + 30000;
+  c['LocalData.sav'].time = T0 + 30500;
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  assert.deepEqual(host.store.state.auto.worlds.map((world) => world.id), [WORLD_A, WORLD_C, WORLD_B]);
+  assert.equal(fake.updates.length, before);
+  assert.equal(host.store.state.play, play);
+  // 別のワールドの登録を消した
+  await host.store.removeWorld(WORLD_B);
+  assert.equal(host.store.state.play, play);
+  assert.equal(playingOf(host), true);
+  // 今のワールドの見張りの対象が変わったら数え直す
+  await host.register(WORLD_A, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
+  assert.deepEqual(host.store.state.play, emptyPlay());
+});
