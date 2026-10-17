@@ -19,6 +19,7 @@
 - [x] ユーザーがホストで約 15 分遊び（タブを裏に 5 分より長く）、ゲームを終えて SaveSync の同期を 1 回通す（→ 約 36 分・保存 72 回・25 分続けて裏。サーバーと `snap.mjs` は Claude が動かした）
 - [x] 同期の前後の更新日時・作成日時・LocalData.sav の変化を記録する（→ ホストの PC だけ。同期はセーブのファイルを書き換えず、`Players/savesync.sav` が作られただけ。受け取る側の PC は見ていない）
 - [x] 結果で、テーマ 3 の比べ方・テーマ 6 の `quietMs`・`maxWaitMs`・テーマ 7 の「ゲーム中」の判定を確定し、README との違いを書く（→ 3 と 7 はプランのまま。6 は `quietMs` 1,000 ms〔ホストのワールドは Level.sav が変わってから数える〕・`maxWaitMs` 10,000 ms・Worker の Observer を第一に）
+- [x] （追加）同じ日の 10:30、実験のページを開いたままにしていたため、同期を受け取るときに SaveSync が止まり、ワールドが `LocalData.sav` だけになった（12:07 に SaveSync を起動し直して戻った）。作業用のフォルダで再現し、原因が `Players` の中のファイルの Observer だと確かめた → テーマ 6 は Observer をワールドのフォルダの直下のファイルだけにする（README の「P0 の結果」「P0 で決めたこと」）。受け取る側の SaveSync の書き方も分かった（中の時刻はそのまま）
 
 ## 1. dps-position（S）
 
@@ -85,7 +86,7 @@
 - 状態: 未
 - [ ] 見張り（Observer の張り直し・unknown・許可・世代番号・Worker への切り替え）
 - [ ] 一式の書き終わりの確認（前後の印・登録したファイルの失敗と消失を 30 秒まで読み直す・壊れたファイル）
-- [ ] watchTargets・refreshFromWatch・パネルの「監視」の行
+- [ ] watchTargets・refreshFromWatch・パネルの「監視」の行（**Observer に渡すのはワールドのフォルダの直下のファイルだけ。`Players` の中は Worker の 5 秒ごとの確認だけ**。見張ると SaveSync の同期を壊す〔README の「P0 の結果」の事故〕。テストで確かめる）
 - [ ] 「1 分ごと」の文言
 - [ ] テスト（watch・owned-store・app・wording）と OPERATIONS.md・release-notes
 
@@ -116,7 +117,7 @@
 ## 次にやること
 
 - **2026-10-17 の朝（セッション b47c1ba0）: テーマ 1〜5 は統合ブランチにマージ済み。GAS の版 11・テスト用の deployment・計測・`api-check`・巻き戻しのリハーサル・P0 も済み（P0 の結果と決めた値は README の「P0 の結果」「P0 で決めたこと」）。次は上から順に:**
-  1. **テーマ 6 save-watch**: `git switch -c feature/save-watch integrate/sync-fixes` から。README の 6 の節と「P0 で決めたこと」（`quietMs` 1,000 ms・ホストのワールドは Level.sav が変わってから数える・`maxWaitMs` 10,000 ms・Worker の Observer を第一に）を読む。
+  1. **テーマ 6 save-watch**: `git switch -c feature/save-watch integrate/sync-fixes` から。README の 6 の節と「P0 の結果」「P0 で決めたこと」（`quietMs` 1,000 ms・ホストのワールドは Level.sav が変わってから数える・`maxWaitMs` 10,000 ms・Worker の Observer を第一に・**Observer はワールドのフォルダの直下のファイルだけ。`Players` の中を見張ると SaveSync が同期を受け取るときに止まり、ワールドが消えた状態になる〔2026-10-17 の事故と再現〕**）を読む。
   2. テーマ 7〜8 → 「終わり」の項目。本番の GAS（版 11）への切り替えと配信は P0 と全体の報告の後に、ユーザーの確認を得てから。テーマ 7 の自動登録は、`state.upload`（`status`・`result`・送ったスナップショットの `signature`・`stamp`・`published`）を購読して応答ごとに決める（応答はキャッシュの保存の前に購読者へ知らせてある）。
 - **始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる**（2026-10-16 の夕方、別のセッションが同じテーマ 5 をこの作業ツリーで進めていて重なった。こちらが切ったブランチと相手の未コミットの変更がぶつかりかけた）。
 - 進め方で効いた形: テーマごとに実装担当のエージェント（general-purpose）を 1 体立て、`feature/<key>` へのコミットまで任せる。親は `git status`・`npm test`（終了コード）・差分の個人情報（実在のプレイヤー名・ワールド名・ID・ユーザー名入りのパス。調べる語の一覧は文書に書かず、親のメモリの「公開リポジトリに個人情報を書かない」から取る）を確かめてから `--no-ff` でマージする。担当には README の節を読ませ、「範囲の外は直さない・push しない・`Claude outputs/` に触れない」を必ず添える。
