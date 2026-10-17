@@ -2703,3 +2703,69 @@ test('所持パル（最終レビュー）: 送っている間に環境が替わ
   await tick();
   assert.deepEqual([scopes4, pendingTimers(host4)], [['test'], []]);
 });
+
+test('所持パル（最終レビュー）: 送信が書けて応答だけ遅れる間に、別の PC が新しいセーブを公開し、このページがそれを読んだら、遅れて届いた応答で一覧・中身・キャッシュを戻さない（結果の記録は残す）', async () => {
+  // ホストの送信は、書いた後に応答だけを止める（written は GAS が処理し終えたホストの送信の数）
+  let gate = null;
+  let written = 0;
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (!gate || action !== 'ownedUpload' || input.userId !== 'ホスト') return undefined;
+      const response = await pass();
+      written++;
+      await gate;
+      return response;
+    },
+  });
+  const hold = () => {
+    let release;
+    gate = new Promise((resolve) => { release = resolve; });
+    return () => { gate = null; release(); };
+  };
+  const calls = () => shared.calls.filter((action) => ['ownedWorlds', 'ownedSince', 'owned'].includes(action));
+  const host = setup({ server: shared.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const respond = hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => written === 1);
+  // S1 は書けている（公開されている）
+  const s1 = (await shared.server.request('ownedWorlds')).worlds.find((world) => world.worldId === WORLD_A);
+  assert.ok(s1);
+  // 別の PC が S2 を公開し、このページが S2 を読む
+  const s2 = await publish(shared, { prefix: 's2', user: '別の人' });
+  assert.ok(Date.parse(s2.uploadedAt) > Date.parse(s1.uploadedAt));
+  host.advance(10000);
+  assert.equal(await host.store.fetchShared({ force: true }), 'fetched');
+  assert.deepEqual([host.store.state.shared.current.world.uploadedAt, host.store.state.meta.source, ids(host.store)], [s2.uploadedAt, 'shared', ['s20', 's21']]);
+  // S1 の応答が届く
+  respond();
+  await settleUpload(host.store);
+  const entry = () => host.store.state.shared.worlds.find((world) => world.worldId === WORLD_A);
+  assert.deepEqual([entry().uploadedAt, host.store.state.shared.current.world.uploadedAt], [s2.uploadedAt, s2.uploadedAt]);
+  assert.deepEqual([host.store.state.meta.source, ids(host.store)], ['shared', ['s20', 's21']]);
+  assert.equal((await sharedCache(host.persist)).current.world.uploadedAt, s2.uploadedAt);
+  // 結果の記録（自動登録の判定に使う）は今どおり
+  const { status, result, published } = host.store.state.upload;
+  assert.deepEqual([status, result, published.uploadedAt, published.saveStamp], ['done', 'new', s1.uploadedAt, tickOf(1)]);
+  // stale の応答（公開されていたのは S2）が遅れる間に S3 を読んでいたら、S2 に戻さず、読み直しもしない
+  const respondStale = hold();
+  host.advance(15000);
+  const sending = host.store.uploadLocal({ force: true });
+  await until(() => written === 2);
+  const s3 = await publish(shared, { prefix: 's3', user: '別の人' });
+  host.advance(10000);
+  assert.equal(await host.store.fetchShared({ force: true }), 'fetched');
+  assert.deepEqual(ids(host.store), ['s30', 's31']);
+  shared.calls.length = 0;
+  respondStale();
+  assert.equal(await sending, 'stale');
+  await settleUpload(host.store);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.upload.published.uploadedAt], ['stale', s2.uploadedAt]);
+  assert.deepEqual([entry().uploadedAt, host.store.state.shared.current.world.uploadedAt, ids(host.store)], [s3.uploadedAt, s3.uploadedAt, ['s30', 's31']]);
+  assert.equal((await sharedCache(host.persist)).current.world.uploadedAt, s3.uploadedAt);
+  assert.deepEqual(calls(), []);
+  // 応答の方が新しい（同じ・比べられない）ときは今どおり入れる
+  host.advance(15000);
+  const s4 = await host.store.uploadLocal({ force: true });
+  assert.equal(s4, 'stale');
+  assert.deepEqual(calls(), ['ownedWorlds']);
+});

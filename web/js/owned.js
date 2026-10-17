@@ -810,6 +810,16 @@ export function createOwnedStore({
   // 今共有してよいか（ログインしていて、共有してよいセーブ）
   const canUpload = (local) => Boolean(scope()) && shareable(local);
 
+  // 手元に持っている同じワールドの共有（一覧の項目・今の中身）が、world より後に公開されたものか（GAS のサーバーの時刻 uploadedAt で比べる。
+  // 同じ・比べられないときは false）
+  function heldNewer(world) {
+    const at = Date.parse(world?.uploadedAt ?? '');
+    if (!Number.isFinite(at)) return false;
+    const listed = state.shared.worlds.find((item) => item.worldId === world.worldId);
+    const current = state.shared.current?.world?.worldId === world.worldId ? state.shared.current.world : null;
+    return [listed, current].some((item) => Date.parse(item?.uploadedAt ?? '') > at);
+  }
+
   // 予約した時刻に、そのときの最新を送る（間隔・再試行の待ちは予約の時刻で済んでいる）
   function scheduleUpload(wait) {
     uploadTimer ??= schedule(() => { uploadTimer = null; uploadLocal({ force: true, resume: true }).catch(() => {}); }, wait);
@@ -955,18 +965,24 @@ export function createOwnedStore({
       const mine = Boolean(userId) && userIdKey(published.uploadedBy) === userIdKey(userId);
       const status = response.stored || (result === 'unchanged' && mine) ? 'done' : ['same', 'unchanged'].includes(result) ? 'same' : 'stale';
       state.upload = { ...origin, status, at: published.uploadedAt, error: '', result, published };
-      const others = state.shared.worlds.filter((item) => item.worldId !== response.world.worldId);
-      state.shared.worlds = [...others, response.world];
+      // 応答が遅れて届く間に、このページが同じワールドのもっと後の共有（別の PC が後から公開したセーブ）を読んでいたら、応答の world（その時に
+      // 公開されていたもの）で一覧・中身・キャッシュを戻さない。結果の記録（state.upload）は上のとおり残す
+      const outdated = heldNewer(response.world);
+      if (!outdated) {
+        const others = state.shared.worlds.filter((item) => item.worldId !== response.world.worldId);
+        state.shared.worlds = [...others, response.world];
+      }
       const wrote = response.stored || result === 'unchanged';
       // 書いた・同じ中身が載っている。送っている間に表示するワールドが替わっていたら、一覧だけに入れる（今のワールドの所持パルは置き換えない）
-      if (wrote && response.world.worldId === targetWorldId()) {
+      if (!outdated && wrote && response.world.worldId === targetWorldId()) {
         state.shared.current = { world: response.world, columns: sent.columns, rows: sent.rows.map((row) => row.map(String)) };
       }
       // 結果はすぐ知らせる（キャッシュの保存・読み直しを待つ間に新しいセーブを読むと、runImportTask が結果を消すため）
       update();
-      if (wrote) {
+      // 持っている方が新しければ（outdated）、キャッシュも書かず、読み直しもしない
+      if (!outdated && wrote) {
         await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
-      } else if (status === 'stale') {
+      } else if (!outdated && status === 'stale') {
         // 共有されている方が新しい（別の PC から共有された）ので、そちらを読む。same（同じセーブの別の中身）は、この PC では手元のセーブを
         // 出すので読まない（次の定期の読み直しで入る）
         await fetchShared({ force: true });
