@@ -26,7 +26,7 @@ function memoryStorage() {
   return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) };
 }
 
-async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1' } = {}) {
+async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1', now = null } = {}) {
   const development = createDevelopmentApi();
   // サーバの手前で止める・次の登録を断る（手動の登録が送信待ちのまま・取り消される場面を作る）
   let serverGate = null;
@@ -74,7 +74,7 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
   const storage = givenStorage ?? safeStorage(memoryStorage());
   const auto = createAutoRegister({
     store, owned, storage, namespace: 't', toast: (message, options) => { toasts.push(message); toastActions.push(options); }, onNotice: () => { noticed++; },
-    navigate: (hash) => navigations.push(hash), loadTable: async () => ({ default: data }),
+    navigate: (hash) => navigations.push(hash), loadTable: async () => ({ default: data }), ...(now ? { now } : {}),
   });
   const run = async () => { auto.evaluate(); await auto.idle(); };
   // 新しく読んだセーブ（牧場にタマゴが現れた）にする
@@ -1082,4 +1082,330 @@ test('自動登録（settings）: importNotices は今の通知を押し出さ�
   assert.ok(current.every((n) => ids.includes(n.id)));
   assert.ok(ids.includes('auto-breed:test:anomaly:in3'));
   assert.deepEqual(t.auto.importNotices([notice('in4', 1)]), { added: 0, skipped: 1 });
+});
+
+// ---- 共有の結果で候補を決める（sync-fixes の host-rotation） ----
+// 読んだセーブの証拠は「配合のキー＋セーブの保存時刻」の候補として保留し、そのセーブの共有の結果（owned.js の state.upload）で決める
+
+const BASE = Date.parse('2026-10-06T01:00:00.000Z');
+const DAY = 24 * 60 * 60 * 1000;
+// seconds 秒のセーブの中の保存時刻（生のティック）と、それを読んだ日時
+const ticks = (seconds) => String(638650000000000000n + BigInt(seconds) * 10_000_000n);
+const readAt = (seconds) => new Date(BASE + seconds * 1000).toISOString();
+// 時計を動かせる setup（保留の候補の期限は読んだ日時から数えるので、読んだ日時に近い時刻にしておく）
+async function rotation(options = {}) {
+  const clock = { now: BASE + 10 * 60 * 1000 };
+  const t = await setup({ ...options, now: () => clock.now });
+  return Object.assign(t, { clock });
+}
+// 中の保存時刻つきのセーブ（seconds 秒）を読んだ
+function readSave(t, seconds, farms) {
+  const { local } = t.owned.state;
+  t.owned.state.local = {
+    ...local, importedAt: readAt(seconds), world: { ...local.world, updatedAt: readAt(seconds) },
+    snapshot: { ...local.snapshot, world: { savedAtTicks: ticks(seconds) }, breedFarms: farms },
+  };
+}
+// 共有の結果（owned.js の state.upload。stamp は送ったセーブの中の保存時刻、uploadedBy は今公開されている共有を送った人）
+function answer(t, status, seconds, { result = '', worldId = t.owned.state.local.world.id, uploadedBy = '' } = {}) {
+  const published = uploadedBy ? { saveStamp: ticks(seconds), uploadedBy, uploadedAt: '' } : null;
+  t.owned.state.upload = { status, at: '', error: '', worldId, result, signature: '', stamp: ticks(seconds), published };
+}
+// このページがホスト中（推定）。owned.js の state.play（core/playing.js の trackPlay の形）で、直近に 30 秒ごとの保存を 2 回見た
+function hosting(t, worldId = 'W1') {
+  const at = t.clock.now;
+  t.owned.state.play = { worldId, role: 'host', value: 60_000, changes: [{ at: at - 30_000, gap: 30_000 }, { at, gap: 30_000 }] };
+}
+// 保存した候補の [状態, セーブの保存時刻, 証拠の牧場]
+const unitsOf = (t, worldId = 'W1') => (JSON.parse(t.storage.get(`t.autoBreeding.farms.test.${worldId}`)).pending ?? [])
+  .map((unit) => [unit.state ?? '', unit.stamp ?? '', unit.evidence.map((e) => e.farmId).join(',')]);
+const SHEEP = 'SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分';
+
+test('自動登録（host-rotation）: 読んだセーブの候補は共有の結果まで保留し、自分の共有（done）で登録する。送っている間・送れなかった・結果なしでは保留のまま', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+  for (const status of ['sending', 'error', '']) {
+    answer(t, status, 0);
+    await t.run();
+  }
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+  assert.deepEqual(t.toasts, ['配合を自動登録しました（1件）']);
+  // 登録した配合の候補は外す。同じ結果がまた届いても何もしない
+  assert.deepEqual(unitsOf(t), []);
+  await t.run();
+  assert.equal(t.creates.length, 1);
+});
+
+test('自動登録（host-rotation）: 自分の前の送信が届いていた unchanged（done）は登録し、他人の unchanged・same（same）ではそのセーブの候補を捨てる', async () => {
+  const mine = await rotation();
+  readSave(mine, 0, [sheepFarm()]);
+  await mine.run();
+  answer(mine, 'done', 0, { result: 'unchanged' });
+  await mine.run();
+  assert.deepEqual(registered(mine.store), [SHEEP]);
+  for (const result of ['unchanged', 'same']) {
+    const other = await rotation();
+    readSave(other, 0, [sheepFarm()]);
+    await other.run();
+    answer(other, 'same', 0, { result, uploadedBy: '仲間' });
+    await other.run();
+    assert.equal(other.creates.length, 0, result);
+    assert.deepEqual(unitsOf(other), [], result);
+    // 後で自分の新しいセーブが載っても、捨てた候補は登録しない（そのセーブは別の PC の担当）
+    readSave(other, 30, [sheepFarm()]);
+    await other.run();
+    answer(other, 'done', 30, { result: 'newer' });
+    await other.run();
+    assert.equal(other.creates.length, 0, result);
+  }
+});
+
+test('自動登録（host-rotation）: 同じセーブを共有済み（same）でも、公開しているのが自分の ID（同じ PC の別のタブ）なら、自分の共有として登録する', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'same', 0, { result: 'same', uploadedBy: '自分' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+});
+
+test('自動登録（host-rotation）: 他人の same は stamp が同じ候補だけを捨て、それより前のセーブの候補は保留のまま', async () => {
+  const t = await rotation({ farms: [sheepFarm(), dogFarm()] });
+  readSave(t, 0, [sheepFarm(), emptied([dogFarm()])[0]]);
+  await t.run();
+  readSave(t, 30, [sheepFarm(), dogFarm()]);
+  await t.run();
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1'], ['hold', ticks(30), 'f2']]);
+  answer(t, 'same', 30, { result: 'same' });
+  await t.run();
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+  assert.equal(t.creates.length, 0);
+});
+
+test('自動登録（host-rotation）: 別の人が新しいセーブを共有済み（stale）なら、ホスト中（推定）の間に読んだ候補だけを登録し、ほかは保留のまま', async () => {
+  const playing = await rotation();
+  hosting(playing);
+  readSave(playing, 0, [sheepFarm()]);
+  await playing.run();
+  answer(playing, 'stale', 0, { result: 'stale' });
+  await playing.run();
+  assert.deepEqual(registered(playing.store), [SHEEP]);
+  const idle = await rotation();
+  readSave(idle, 0, [sheepFarm()]);
+  await idle.run();
+  answer(idle, 'stale', 0, { result: 'stale' });
+  await idle.run();
+  assert.equal(idle.creates.length, 0);
+  assert.deepEqual(unitsOf(idle), [['hold', ticks(0), 'f1']]);
+});
+
+test('自動登録（host-rotation）: S1 の応答を失った後に S2 を読み、S2 が自分の共有として載れば、S1 にしかない証拠も登録する', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'error', 0);
+  await t.run();
+  // S2 にはタマゴの証拠がない（拾われた後）
+  readSave(t, 30, [emptied([sheepFarm()])[0]]);
+  await t.run();
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+  // 古い GAS（result なし・stored）も done
+  answer(t, 'done', 30, { result: '' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+});
+
+test('自動登録（host-rotation）: S1 の応答を失った後に別の人が S2 を載せた（S1 の stale）なら、S1 の候補は捨てずに残す（ホスト中の推定が立つ前に読んだ S1 も）', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  answer(t, 'error', 0);
+  await t.run();
+  // 後からホスト中の推定が立っても、S1 を読んだときは立っていなかった
+  hosting(t);
+  answer(t, 'stale', 0, { result: 'stale' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+  // その後で自分の共有が載れば登録する
+  readSave(t, 60, [sheepFarm()]);
+  await t.run();
+  answer(t, 'done', 60, { result: 'newer' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+});
+
+test('自動登録（host-rotation）: S1 の送信中に S3 を読んだら、S1 の結果（stale）で決めるのは S1 以前の候補だけ（S3 の候補は決まらない）', async () => {
+  const t = await rotation({ farms: [sheepFarm(), dogFarm()] });
+  hosting(t);
+  readSave(t, 0, [sheepFarm(), emptied([dogFarm()])[0]]);
+  await t.run();
+  answer(t, 'sending', 0);
+  await t.run();
+  readSave(t, 60, [sheepFarm(), dogFarm()]);
+  await t.run();
+  answer(t, 'stale', 0, { result: 'stale' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+  assert.deepEqual(unitsOf(t), [['hold', ticks(60), 'f2']]);
+});
+
+test('自動登録（host-rotation）: 同じ配合の証拠が S1 と S3 にあれば、S1 の結果で決まるのは S1 の証拠だけ（登録者も S1 の証拠で決める）', async () => {
+  // 同じ配合（モコロン＋オオタチウオ）の牧場が 2 つ。f1 は Frank（対応が未設定）、f2 は自分が親を預けた
+  const t = await rotation({ farms: [sheepFarm(P2, 'f1'), sheepFarm(P1, 'f2')] });
+  readSave(t, 0, [sheepFarm(P2, 'f1'), emptied([sheepFarm(P1, 'f2')])[0]]);
+  await t.run();
+  readSave(t, 60, [sheepFarm(P2, 'f1'), sheepFarm(P1, 'f2')]);
+  await t.run();
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  // S1 の証拠（Frank の牧場）だけで判定するので、登録者が決まらずに待つ（S3 の証拠を混ぜると、預けた人が違うので自分で登録してしまう）
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(unitsOf(t), [['ok', ticks(0), 'f1'], ['hold', ticks(60), 'f2']]);
+  assert.deepEqual(t.auto.notices().map((n) => n.title), ['プレイヤーの対応が未設定です']);
+  answer(t, 'done', 60, { result: 'newer' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+  assert.deepEqual(unitsOf(t), []);
+});
+
+test('自動登録（host-rotation）: 保留のまま 7 日たった候補は捨てる（7 日ちょうどまでは決められる）', async () => {
+  const kept = await rotation();
+  readSave(kept, 0, [sheepFarm()]);
+  await kept.run();
+  kept.clock.now = BASE + 7 * DAY;
+  answer(kept, 'done', 0, { result: 'new' });
+  await kept.run();
+  assert.equal(kept.creates.length, 1);
+  const expired = await rotation();
+  readSave(expired, 0, [sheepFarm()]);
+  await expired.run();
+  expired.clock.now = BASE + 7 * DAY + 1;
+  answer(expired, 'done', 0, { result: 'new' });
+  await expired.run();
+  assert.equal(expired.creates.length, 0);
+  assert.deepEqual(unitsOf(expired), []);
+  // 新しいセーブを読むときにも捨てる
+  const absorbed = await rotation({ farms: [sheepFarm(), dogFarm()] });
+  readSave(absorbed, 0, [sheepFarm(), emptied([dogFarm()])[0]]);
+  await absorbed.run();
+  absorbed.clock.now = BASE + 8 * DAY;
+  readSave(absorbed, 8 * 24 * 60 * 60, [sheepFarm(), dogFarm()]);
+  await absorbed.run();
+  assert.deepEqual(unitsOf(absorbed), [['hold', ticks(8 * 24 * 60 * 60), 'f2']]);
+});
+
+test('自動登録（host-rotation）: 登録してよいになった候補は、後の他人の共有で取り消さない。プレイヤーの対応が未設定なら待ち、保留の間は登録待ちに数えない', async () => {
+  const t = await rotation({ farms: [sheepFarm(P2)] });
+  readSave(t, 0, [sheepFarm(P2)]);
+  await t.run();
+  // 保留は共有の結果を待っているだけなので、登録待ちに数えない
+  assert.deepEqual(t.auto.pendingSummary(), { unmapped: [], conflict: [] });
+  let changes = 0;
+  t.auto.subscribe(() => { changes++; });
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  assert.ok(changes > 0);
+  assert.deepEqual(t.auto.pendingSummary().unmapped.map((item) => item.uid), [P2]);
+  // 別の人が同じセーブを共有したと後で分かっても、取り消さない
+  answer(t, 'same', 0, { result: 'same' });
+  await t.run();
+  assert.deepEqual(unitsOf(t), [['ok', ticks(0), 'f1']]);
+  t.auto.setMapping(P2, '仲間');
+  await t.auto.idle();
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
+});
+
+test('自動登録（host-rotation）: 結果は読み込み中（判定できないとき）に届いても記録し、後で読んだ候補・読み込み直しの後のページにも当てる', async () => {
+  const t = await rotation();
+  // 読み込みの途中（busy）に、そのセーブの結果が届いた（応答はキャッシュの保存の前に知らせる）
+  readSave(t, 0, [sheepFarm()]);
+  Object.assign(t.owned.state, { busy: true });
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  // 新しいセーブを読んで結果が消えた後に、候補を集める
+  t.owned.state.upload = { status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', published: null };
+  Object.assign(t.owned.state, { busy: false });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+
+  // 読み込み直し: 保留の候補を残したページを閉じ、開き直したページに結果が届く
+  const u = await rotation({ farms: [sheepFarm(), dogFarm()] });
+  readSave(u, 0, [sheepFarm(), emptied([dogFarm()])[0]]);
+  await u.run();
+  assert.deepEqual(unitsOf(u), [['hold', ticks(0), 'f1']]);
+  const reopened = createAutoRegister({ store: u.store, owned: u.owned, storage: u.storage, namespace: 't', loadTable: async () => ({ default: data }), now: () => u.clock.now });
+  answer(u, 'done', 0, { result: 'unchanged' });
+  reopened.evaluate();
+  await reopened.idle();
+  assert.deepEqual(registered(u.store), [SHEEP]);
+});
+
+test('自動登録（host-rotation）: 前の版の候補（stamp・状態がない）と識別のないセーブ（stamp が空）の候補は、今までどおり登録する', async () => {
+  const t = await setup({ farms: [] });
+  const key = 't.autoBreeding.farms.test.W1';
+  const saved = JSON.parse(t.storage.get(key));
+  const old = {
+    key: 'GuardianDog|GuardianDog>GuardianDog',
+    record: { parent1Id: 'GuardianDog', parent1Gender: 'M', parent2Id: 'GuardianDog', parent2Gender: 'F', childId: 'GuardianDog' },
+    evidence: [{ farmId: 'f2', eggLocalId: 'f2-0', depositorUids: [P1, P1] }],
+  };
+  t.storage.set(key, JSON.stringify({ ...saved, rev: saved.rev + 1, pending: [old] }));
+  await t.run();
+  assert.deepEqual(registered(t.store), ['GuardianDog(M)×GuardianDog(F)>GuardianDog:自分']);
+  // 識別のないセーブ（中の保存時刻が読めない）の候補は、登録してよいとして記録する
+  const plain = await setup({ storage: safeStorage(memoryStorage()) });
+  const release = plain.hold();
+  plain.auto.evaluate();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(unitsOf(plain), [['ok', '', 'f1']]);
+  release();
+  await plain.auto.idle();
+  assert.deepEqual(registered(plain.store), [SHEEP]);
+});
+
+test('自動登録（host-rotation）: ファイルの更新日時だけが新しい同じセーブ（同期で書き換わった）では、候補を増やさない', async () => {
+  const t = await rotation({ farms: [sheepFarm(), dogFarm()] });
+  readSave(t, 0, [sheepFarm(), emptied([dogFarm()])[0]]);
+  await t.run();
+  // 中の保存時刻は同じで、更新日時・読んだ日時だけが新しい（中身が違って見えても、同じセーブとして扱う）
+  const { local } = t.owned.state;
+  t.owned.state.local = { ...local, importedAt: readAt(300), world: { ...local.world, updatedAt: readAt(300) }, snapshot: { ...local.snapshot, breedFarms: [sheepFarm(), dogFarm()] } };
+  await t.run();
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+});
+
+test('自動登録（host-rotation）: 結果は送ったワールドの記録に残し、同じ種類・同じ stamp は 1 回だけ足す（直近 20 件まで）', async () => {
+  const t = await rotation();
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  const verdicts = () => JSON.parse(t.storage.get('t.autoBreeding.farms.test.W1')).verdicts;
+  answer(t, 'sending', 0);
+  await t.run();
+  assert.deepEqual(verdicts(), []);
+  answer(t, 'stale', 0, { result: 'stale' });
+  await t.run();
+  await t.run();
+  assert.deepEqual(verdicts(), [{ kind: 'stale', stamp: ticks(0) }]);
+  // 別のワールドの結果は、そのワールドの記録に残す（今のワールドの候補は決めない）
+  answer(t, 'done', 0, { result: 'new', worldId: 'W2' });
+  await t.run();
+  assert.deepEqual(JSON.parse(t.storage.get('t.autoBreeding.farms.test.W2')).verdicts, [{ kind: 'mine', stamp: ticks(0) }]);
+  assert.equal(t.creates.length, 0);
+  for (let i = 1; i <= 25; i++) {
+    answer(t, 'stale', i * 30, { result: 'stale' });
+    t.auto.evaluate();
+  }
+  await t.auto.idle();
+  assert.equal(verdicts().length, 20);
+  assert.deepEqual(verdicts().at(-1), { kind: 'stale', stamp: ticks(25 * 30) });
 });
