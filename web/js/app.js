@@ -903,10 +903,11 @@ async function boot() {
   // 登録していれば読み直す（pollAuto。配合牧場の自動登録で、タマゴを拾う前に読むため）。長く裏にあるタブのタイマーは、ブラウザが
   // 1 分に 1 回まで遅らせる。ゲームの保存はセーブのファイルの見張り（save/watch.js の Worker。裏でも遅れない）が owned.refreshFromWatch で
   // 知らせるので、ここでのセーブの読み直しは安全網（見張りの Worker を作れないブラウザでは、これだけで読む。save-watch）。
-  // 古いデータの印（時刻で変わる）も、このときに確かめ直す
+  // 古いデータの印（時刻で変わる）も、このときに確かめ直す。
+  // ページを開いている PC（page-presence）は読み直しの後に送る（1 分ごと。共有の読み直しの ownedSince に載せた回は送らない。裏のタブでも送る）
   setInterval(() => {
     const refreshing = document.visibilityState === 'hidden' ? owned.pollAuto() : owned.autoRefresh();
-    refreshing.catch(() => {});
+    refreshing.catch(() => {}).then(() => owned.reportPresence()).catch(() => {});
     save.update();
   }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {

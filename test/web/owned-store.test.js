@@ -2223,3 +2223,243 @@ test('所持パル（host-rotation・Codex のレビュー）: 共有を確か�
   await viewer.store.scopeChanged();
   assert.equal(viewer.store.state.shared.fetchedWorldId, '');
 });
+
+// ---------------------------------------------------------------------------
+// page-presence（docs/sync-fixes/README.md の 8）: ページを開いている PC。ログインしているページは今のワールドについて 60 秒に 1 回送る
+//（共有の読み直しの ownedSince に載せ、載せる回がなければ reportPresence で別に送る）
+// ---------------------------------------------------------------------------
+// 共有の操作に加えて、送った presence（[操作, ワールド, presence]。ownedSince に載せたものも）を記録する
+function presenceServer({ rewrite = null, ...options } = {}) {
+  const sent = [];
+  const shared = sharedServer({
+    ...options,
+    rewrite: (action, input, pass) => {
+      if (input.presence) sent.push([action, input.worldId, input.presence]);
+      return rewrite?.(action, input, pass);
+    },
+  });
+  return { ...shared, sent };
+}
+const deviceKey = (worldId) => `pal-note.test.owned.device.${worldId}`;
+// app.js の 10 秒ごとのタイマーと同じ（表のタブは autoRefresh、裏のタブは pollAuto。その後に reportPresence）
+async function timerTick(target, { hidden = false, step = 10000 } = {}) {
+  target.advance(step);
+  await (hidden ? target.store.pollAuto() : target.store.autoRefresh());
+  return target.store.reportPresence();
+}
+
+test('所持パル（page-presence）: 表のタブは 10 秒ごとの ownedSince に 60 秒に 1 回 presence を載せ、別には送らない。ownedSince を呼ばない回（一覧の 5 分ごと）は別に送る', async () => {
+  const shared = presenceServer({ userId: 'Bob' });
+  await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  shared.calls.length = 0;
+  await viewer.store.autoRefresh();
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince']);
+  assert.equal(await viewer.store.reportPresence(), 'skipped');
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince']);
+  // 値: 連携していない（none）・ゲーム中でない・共有できない。device はワールドごとに localStorage に残す
+  const device = viewer.storage.map.get(deviceKey(WORLD_A));
+  assert.match(device, /^[0-9a-f]{32}$/);
+  assert.equal(shared.sent.length, 1);
+  const [action, worldId, presence] = shared.sent[0];
+  assert.deepEqual([action, worldId], ['ownedSince', WORLD_A]);
+  assert.match(presence.pageId, /^[0-9a-f]{32}$/);
+  assert.notEqual(presence.pageId, device);
+  assert.deepEqual(presence, { pageId: presence.pageId, device, user: 'Bob', role: 'none', playing: false, canShare: false });
+  // 応答の一覧（この PC のページ）を今のワールドの一覧として残す
+  const { pages } = viewer.store.state;
+  assert.deepEqual([pages.worldId, pages.device, pages.list.map((page) => [page.user, page.device, page.role])], [WORLD_A, device, [['Bob', device, 'none']]]);
+  assert.ok(Number.isFinite(Date.parse(pages.serverTime)));
+  // 別の PC のページが送った（Alice のホストのページ）。載せない回の ownedSince の応答でも一覧は入れ替わる
+  await shared.server.request('presence', { worldId: WORLD_A, presence: { pageId: 'alice-page-0001', device: 'alice-device-01', user: 'Alice', role: 'host', playing: true, canShare: true } });
+  shared.sent.length = 0;
+  for (let elapsed = 10000; elapsed < 5 * 60 * 1000; elapsed += 10000) {
+    shared.calls.length = 0;
+    assert.equal(await timerTick(viewer), 'skipped', `${elapsed} ms`);
+    assert.deepEqual(shared.calls, ['ownedSince'], `${elapsed} ms`);
+  }
+  assert.deepEqual(viewer.store.state.pages.list.map((page) => [page.user, page.role]).sort(), [['Alice', 'host'], ['Bob', 'none']]);
+  // 載せたのは 60・120・180・240 秒の ownedSince（同じページの ID）
+  assert.deepEqual(shared.sent.map(([name, id, value]) => [name, id, value.pageId]), Array(4).fill(['ownedSince', WORLD_A, presence.pageId]));
+  // 5 分は一覧だけを読む回（ownedSince を呼ばない）なので、別に送る
+  shared.calls.length = 0;
+  assert.equal(await timerTick(viewer), 'sent');
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'presence']);
+  shared.calls.length = 0;
+  assert.equal(await timerTick(viewer), 'skipped');
+  assert.deepEqual(shared.calls, ['ownedSince']);
+  assert.equal(shared.sent.length, 5);
+});
+
+test('所持パル（page-presence）: 裏のタブは共有を読まずに presence だけを 60 秒ごとに送る（タイマーが 1 分ごとまで遅れても、少し早く来ても 5 秒の余裕の中なら送る）', async () => {
+  const shared = presenceServer({ userId: 'Bob' });
+  await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  await viewer.store.scopeChanged();
+  assert.equal(shared.sent.length, 1);
+  shared.calls.length = 0;
+  for (let i = 0; i < 5; i++) assert.equal(await timerTick(viewer, { hidden: true }), 'skipped');
+  assert.deepEqual(shared.calls, []);
+  assert.equal(await timerTick(viewer, { hidden: true }), 'sent');
+  assert.deepEqual(shared.calls, ['presence']);
+  shared.calls.length = 0;
+  assert.equal(await timerTick(viewer, { hidden: true, step: 56000 }), 'sent');
+  assert.equal(await timerTick(viewer, { hidden: true, step: 54000 }), 'skipped');
+  assert.equal(await timerTick(viewer, { hidden: true, step: 6000 }), 'sent');
+  assert.deepEqual(shared.calls, ['presence', 'presence']);
+  // 送った応答の一覧を残す
+  assert.deepEqual([viewer.store.state.pages.worldId, viewer.store.state.pages.list.length], [WORLD_A, 1]);
+  // ログインしていなければ送らない
+  shared.setScope('');
+  shared.calls.length = 0;
+  assert.equal(await timerTick(viewer, { hidden: true, step: 60000 }), 'skipped');
+  assert.deepEqual(shared.calls, []);
+});
+
+test('所持パル（page-presence）: 値は判定の結果（role）・ゲーム中の推定・共有できる（ホストの一式の登録＋読む許可）。値が変わったら間隔によらず次の回に送る', async () => {
+  const shared = presenceServer();
+  const host = setup({ server: shared.server });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  host.advance(60000);
+  await host.store.reportPresence();
+  const last = () => shared.sent.at(-1);
+  assert.deepEqual([last()[1], last()[2].role, last()[2].playing, last()[2].canShare], [WORLD_A, 'host', false, true]);
+  const count = shared.sent.length;
+  // 同じ値なら 60 秒たつまで送らない
+  host.advance(10000);
+  assert.equal(await host.store.reportPresence(), 'skipped');
+  // ゲーム中になった（直近 2 分に 30 秒ごとの変化を 2 回見た）: すぐ送る
+  host.store.state.play = { worldId: WORLD_A, role: 'host', value: 60000, changes: [{ at: host.time() - 40000, gap: 30000 }, { at: host.time() - 10000, gap: 30000 }] };
+  assert.equal(await host.store.reportPresence(), 'sent');
+  assert.deepEqual([shared.sent.length, last()[2].playing], [count + 1, true]);
+  // 読む許可が外れた: 共有できない
+  for (const handle of Object.values(files)) handle.permission = 'prompt';
+  host.advance(10000);
+  await host.store.refreshAuto({ auto: true });
+  assert.equal(host.store.state.auto.status, 'permission');
+  assert.equal(await host.store.reportPresence(), 'sent');
+  assert.deepEqual([last()[2].role, last()[2].canShare], ['host', false]);
+  // 参加者（LocalData.sav だけの登録）は guest で、共有できない
+  const guest = setup({ server: shared.server });
+  await guest.register(WORLD_A, { 'LocalData.sav': fakeHandle('LocalData.sav') });
+  guest.advance(60000);
+  assert.equal(await guest.store.reportPresence(), 'sent');
+  const first = last()[2];
+  assert.deepEqual([first.role, first.canShare], ['guest', false]);
+  // 2 つ目のタブ（同じ localStorage）: 同じ PC の ID・違うページの ID
+  const tab = guest.make();
+  await tab.load();
+  await tab.fetchShared({ force: true });
+  guest.advance(60000);
+  assert.equal(await tab.reportPresence(), 'sent');
+  const second = last()[2];
+  assert.equal(second.device, first.device);
+  assert.notEqual(second.pageId, first.pageId);
+});
+
+test('所持パル（page-presence）: ワールドを替えたら間隔によらず、そのワールドについて送る（PC の ID はワールドごと）。環境が替わったら一覧を空にする', async () => {
+  const shared = presenceServer({ userId: 'Bob' });
+  await publish(shared, { worldId: WORLD_A, prefix: 'a' });
+  await publish(shared, { worldId: WORLD_B, prefix: 'b' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  await viewer.store.setViewWorld(WORLD_A);
+  await viewer.store.reportPresence();
+  assert.equal(shared.sent.at(-1)[1], WORLD_A);
+  await viewer.store.setViewWorld(WORLD_B);
+  await viewer.store.reportPresence();
+  const [, worldId, presence] = shared.sent.at(-1);
+  assert.equal(worldId, WORLD_B);
+  assert.equal(presence.device, viewer.storage.map.get(deviceKey(WORLD_B)));
+  assert.notEqual(presence.device, viewer.storage.map.get(deviceKey(WORLD_A)));
+  assert.equal(viewer.store.state.pages.worldId, WORLD_B);
+  // 開き直したページ: 同じ PC の ID・新しいページの ID
+  const again = viewer.make();
+  await again.load();
+  await again.setViewWorld(WORLD_B);
+  await again.reportPresence();
+  assert.equal(shared.sent.at(-1)[2].device, presence.device);
+  assert.notEqual(shared.sent.at(-1)[2].pageId, presence.pageId);
+  shared.setScope('prod');
+  await viewer.store.scopeChanged();
+  assert.deepEqual([viewer.store.state.pages.worldId, viewer.store.state.pages.list], ['', null]);
+});
+
+test('所持パル（page-presence）: 古い GAS（BAD_ACTION）なら 1 時間は送らない（ownedSince の BAD_ACTION でも覚える）。presence の失敗は共有・読み込みを失敗させない', async () => {
+  let oldGas = true;
+  let failing = false;
+  let unknownList = false;
+  const shared = presenceServer({
+    userId: 'Bob',
+    rewrite: async (action, input, pass) => {
+      if (oldGas && ['ownedSince', 'presence'].includes(action)) return { ok: false, code: 'BAD_ACTION' };
+      if (failing && action === 'presence') return { ok: false, code: 'CONNECTION' };
+      // サーバーのキャッシュを読めなかった（一覧が null）
+      if (unknownList && action === 'ownedSince') return { ...(await pass()), presence: null };
+      return undefined;
+    },
+  });
+  await publish(shared, { prefix: 'a' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  shared.calls.length = 0;
+  assert.equal(await viewer.store.autoRefresh(), 'fetched');
+  // ownedSince の BAD_ACTION で presence も古いと覚え、別には送らない（ownedSince に載せた 1 回だけ）
+  assert.deepEqual(shared.calls, ['ownedWorlds', 'ownedSince', 'owned']);
+  assert.equal(await viewer.store.reportPresence(), 'skipped');
+  assert.equal(await timerTick(viewer, { step: 60000 }), 'skipped');
+  assert.deepEqual(shared.sent.map(([action]) => action), ['ownedSince']);
+  assert.deepEqual([viewer.store.state.pages.list, viewer.store.state.shared.error], [null, '']);
+  assert.deepEqual(ids(viewer.store), ['a0', 'a1']);
+  // 裏のタブ（ownedSince を呼ばない）で presence の BAD_ACTION を受けたときも覚える
+  const background = setup({ server: shared.server, persist: viewer.persist });
+  await background.store.load();
+  assert.equal(await background.store.reportPresence(), 'error');
+  assert.equal(await timerTick(background, { hidden: true, step: 60000 }), 'skipped');
+  assert.equal(await timerTick(background, { hidden: true, step: 60 * 60 * 1000 - 60000 - 1 }), 'skipped');
+  // 1 時間たったら試し直す
+  oldGas = false;
+  assert.equal(await timerTick(background, { hidden: true, step: 1 }), 'sent');
+  // 一覧を読めない応答（null）でも共有は読め、一覧は前のまま
+  const { pages } = background.store.state;
+  assert.equal(pages.list.length, 1);
+  unknownList = true;
+  assert.equal(await background.store.autoRefresh(), 'fetched');
+  background.advance(10000);
+  shared.calls.length = 0;
+  assert.equal(await background.store.autoRefresh(), 'fetched');
+  assert.deepEqual(shared.calls, ['ownedSince']);
+  assert.equal(background.store.state.pages, pages);
+  // 送れなかった（通信）: 例外にせず 'error'。共有のエラーにもしない。次は 60 秒後
+  failing = true;
+  assert.equal(await timerTick(background, { hidden: true, step: 60000 }), 'error');
+  assert.equal(background.store.state.shared.error, '');
+  assert.deepEqual(ids(background.store), ['a0', 'a1']);
+  assert.equal(await timerTick(background, { hidden: true }), 'skipped');
+  failing = false;
+  assert.equal(await timerTick(background, { hidden: true, step: 50000 }), 'sent');
+});
+
+test('所持パル（page-presence）: ホストと参加者のページが同じ開発用 API に送ると、互いの一覧に出る（ヘッダーのパネルの行）', async () => {
+  const { openPagesLines } = await import('../../web/js/ui/owned-status.js');
+  const shared = presenceServer();
+  const host = setup({ server: shared.server });
+  await host.register(WORLD_A, hostFiles());
+  await settleUpload(host.store);
+  host.advance(60000);
+  await host.store.reportPresence();
+  const guest = setup({ server: shared.server });
+  await guest.register(WORLD_A, { 'LocalData.sav': fakeHandle('LocalData.sav') });
+  guest.advance(60000);
+  assert.equal(await guest.store.reportPresence(), 'sent');
+  // 開発用 API は 1 つの ID（ホスト）なので、同じ人の 2 台の PC として出る
+  const lines = openPagesLines(guest.store.state, { now: guest.time });
+  assert.equal(lines.length, 2);
+  assert.ok(lines.every((line) => line.startsWith('● ホスト')));
+  assert.ok(lines.some((line) => /^● ホスト（(PC 2・)?この PC） · たった今 · 参加者$/.test(line)), lines.join('\n'));
+  assert.ok(lines.some((line) => /^● ホスト(（PC 2）)? · たった今 · ホスト用のセーブあり · 共有できる$/.test(line)), lines.join('\n'));
+});
