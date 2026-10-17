@@ -1736,7 +1736,7 @@ async function fireReread(host, ms) {
   return timer.fn();
 }
 
-test('所持パル（save-watch）: 見張る対象は読めたワールドだけ。今のワールドは登録した全ファイル（Observer は直下だけで、Players・GlobalPalStorage.sav は 5 秒の確認）、ほかは Level.sav・LocalData.sav。同じ対象は送り直さない', async () => {
+test('所持パル（save-watch）: 見張る対象は読めたワールドだけ。今のワールドは登録した全ファイル（Observer は直下だけで、Players・GlobalPalStorage.sav は 5 秒の確認）、ほかは Level.sav・LocalData.sav を 5 秒の確認だけ。同じ対象は送り直さない', async () => {
   const fake = fakeWatch();
   const { store, register, advance } = setup({ watch: fake.client });
   const a = { ...withDps(T0 + 60000), '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav', { time: T0 + 60000 }) };
@@ -1747,11 +1747,11 @@ test('所持パル（save-watch）: 見張る対象は読めたワールドだ�
   const last = () => fake.updates.at(-1);
   assert.deepEqual(targetShape(last()), [
     [WORLD_A, true, ['Level.sav*', 'LevelMeta.sav*', 'LocalData.sav*', PLAYERS, DPS, '../GlobalPalStorage.sav']],
-    [WORLD_B, true, ['Level.sav*', 'LocalData.sav*']],
+    [WORLD_B, true, ['Level.sav', 'LocalData.sav']],
   ]);
-  // Players の中・上のフォルダのファイルは、Observer の対象にしない（SaveSync の同期を止めないため）
+  // Players の中・上のフォルダのファイルは、Observer の対象にしない（SaveSync の同期を止めないため）。Observer は今のワールドだけ
   for (const target of fake.updates.flat()) {
-    for (const file of target.files) assert.equal(file.observe, !/[\\/]/.test(file.path), file.path);
+    for (const file of target.files) if (file.observe) assert.ok(!/[\\/]/.test(file.path), file.path);
     assert.ok(target.files.every((file) => file.handle && typeof file.handle.getFile === 'function'));
   }
   // 同じ対象なら送り直さない

@@ -1108,8 +1108,9 @@ export function createOwnedStore({
   /**
    * 見張る対象。登録したワールドのうち、直近の list() で読めた（status 'ok'＝許可 granted）もの。使うワールドを選んでいればそれだけ。
    * 今のワールドは登録した全ファイル、ほかのワールドは Level.sav・LocalData.sav だけ（最後に遊んだワールドが替わったことに気づくため）。
-   * observe（Observer に渡す）はワールドのフォルダの直下のファイルだけ。Players・../GlobalPalStorage.sav は Worker の 5 秒ごとの確認だけ
-   *（Players の中を見張ると、SaveSync が同期を受け取るときに止まり、ワールドが消えた状態になる。2026-10-17 の P0 の事故）
+   * observe（Observer に渡す）は今のワールドのフォルダの直下のファイルだけ。Players・../GlobalPalStorage.sav は Worker の 5 秒ごとの確認だけ
+   *（Players の中を見張ると、SaveSync が同期を受け取るときに止まり、ワールドが消えた状態になる。2026-10-17 の P0 の事故）。ほかのワールドも
+   * 5 秒ごとの確認だけにする（気づくのが数秒遅れても困らない。Chrome が押さえるフォルダを今のワールドの 1 つにする）
    */
   function watchTargets() {
     if (!state.auto.enabled) return [];
@@ -1121,7 +1122,7 @@ export function createOwnedStore({
       const current = world.id === currentId;
       const files = Object.entries(record.files)
         .filter(([path]) => current || path === 'Level.sav' || path === 'LocalData.sav')
-        .map(([path, handle]) => ({ path, handle, observe: observable(path) }));
+        .map(([path, handle]) => ({ path, handle, observe: current && observable(path) }));
       return { worldId: world.id, host: record.kind === 'host', current, revision: record.revision ?? 0, files };
     });
   }
