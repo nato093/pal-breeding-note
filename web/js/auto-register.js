@@ -1,5 +1,8 @@
 // 配合牧場からの自動登録。ホストのセーブを読み込むたびに、牧場の親 2 体と産んだタマゴを見て、
 // 前に読んだときと親が同じ牧場に新しく現れたタマゴを、その親の配合として登録する（子は配合表で決める）。
+// 証拠を集めることと、登録してよいと決めることは分ける（sync-fixes の host-rotation）: 読んだセーブの証拠は「配合のキー＋そのセーブの
+// 保存時刻（saveStamp）」の候補として保留し、そのセーブの共有の結果（owned.js の state.upload）で、自分のプレイの証拠なら登録してよい、
+// 別の PC の担当なら捨てる、と決める（同期で受け取ったセーブを、ゲームをしていない PC のページが登録しないため）。
 // 登録できないもの（登録済みと食い違う・登録者が未設定・表と合わない）は通知だけ出す。登録できた配合も、ベルの通知に残す。
 // 配合表を使うのは照合だけ（INV-2 の例外）。画面での表示や検索には使わず、通知にも配合表の答え（表の子）を出さない
 // （登録できた配合の通知は、登録したレコード〔登録済みの記録〕だけで作る）。
@@ -11,6 +14,7 @@ import { findConflict } from './core/index.js';
 import { userIdKey } from './core/user.js';
 import { isObject, isoTime, text, idText, list, screenHref } from './core/boundary.js';
 import { compareSaves, ownedSaveStamp } from './core/owned-shared.js';
+import { isPlaying } from './core/playing.js';
 import { buildHash, settingsHash } from './router.js';
 import { notificationTags } from './notifications.js';
 
@@ -32,6 +36,18 @@ const SUCCESS = 'auto-registered';
 // 成功の通知の id（auto-breed:<環境>:registered:<レコードの ID>）。既存のキーに残っている成功の形の通知（未配信の版が書いたもの）は読まない
 const REGISTERED = /^auto-breed:[^:]*:registered:/;
 const EVIDENCE_MAX = 10;
+// 候補の状態（host-rotation）: 保留（共有の結果を待つ）・登録してよい。捨てた候補は記録から外す。前の版の候補（状態がない）は登録してよい
+const HOLD = 'hold';
+const OK = 'ok';
+// 保留のまま決まらない候補を捨てるまで（読んだ日時から）
+const HOLD_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+// 共有の結果（owned.js の state.upload.status）→ 判定の種類。done は自分の共有が載った（new・newer・resent・自分の前の送信が届いていた
+// unchanged・古い GAS の stored）、same は同じセーブを別の人が共有済み（same・他人の unchanged。公開しているのが自分の ID なら mine）、
+// stale は別の人が新しいセーブを共有済み。
+// sending・error・'' は何も決めない（保留のまま）
+const VERDICT_KINDS = { done: 'mine', same: 'same', stale: 'stale' };
+// 牧場の記録に残す判定の数（新しい方から）
+const VERDICTS_MAX = 20;
 // セーブのプレイヤーと登録者の対応（ワールドごと）。プレイヤーは共有と同じ 100 人まで、uid 40 字・ノートの ID 20 字
 const MAPPING_MAX = 100;
 // 前の版の「照合が合いません」は、親を入れ替える前の古いタマゴを誤って知らせていたので出さない
@@ -174,9 +190,27 @@ function isOtherGenderResult(table, record, existing) {
     && !(e.parent1Gender === record.parent1Gender && e.parent2Gender === record.parent2Gender));
 }
 
+/**
+ * 1 つの判定（{ kind, stamp: S }）で、保留の候補（stamp が S 以前）を決める。決めるのは S 以前の候補だけ（S より後に読んだ候補は、その判定では
+ * 決めない）。mine → 登録してよい。same → stamp が S と同じ候補は捨てる（null。そのセーブは別の PC の担当）、S より前は保留のまま。
+ * stale → このページがホスト中（推定）の間に読んだ候補は登録してよい（自分のプレイの証拠）、それ以外は保留のまま（推定が立たなかった
+ * だけで、同期で受け取ったとは言い切れないため）。一度登録してよいになった候補は、後の判定で取り消さない。
+ * 識別のないセーブの mine（{ kind: 'mine', stamp: '', savedAt }）は、候補の更新日時（savedAt）が送ったセーブの更新日時以前かで決める
+ */
+function judge(unit, verdict) {
+  if (unit.state !== HOLD || !unit.stamp) return unit;
+  if (!verdict.stamp && verdict.kind !== 'mine') return unit;
+  const order = verdict.stamp ? compareSaves({ stamp: unit.stamp }, { stamp: verdict.stamp })
+    : compareSaves({ stamp: unit.stamp, updatedAt: unit.savedAt }, { stamp: '', updatedAt: verdict.savedAt });
+  if (order > 0) return unit;
+  if (verdict.kind === 'mine') return { ...unit, state: OK };
+  if (verdict.kind === 'same') return order === 0 ? null : unit;
+  return unit.playing ? { ...unit, state: OK } : unit;
+}
+
 export function createAutoRegister({
   store, owned, storage, namespace = 'pal-note', toast = () => {}, onNotice = () => {}, navigate = () => {},
-  loadTable = () => import('../data/breeding.js'),
+  loadTable = () => import('../data/breeding.js'), now = Date.now,
 }) {
   const resolveSpecies = createSpeciesResolver(pals);
   const settingsKey = `${namespace}.autoBreeding.settings`;
@@ -270,11 +304,48 @@ export function createAutoRegister({
     }
     return farms;
   }
+  // 候補（配合のキー＋セーブの保存時刻ごと）。前の版の候補（stamp・state がない）は、今までどおり登録してよい候補として読む。
+  // 保留の候補で、保存時刻か読んだ日時が読めないものは、決められず期限も分からないので捨てる
   function cleanCandidate(value) {
     if (!value || !isText(value.key) || !value.record || !RECORD_FIELDS.every((f) => isText(value.record[f])) || !Array.isArray(value.evidence)) return null;
     const evidence = value.evidence.filter((e) => e && isText(e.farmId) && isText(e.eggLocalId)
       && Array.isArray(e.depositorUids) && e.depositorUids.length === 2 && e.depositorUids.every(isText));
-    return evidence.length ? { key: value.key, record: Object.fromEntries(RECORD_FIELDS.map((f) => [f, value.record[f]])), evidence } : null;
+    if (!evidence.length) return null;
+    const stamp = ownedSaveStamp(value.stamp);
+    const seenAt = isoTime(value.seenAt);
+    const state = value.state === HOLD ? HOLD : OK;
+    if (state === HOLD && (!stamp || !seenAt)) return null;
+    return {
+      key: value.key, stamp, savedAt: isText(value.savedAt) ? value.savedAt : '', seenAt, playing: value.playing === true, state,
+      record: Object.fromEntries(RECORD_FIELDS.map((f) => [f, value.record[f]])), evidence,
+    };
+  }
+  // 牧場の記録に残した判定（形の違うものは捨てる）。stamp が空なのは、識別のないセーブの mine（送ったセーブの更新日時 savedAt で決める）だけ
+  const cleanVerdicts = (value) => list(value, {
+    map: (item) => {
+      if (!isObject(item) || !Object.values(VERDICT_KINDS).includes(item.kind)) return null;
+      const stamp = ownedSaveStamp(item.stamp);
+      if (stamp) return { kind: item.kind, stamp };
+      const savedAt = isoTime(item.savedAt);
+      return item.kind === 'mine' && savedAt ? { kind: 'mine', stamp: '', savedAt } : null;
+    },
+  }).slice(-VERDICTS_MAX);
+  // 同じ判定か（種類・保存時刻・識別のないセーブの mine は更新日時も）
+  const sameVerdict = (a, b) => a.kind === b.kind && a.stamp === b.stamp && (a.savedAt ?? '') === (b.savedAt ?? '');
+  // 7 日たっても保留のままの候補を外す
+  const unexpired = (pending, time = now()) => pending.filter((unit) => unit.state !== HOLD || time - Date.parse(unit.seenAt) <= HOLD_MAX_MS);
+  // 判定を古い順に当てる（捨てた候補は外す）
+  const judgeAll = (pending, verdicts) => pending.map((unit) => verdicts.reduce((next, verdict) => next && judge(next, verdict), unit)).filter(Boolean);
+  // 登録してよい候補を、配合のキーごとに証拠をまとめた形（今の登録の流れ〔resolveRegistrant など〕に渡す { key, record, evidence }）
+  function readyCandidates(pending) {
+    const byKey = new Map();
+    for (const unit of pending) {
+      if (unit.state !== OK) continue;
+      const group = byKey.get(unit.key);
+      if (group) group.evidence = [...group.evidence, ...unit.evidence].slice(-EVIDENCE_MAX);
+      else byKey.set(unit.key, { key: unit.key, record: unit.record, evidence: unit.evidence.slice(-EVIDENCE_MAX) });
+    }
+    return [...byKey.values()];
   }
 
   // 保存できない端末（localStorage が使えない・容量不足）でも、ページを開いている間は動くよう、メモリにも持つ。
@@ -287,7 +358,7 @@ export function createAutoRegister({
     const stored = readJson(key, null);
     const kept = memory.get(key) ?? null;
     const value = !stored || (kept && isNewer(kept, stored)) ? kept ?? stored : stored;
-    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', saveStamp: '', farms: null, seenEggs: null, pending: [] };
+    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', saveStamp: '', farms: null, seenEggs: null, verdicts: [], pending: [] };
     return {
       rev: Number.isInteger(value.rev) ? value.rev : 0,
       importedAt: isText(value.importedAt) ? value.importedAt : '',
@@ -296,16 +367,25 @@ export function createAutoRegister({
       farms: cleanFarms(value.farms),
       // 見たことのあるタマゴ（前の版の記録にはない。そのときは、いまのタマゴを記録するだけ）
       seenEggs: Array.isArray(value.seenEggs) && value.seenEggs.every(isText) ? value.seenEggs : null,
+      // 共有の結果の判定（host-rotation。前の版の記録にはない）。読み込み直しの後に読んだ候補にも当てる
+      verdicts: cleanVerdicts(value.verdicts),
       pending: Array.isArray(value.pending)
         ? value.pending.map(cleanCandidate).filter((c) => c && !finished.get(key)?.has(c.key)) : [],
     };
   }
-  // 書くたびに rev を増やす。保存先への書き込みだけ失敗したとき（同じセーブのまま候補を外したなど）も、メモリの新しい方を使う
+  // 書くたびに rev を増やす。保存先への書き込みだけ失敗したとき（同じセーブのまま候補を外したなど）も、メモリの新しい方を使う。
+  // 別のタブが、この記録を読んでから書くまでの間に判定を足していることがある（保存先はタブの間で共通）ので、書く直前の最新の記録の判定と
+  // 和を取り（最新の並びを先に、ないものだけ足す）、書く候補にその判定を当て直してから書く（判定が消えて、捨てた候補が戻る・登録してよい
+  // 候補が保留に戻るのを防ぐ。Codex のレビュー）。候補そのものの和は取らない（読み込みどうしの重なりは前からある競合）。書いた記録を返す
   function writeFarms(ctx, value) {
     const key = farmsKey(ctx.env, ctx.worldId);
-    const next = { ...value, rev: readFarms(ctx).rev + 1 };
+    const latest = readFarms(ctx);
+    const added = (value.verdicts ?? []).filter((verdict) => !latest.verdicts.some((other) => sameVerdict(verdict, other)));
+    const verdicts = [...latest.verdicts, ...added].slice(-VERDICTS_MAX);
+    const next = { ...value, verdicts, pending: judgeAll(value.pending ?? [], verdicts), rev: latest.rev + 1 };
     memory.set(key, next);
     storage.set(key, JSON.stringify(next));
+    return next;
   }
 
   // 新しく読んだセーブの牧場を前と比べ、新しいタマゴの候補を「まだ登録を終えていない候補」に足す
@@ -316,18 +396,69 @@ export function createAutoRegister({
     if ((saved.savedAt || saved.saveStamp) && !(compareSaves(saveOf(ctx), saveOf(saved)) > 0)) return { pending: saved.pending, anomalies: [] };
     const previous = saved.farms ? { farms: saved.farms, eggs: saved.seenEggs } : null;
     const { candidates, anomalies, history } = findNewBreedings(ctx.snapshot, { resolveSpecies, table, history: previous });
-    const pending = saved.pending.slice();
+    const pending = unexpired(saved.pending);
+    // 読んだときにこのページがホスト中（推定）だったか（別の人が新しいセーブを共有済み〔stale〕のときに、自分のプレイの証拠とみなすため）
+    const playing = isPlaying(owned.state.play, { worldId: ctx.worldId, role: 'host' }, now());
     for (const candidate of candidates) {
-      const existing = pending.find((c) => c.key === candidate.key);
-      if (existing) existing.evidence = [...existing.evidence, ...candidate.evidence].slice(-EVIDENCE_MAX);
-      else pending.push(candidate);
+      // 同じ配合のキー・同じセーブの証拠はまとめる（違うセーブの証拠は、共有の結果で別々に決めるので分ける）
+      const existing = pending.find((c) => c.key === candidate.key && c.stamp === ctx.saveStamp);
+      if (existing) {
+        existing.evidence = [...existing.evidence, ...candidate.evidence].slice(-EVIDENCE_MAX);
+        continue;
+      }
+      // 識別のないセーブ（保存時刻が読めない）は、共有の結果で決められないので今までどおり登録してよい。ほかは保留にし、残っている判定
+      //（読む前に届いた共有の結果）を古い順に当てる
+      const unit = {
+        key: candidate.key, stamp: ctx.saveStamp, savedAt: ctx.savedAt, seenAt: ctx.importedAt, playing,
+        state: ctx.saveStamp ? HOLD : OK, record: candidate.record, evidence: candidate.evidence,
+      };
+      const [decided] = judgeAll([unit], saved.verdicts);
+      if (decided) pending.push(decided);
     }
-    const next = { importedAt: ctx.importedAt, savedAt: ctx.savedAt, saveStamp: ctx.saveStamp, farms: history.farms, seenEggs: history.eggs, pending: pending.slice(-PENDING_MAX) };
-    writeFarms(ctx, next);
-    return { pending: next.pending, anomalies };
+    const next = {
+      importedAt: ctx.importedAt, savedAt: ctx.savedAt, saveStamp: ctx.saveStamp, farms: history.farms, seenEggs: history.eggs,
+      verdicts: saved.verdicts, pending: pending.slice(-PENDING_MAX),
+    };
+    // 書いた記録（別のタブが足した判定を当て直した後）の候補で登録する
+    return { pending: writeFarms(ctx, next).pending, anomalies };
   }
 
-  // 登録を終えた候補（登録した・重複・決着した失敗）を外す
+  /**
+   * 共有の結果（owned.js の state.upload）を判定として、そのワールドの牧場の記録に足し、保留の候補を決め直す（host-rotation）。
+   * 応答の通知のときに読み込み中（current() が null）でも取りこぼさないよう、evaluate の最初に同期で行う（owned.js は応答をキャッシュの
+   * 保存の前に知らせる）。同じ種類・同じ stamp の判定は足さない。登録はしない（決まった候補は、次に判定できるときに run が登録する）
+   */
+  let lastVerdict = '';
+  function noteVerdict() {
+    const s = store.state;
+    const upload = owned.state.upload ?? {};
+    // 送ったときの環境の結果だけ（環境を切り替えた後に残っている前の環境の結果を、新しい環境の判定にしない。Codex のレビュー）
+    if (!s.passcode || !s.env || upload.scope !== s.env) return;
+    // 同じセーブを共有済み（same）でも、公開しているのが自分の ID（送ったときの ID）なら、同じ PC の別のタブ（中身の良い方）が載せた自分の
+    // 共有（牧場の記録はタブの間で共通なので、捨てると、そのタブの mine で決める候補がなくなる）
+    const own = isText(upload.userId) && Boolean(upload.userId) && userIdKey(upload.published?.uploadedBy ?? '') === userIdKey(upload.userId);
+    const kind = upload.status === 'same' && own ? 'mine' : VERDICT_KINDS[upload.status];
+    const stamp = ownedSaveStamp(upload.stamp);
+    const savedAt = isoTime(upload.savedAt);
+    const worldId = isText(upload.worldId) ? upload.worldId : '';
+    if (!kind || !worldId) return;
+    // 識別のないセーブ（stamp が空）は、自分の共有が載ったとき（mine）だけ、送ったセーブの更新日時で判定する（same・stale は同じセーブかを
+    // 見分けられないので何もしない。更新日時は同期で書き換わるので、同じセーブの判定には使わない。Codex のレビュー）
+    const verdict = stamp ? { kind, stamp } : kind === 'mine' && savedAt ? { kind, stamp: '', savedAt } : null;
+    if (!verdict) return;
+    const mark = JSON.stringify([s.env, worldId, verdict]);
+    if (mark === lastVerdict) return;
+    lastVerdict = mark;
+    const ctx = { env: s.env, worldId };
+    const saved = readFarms(ctx);
+    if (saved.verdicts.some((other) => sameVerdict(other, verdict))) return;
+    const pending = judgeAll(unexpired(saved.pending), [verdict]);
+    writeFarms(ctx, { ...saved, verdicts: [...saved.verdicts, verdict].slice(-VERDICTS_MAX), pending });
+    // 登録待ち（登録してよい候補）が変わったかもしれない
+    changed();
+  }
+
+  // 登録を終えた候補（登録した・重複・決着した失敗）を外す。その配合は登録済みなので、別のセーブの候補（保留の分も）も全部外す
   function finish(ctx, key) {
     const storeKey = farmsKey(ctx.env, ctx.worldId);
     if (!finished.has(storeKey)) finished.set(storeKey, new Set());
@@ -422,7 +553,9 @@ export function createAutoRegister({
     const table = await getTable();
     if (!same(ctx, current())) return;
     const started = generation;
-    const { pending, anomalies } = absorb(ctx, table);
+    const { pending: units, anomalies } = absorb(ctx, table);
+    // 登録するのは、登録してよい候補だけ（配合のキーごとに証拠をまとめる）
+    const pending = readyCandidates(units);
     // 異常なタマゴは記録したので、次からは「前に見たタマゴ」になる。登録の途中でセーブが変わっても失わないよう、すぐ知らせる
     if (anomalies.length) saveNotices(ctx, anomalies.map((m) => anomalyNotice(ctx, m)));
     const players = ctx.snapshot.players ?? [];
@@ -498,6 +631,7 @@ export function createAutoRegister({
   // 実行中に呼ばれたら、終わってから 1 回だけやり直す（store の更新は購読者を同期で呼ぶため、送信中にも呼ばれる）
   function evaluate() {
     observe();
+    noteVerdict();
     if (running) {
       again = true;
       return;
@@ -577,14 +711,14 @@ export function createAutoRegister({
     /**
      * 登録されずに残っている候補（設定のワールドの行の「登録待ち」。D-08）。保存した候補を今の判定（登録者の対応・登録済みとの食い違い）で
      * 分ける。**候補の子（配合表で決めた値）は返さない**（INV-2。親と理由だけ）。登録者が決まって食い違いもない候補（次の判定で登録する）・
-     * 登録済みと同じ候補・親の性別で子が変わる別の結果は数えない
+     * 登録済みと同じ候補・親の性別で子が変わる別の結果は数えない。保留の候補（共有の結果を待っているだけ。host-rotation）も数えない
      * @returns {{ unmapped: { uid: string, name: string, parents: string[] }[], conflict: { id: string, parents: string[] }[] }} id は破棄に渡す（子を含まない）
      */
     pendingSummary(worldId = linkedWorld()) {
       const s = store.state;
       const summary = { unmapped: [], conflict: [] };
       if (!s.passcode || !s.env || !s.userId || !worldId) return summary;
-      const { pending } = readFarms({ env: s.env, worldId });
+      const pending = readyCandidates(readFarms({ env: s.env, worldId }).pending);
       const players = owned.state.local?.world.id === worldId ? owned.state.local.snapshot?.players ?? [] : [];
       const mapping = mappingOf(s.env, worldId);
       for (const candidate of pending) {

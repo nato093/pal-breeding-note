@@ -2,7 +2,10 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, refreshNow, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary } from './owned-status.js';
+import {
+  dateTime, worldName, timeLines, permissionNotice, grantWithReport, refreshNow, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary,
+  playSummary, shareLagNotice,
+} from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -42,6 +45,9 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   if (auto.enabled && ['error', 'empty'].includes(auto.status)) return result('warn', { time: 'セーブを読めません' }, auto.error || 'セーブを読めませんでした');
   if (state.upload?.status === 'error') return result('warn', { time: '共有できません' }, `共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !meta?.source) return result('warn', { time: '共有を読めません' }, `共有された所持パルを読めませんでした: ${state.shared.error}`);
+  // 参加者がゲーム中なのに共有が止まっている（今のホストの画面が閉じているかもしれない。host-rotation）
+  const lag = shareLagNotice(state, { now: () => now });
+  if (lag) return result('warn', { time: '共有が止まっています' }, lag.text);
   if (!meta?.source) {
     return state.role === 'guest'
       ? result('none', { time: '共有待ち' }, 'ホストがまだこのワールドの所持パルを共有していません')
@@ -80,6 +86,8 @@ function problems(state, now, { selfUids = new Set() } = {}) {
   if (state.upload?.status === 'error') items.push(`共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !state.meta?.source) items.push(`共有された所持パルを読めませんでした: ${state.shared.error}`);
   if (state.error) items.push(`セーブを読み込めませんでした: ${state.error}`);
+  const lag = shareLagNotice(state, { now: () => now });
+  if (lag) items.push(lag.text);
   const gap = dimensionNotice(state, { selfUids });
   if (gap) items.push(gap.text);
   return items;
@@ -150,6 +158,9 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       // セーブのファイルの見張りの方式と最後の保存（自動の読み込みが有効で登録があるときだけ。save-watch）
       const watching = watchSummary(state, { now });
       if (watching) items.push(['監視', watching]);
+      // ゲーム中の推定（ホストは「ホスト中（推定）」と「ホスト用のセーブあり」を分ける。host-rotation）
+      const playing = playSummary(state, { now });
+      if (playing) items.push(['ゲーム', playing]);
       // 共有の送信の結果（「同じセーブが共有済み（Alice の PC から）」など。share-upload）
       const sent = uploadNotice(state);
       if (sent) items.push(['共有', sent.text]);

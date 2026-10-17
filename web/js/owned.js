@@ -10,6 +10,7 @@ import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload }
 import { userIdKey } from './core/user.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
 import { createWatchClient, observable } from './save/watch.js';
+import { emptyPlay, trackPlay, playTicksMs } from './core/playing.js';
 import { errorMessage } from './api.js';
 
 const DATA_VERSION = 1;
@@ -59,7 +60,7 @@ const UPLOAD_WIDTH_RETRY = 60 * 60 * 1000;
 const columnsRejected = (error) => error?.code === 'VALIDATION'
   && (Array.isArray(error.response?.errors) ? error.response.errors : []).some((item) => item?.field === 'columns' && item?.code === 'INVALID_COLUMNS');
 // 共有の送信の結果（state.upload）の空の形
-const emptyUpload = () => ({ status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', published: null });
+const emptyUpload = () => ({ status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', savedAt: '', scope: '', userId: '', published: null });
 
 /**
  * 共有の中身の印（world.contentHash）。core/owned.js の ownedContentText を UTF-8 にした SHA-256 の 16 進（64 字）。
@@ -307,12 +308,15 @@ export function createOwnedStore({
     // 表示するワールド（空なら自動）
     viewWorldId: worldId(saved.viewWorldId),
     local: null,
-    shared: { worlds: [], current: null, fetchedAt: '', error: '' },
+    // fetchedWorldId は最後に取得に成功したときに確かめたワールド（fetchedAt と組。キャッシュには残さない。host-rotation）
+    shared: { worlds: [], current: null, fetchedAt: '', fetchedWorldId: '', error: '' },
     // 共有の送信の結果（uploadLocal。sync-fixes の share-upload）。status: 'sending'・'done'（自分の共有が載っている。new・newer・resent・
     // 自分の前の送信が届いていた unchanged・古い GAS の stored）・'same'（同じセーブを別の人〔か同じ ID の別のタブ・PC〕が共有済み。same・
     // 他人の unchanged）・'stale'（共有されているセーブの方が新しい）・'error'・''。result は GAS の結果の種類（古い GAS は ''）、
     // signature・stamp は送ったスナップショットの印（state.local.world.signature）と Level.sav の中の保存時刻、published は応答の
-    // 今公開されているワールドの { saveStamp, uploadedBy, uploadedAt }。新しいセーブを読んだら消す（送っている途中・送れなかった知らせは残す）
+    // 今公開されているワールドの { saveStamp, uploadedBy, uploadedAt }。新しいセーブを読んだら消す（送っている途中・送れなかった知らせは残す）。
+    // savedAt は送ったセーブの更新日時（送った saveUpdatedAt と同じ値）、scope・userId は送ったときの環境と ID（自動登録が、識別のない
+    // セーブの結果と、環境を切り替えた後に残った前の環境の結果を見分けるため。host-rotation）
     upload: emptyUpload(),
     // 共有してよいか。このページで、ホストのワールドのセーブを正常に読めたときだけ true（保存済みのデータや判定できないときは共有しない）
     uploadReady: false,
@@ -320,6 +324,9 @@ export function createOwnedStore({
     // 'timer'（Worker を作れない。app.js の定期の確認だけ）・''（見張っていない）。lastSave は今のワールドの最後の保存
     //（at: 書き終えた時刻〔変わったファイルの更新日時の最大〕の ISO・files: 変わったファイルの数・spanMs: 書き始めから書き終わりまで）
     watch: { mode: '', lastSave: null },
+    // ゲーム中の推定の記録（core/playing.js の trackPlay。sync-fixes の host-rotation）。ホストは登録したファイルから読んだ Level.sav の中の
+    // 保存時刻、参加者は LocalData.sav の更新日時を読むたびに足す。使う側は isPlaying(state.play, { worldId: state.linkedWorldId, role: state.role })
+    play: emptyPlay(),
     data: null, owned: null, meta: null,
   };
   const emit = () => listeners.forEach((listener) => listener(state));
@@ -419,7 +426,7 @@ export function createOwnedStore({
     const promise = (async () => {
       const cached = key ? cleanSharedCache(await persist.get(sharedKey(key))) : null;
       if (loadedScope !== key) return;
-      state.shared = { worlds: cached?.worlds ?? [], current: cached?.current ?? null, fetchedAt: cached?.fetchedAt ?? '', error: '' };
+      state.shared = { worlds: cached?.worlds ?? [], current: cached?.current ?? null, fetchedAt: cached?.fetchedAt ?? '', fetchedWorldId: '', error: '' };
     })();
     sharedLoading = { key, promise };
     return promise;
@@ -650,6 +657,7 @@ export function createOwnedStore({
       state.shared.current = outcome.current;
       state.shared.error = '';
       state.shared.fetchedAt = new Date(now()).toISOString();
+      state.shared.fetchedWorldId = target;
       // 何も変わっていなければ書かない（20,000 行の所持パルを 10 秒ごとに書き直さない）
       if (changed) await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
       return 'fetched';
@@ -741,12 +749,15 @@ export function createOwnedStore({
     uploadSeq++;
     const signature = local.world.signature ?? '';
     const stamp = ownedSaveStamp(local.snapshot?.world?.savedAtTicks);
-    state.upload = { ...emptyUpload(), status: 'sending', at: state.upload.at, worldId: local.world.id, signature, stamp };
-    emit();
+    const savedAt = local.world.updatedAt || local.importedAt;
     // 送った先の保存先（ログイン中の環境）。応答が届くまでに替わったら、その応答は今の共有に入れない
     const key = scope();
     const epoch = sharedEpoch;
     const userId = server.userId?.() ?? '';
+    // 結果に残す、送ったセーブと送ったときの環境・ID
+    const origin = { worldId: local.world.id, signature, stamp, savedAt, scope: key, userId };
+    state.upload = { ...emptyUpload(), status: 'sending', at: state.upload.at, ...origin };
+    emit();
     const force = commitLocal === local;
     // 登録の確定の後に別のセーブを読んだ（送るのはいつも今の手元のデータなので、前の印はもう使わない）
     if (!force) commitLocal = null;
@@ -759,7 +770,7 @@ export function createOwnedStore({
         name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '',
         ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
       };
-      const head = { userId, worldId: local.world.id, saveUpdatedAt: local.world.updatedAt || local.importedAt };
+      const head = { userId, worldId: local.world.id, saveUpdatedAt: savedAt };
       const counts = { fileCount: fileCountOf(local.snapshot), missingCount: missingCountOf(local.snapshot) };
       // 古い GAS（後から足した列を知らない）は列の幅が違う共有を INVALID_COLUMNS で断るので、末尾の列を 1 つずつ外して送り直し、受け付けた
       // 幅を覚える（UPLOAD_WIDTH_RETRY ごとに全部の列で試し直す。GAS を後から更新しても戻る）。画面を GAS より先に配信しても共有は止まらない
@@ -796,7 +807,7 @@ export function createOwnedStore({
       // 自分の共有が載っているか（応答を失った後の再送・読み込み直しで、前の自分の送信が届いていた unchanged も）。送った人は ID で比べる
       const mine = Boolean(userId) && userIdKey(published.uploadedBy) === userIdKey(userId);
       const status = response.stored || (result === 'unchanged' && mine) ? 'done' : ['same', 'unchanged'].includes(result) ? 'same' : 'stale';
-      state.upload = { status, at: published.uploadedAt, error: '', worldId: local.world.id, result, signature, stamp, published };
+      state.upload = { ...origin, status, at: published.uploadedAt, error: '', result, published };
       const others = state.shared.worlds.filter((item) => item.worldId !== response.world.worldId);
       state.shared.worlds = [...others, response.world];
       const wrote = response.stored || result === 'unchanged';
@@ -820,7 +831,7 @@ export function createOwnedStore({
         return { result: 'error', retry: false };
       }
       const retry = UPLOAD_RETRY_CODES.has(error?.code);
-      state.upload = { ...emptyUpload(), status: 'error', error: error?.message ?? String(error), worldId: local.world.id, signature, stamp };
+      state.upload = { ...emptyUpload(), ...origin, status: 'error', error: error?.message ?? String(error) };
       if (!retry && commitLocal === local) commitLocal = null;
       return { result: 'error', retry };
     } finally {
@@ -852,6 +863,9 @@ export function createOwnedStore({
       state.local = data;
       state.role = 'host';
       state.linkedWorldId = data.world.id;
+      // ゲーム中の推定は、登録したファイルから読んだセーブ（登録の確定で読んだものも）の中の保存時刻で数える（同期でファイルの更新日時が
+      // 書き換わっても、中の時刻は変わらない）
+      if (from === 'handles') state.play = trackPlay(state.play, { worldId: data.world.id, role: 'host', value: playTicksMs(snapshot.world?.savedAtTicks), at: now() });
       // 読み込みの途中で登録の削除・解除を求められていたら、共有しない
       state.uploadReady = epoch === linkEpoch;
       // 前のセーブを送った結果は消す（送っている途中と、送れなかった知らせは次の応答まで残す。share-upload）
@@ -1023,6 +1037,9 @@ export function createOwnedStore({
       state.role = 'guest';
       clearHold();
       blockUpload();
+      // 参加者のゲーム中の推定は LocalData.sav の更新日時で数える。参加者と判定するのは LocalData.sav が Level.sav より 10 秒以上新しいか
+      // Level.sav がないとき（save/source.js の judgeRole）なので、一覧の playedAt（2 つの更新日時の新しい方）は LocalData.sav の更新日時
+      state.play = trackPlay(state.play, { worldId: world.id, role: 'guest', value: Date.parse(world.playedAt), at: now() });
       return 'guest';
     }
     state.role = 'host';
@@ -1143,6 +1160,9 @@ export function createOwnedStore({
     const key = JSON.stringify(targets.map((target) => [target.worldId, target.host, target.current, target.revision, target.files.map((file) => file.path)]));
     if (key === watchKey) return;
     watchKey = key;
+    // 見張りをやり直したら、ゲーム中の推定を数え直す（次に読んだ値が基準）。見張っていなかったところから始めるとき（ページを開いた直後・
+    // 初めての登録）は、読んだばかりの基準を残す
+    if (watchedIds.size) state.play = emptyPlay();
     watchedIds = new Set(targets.map((target) => target.worldId));
     if (!targets.length) {
       watcher?.stop();

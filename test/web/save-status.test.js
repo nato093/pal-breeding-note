@@ -322,3 +322,56 @@ test('ヘッダーのセーブ連携（save-watch）: パネルの「監視」�
   assert.equal(watchSummary(hostState({ watch: { mode: 'poll', lastSave: yesterday } }), { now: () => NOW }), '5 秒ごとの確認 · 最後の保存 10/11 23:59:05（1 ファイル・0.0 秒）');
   assert.equal(watchSummary(hostState(), { now: () => NOW }), '');
 });
+
+// ---- ホストの交代（sync-fixes の host-rotation） ----
+const GUEST_WORLD = 'B'.repeat(32);
+// 直近に 30 秒ごとの変化を 2 回見た記録（owned.js の state.play）
+const playing = (worldId = GUEST_WORLD, role = 'guest') => ({ worldId, role, value: 60000, changes: [{ at: NOW - 40000, gap: 30000 }, { at: NOW - 10000, gap: 30000 }] });
+const checkedNow = { worlds: [], current: null, fetchedAt: at(0), fetchedWorldId: GUEST_WORLD, error: '' };
+// ゲーム中の参加者。共有は今確かめ、共有のセーブは 20 分前（guestState）
+const lagging = (overrides = {}) => guestState({ linkedWorldId: GUEST_WORLD, play: playing(), shared: checkedNow, ...overrides });
+
+test('セーブ連携の状態（host-rotation）: 参加者がゲーム中なのに共有が止まっていれば、チップを警告にして「共有が止まっています」（送れない・読めないの警告より後、共有待ちより前）', () => {
+  const stopped = model(lagging());
+  assert.deepEqual([stopped.tone, stopped.text, stopped.action], ['warn', '共有が止まっています', null]);
+  assert.match(stopped.title, /^ゲーム中のようですが、共有は 20 分前のセーブのままです。今のホストの PC でこのページが開いているか確かめてください/);
+  // 共有がないときも（共有待ちより前）
+  const none = model(lagging({ meta: { worldId: GUEST_WORLD, worldName: '', hostName: '' } }));
+  assert.deepEqual([none.tone, none.text], ['warn', '共有が止まっています']);
+  assert.match(none.title, /このワールドはまだ共有されていません/);
+  // ゲーム中でない・共有を最近確かめていない・共有が新しいときは今までどおり
+  assert.equal(model(lagging({ play: null })).text, '「仲間の島」· 共有 09:20');
+  assert.equal(model(lagging({ shared: { ...checkedNow, fetchedAt: at(2) } })).text, '「仲間の島」· 共有 09:20');
+  assert.equal(model(lagging({ meta: { ...guestState().meta, saveUpdatedAt: at(1) } })).tone, 'ok');
+  assert.equal(model(lagging({ play: null, meta: { worldId: GUEST_WORLD, worldName: '', hostName: '' } })).text, '共有待ち');
+  // 送れない警告の方が先
+  assert.equal(model(lagging({ upload: { status: 'error', at: '', error: '通信できません', worldId: '' } })).text, '共有できません');
+  // 共有を確かめたのが別のワールド（今のワールドを確かめていない）なら出さない（Codex のレビュー）
+  assert.equal(model(lagging({ shared: { ...checkedNow, fetchedWorldId: 'C'.repeat(32) } })).text, '「仲間の島」· 共有 09:20');
+});
+
+test('ヘッダーのセーブ連携（host-rotation）: 共有が止まっている案内はパネルの困りごとにも同じ文で出し、「ゲーム」の行に参加中（推定）', async (t) => {
+  const { trigger, part } = setup(t, lagging());
+  assert.equal(trigger.textContent, '共有が止まっています');
+  assert.equal(trigger.className, 'save-status-button tone-warn');
+  await trigger.dispatch('click');
+  const panel = part.element.querySelector('.save-status-panel');
+  const issues = part.element.querySelector('.save-status-issues').querySelectorAll('li').map((node) => node.textContent);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0], /^ゲーム中のようですが、共有は 20 分前のセーブのままです。/);
+  assert.match(panel.textContent, /ゲーム参加中（推定）/);
+  part.destroy();
+});
+
+test('ヘッダーのセーブ連携（host-rotation）: パネルの「ゲーム」の行は、ホストならホスト中（推定）とホスト用のセーブあり（保存が続けて見えていない）を分ける', async (t) => {
+  const world = 'A'.repeat(32);
+  const { trigger, part, emit } = setup(t, hostState({ linkedWorldId: world, play: playing(world, 'host') }));
+  await trigger.dispatch('click');
+  const panel = part.element.querySelector('.save-status-panel');
+  assert.match(panel.textContent, /ゲームホスト中（推定）/);
+  emit({ play: { worldId: world, role: 'host', value: 1, changes: [] } });
+  assert.match(panel.textContent, /ゲームホスト用のセーブあり（ゲームの保存は続けて見えていません）/);
+  // ホストのチップは変えない
+  assert.equal(trigger.className, 'save-status-button tone-ok');
+  part.destroy();
+});
