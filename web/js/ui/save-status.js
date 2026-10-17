@@ -4,7 +4,7 @@ import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 import {
   dateTime, worldName, timeLines, permissionNotice, grantWithReport, refreshNow, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary,
-  playSummary, shareLagNotice,
+  playSummary, shareLagNotice, openPagesLines,
 } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
@@ -164,6 +164,9 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       // 共有の送信の結果（「同じセーブが共有済み（Alice の PC から）」など。share-upload）
       const sent = uploadNotice(state);
       if (sent) items.push(['共有', sent.text]);
+      // ページを開いている PC（3 分以内に応答があった PC は役割など、それより前は「最近の応答なし」。page-presence）
+      const pages = openPagesLines(state, { now });
+      if (pages.length) items.push(['ページを開いている PC', pages.join('\n')]);
       // ゲーム内の日数・プレイ中の仲間（保存か共有の時刻つき）・Lv（save-extras。F006）
       items.push(...presenceItems(state, { now }));
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);

@@ -353,3 +353,84 @@ test('共有が止まっている案内（host-rotation・Codex のレビュー�
   assert.equal(shareLagNotice(switched, { now }), null);
   assert.equal(shareLagNotice({ ...switched, shared: { ...switched.shared, error: '' } }, { now }), null);
 });
+
+// ---- ページを開いている PC（sync-fixes の page-presence） ----
+const SELF_DEVICE = 'bob-pc-000001';
+// GAS の ownedSince・presence の応答の presence の 1 件（core/boundary.js の cleanPresenceList の形）
+const pageOf = (user, device, ms, extra = {}) => ({ user, device, role: 'none', playing: false, canShare: false, at: msAgo(ms), ...extra });
+// owned.js の state.pages（今受け取った一覧。サーバーの時刻と PC の時計は同じ）
+const pagesOf = (list, extra = {}) => ({ worldId: 'W', list, serverTime: msAgo(0), receivedAt: ROTATION_NOW, device: SELF_DEVICE, ...extra });
+const PAGES = [
+  // Alice の 1 台目: ホストのタブ（1 分前・ゲーム中・共有できる）と、連携していない 2 つ目のタブ（90 秒前）。5 分前の参加者のページは古いので
+  // 役割のまとめに入れない
+  pageOf('Alice', 'alice-pc-0001', 60000, { role: 'host', playing: true, canShare: true }),
+  pageOf('Alice', 'alice-pc-0001', 90000),
+  pageOf('Alice', 'alice-pc-0001', 5 * 60000, { role: 'guest', playing: true }),
+  // Alice の 2 台目（4 時間前。古いページの役割は出さない）
+  pageOf('Alice', 'alice-pc-0002', 4 * 3600000, { role: 'host', playing: true, canShare: true }),
+  // この PC（Bob。参加者・ゲーム中でない）
+  pageOf('Bob', SELF_DEVICE, 2 * 60000, { role: 'guest' }),
+  // 7 時間前（6 時間より前は出さない）
+  pageOf('Carol', 'carol-pc-0001', 7 * 3600000, { role: 'host' }),
+];
+
+test('ページを開いている PC（page-presence）: PC ごとにまとめ、3 分以内は ● と役割・ゲーム中・共有できる（3 分以内のページだけでまとめる）、それより前は ○「最近の応答なし」、6 時間より前は出さない', async () => {
+  const { openPages, openPagesLines } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const state = guestPlaying({ pages: pagesOf(PAGES) });
+  assert.deepEqual(openPagesLines(state, { now }), [
+    '● Alice · 1 分前 · ホスト中 · 共有できる',
+    '● Bob（この PC） · 2 分前 · 参加者',
+    '○ Alice（PC 2） · 最近の応答なし（4 時間前）',
+  ]);
+  const pcs = openPages(state, { now });
+  assert.deepEqual(pcs.map((pc) => [pc.user, pc.tags, pc.fresh, pc.self, pc.role, pc.playing, pc.canShare]), [
+    ['Alice', [], true, false, 'host', true, true],
+    ['Bob', ['この PC'], true, true, 'guest', false, false],
+    ['Alice', ['PC 2'], false, false, '', false, false],
+  ]);
+  // 3 分ちょうどまでは ●、それを過ぎたら ○。役割の文はゲーム中かで変える。名前がなければ「名前なし」
+  const one = (page) => openPagesLines(guestPlaying({ pages: pagesOf([page]) }), { now });
+  assert.deepEqual(one(pageOf('Dave', 'dave-pc-0001', 3 * 60000, { role: 'host' })), ['● Dave · 3 分前 · ホスト用のセーブあり']);
+  assert.deepEqual(one(pageOf('Dave', 'dave-pc-0001', 3 * 60000 + 1000, { role: 'host', playing: true })), ['○ Dave · 最近の応答なし（3 分前）']);
+  assert.deepEqual(one(pageOf('Dave', 'dave-pc-0001', 10000, { role: 'guest', playing: true })), ['● Dave · たった今 · 参加中']);
+  assert.deepEqual(one(pageOf('', 'dave-pc-0001', 10000, { canShare: true })), ['● 名前なし · たった今 · セーブ未連携 · 共有できる']);
+  // 同じ人は ID をそろえて比べ、2 台目からは番号（PC の ID の順。応答の順では入れ替わらない）
+  const twins = [pageOf('ａｌｉｃｅ', 'alice-pc-0002', 10000), pageOf('Alice', 'alice-pc-0001', 2 * 60000)];
+  assert.deepEqual(openPagesLines(guestPlaying({ pages: pagesOf(twins) }), { now }), ['● ａｌｉｃｅ（PC 2） · たった今 · セーブ未連携', '● Alice · 2 分前 · セーブ未連携']);
+});
+
+test('ページを開いている PC（page-presence）: 経過はサーバーの時刻で測る（PC の時計がずれていても 3 分の境目がずれない）。一覧が分からない・別のワールドの一覧なら出さない', async () => {
+  const { openPages, openPagesLines } = await import('../../web/js/ui/owned-status.js');
+  // この PC の時計がサーバーより 10 分進んでいる。サーバーの時刻 S に受け取り、その 30 秒後に見る
+  const server = ROTATION_NOW;
+  const local = server + 10 * 60000;
+  const pages = pagesOf([pageOf('Alice', 'alice-pc-0001', 60000, { role: 'host' })], { serverTime: msAgo(0), receivedAt: local });
+  assert.deepEqual(openPagesLines(guestPlaying({ pages }), { now: () => local + 30000 }), ['● Alice · 1 分前 · ホスト用のセーブあり']);
+  // サーバーの時刻がない（古い形）なら PC の時計で測る
+  assert.deepEqual(openPagesLines(guestPlaying({ pages: { ...pages, serverTime: '' } }), { now: () => local + 30000 }), ['○ Alice · 最近の応答なし（11 分前）']);
+  const now = () => ROTATION_NOW;
+  for (const state of [
+    guestPlaying(), guestPlaying({ pages: pagesOf(null) }), guestPlaying({ pages: pagesOf(PAGES, { worldId: 'OTHER' }) }),
+    guestPlaying({ pages: pagesOf(PAGES), meta: null }),
+  ]) assert.equal(openPages(state, { now }), null);
+  assert.deepEqual(openPagesLines(guestPlaying({ pages: pagesOf([]) }), { now }), []);
+  assert.deepEqual(openPagesLines(guestPlaying(), { now }), []);
+});
+
+test('共有が止まっている案内（page-presence）: ページを開いているほかの PC（3 分以内に応答があった PC。この PC は除く）を短く添える。一覧が分からなければ添えない', async () => {
+  const { shareLagNotice, ownedNotices } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const listed = shareLagNotice(guestPlaying({ pages: pagesOf(PAGES) }), { now });
+  assert.equal(listed.text, `ゲーム中のようですが、共有は 12 分前のセーブのままです。${LAG_HELP}3 分以内に応答があったほかの PC: Alice（ホスト中・共有できる）。`);
+  // 所持パルの案内も同じ文
+  assert.equal(ownedNotices(guestPlaying({ pages: pagesOf(PAGES) }), { userId: 'Bob', now }).at(-1).text, listed.text);
+  // ほかの PC の応答がない（この PC と古い PC だけ）。共有がないときも
+  const alone = guestPlaying({ pages: pagesOf(PAGES.filter((page) => page.device !== 'alice-pc-0001')), meta: { worldId: 'W', worldName: '', hostName: '' } });
+  assert.equal(shareLagNotice(alone, { now }).text, `ゲーム中のようですが、このワールドはまだ共有されていません。${LAG_HELP}ほかの PC のこのページからは、3 分以内の応答がありません。`);
+  // 同じ人の 2 台目は番号つき
+  const twin = pagesOf([pageOf('Bob', 'bob-pc-000002', 30000, { role: 'host', playing: true }), pageOf('Bob', SELF_DEVICE, 30000, { role: 'guest', playing: true })]);
+  assert.match(shareLagNotice(guestPlaying({ pages: twin }), { now }).text, /3 分以内に応答があったほかの PC: Bob（PC 2・ホスト中）。$/);
+  // 一覧が分からない（古い GAS・別のワールドの一覧）なら今までどおり
+  assert.equal(shareLagNotice(guestPlaying({ pages: pagesOf(PAGES, { worldId: 'OTHER' }) }), { now }).text, `ゲーム中のようですが、共有は 12 分前のセーブのままです。${LAG_HELP}`);
+});

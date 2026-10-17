@@ -122,12 +122,92 @@ export function shareLagNotice(state, { now = Date.now } = {}) {
   const checked = Date.parse(shared.fetchedAt ?? '');
   if (shared.error || shared.fetchedWorldId !== state.linkedWorldId || !Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
   const meta = state.meta ?? {};
-  const help = '今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。';
+  // ページを開いているほかの PC の短い一覧を添える（分からなければ添えない。page-presence）
+  const help = `今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。${openPagesBrief(state, { now: () => time })}`;
   if (meta.source !== 'shared') return { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${help}`, kind: 'warning', action: 'editWorld' };
   const saved = Date.parse(meta.saveUpdatedAt ?? '');
   if (Number.isFinite(saved) && time - saved < SHARE_LAG_MS) return null;
   const ago = timeAgo(meta.saveUpdatedAt, time);
   return { text: `ゲーム中のようですが、共有は ${ago ? `${ago}の` : '古い'}セーブのままです。${help}`, kind: 'warning', action: 'editWorld' };
+}
+
+// ---- ページを開いている PC（sync-fixes の page-presence。owned.js の state.pages） ----
+// この間の中に応答があった PC は「●」で役割・ゲーム中・共有できるを出す（ページは 1 分ごとに送る。裏のタブでタイマーが遅れる分を見込む）。
+// それより前は「○ 最近の応答なし」（閉じたとは限らないので、古いページの役割は出さない）。PAGE_KEEP_MS より前は出さない
+export const PAGE_FRESH_MS = 3 * 60 * 1000;
+export const PAGE_KEEP_MS = 6 * 60 * 60 * 1000;
+// 1 台の PC で複数のページ（タブ）が応答しているときの役割の選び方（先のものを選ぶ）と、役割ごとの文（[ゲーム中, ゲーム中でない]）
+const PAGE_ROLES = ['host', 'guest', 'none'];
+const PAGE_ROLE_TEXT = { host: ['ホスト中', 'ホスト用のセーブあり'], guest: ['参加中', '参加者'], none: ['セーブ未連携', 'セーブ未連携'] };
+
+/**
+ * 今のワールド（表示しているワールド）でページを開いている PC。PC（device）ごとにまとめ、3 分以内に応答があった PC を先に、応答の新しい順。
+ * 一覧が分からない（古い GAS・まだ受け取っていない・別のワールドの一覧）なら null。経過はサーバーの時刻で測る（受け取ったときのサーバーの
+ * 時刻＋その後に経った時間。PC の時計がずれていても境目がずれない）。
+ * @returns {null | { device: string, user: string, name: string, tags: string[], labels: string[], fresh: boolean, self: boolean, at: string,
+ *   time: number, ago: string, role: string, playing: boolean, canShare: boolean }[]}
+ *   tags は「PC 2」（同じ人の 2 台目から。番号は PC の ID の順なので、見る人や時刻で入れ替わらない）・「この PC」、name は user に tags を添えたもの。
+ *   role・playing・canShare・labels（「ホスト中」「共有できる」）は、その PC の 3 分以内のページの応答だけでまとめたもの（古い PC は ''・false・[]）
+ */
+export function openPages(state, { now = Date.now } = {}) {
+  const pages = state?.pages;
+  const worldId = state?.meta?.worldId;
+  if (!pages || !Array.isArray(pages.list) || !worldId || pages.worldId !== worldId) return null;
+  const time = now();
+  const serverTime = Date.parse(pages.serverTime);
+  const current = Number.isFinite(serverTime) && Number.isFinite(pages.receivedAt) && pages.receivedAt > 0
+    ? serverTime + Math.max(0, time - pages.receivedAt) : time;
+  const devices = new Map();
+  for (const page of pages.list) {
+    const at = Date.parse(page?.at);
+    if (!Number.isFinite(at) || current - at > PAGE_KEEP_MS || typeof page.device !== 'string' || !page.device) continue;
+    devices.set(page.device, [...(devices.get(page.device) ?? []), { ...page, time: at }]);
+  }
+  const pcs = [...devices].map(([device, list]) => {
+    const newest = list.reduce((best, page) => (page.time > best.time ? page : best));
+    const recent = list.filter((page) => current - page.time <= PAGE_FRESH_MS);
+    const role = PAGE_ROLES.find((value) => recent.some((page) => page.role === value)) ?? '';
+    return {
+      device, user: typeof newest.user === 'string' ? newest.user : '', time: newest.time, at: newest.at, fresh: recent.length > 0,
+      self: Boolean(pages.device) && device === pages.device, role,
+      playing: recent.some((page) => page.role === role && page.playing === true), canShare: recent.some((page) => page.canShare === true),
+    };
+  });
+  const sameUser = new Map();
+  for (const pc of pcs) {
+    const key = userIdKey(pc.user);
+    sameUser.set(key, [...(sameUser.get(key) ?? []), pc.device].sort());
+  }
+  return pcs
+    .sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.time - a.time || a.device.localeCompare(b.device))
+    .map((pc) => {
+      const number = sameUser.get(userIdKey(pc.user)).indexOf(pc.device) + 1;
+      const tags = [...(number > 1 ? [`PC ${number}`] : []), ...(pc.self ? ['この PC'] : [])];
+      const [active, idle] = PAGE_ROLE_TEXT[pc.role] ?? PAGE_ROLE_TEXT.none;
+      const labels = pc.fresh ? [pc.playing ? active : idle, ...(pc.canShare ? ['共有できる'] : [])] : [];
+      return { ...pc, name: `${pc.user || '名前なし'}${tags.length ? `（${tags.join('・')}）` : ''}`, tags, labels, ago: timeAgo(pc.at, current) };
+    });
+}
+
+/**
+ * ヘッダーのセーブ連携のパネルの「ページを開いている PC」の行（1 台 1 行）。「● Alice · 1 分前 · ホスト中 · 共有できる」
+ *「○ Bob · 最近の応答なし（3 時間前）」。分からない・6 時間以内の応答がなければ []
+ */
+export function openPagesLines(state, { now = Date.now } = {}) {
+  return (openPages(state, { now }) ?? []).map((pc) => (pc.fresh
+    ? `● ${[pc.name, pc.ago, ...pc.labels].join(' · ')}`
+    : `○ ${pc.name} · 最近の応答なし（${pc.ago}）`));
+}
+
+/**
+ * 共有が止まっている案内（shareLagNotice）に添える短い一覧。3 分以内に応答があったほかの PC（この PC は除く）。分からなければ ''
+ */
+export function openPagesBrief(state, { now = Date.now } = {}) {
+  const pcs = openPages(state, { now });
+  if (!pcs) return '';
+  const others = pcs.filter((pc) => pc.fresh && !pc.self);
+  if (!others.length) return 'ほかの PC のこのページからは、3 分以内の応答がありません。';
+  return `3 分以内に応答があったほかの PC: ${others.map((pc) => `${pc.user || '名前なし'}（${[...pc.tags, ...pc.labels].join('・')}）`).join('、')}。`;
 }
 
 // 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人がいないときの 1 行

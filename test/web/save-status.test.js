@@ -375,3 +375,53 @@ test('ヘッダーのセーブ連携（host-rotation）: パネルの「ゲー�
   assert.equal(trigger.className, 'save-status-button tone-ok');
   part.destroy();
 });
+
+// ---- ページを開いている PC（sync-fixes の page-presence） ----
+const pageOf = (user, device, minutes, extra = {}) => ({ user, device, role: 'none', playing: false, canShare: false, at: at(minutes), ...extra });
+const pagesOf = (worldId, list) => ({ worldId, list, serverTime: at(0), receivedAt: NOW, device: 'self-pc-0001' });
+
+test('ヘッダーのセーブ連携（page-presence）: パネルの「ページを開いている PC」の行に、3 分以内に応答があった PC（●）とそれより前の PC（○）を 1 台 1 行で出す', async (t) => {
+  const world = 'A'.repeat(32);
+  const list = [
+    pageOf('自分', 'self-pc-0001', 0.5, { role: 'host', playing: true, canShare: true }),
+    pageOf('Bob', 'bob-pc-00001', 2, { role: 'guest', playing: true }),
+    pageOf('Bob', 'bob-pc-00002', 180),
+    pageOf('Carol', 'carol-pc-001', 7 * 60),
+  ];
+  const { trigger, part, emit } = setup(t, hostState({ pages: pagesOf(world, list) }));
+  await trigger.dispatch('click');
+  const panel = part.element.querySelector('.save-status-panel');
+  const row = () => {
+    const terms = panel.querySelectorAll('dt');
+    const index = terms.findIndex((node) => node.textContent === 'ページを開いている PC');
+    return index < 0 ? null : panel.querySelectorAll('dd')[index].textContent;
+  };
+  assert.equal(row(), '● 自分（この PC） · たった今 · ホスト中 · 共有できる\n● Bob · 2 分前 · 参加中\n○ Bob（PC 2） · 最近の応答なし（3 時間前）');
+  // 時間がたてば ○ に変わる（3 分より前のページの役割は出さない）
+  emit({ pages: pagesOf(world, [pageOf('Bob', 'bob-pc-00001', 4, { role: 'host', playing: true })]) });
+  assert.equal(row(), '○ Bob · 最近の応答なし（4 分前）');
+  // 別のワールドの一覧・一覧が分からない（古い GAS）・だれもいないときは行を出さない
+  for (const pages of [pagesOf('B'.repeat(32), list), pagesOf(world, null), pagesOf(world, []), undefined]) {
+    emit({ pages });
+    assert.equal(row(), null, JSON.stringify(pages));
+  }
+  // チップの色は変えない
+  assert.equal(trigger.className, 'save-status-button tone-ok');
+  part.destroy();
+});
+
+test('セーブ連携の状態（page-presence）: 共有が止まっている案内（チップの説明・パネルの困りごと）に、ページを開いているほかの PC を短く添える', async (t) => {
+  const pages = pagesOf(GUEST_WORLD, [
+    pageOf('Alice', 'alice-pc-001', 1, { role: 'host', canShare: true }),
+    pageOf('自分', 'self-pc-0001', 0, { role: 'guest', playing: true }),
+  ]);
+  const stopped = model(lagging({ pages }));
+  assert.equal(stopped.text, '共有が止まっています');
+  assert.match(stopped.title, /3 分以内に応答があったほかの PC: Alice（ホスト用のセーブあり・共有できる）。$/);
+  const { trigger, part } = setup(t, lagging({ pages }));
+  await trigger.dispatch('click');
+  const issues = part.element.querySelector('.save-status-issues').querySelectorAll('li').map((node) => node.textContent);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0], /3 分以内に応答があったほかの PC: Alice（ホスト用のセーブあり・共有できる）。$/);
+  part.destroy();
+});
