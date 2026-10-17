@@ -1163,12 +1163,14 @@ test('所持パル（share-fetch）: 共有の送信の応答も、送ってい�
   gate = new Promise((resolve) => { release = resolve; });
   await host.register(WORLD_A, hostFiles());
   assert.equal(host.store.state.upload.status, 'sending');
+  // 送信が GAS に届くまで待つ（中身の印〔SHA-256〕は crypto.subtle で計算するので、登録が終わった時点ではまだ送り始めていないことがある。
+  // 前は待たずに、保存先を替えた後の 2 回の tick で送り終わる前提だったため、テストを並べて流すと計算が遅れて落ちることがあった）
+  await until(() => shared.calls.includes('ownedUpload'));
   shared.setScope('prod');
   await host.store.scopeChanged();
   gate = null;
   release();
-  await tick();
-  await tick();
+  await settleUpload(host.store);
   assert.deepEqual([host.store.state.upload.status, host.store.state.shared.worlds, host.store.state.shared.current], ['', [], null]);
   assert.equal(await sharedCache(host.persist, 'prod'), null);
   // 手元のセーブはそのまま出す
