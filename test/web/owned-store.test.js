@@ -1997,6 +1997,35 @@ test('所持パル（save-watch）: 見張りから読んだときに必須の�
   assert.equal(store.state.data.world.id, WORLD_A);
 });
 
+test('所持パル（save-watch）: 今のワールドが一時的に読めず（getFile の NotReadableError）一覧の後ろに回っても、古いワールドに替えずに保留し、見張りからも外さない（Codex のレビュー）', async () => {
+  const fake = fakeWatch();
+  const host = setup({ watch: fake.client });
+  const { store, register, advance } = host;
+  const a = hostFiles(T0 + 60000);
+  await register(WORLD_B, hostFiles(T0));
+  await register(WORLD_A, a);
+  assert.equal(store.state.linkedWorldId, WORLD_A);
+  // 保存の途中で A の更新日時を読めない（A は一覧の先頭でなくなり、古い B が先頭になる）
+  a['Level.sav'].error = 'NotReadableError';
+  a['LocalData.sav'].error = 'NotReadableError';
+  advance(1000);
+  assert.equal(await store.refreshFromWatch(WORLD_A), 'held');
+  assert.deepEqual([store.state.linkedWorldId, store.state.data.world.id, store.state.role], [WORLD_A, WORLD_A, 'host']);
+  // 読めない間も A を見張り続ける（戻ったことに Worker が気づける）
+  assert.ok(fake.updates.at(-1).some((target) => target.worldId === WORLD_A));
+  a['Level.sav'].error = '';
+  a['LocalData.sav'].error = '';
+  newSave(a);
+  assert.equal(await fireReread(host, 1000), 'imported');
+  assert.equal(store.state.data.world.id, WORLD_A);
+  // B が知らせても、読めない今のワールド A で保留する（まとめた知らせも同じ）
+  a['Level.sav'].error = 'NotReadableError';
+  a['LocalData.sav'].error = 'NotReadableError';
+  advance(1000);
+  assert.equal(await store.refreshFromWatch(WORLD_B), 'held');
+  assert.equal(store.state.linkedWorldId, WORLD_A);
+});
+
 test('所持パル（save-watch）: 保留の間も前の完全なデータの共有を止めない（取り消した再試行の予約は、今のセーブのまま戻す）', async () => {
   const up = uploadServer();
   let next = stampedSnapshot(tickOf(1), 2);

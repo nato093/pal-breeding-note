@@ -136,6 +136,50 @@ test('見張り（save-watch）: Players・GlobalPalStorage.sav のハンドル�
   assert.ok(Observer.calls.every((handle) => ['Level.sav', 'LevelMeta.sav', 'LocalData.sav'].includes(handle.name)));
 });
 
+test('見張り（save-watch）: 張り直しの getFile()・observe() を待っている間に対象を送り直したら、古い Observer に張らない（張れてしまっても切る。Codex のレビュー）', async () => {
+  const { clock, watcher, Observer } = setup();
+  const files = worldFiles();
+  await watcher.watch({ generation: 1, targets: [target('W1', files)] });
+  await flush();
+  const old = Observer.instances[0];
+  const level = files['Level.sav'];
+  const getFile = level.getFile.bind(level);
+  // 張り直しの getFile() の途中で、別のワールドに替える
+  let release;
+  level.getFile = async () => {
+    await new Promise((resolve) => { release = resolve; });
+    return getFile();
+  };
+  const before = Observer.calls.length;
+  old.notify('disappeared', level);
+  await clock.advance(10);
+  assert.equal(typeof release, 'function');
+  await watcher.watch({ generation: 2, targets: [target('W2', worldFiles(T0 + 1))] });
+  release();
+  await flush();
+  assert.equal(old.disconnected, true);
+  assert.ok(!Observer.calls.slice(before).includes(level), '止めた見張りの Level.sav に observe() した');
+  // observe() の途中で替えたら、張れた後にその Observer を切る
+  const files3 = worldFiles(T0 + 2);
+  await watcher.watch({ generation: 3, targets: [target('W3', files3)] });
+  await flush();
+  const third = Observer.instances.at(-1);
+  let disconnects = 0;
+  third.disconnect = () => { disconnects++; third.disconnected = true; };
+  let finish;
+  third.observe = (handle) => new Promise((resolve) => {
+    finish = () => { third.observed.push(handle); resolve(); };
+  });
+  third.notify('disappeared', files3['Level.sav']);
+  await clock.advance(10);
+  assert.equal(typeof finish, 'function');
+  await watcher.watch({ generation: 4, targets: [target('W4', worldFiles(T0 + 3))] });
+  assert.equal(disconnects, 1);
+  finish();
+  await flush();
+  assert.equal(disconnects, 2, '張れた後に古い Observer を切っていない');
+});
+
 test('見張り（save-watch）: 画面側の対象（observe は直下だけ）でも Players を Observer に渡さず、ワールドごとに 1 つの Observer', async () => {
   const { watcher, Observer } = setup();
   const a = worldFiles();

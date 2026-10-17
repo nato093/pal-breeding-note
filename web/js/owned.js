@@ -294,6 +294,7 @@ export function createOwnedStore({
   let watchedIds = new Set();
   let watchCurrent = '';
   let watchFollow = null;
+  let watchFollowId = '';
   // 旧版の worldDir は「Steam ID/ワールド ID」。末尾のワールド ID に読み替える
   const savedWorldId = String(saved.worldId ?? saved.worldDir ?? '').split('/').pop();
   const state = {
@@ -905,7 +906,7 @@ export function createOwnedStore({
       hold.timer = null;
       if (!state.auto.enabled) return 'skipped';
       lastAuto = now();
-      return runAuto({ auto: true, transient: hold.transient, shared: false }).catch(() => 'error');
+      return runAuto({ auto: true, transient: hold.transient, watchWorldId: hold.worldId, shared: false }).catch(() => 'error');
     }, Math.max(0, delay));
   }
   // 登録したファイルの失敗・消失の形（パスと理由の集合。並びによらない）
@@ -971,8 +972,8 @@ export function createOwnedStore({
   }
 
   // transient は見張りから読んだとき（refreshFromWatch とその読み直し）。保存の途中のファイルの置き換えで読めなくても、エラーを出さずに読み直す。
-  // 読み直しを保留したら 'held'（前の手元のデータ・表示・共有は残す）
-  async function readAuto({ auto, preview = null, epoch = linkEpoch, transient = false }) {
+  // watchWorldId は見張りが知らせた（読み直しを保留した）ワールド。読み直しを保留したら 'held'（前の手元のデータ・表示・共有は残す）
+  async function readAuto({ auto, preview = null, epoch = linkEpoch, transient = false, watchWorldId = '' }) {
     if (!state.auto.enabled) return 'skipped';
     await load();
     // 前のエラーは結果が出るまで残す（確かめるたびにエラーの行が消えてまた出ないように）
@@ -993,10 +994,12 @@ export function createOwnedStore({
       return stop('permission', 'セーブを読む許可が必要です', auto);
     }
     const chosen = state.auto.worldId ? worlds.find((world) => world.id === state.auto.worldId) : null;
-    // 見張りから読んだときに、読むはずのワールド（選んだワールドか最後に遊んだワールド）の必須のファイルが一時的に読めない（保存の途中の
-    // 置き換え）なら、別のワールドに替えたり止めたりせずに読み直す
-    const preferred = chosen || worlds[0];
-    if (transient && ['missing', 'error'].includes(preferred.status) && holdUnreadable(preferred.id)) {
+    // 見張りから読んだときに、選んだワールド（選んでいなければ、見張りが知らせたワールドか今のワールド）の必須のファイルが一時的に読めない
+    //（保存の途中の置き換え）なら、別のワールドに替えたり止めたりせずに読み直す。読めないワールドは更新日時が分からず一覧の後ろに回るので、
+    // 一覧の先頭では決めない（先頭の古いワールドに替わってしまう。Codex のレビュー）
+    const suspects = chosen ? [chosen] : [watchWorldId, state.linkedWorldId].map((id) => worlds.find((item) => item.id === id)).filter(Boolean);
+    const preferred = suspects.find((item) => ['missing', 'error'].includes(item.status));
+    if (transient && preferred && holdUnreadable(preferred.id)) {
       state.auto.status = previous === 'checking' ? 'ready' : previous;
       return 'held';
     }
@@ -1106,7 +1109,9 @@ export function createOwnedStore({
   const currentWatchWorld = () => state.linkedWorldId || state.auto.worlds[0]?.id || '';
 
   /**
-   * 見張る対象。登録したワールドのうち、直近の list() で読めた（status 'ok'＝許可 granted）もの。使うワールドを選んでいればそれだけ。
+   * 見張る対象。登録したワールドのうち、直近の list() で許可があった（status が 'permission' でない）もの。保存の途中などで一時的に読めない
+   *（'missing'・'error'）ワールドも外さない（外すと、戻ったことに Worker が気づけず、画面のタイマー頼みになる。Codex のレビュー）。
+   * 使うワールドを選んでいればそれだけ。
    * 今のワールドは登録した全ファイル、ほかのワールドは Level.sav・LocalData.sav だけ（最後に遊んだワールドが替わったことに気づくため）。
    * observe（Observer に渡す）は今のワールドのフォルダの直下のファイルだけ。Players・../GlobalPalStorage.sav は Worker の 5 秒ごとの確認だけ
    *（Players の中を見張ると、SaveSync が同期を受け取るときに止まり、ワールドが消えた状態になる。2026-10-17 の P0 の事故）。ほかのワールドも
@@ -1117,7 +1122,7 @@ export function createOwnedStore({
     const worlds = state.auto.worlds.filter((world) => !removing.has(world.id) && source.has(world.id));
     const pinned = state.auto.worldId ? worlds.find((world) => world.id === state.auto.worldId) : null;
     const currentId = currentWatchWorld();
-    return (pinned ? [pinned] : worlds).filter((world) => world.status === 'ok').map((world) => {
+    return (pinned ? [pinned] : worlds).filter((world) => world.status && world.status !== 'permission').map((world) => {
       const record = source.get(world.id);
       const current = world.id === currentId;
       const files = Object.entries(record.files)
@@ -1174,10 +1179,12 @@ export function createOwnedStore({
    */
   function refreshFromWatch(worldId) {
     if (!state.auto.enabled || !watchedIds.has(worldId)) return Promise.resolve('skipped');
+    // まとめた知らせのうち最後のワールド（一時的に読めなければ、そのワールドで保留する）
+    watchFollowId = worldId;
     if (watchFollow) return watchFollow;
     const run = () => {
       lastAuto = now();
-      return runAuto({ auto: true, transient: true, shared: false });
+      return runAuto({ auto: true, transient: true, watchWorldId: watchFollowId, shared: false });
     };
     if (!pending) return run();
     watchFollow = chain.then(() => {

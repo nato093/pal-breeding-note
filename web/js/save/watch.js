@@ -78,6 +78,21 @@ export function createSaveWatcher({
   // Observer で見張ってよいファイル（呼び出し側の印と、直下のファイルかの両方）
   const observedFiles = (world) => world.files.filter((file) => file.observe && observable(file.path));
 
+  // observe() する。待っている間に見張りを止めた・張り直した（古い世代）なら、張れてしまった分ごとその Observer を切る（halt() の後に
+  // 張れると、もう worlds にないので誰も切らず、そのワールドのフォルダを Chrome が押さえたままになる）。張れて今の世代なら true
+  async function observeLive(world, file, token) {
+    const { observer } = world;
+    if (!live(token) || !observer) return false;
+    try {
+      await observer.observe(file.handle);
+    } finally {
+      if (!live(token)) {
+        try { observer.disconnect(); } catch { /* 切るだけ */ }
+      }
+    }
+    return live(token);
+  }
+
   // 見張りの方式。張り直しの途中のファイルも Observer で見張っているとみなす（保存のたびに disappeared で張り直すので、そのたびに揺らさない）
   function report() {
     const next = worlds.some((world) => world.observer && observedFiles(world).some((file) => file.watching)) ? 'observer' : 'poll';
@@ -168,12 +183,11 @@ export function createSaveWatcher({
         if (!live(token)) return;
         try {
           await file.handle.getFile();
-          await world.observer.observe(file.handle);
+          if (!(await observeLive(world, file, token))) return;
         } catch {
           if (!live(token)) return;
           continue;
         }
-        if (!live(token)) return;
         file.watching = true;
         report();
         await check(world, file, token);
@@ -221,8 +235,7 @@ export function createSaveWatcher({
     }
     for (const file of files) {
       try {
-        await world.observer.observe(file.handle);
-        if (!live(token)) return;
+        if (!(await observeLive(world, file, token))) return;
         file.watching = true;
       } catch {
         if (!live(token)) return;
