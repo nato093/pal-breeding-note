@@ -395,7 +395,7 @@ test('ページを開いている PC（page-presence）: PC ごとにまとめ�
   assert.deepEqual(one(pageOf('Dave', 'dave-pc-0001', 3 * 60000 + 1000, { role: 'host', playing: true })), ['○ Dave · 最近の応答なし（3 分前）']);
   assert.deepEqual(one(pageOf('Dave', 'dave-pc-0001', 10000, { role: 'guest', playing: true })), ['● Dave · たった今 · 参加中']);
   assert.deepEqual(one(pageOf('', 'dave-pc-0001', 10000, { canShare: true })), ['● 名前なし · たった今 · セーブ未連携 · 共有できる']);
-  // 同じ人は ID をそろえて比べ、2 台目からは番号（PC の ID の順。応答の順では入れ替わらない）
+  // 同じ人は ID をそろえて比べ、2 台目からは番号（今の一覧に残る PC の ID の順。応答の順では入れ替わらない）
   const twins = [pageOf('ａｌｉｃｅ', 'alice-pc-0002', 10000), pageOf('Alice', 'alice-pc-0001', 2 * 60000)];
   assert.deepEqual(openPagesLines(guestPlaying({ pages: pagesOf(twins) }), { now }), ['● ａｌｉｃｅ（PC 2） · たった今 · セーブ未連携', '● Alice · 2 分前 · セーブ未連携']);
 });

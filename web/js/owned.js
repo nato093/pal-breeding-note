@@ -523,12 +523,14 @@ export function createOwnedStore({
 
   // そのワールド（ふつうは今のワールド＝表示するワールド）について送る値。role は判定の結果（連携しているワールドでなければ none）、playing は
   // ゲーム中の推定（core/playing.js）、canShare はこのワールドをホストの一式（Level.sav・LevelMeta.sav・LocalData.sav）で登録していて、直近の
-  // 確認で読む許可があるか。ワールドがなければ null
+  // 確認で読む許可があるか。一覧の確認では許可があっても、その後の読み込みで許可が外れた（自動の読み込みが許可待ちで止まった。一覧の status は
+  // 'ok' のまま）間は共有できないとする。ワールドがなければ null
   function presenceValue(id) {
     if (!WORLD_ID.test(id)) return null;
     const role = id === state.linkedWorldId && ['host', 'guest'].includes(state.role) ? state.role : 'none';
     const listed = state.auto.worlds.find((world) => world.id === id);
-    const canShare = Boolean(state.auto.enabled && source.get(id)?.kind === 'host' && !removing.has(id) && listed?.status && listed.status !== 'permission');
+    const canShare = Boolean(state.auto.enabled && state.auto.status !== 'permission' && source.get(id)?.kind === 'host' && !removing.has(id)
+      && listed?.status && listed.status !== 'permission');
     const playing = role !== 'none' && isPlaying(state.play, { worldId: id, role }, now());
     return { worldId: id, presence: { pageId, device: deviceOf(id), user: text(server?.userId?.() ?? '', 20), role, playing, canShare } };
   }
@@ -553,6 +555,12 @@ export function createOwnedStore({
     state.pages = { worldId: id, list: response.presence, serverTime: isoTime(response.serverTime), receivedAt: now(), device: deviceOf(id) };
   }
 
+  // 古い GAS（BAD_ACTION）と分かった: 1 時間は送らず、前に受け取った一覧も出さない（GAS を古い版に戻したときに、前の一覧が 6 時間残らない）
+  function presenceUnsupported(env) {
+    unsupported.set(capabilityKey('presence', env), now() + SINCE_RETRY);
+    if (scope() === env) state.pages = emptyPages();
+  }
+
   /**
    * ページを開いている PC を送る（app.js の 10 秒ごとのタイマーから、セーブ・共有の読み直しの後に呼ぶ。表のタブでも裏のタブでも）。
    * 送る回でなければ（間隔の中・ownedSince に載せた・送っている途中・古い GAS・ログインしていない・ワールドがない）'skipped'。
@@ -572,12 +580,16 @@ export function createOwnedStore({
       markPresence(beat);
       try {
         const response = await server.request('presence', { worldId: beat.worldId, presence: beat.presence });
-        if (scope() !== key || sharedEpoch !== epoch) return 'skipped';
+        // 応答が届くまでに環境か表示するワールドが替わった（その間に受け取った今のワールドの一覧を、前のワールドの一覧で戻さない）
+        if (scope() !== key || sharedEpoch !== epoch || targetWorldId() !== beat.worldId) return 'skipped';
         keepPages(beat.worldId, response);
         emit();
         return 'sent';
       } catch (error) {
-        if (error?.code === 'BAD_ACTION') unsupported.set(capabilityKey('presence', key), now() + SINCE_RETRY);
+        if (error?.code === 'BAD_ACTION') {
+          presenceUnsupported(key);
+          emit();
+        }
         return 'error';
       }
     } catch {
@@ -715,9 +727,10 @@ export function createOwnedStore({
         // 共有の書き込みと重なった（GAS が行の数の違いを返した）
         if (error?.code === 'PARTIAL') { check(); return { partial: true }; }
         if (error?.code !== 'BAD_ACTION') throw error;
-        // 古い GAS。送った先の環境では、1 時間は今までの 2 回呼びにする（presence も同じ版で足したので送らない）
+        // 古い GAS。送った先の環境では、1 時間は今までの 2 回呼びにする（presence も同じ版で足したので送らず、前の一覧も出さない。
+        // 知らせるのは fetchShared の最後の update）
         unsupported.set(capabilityKey('ownedSince', key), now() + SINCE_RETRY);
-        unsupported.set(capabilityKey('presence', key), now() + SINCE_RETRY);
+        presenceUnsupported(key);
         check();
         return null;
       }

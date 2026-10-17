@@ -2463,3 +2463,88 @@ test('所持パル（page-presence）: ホストと参加者のページが同�
   assert.ok(lines.some((line) => /^● ホスト（(PC 2・)?この PC） · たった今 · 参加者$/.test(line)), lines.join('\n'));
   assert.ok(lines.some((line) => /^● ホスト(（PC 2）)? · たった今 · ホスト用のセーブあり · 共有できる$/.test(line)), lines.join('\n'));
 });
+
+// ---- Codex のレビューの直し（page-presence） ----
+
+test('所持パル（page-presence・Codex のレビュー）: 遅れて届いた前のワールドの presence の応答は捨てる（その間に受け取った今のワールドの一覧を戻さない）', async () => {
+  let gate = null;
+  const shared = presenceServer({
+    userId: 'Bob',
+    rewrite: async (action) => {
+      if (action === 'presence' && gate) await gate;
+      return undefined;
+    },
+  });
+  await publish(shared, { worldId: WORLD_A, prefix: 'a' });
+  await publish(shared, { worldId: WORLD_B, prefix: 'b' });
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  await viewer.store.setViewWorld(WORLD_A);
+  viewer.advance(60000);
+  let release;
+  gate = new Promise((resolve) => { release = resolve; });
+  shared.calls.length = 0;
+  const late = viewer.store.reportPresence();
+  await until(() => shared.calls.includes('presence'));
+  // A の応答を待つ間に B に替え、B の一覧を受け取った
+  await viewer.store.setViewWorld(WORLD_B);
+  const { pages } = viewer.store.state;
+  assert.equal(pages.worldId, WORLD_B);
+  gate = null;
+  release();
+  assert.equal(await late, 'skipped');
+  assert.equal(viewer.store.state.pages, pages);
+});
+
+test('所持パル（page-presence・Codex のレビュー）: 一覧の確認の後の読み込みで許可が外れた（自動の読み込みが許可待ちで止まった。一覧の status は ok のまま）間は、共有できるを false で送る', async () => {
+  const shared = presenceServer();
+  const host = setup({ server: shared.server });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  host.advance(60000);
+  await host.store.reportPresence();
+  assert.equal(shared.sent.at(-1)[2].canShare, true);
+  // 新しいセーブ。一覧の確認（更新日時・大きさ）は通るが、中身を読むと許可がない
+  files['Level.sav'].time += 60000;
+  files['Level.sav'].readError = 'NotAllowedError';
+  host.advance(25000);
+  assert.equal(await host.store.refreshAuto({ auto: true }), 'permission');
+  assert.deepEqual([host.store.state.auto.status, host.store.state.auto.worlds.find((world) => world.id === WORLD_A).status], ['permission', 'ok']);
+  assert.equal(await host.store.reportPresence(), 'sent');
+  assert.deepEqual([shared.sent.at(-1)[2].role, shared.sent.at(-1)[2].canShare], ['host', false]);
+});
+
+test('所持パル（page-presence・Codex のレビュー）: 一覧を受け取った後に GAS を古い版に戻すと、BAD_ACTION を覚えたときに前の一覧も消して知らせる（ownedSince でも presence でも）', async () => {
+  const { openPagesLines } = await import('../../web/js/ui/owned-status.js');
+  let oldGas = false;
+  const shared = presenceServer({
+    userId: 'Bob',
+    rewrite: (action) => (oldGas && ['ownedSince', 'presence'].includes(action) ? { ok: false, code: 'BAD_ACTION' } : undefined),
+  });
+  await publish(shared, { prefix: 'a' });
+  // 表のタブ（ownedSince に載せる）と裏のタブ（presence を別に送る）
+  const viewer = setup({ server: shared.server });
+  await viewer.store.load();
+  await viewer.store.autoRefresh();
+  assert.equal(openPagesLines(viewer.store.state, { now: viewer.time }).length, 1);
+  const background = setup({ server: shared.server, persist: viewer.persist });
+  await background.store.load();
+  assert.equal(await background.store.reportPresence(), 'sent');
+  assert.equal(openPagesLines(background.store.state, { now: background.time }).length, 2);
+  // 版 10 に戻した
+  oldGas = true;
+  const emitted = { viewer: 0, background: 0 };
+  viewer.store.subscribe(() => { emitted.viewer++; });
+  background.store.subscribe(() => { emitted.background++; });
+  viewer.advance(10000);
+  shared.calls.length = 0;
+  assert.equal(await viewer.store.autoRefresh(), 'fetched');
+  assert.deepEqual(shared.calls, ['ownedSince', 'ownedWorlds']);
+  assert.deepEqual([viewer.store.state.pages.list, openPagesLines(viewer.store.state, { now: viewer.time })], [null, []]);
+  assert.ok(emitted.viewer > 0);
+  background.advance(60000);
+  assert.equal(await background.store.reportPresence(), 'error');
+  assert.deepEqual([background.store.state.pages.list, openPagesLines(background.store.state, { now: background.time })], [null, []]);
+  assert.ok(emitted.background > 0);
+});

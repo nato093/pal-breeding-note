@@ -146,7 +146,8 @@ const PAGE_ROLE_TEXT = { host: ['ホスト中', 'ホスト用のセーブあり'
  * 時刻＋その後に経った時間。PC の時計がずれていても境目がずれない）。
  * @returns {null | { device: string, user: string, name: string, tags: string[], labels: string[], fresh: boolean, self: boolean, at: string,
  *   time: number, ago: string, role: string, playing: boolean, canShare: boolean }[]}
- *   tags は「PC 2」（同じ人の 2 台目から。番号は PC の ID の順なので、見る人や時刻で入れ替わらない）・「この PC」、name は user に tags を添えたもの。
+ *   tags は「PC 2」（同じ人の 2 台目から。番号は今の一覧〔6 時間以内〕に残る PC の ID の順なので、見る人によって入れ替わらない。ID の順で先の
+ *   古い PC が一覧から消えると繰り上がることがある）・「この PC」、name は user に tags を添えたもの。
  *   role・playing・canShare・labels（「ホスト中」「共有できる」）は、その PC の 3 分以内のページの応答だけでまとめたもの（古い PC は ''・false・[]）
  */
 export function openPages(state, { now = Date.now } = {}) {
