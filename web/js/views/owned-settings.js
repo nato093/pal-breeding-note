@@ -82,8 +82,11 @@ function dropZone(text, onDrop) {
   return zone;
 }
 
+// 交代でホストする人にも足してもらうファイル（ホストの組のうち LocalData.sav 以外の必須と Players。sync-fixes の host-rotation）
+const ROTATION_FILES = `${REQUIRED_FILES.host.filter((p) => p !== 'LocalData.sav').join('・')}・Players のファイル`;
+
 function previewText(previewed) {
-  if (previewed.kind !== 'host') return `参加しているワールドとして登録します（ホストの PC なら ${REQUIRED_FILES.host.filter((p) => p !== 'LocalData.sav').join('・')} もドロップしてください）`;
+  if (previewed.kind !== 'host') return `参加者として登録します（交代でホストするなら ${ROTATION_FILES}も足すと、ホストしたときに共有と自動登録が動きます）`;
   const name = `${worldName({ worldName: previewed.name, hostName: previewed.hostName, worldId: previewed.worldId })} · ${previewed.palCount} 体`;
   return previewed.role === 'guest' ? `${name}（LocalData.sav の方が新しいため、いまは参加者と判定します）` : name;
 }
@@ -168,8 +171,9 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     }
   }, 'button primary');
 
-  // ドロップするファイル。2 つの組に分ける: 全員（LocalData.sav）と、ホストの PC だけ（Level.sav・LevelMeta.sav・Players\ ・GlobalPalStorage.sav）。
-  // LocalData.sav だけで参加と判定したら、ホストの組を薄くして「参加として登録できます」（C-27・C-28）
+  // ドロップするファイル。2 つの組に分ける: 全員（LocalData.sav）と、ホストする PC（Level.sav・LevelMeta.sav・Players\ ・GlobalPalStorage.sav。
+  // ホストは仲間内で交代するので、交代でホストする人も足す。host-rotation）。LocalData.sav だけで参加と判定したら、ホストの組を薄くして
+  // 「なくても参加として登録できます」（C-27・C-28）
   function renderDraft() {
     draftList.replaceChildren();
     fileDrop.classList.toggle('disabled', !draft || saving);
@@ -195,7 +199,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const everyone = group('全員');
     item(everyone.list, 'LocalData.sav', has('LocalData.sav'), 'LocalData.sav');
     const guestOnly = Boolean(previewed && previewed.kind !== 'host');
-    const host = group(guestOnly ? 'ホストの PC だけ（参加として登録できます）' : 'ホストの PC だけ', guestOnly ? 'is-dim' : '');
+    const host = group(guestOnly ? 'ホストする PC（交代でホストする人も。なくても参加として登録できます）' : 'ホストする PC（交代でホストする人も）', guestOnly ? 'is-dim' : '');
     for (const path of REQUIRED_FILES.host.filter((file) => file !== 'LocalData.sav')) item(host.list, path, has(path), path);
     const players = paths.filter((path) => path.startsWith('Players/')).length;
     // 次元ストレージの Players\<UID>_dps.sav は、使い始めたときにできる（登録の後にできた分は読まれない。dps-missing）ので、ここから足せると添える
@@ -322,8 +326,12 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const panel = el('div', 'owned-breeding');
     panel.append(el('p', 'owned-step-title', '配合牧場からの自動登録'));
     if (world.kind === 'guest') {
-      // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06）
-      panel.append(el('p', 'owned-help muted owned-role-note', guestAutoText()));
+      // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06）。交代でホストするなら、ホストの組のファイルを足しておく
+      //（足しておけば、ホストしたときにこの PC の画面が共有と自動登録を行う。host-rotation）
+      panel.append(
+        el('p', 'owned-help muted owned-role-note', guestAutoText()),
+        el('p', 'owned-help muted owned-rotation-note', `交代でホストするなら、［編集］で ${ROTATION_FILES}を足してください（ホストしたときに共有と自動登録が動きます）。`),
+      );
       return panel;
     }
     const toggle = el('input');

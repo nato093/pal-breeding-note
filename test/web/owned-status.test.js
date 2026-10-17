@@ -43,8 +43,8 @@ test('案内: 自動の読み込みがオフでも、所持パルを表示でき
   // 参加している側でデータがないとき（「参加しているワールドのため…」は出さない。取得元は上のバーのセーブ連携の表示に出る）
   const guest = ownedNotices(ownedState({ role: 'guest', data: null, owned: null, meta: null }));
   assert.deepEqual(guest.map((notice) => notice.text), ['ホストがまだこのワールドの所持パルを共有していません。']);
-  // データのある参加者は、自動登録はホストの画面が行うことの 1 行（roles）
-  const guestShared = ownedNotices(ownedState({ role: 'guest', meta: { ...ownedState().meta, source: 'shared' } }));
+  // データのある参加者は、自動登録はホストの画面が行うことの 1 行（roles。共有が新しいときは、ホスト名で言う）
+  const guestShared = ownedNotices(ownedState({ role: 'guest', meta: { ...ownedState().meta, source: 'shared' } }), { now: () => Date.parse(SAVED) });
   assert.equal(guestShared.length, 1);
   assert.match(guestShared[0].text, /^この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います/);
   // 自動の読み込みを使っているのに登録がない（empty）ときも、同じ案内とボタン
@@ -141,13 +141,13 @@ test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で war
   assert.deepEqual(roleSummary({ role: 'host', meta: { source: 'local' } }, { now }), { text: HOST_SUMMARY, kind: 'info', hint: '' });
   const guest = roleSummary(shared('guest', 3), { userId: '仲間', now });
   assert.deepEqual([guest.kind, guest.hint], ['info', '']);
-  assert.equal(guest.text, 'この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います（Alice が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前');
+  assert.equal(guest.text, 'この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います（Alice が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前（Alice の PC から）');
   // 参加者に「自動登録は動きません」「設定タブの『登録者の対応』」と言わない
   assert.doesNotMatch(guest.text, /動きません|設定タブ|登録者の対応/);
-  // 10 分を超えたら warning と、ホストの画面が閉じていると止まること
+  // 10 分を超えたら warning と、今ホストしている人の画面が閉じていると止まること（最後に共有した人を今のホストと決めつけない。host-rotation）
   const stale = roleSummary(shared('guest', 11), { userId: '仲間', now });
   assert.equal(stale.kind, 'warning');
-  assert.match(stale.text, /最後の共有は 11 分前です。Alice の画面が閉じていると、配合牧場の自動登録も止まります。$/);
+  assert.match(stale.text, /最後の共有は 11 分前（Alice の PC から）です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。$/);
   assert.equal(roleSummary(shared('guest', 10), { userId: '仲間', now }).kind, 'info');
   // 共有を見ているだけの人
   assert.equal(roleSummary(shared('', 125), { userId: '仲間', now }).text, 'Alice が共有した所持パルを表示しています · 最後の共有 2 時間前');
@@ -254,4 +254,86 @@ test('案内（share-upload）: 同じセーブが共有済み・共有の方が
   assert.deepEqual(notices({ status: 'error', error: 'サーバに接続できません', signature: 'sig-0' }), [{ text: '共有できませんでした（サーバに接続できません）', kind: 'warning' }]);
   // 前の形の state（印がない）でも今までどおり
   assert.deepEqual(ownedNotices(ownedState({ upload: { status: 'stale', at: '', error: '', worldId: 'W' } })).map((notice) => notice.text), ['共有されているセーブの方が新しいため、そちらを表示しています']);
+});
+
+// ---- ホストの交代（sync-fixes の host-rotation） ----
+const ROTATION_NOW = Date.parse('2026-10-15T12:00:00.000Z');
+const msAgo = (ms) => new Date(ROTATION_NOW - ms).toISOString();
+// 直近に 30 秒ごとの変化を 2 回見た記録（owned.js の state.play。core/playing.js の trackPlay の形）
+const playRecord = (worldId = 'W', role = 'guest') => ({ worldId, role, value: 60000, changes: [{ at: ROTATION_NOW - 40000, gap: 30000 }, { at: ROTATION_NOW - 10000, gap: 30000 }] });
+// ゲーム中の参加者。共有は 5 秒前に確かめ、共有のセーブは 12 分前
+const guestPlaying = (overrides = {}) => ({
+  ready: true, role: 'guest', linkedWorldId: 'W', error: '',
+  auto: { enabled: true, status: 'ready', worlds: [{ id: 'W' }], worldId: '', error: '' },
+  play: playRecord(), upload: { status: '', at: '', error: '', worldId: '' },
+  shared: { worlds: [], current: null, fetchedAt: msAgo(5000), error: '' },
+  meta: { source: 'shared', worldId: 'W', worldName: 'テスト', hostName: 'Host', uploadedBy: 'Alice', sharedAt: msAgo(12 * 60000), saveUpdatedAt: msAgo(12 * 60000) },
+  owned: { players: [], pals: [] }, data: { world: {} },
+  ...overrides,
+});
+const LAG_HELP = '今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。';
+
+test('役割の 1 行（host-rotation）: 参加者の名指しは 3 通り。新しい共有を別の人が送った → その人の名前と PC、古い共有 → 「ホスト」と最後に共有した PC、自分が送った共有 → 「ホスト」と「あなたの PC から」', async () => {
+  const { roleSummary } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const state = (minutes, uploadedBy = 'Alice') => guestPlaying({ meta: { ...guestPlaying().meta, uploadedBy, sharedAt: msAgo(minutes * 60000) } });
+  const fresh = roleSummary(state(3), { userId: 'Bob', now });
+  assert.deepEqual([fresh.kind, fresh.text], ['info', 'この PC では読み込みません。配合牧場の自動登録は Alice の画面が行います（Alice が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前（Alice の PC から）']);
+  const stale = roleSummary(state(120), { userId: 'Bob', now });
+  assert.deepEqual([stale.kind, stale.text], ['warning', 'この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います（ホスト が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。最後の共有は 2 時間前（Alice の PC から）です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。']);
+  assert.doesNotMatch(stale.text, /Alice の画面/);
+  // 自分が送った共有（ID は大文字小文字・全半角をそろえて比べる）
+  const mine = roleSummary(state(3, 'ＢＯＢ'), { userId: 'bob', now });
+  assert.deepEqual([mine.kind, mine.text], ['info', 'この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います（ホスト が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前（あなたの PC から）']);
+  const mineStale = roleSummary(state(30, 'Bob'), { userId: 'Bob', now });
+  assert.equal(mineStale.kind, 'warning');
+  assert.match(mineStale.text, /配合牧場の自動登録は ホスト の画面が行います.*最後の共有は 30 分前（あなたの PC から）です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。$/);
+  // 送った人が分からない古い共有の形は、今までどおりホスト名で（PC は添えない）
+  const unknown = roleSummary(state(3, ''), { userId: 'Bob', now });
+  assert.equal(unknown.text, 'この PC では読み込みません。配合牧場の自動登録は Host の画面が行います（Host が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき） · 最後の共有 3 分前');
+});
+
+test('共有が止まっている案内（host-rotation）: 参加者がゲーム中で、共有のセーブが 5 分以上古い・共有がないときだけ。共有を 60 秒より前にしか確かめていなければ出さない', async () => {
+  const { shareLagNotice, ownedNotices } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const old = shareLagNotice(guestPlaying(), { now });
+  assert.deepEqual(old, { text: `ゲーム中のようですが、共有は 12 分前のセーブのままです。${LAG_HELP}`, kind: 'warning', action: 'editWorld' });
+  // 共有がない（このワールドはまだ共有されていない）
+  assert.deepEqual(shareLagNotice(guestPlaying({ meta: { worldId: 'W', worldName: '', hostName: '' } }), { now }),
+    { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${LAG_HELP}`, kind: 'warning', action: 'editWorld' });
+  // 共有が新しい（5 分より新しいセーブ）
+  assert.equal(shareLagNotice(guestPlaying({ meta: { ...guestPlaying().meta, saveUpdatedAt: msAgo(4 * 60000) } }), { now }), null);
+  assert.notEqual(shareLagNotice(guestPlaying({ meta: { ...guestPlaying().meta, saveUpdatedAt: msAgo(5 * 60000) } }), { now }), null);
+  // ゲーム中でない（変化が 1 回だけ・2 分より前・別のワールドや役割の記録）
+  for (const play of [
+    { worldId: 'W', role: 'guest', value: 1, changes: [{ at: ROTATION_NOW - 1000, gap: 30000 }] },
+    { ...playRecord(), changes: playRecord().changes.map((change) => ({ ...change, at: change.at - 2 * 60000 })) },
+    playRecord('OTHER'), playRecord('W', 'host'),
+  ]) assert.equal(shareLagNotice(guestPlaying({ play }), { now }), null, JSON.stringify(play));
+  // 共有を最近確かめていない（裏のタブから表に戻った直後の古い共有）
+  for (const fetchedAt of ['', msAgo(61000), 'x']) {
+    assert.equal(shareLagNotice(guestPlaying({ shared: { ...guestPlaying().shared, fetchedAt } }), { now }), null, fetchedAt);
+  }
+  assert.notEqual(shareLagNotice(guestPlaying({ shared: { ...guestPlaying().shared, fetchedAt: msAgo(60000) } }), { now }), null);
+  // ホストには出さない
+  assert.equal(shareLagNotice(guestPlaying({ role: 'host', play: playRecord('W', 'host') }), { now }), null);
+  // 所持パルの案内: 役割の 1 行の後に［ワールドを編集］つきで。共有がないときは、共有を待つ 1 行の代わりに
+  const notices = ownedNotices(guestPlaying(), { userId: 'Bob', now });
+  assert.deepEqual(notices.map((notice) => [notice.kind, notice.action ?? '']), [['warning', ''], ['warning', 'editWorld']]);
+  assert.equal(notices[1].text, old.text);
+  const none = ownedNotices(guestPlaying({ meta: { worldId: 'W', worldName: '', hostName: '' }, owned: null, data: null }), { now });
+  assert.deepEqual(none.map((notice) => notice.text), [`ゲーム中のようですが、このワールドはまだ共有されていません。${LAG_HELP}`]);
+  const waiting = ownedNotices(guestPlaying({ meta: { worldId: 'W', worldName: '', hostName: '' }, owned: null, data: null, play: null }), { now });
+  assert.deepEqual(waiting.map((notice) => notice.text), ['ホストがまだこのワールドの所持パルを共有していません。']);
+});
+
+test('ゲーム中の推定の行（host-rotation）: ホストは「ホスト中（推定）」と「ホスト用のセーブあり」を分け、参加者はゲーム中のときだけ', async () => {
+  const { playSummary } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  assert.equal(playSummary(guestPlaying({ role: 'host', play: playRecord('W', 'host') }), { now }), 'ホスト中（推定）');
+  assert.equal(playSummary(guestPlaying({ role: 'host', play: playRecord('W', 'guest') }), { now }), 'ホスト用のセーブあり（ゲームの保存は続けて見えていません）');
+  assert.equal(playSummary(guestPlaying({ role: 'host', play: undefined }), { now }), 'ホスト用のセーブあり（ゲームの保存は続けて見えていません）');
+  assert.equal(playSummary(guestPlaying(), { now }), '参加中（推定）');
+  assert.equal(playSummary(guestPlaying({ play: playRecord('OTHER') }), { now }), '');
+  assert.equal(playSummary(guestPlaying({ role: '' }), { now }), '');
 });

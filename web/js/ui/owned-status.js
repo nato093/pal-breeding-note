@@ -6,6 +6,7 @@ import { toast } from './toast.js';
 import { isObject, int } from '../core/boundary.js';
 import { userIdKey } from '../core/user.js';
 import { dpsMissing } from '../core/owned.js';
+import { isPlaying } from '../core/playing.js';
 
 // 許可切れの案内（autoreg-visibility。ヘッダーのセーブ連携・所持パルの案内・設定の状態の 3 か所で permissionNotice の同じ文を出す）。
 // Chrome は「今回のみ」で許可したファイルの読む許可を、タブがしばらく裏にあると外すことがある（何分で外れるかは実機で確かめていない）
@@ -52,7 +53,9 @@ export function guestAutoText(host = 'ホスト') {
 /**
  * 役割ごとの 1 行。ホスト・参加者（role 'guest'）・未連携で共有を見ている人。共有を見ていない未連携の人は null
  *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
- * いなければ hint に 1 行（X-07。一致したときは出さない）
+ * いなければ hint に 1 行（X-07。一致したときは出さない）。
+ * 参加者の文は、最後に共有した人を今のホストと決めつけない（ホストは仲間内で交代する。sync-fixes の host-rotation）: 新しい共有を別の人が
+ * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える
  * @returns {null | { text: string, kind: 'info' | 'warning', hint: string }}
  */
 export function roleSummary(state, { userId = '', now = Date.now } = {}) {
@@ -66,14 +69,62 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
   const stale = shared && Number.isFinite(Date.parse(sharedAt)) && now() - Date.parse(sharedAt) > SHARED_STALE_MS;
   const hint = shared ? nameMismatch(state.owned?.players ?? [], userId) : '';
   if (state.role === 'guest') {
-    const base = guestAutoText(host);
-    if (!shared) return { text: base, kind: 'info', hint: '' };
-    return stale
-      ? { text: `${base}最後の共有は ${ago}です。${host} の画面が閉じていると、配合牧場の自動登録も止まります。`, kind: 'warning', hint }
-      : { text: `${base.replace(/。$/, '')} · 最後の共有 ${ago}`, kind: 'info', hint };
+    if (!shared) return { text: guestAutoText(host), kind: 'info', hint: '' };
+    // 共有した PC（送った人は ID で比べる。分からなければ添えない）
+    const mine = Boolean(userId && meta.uploadedBy) && userIdKey(meta.uploadedBy) === userIdKey(userId);
+    const from = mine ? '（あなたの PC から）' : meta.uploadedBy ? `（${meta.uploadedBy} の PC から）` : '';
+    if (stale) {
+      return {
+        text: `${guestAutoText()}最後の共有は ${ago}${from}です。今ホストしている人の画面が閉じていると、共有も配合牧場の自動登録も止まります。`,
+        kind: 'warning', hint,
+      };
+    }
+    return { text: `${guestAutoText(mine ? 'ホスト' : host).replace(/。$/, '')} · 最後の共有 ${ago}${from}`, kind: 'info', hint };
   }
   if (!shared) return null;
   return { text: `${host} が共有した所持パルを表示しています · 最後の共有 ${ago}`, kind: stale ? 'warning' : 'info', hint };
+}
+
+// ---- ゲーム中の推定と、共有が止まっていることの案内（sync-fixes の host-rotation） ----
+// 参加者がゲーム中なのに、共有のセーブがこれより古い（または共有がない）と、今のホストの画面が閉じているとみなす
+export const SHARE_LAG_MS = 5 * 60 * 1000;
+// 共有をこの間の中に確かめたときだけ案内する（参加者のタブは裏では共有を読まない〔D26〕ので、表に戻った直後の古い共有で誤って出さない）
+export const SHARE_CHECKED_MS = 60 * 1000;
+
+/** この PC が今のワールド・今の役割でゲーム中か（owned.js の state.play。core/playing.js の isPlaying） */
+export function playingNow(state, now = Date.now()) {
+  return isPlaying(state?.play, { worldId: state?.linkedWorldId ?? '', role: state?.role ?? '' }, now);
+}
+
+/**
+ * ヘッダーのセーブ連携のパネルの「ゲーム」の行。ホストはゲームの保存が続けて見えているか（「ホスト中（推定）」）と、ホスト用のセーブが
+ * あるだけか（同期で受け取った・ゲームを終えた後）を分ける。参加者はゲーム中のときだけ。ほかは ''
+ */
+export function playSummary(state, { now = Date.now } = {}) {
+  const playing = playingNow(state, now());
+  if (state?.role === 'host') return playing ? 'ホスト中（推定）' : 'ホスト用のセーブあり（ゲームの保存は続けて見えていません）';
+  return state?.role === 'guest' && playing ? '参加中（推定）' : '';
+}
+
+/**
+ * 参加者がゲーム中なのに、共有が止まっている（共有のセーブが SHARE_LAG_MS より古い・このワールドの共有がない）ときの案内。所持パルの案内
+ *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」）に同じ文で出す。共有を SHARE_CHECKED_MS の中に確かめて
+ * いなければ出さない
+ * @returns {null | { text: string, kind: 'warning', action: 'editWorld' }}
+ */
+export function shareLagNotice(state, { now = Date.now } = {}) {
+  if (state?.role !== 'guest') return null;
+  const time = now();
+  if (!playingNow(state, time)) return null;
+  const checked = Date.parse(state.shared?.fetchedAt ?? '');
+  if (!Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
+  const meta = state.meta ?? {};
+  const help = '今のホストの PC でこのページが開いているか確かめてください（あなたがホストなら［ワールドを編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください）。';
+  if (meta.source !== 'shared') return { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${help}`, kind: 'warning', action: 'editWorld' };
+  const saved = Date.parse(meta.saveUpdatedAt ?? '');
+  if (Number.isFinite(saved) && time - saved < SHARE_LAG_MS) return null;
+  const ago = timeAgo(meta.saveUpdatedAt, time);
+  return { text: `ゲーム中のようですが、共有は ${ago ? `${ago}の` : '古い'}セーブのままです。${help}`, kind: 'warning', action: 'editWorld' };
 }
 
 // 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人がいないときの 1 行
@@ -317,11 +368,14 @@ export function ownedNotices(state, { userId = '', now = Date.now, selfUids = ne
   } else if (auto.status === 'error') {
     notices.push({ text: auto.error || 'セーブを読めませんでした', kind: 'warning', action: 'settings' });
   }
-  // 参加者: データがなければ共有を待つ 1 行、あれば役割の 1 行（自動登録はホストの画面が行うこと・最後の共有。roles）と、名前が合わないときの 2 行目
-  if (state.role === 'guest' && !hasData) notices.push({ text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
+  // 参加者: データがなければ共有を待つ 1 行、あれば役割の 1 行（自動登録はホストの画面が行うこと・最後の共有。roles）と、名前が合わないときの 2 行目。
+  // ゲーム中なのに共有が止まっていれば、その案内（共有がなければ共有を待つ 1 行の代わり。host-rotation）
+  const lag = shareLagNotice(state, { now });
+  if (state.role === 'guest' && !hasData) notices.push(lag ?? { text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
   if (state.role === 'guest' && hasData) {
     const summary = roleSummary(state, { userId, now });
     if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}) });
+    if (lag) notices.push(lag);
   }
   // パル次元ストレージの読み漏れ（共有を出しているとき。自分が候補のときだけ。この PC で読んだセーブの分は、下の読めなかったファイルの後）
   if (state.meta?.source === 'shared') {

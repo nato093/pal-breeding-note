@@ -881,8 +881,8 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   await path.dispatch('input');
   assert.equal(status().textContent, '✓ Steam 7656 ／ ワールド ABCD…');
   assert.match(status().className, /ok/);
-  // ドロップするファイルを 2 組（全員／ホストの PC だけ）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
-  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストの PC だけ']);
+  // ドロップするファイルを 2 組（全員／ホストする PC〔交代でホストする人も。host-rotation〕）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストする PC（交代でホストする人も）']);
   const labels = () => dialog.querySelectorAll('.owned-draft-items').flatMap((list) => list.children)
     .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', '').replace(item.querySelector('.owned-draft-note')?.textContent ?? '', ''));
   assert.deepEqual(labels(), ['— LocalData.sav', '— Level.sav', '— LevelMeta.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
@@ -979,6 +979,9 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   assert.deepEqual(calls, [['enabled', false, 'W'], ['mapping', P1, '仲間', 'W']]);
   // 参加しているだけのワールドでは、自動登録はホストの画面が行うこと（「自動登録は動きません」とは言わない。X-06）
   assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います/);
+  // 交代でホストするなら［編集］でホストの組のファイルを足すこと（host-rotation）
+  assert.equal(guest.querySelector('.owned-rotation-note').textContent, '交代でホストするなら、［編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください（ホストしたときに共有と自動登録が動きます）。');
+  assert.equal(host.querySelector('.owned-rotation-note'), null);
   assert.doesNotMatch(card.element.textContent, /自動登録は動きません/);
   assert.ok(!guest.querySelector('.owned-toggle'));
   // 描き直しても、開いた行は開いたまま
@@ -3180,7 +3183,9 @@ test('ワールドの登録（roles）: 背景のクリックでは閉じず、�
   await tick();
   const [, host] = dialog.querySelectorAll('.owned-draft-group');
   assert.match(host.className, /is-dim/);
-  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストの PC だけ（参加として登録できます）');
+  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストする PC（交代でホストする人も。なくても参加として登録できます）');
+  // 参加者として登録する結果欄には、交代でホストするならホストの組のファイルも足すこと（host-rotation）
+  assert.equal(dialog.querySelector('.owned-dialog-result').textContent, '参加者として登録します（交代でホストするなら Level.sav・LevelMeta.sav・Players のファイルも足すと、ホストしたときに共有と自動登録が動きます）');
   assert.equal(register.disabled, false);
 });
 
