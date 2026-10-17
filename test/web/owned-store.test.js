@@ -2550,3 +2550,84 @@ test('所持パル（page-presence・Codex のレビュー）: 一覧を受け�
   assert.deepEqual([background.store.state.pages.list, openPagesLines(background.store.state, { now: background.time })], [null, []]);
   assert.ok(emitted.background > 0);
 });
+
+// ---------------------------------------------------------------------------
+// sync-fixes の最終レビューの直し（画面の側）
+// ---------------------------------------------------------------------------
+
+// 中身の印（SHA-256。crypto.subtle.digest）の計算を止められるようにする。hold() で次からの計算を止め（戻り値の関数で続ける）、count は呼ばれた数
+function holdHashing(t) {
+  const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+  const control = { count: 0, gate: null };
+  t.mock.method(globalThis.crypto.subtle, 'digest', async (...args) => {
+    control.count++;
+    if (control.gate) await control.gate;
+    return digest(...args);
+  });
+  control.hold = () => {
+    let release;
+    control.gate = new Promise((resolve) => { release = resolve; });
+    return () => { control.gate = null; release(); };
+  };
+  return control;
+}
+// 送った ownedUpload ごとに、そのときのログインの環境を残す（開発用 API は呼んだときの環境のシートに書く）
+function recordUploadScopes(shared) {
+  const scopes = [];
+  const request = shared.server.request;
+  shared.server.request = (action, input) => {
+    if (action === 'ownedUpload') scopes.push(shared.server.scope());
+    return request(action, input);
+  };
+  return scopes;
+}
+
+test('所持パル（最終レビュー）: 共有の送信は、中身の印の計算中にログインの環境が替わったら送らない（test で始めた送信を prod に書かない。列を狭めて送り直す回も）', async (t) => {
+  const hashing = holdHashing(t);
+  const up = uploadServer();
+  const scopes = recordUploadScopes(up);
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const release = hashing.hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => hashing.count > 0);
+  assert.equal(host.store.state.upload.status, 'sending');
+  // 送信が GAS に届く前（印の計算中）にログインの環境が替わった
+  up.setScope('prod');
+  await host.store.scopeChanged();
+  release();
+  await settleUpload(host.store);
+  // 応答の後で替わっていたときと同じ扱い（結果を空に・今の共有とキャッシュに入れない・送り直しの段にしない）
+  assert.deepEqual(scopes, []);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.shared.worlds, host.store.state.shared.current], ['', [], null]);
+  assert.equal(await sharedCache(host.persist, 'prod'), null);
+  assert.equal(host.store.state.meta.source, 'local');
+  // 古い GAS が列の幅の違う共有を断り、末尾の列を外して送り直す回の印の計算中に替わったときも、狭めた共有を送らない
+  const { ApiError } = await import('../../web/js/api.js');
+  const shared = sharedServer();
+  const widths = [];
+  let resume = null;
+  const old = {
+    ...shared.server,
+    async request(action, input = {}) {
+      if (action === 'ownedUpload') {
+        widths.push([shared.server.scope(), input.columns.length]);
+        if (input.columns.length === OWNED_FIELDS.length) {
+          // 次の印の計算（狭めた共有の分）を止める
+          resume = hashing.hold();
+          throw new ApiError('VALIDATION', { ok: false, code: 'VALIDATION', errors: [{ field: 'columns', code: 'INVALID_COLUMNS' }] });
+        }
+      }
+      return shared.server.request(action, input);
+    },
+  };
+  const narrowing = setup({ server: old, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  hashing.count = 0;
+  await narrowing.register(WORLD_A, hostFiles());
+  await until(() => widths.length === 1 && hashing.count === 2);
+  shared.setScope('prod');
+  await narrowing.store.scopeChanged();
+  resume();
+  await settleUpload(narrowing.store);
+  assert.deepEqual(widths, [['test', OWNED_FIELDS.length]]);
+  assert.deepEqual([narrowing.store.state.upload.status, narrowing.store.state.shared.worlds], ['', []]);
+});

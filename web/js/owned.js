@@ -898,6 +898,11 @@ export function createOwnedStore({
     // 登録の確定の後に別のセーブを読んだ（送るのはいつも今の手元のデータなので、前の印はもう使わない）
     if (!force) commitLocal = null;
     const changed = () => scope() !== key || sharedEpoch !== epoch;
+    // 送っている間にログイン・環境が替わった: 前の保存先への送信・応答なので、今の共有とキャッシュには入れず、再試行もしない
+    const dropped = (result) => {
+      state.upload = emptyUpload();
+      return { result, retry: false };
+    };
     try {
       const owned = normalizeOwned(local.snapshot, { pals, passives });
       const payload = sharedUpload(owned);
@@ -920,6 +925,9 @@ export function createOwnedStore({
       for (;;) {
         sent = width >= full ? payload : { ...payload, columns: payload.columns.slice(0, width), rows: payload.rows.map((row) => row.slice(0, width)) };
         const contentHash = await ownedContentHash({ worldId: head.worldId, world, ...sent });
+        // 印の計算の間に環境が替わったら送らない（応答を捨てるだけでは、前の環境で始めた送信が新しい環境のシートに書かれてしまう。
+        // 列を狭めて送り直す回も、送る直前に毎回確かめる）
+        if (changed()) return dropped('skipped');
         const identity = { saveStamp: stamp, contentHash, format: OWNED_FORMAT - (full - width), ...counts, force };
         try {
           response = await server.request('ownedUpload', { ...head, world: { ...world, ...identity }, ...sent });
@@ -933,11 +941,7 @@ export function createOwnedStore({
       if (start === full && width < full) uploadWidthAt = now();
       uploadWidth = width;
       if (commitLocal === local) commitLocal = null;
-      if (changed()) {
-        // 送っている間にログイン・環境が替わった。前の保存先への応答なので、今の共有とキャッシュには入れない
-        state.upload = emptyUpload();
-        return { result: 'skipped', retry: false };
-      }
+      if (changed()) return dropped('skipped');
       const result = OWNED_RESULTS.includes(response.result) ? response.result : '';
       const published = { saveStamp: response.world.saveStamp ?? '', uploadedBy: response.world.uploadedBy ?? '', uploadedAt: response.world.uploadedAt ?? '' };
       // 自分の共有が載っているか（応答を失った後の再送・読み込み直しで、前の自分の送信が届いていた unchanged も）。送った人は ID で比べる
@@ -962,10 +966,7 @@ export function createOwnedStore({
       }
       return { result: response.stored ? 'uploaded' : result === 'unchanged' ? 'unchanged' : status, retry: false };
     } catch (error) {
-      if (changed()) {
-        state.upload = emptyUpload();
-        return { result: 'error', retry: false };
-      }
+      if (changed()) return dropped('error');
       const retry = UPLOAD_RETRY_CODES.has(error?.code);
       state.upload = { ...emptyUpload(), ...origin, status: 'error', error: error?.message ?? String(error) };
       if (!retry && commitLocal === local) commitLocal = null;
