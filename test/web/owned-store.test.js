@@ -14,6 +14,7 @@ import { parseHash } from '../../web/js/router.js';
 import { ownedView } from '../../web/js/views/owned.js';
 import { ownedSettingsCard } from '../../web/js/views/owned-settings.js';
 import { OWNED_FIELDS, OWNED_FORMAT } from '../../web/js/core/owned-shared.js';
+import { isPlaying, emptyPlay, playTicksMs } from '../../web/js/core/playing.js';
 
 function memoryStorage() {
   const map = new Map();
@@ -2082,4 +2083,96 @@ test('所持パル（save-watch）: 別のワールドに替わった・登録�
   await other.store.removeWorld(WORLD_A);
   assert.equal(timer.cancelled, true);
   assert.equal(await timer.fn(), 'skipped');
+});
+
+// ---- ゲーム中の推定（sync-fixes の host-rotation） ----
+
+// seconds 秒のセーブの中の保存時刻（生のティック）
+const secondsTick = (seconds) => String(638650000000000000n + BigInt(seconds) * 10_000_000n);
+// 今のワールド・今の役割でゲーム中か（画面と同じ使い方）
+const playingOf = (host) => isPlaying(host.store.state.play, { worldId: host.store.state.linkedWorldId, role: host.store.state.role }, host.time());
+
+test('所持パル（host-rotation）: ホストは登録したファイルから読んだ Level.sav の中の保存時刻でゲーム中を数える（最初の読み込みは基準だけ・2 分で外れる）', async () => {
+  let seconds = 0;
+  const host = setup({ runImport: async () => stampedSnapshot(secondsTick(seconds)) });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  // 登録の確定で読んだセーブは基準だけ
+  assert.deepEqual(host.store.state.play, { worldId: WORLD_A, role: 'host', value: playTicksMs(secondsTick(0)), changes: [] });
+  assert.equal(playingOf(host), false);
+  seconds = 30;
+  newSave(files);
+  host.advance(30000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  assert.equal(playingOf(host), false);
+  // 変わっていないセーブの確認では数えない
+  host.advance(25000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  seconds = 60;
+  newSave(files);
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  assert.deepEqual(host.store.state.play.changes.map((change) => change.gap), [30000, 30000]);
+  assert.equal(playingOf(host), true);
+  // 直近 2 分に変化がなければ外れる
+  host.advance(2 * 60 * 1000 + 1);
+  assert.equal(playingOf(host), false);
+});
+
+test('所持パル（host-rotation）: 参加者は一覧の LocalData.sav の更新日時でゲーム中を数える。役割が変われば数え直す', async () => {
+  const host = setup();
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  assert.equal(host.store.state.play.role, 'host');
+  // 参加すると LocalData.sav だけが新しくなる（参加者と判定した値を基準に数え直す）
+  files['LocalData.sav'].time = T0 + 30000;
+  host.advance(25000);
+  assert.equal(await host.store.autoRefresh(), 'guest');
+  assert.deepEqual(host.store.state.play, { worldId: WORLD_A, role: 'guest', value: T0 + 30000, changes: [] });
+  for (const step of [1, 2]) {
+    files['LocalData.sav'].time += 30000;
+    host.advance(25000);
+    assert.equal(await host.store.autoRefresh(), 'guest', String(step));
+  }
+  assert.deepEqual(host.store.state.play.changes.map((change) => change.gap), [30000, 30000]);
+  assert.equal(playingOf(host), true);
+  // 参加しただけのワールド（LocalData.sav だけの登録）も同じ
+  const guest = setup();
+  const local = fakeHandle('LocalData.sav');
+  assert.equal((await guest.register(WORLD_B, { 'LocalData.sav': local })).result, 'guest');
+  assert.deepEqual(guest.store.state.play, { worldId: WORLD_B, role: 'guest', value: T0, changes: [] });
+  local.time += 30000;
+  guest.advance(25000);
+  assert.equal(await guest.store.autoRefresh(), 'guest');
+  assert.deepEqual(guest.store.state.play.changes, [{ at: guest.time(), gap: 30000 }]);
+});
+
+test('所持パル（host-rotation）: 見張りの対象が変わったら（見張りのやり直し）ゲーム中の推定を数え直す。初めて見張るときは読んだ基準を残す', async () => {
+  const fake = fakeWatch();
+  let seconds = 0;
+  const host = setup({ watch: fake.client, runImport: async () => stampedSnapshot(secondsTick(seconds)) });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  assert.equal(fake.updates.length, 1);
+  assert.equal(host.store.state.play.value, playTicksMs(secondsTick(0)));
+  for (const next of [30, 60]) {
+    seconds = next;
+    newSave(files);
+    host.advance(30000);
+    assert.equal(await host.store.refreshFromWatch(WORLD_A), 'imported');
+  }
+  assert.equal(playingOf(host), true);
+  // 同じ対象のままなら送り直さず、数え直さない
+  assert.equal(fake.updates.length, 1);
+  // 登録を編集してファイルを足した（見張りの対象が変わった）
+  await host.register(WORLD_A, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
+  assert.equal(fake.updates.length, 2);
+  assert.deepEqual(host.store.state.play, emptyPlay());
+  assert.equal(playingOf(host), false);
+  // 次に読んだ値が基準
+  seconds = 90;
+  newSave(files);
+  host.advance(30000);
+  assert.equal(await host.store.refreshFromWatch(WORLD_A), 'imported');
+  assert.deepEqual(host.store.state.play, { worldId: WORLD_A, role: 'host', value: playTicksMs(secondsTick(90)), changes: [] });
 });

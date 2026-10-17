@@ -10,6 +10,7 @@ import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload }
 import { userIdKey } from './core/user.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
 import { createWatchClient, observable } from './save/watch.js';
+import { emptyPlay, trackPlay, playTicksMs } from './core/playing.js';
 import { errorMessage } from './api.js';
 
 const DATA_VERSION = 1;
@@ -320,6 +321,9 @@ export function createOwnedStore({
     // 'timer'（Worker を作れない。app.js の定期の確認だけ）・''（見張っていない）。lastSave は今のワールドの最後の保存
     //（at: 書き終えた時刻〔変わったファイルの更新日時の最大〕の ISO・files: 変わったファイルの数・spanMs: 書き始めから書き終わりまで）
     watch: { mode: '', lastSave: null },
+    // ゲーム中の推定の記録（core/playing.js の trackPlay。sync-fixes の host-rotation）。ホストは登録したファイルから読んだ Level.sav の中の
+    // 保存時刻、参加者は LocalData.sav の更新日時を読むたびに足す。使う側は isPlaying(state.play, { worldId: state.linkedWorldId, role: state.role })
+    play: emptyPlay(),
     data: null, owned: null, meta: null,
   };
   const emit = () => listeners.forEach((listener) => listener(state));
@@ -852,6 +856,9 @@ export function createOwnedStore({
       state.local = data;
       state.role = 'host';
       state.linkedWorldId = data.world.id;
+      // ゲーム中の推定は、登録したファイルから読んだセーブ（登録の確定で読んだものも）の中の保存時刻で数える（同期でファイルの更新日時が
+      // 書き換わっても、中の時刻は変わらない）
+      if (from === 'handles') state.play = trackPlay(state.play, { worldId: data.world.id, role: 'host', value: playTicksMs(snapshot.world?.savedAtTicks), at: now() });
       // 読み込みの途中で登録の削除・解除を求められていたら、共有しない
       state.uploadReady = epoch === linkEpoch;
       // 前のセーブを送った結果は消す（送っている途中と、送れなかった知らせは次の応答まで残す。share-upload）
@@ -1023,6 +1030,9 @@ export function createOwnedStore({
       state.role = 'guest';
       clearHold();
       blockUpload();
+      // 参加者のゲーム中の推定は LocalData.sav の更新日時で数える。参加者と判定するのは LocalData.sav が Level.sav より 10 秒以上新しいか
+      // Level.sav がないとき（save/source.js の judgeRole）なので、一覧の playedAt（2 つの更新日時の新しい方）は LocalData.sav の更新日時
+      state.play = trackPlay(state.play, { worldId: world.id, role: 'guest', value: Date.parse(world.playedAt), at: now() });
       return 'guest';
     }
     state.role = 'host';
@@ -1143,6 +1153,9 @@ export function createOwnedStore({
     const key = JSON.stringify(targets.map((target) => [target.worldId, target.host, target.current, target.revision, target.files.map((file) => file.path)]));
     if (key === watchKey) return;
     watchKey = key;
+    // 見張りをやり直したら、ゲーム中の推定を数え直す（次に読んだ値が基準）。見張っていなかったところから始めるとき（ページを開いた直後・
+    // 初めての登録）は、読んだばかりの基準を残す
+    if (watchedIds.size) state.play = emptyPlay();
     watchedIds = new Set(targets.map((target) => target.worldId));
     if (!targets.length) {
       watcher?.stop();
