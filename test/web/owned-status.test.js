@@ -115,6 +115,20 @@ test('許可切れの案内（autoreg-visibility）: grantWithReport は許可�
   assert.deepEqual(shown().at(-1), '読めませんでした');
 });
 
+test('今すぐ読み込む（save-watch）: refreshNow は一式を採用せずに読み直しを待つ（held）ときだけ知らせ、結果をそのまま返す', async (t) => {
+  installDom(t);
+  const { refreshNow, HELD_TEXT } = await import('../../web/js/ui/owned-status.js');
+  const shown = () => document.body.querySelectorAll('.toast-message').map((node) => node.textContent);
+  const calls = [];
+  const owned = (result) => ({ refreshAuto: (options) => { calls.push(options); return Promise.resolve(result); } });
+  assert.equal(await refreshNow(owned('imported')), 'imported');
+  assert.deepEqual(shown(), []);
+  assert.equal(await refreshNow(owned('held')), 'held');
+  assert.deepEqual(shown(), [HELD_TEXT]);
+  assert.deepEqual(calls, [{ enable: true }, { enable: true }]);
+  await assert.rejects(refreshNow({ refreshAuto: () => Promise.reject(new Error('読めませんでした')) }), /読めませんでした/);
+});
+
 test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で warning）・共有を見ている人。共有を見ていない未連携は null', async () => {
   const { roleSummary, HOST_SUMMARY, timeAgo, ownedNotices } = await import('../../web/js/ui/owned-status.js');
   const now = () => Date.parse('2026-10-15T12:00:00.000Z');

@@ -2,7 +2,7 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary } from './owned-status.js';
+import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, refreshNow, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
@@ -125,7 +125,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     const issues = el('ul', 'save-status-issues');
     // 許可はクリックの中で（await を挟まずに）求める
     const grant = button('読み込みを許可', () => grantPermission(), 'button primary');
-    const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
+    const reload = button('今すぐ読み込む', () => runButton(reload, () => refreshNow(owned), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
     // 設定のセーブ連携のカード（状態の欄の操作〔許可・今すぐ読み込む〕か見出しへフォーカス。router.js の settingsHash の 'status'）
     const settings = link('設定を開く', settingsHash('', 'status'), 'save-status-settings');
     settings.addEventListener('click', () => popup.close({ focus: false }));

@@ -3,7 +3,7 @@
 import { el, button, link, runButton, statusChip, setChipTone, setDisabled, downloadBlob, dateStamp } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
-import { dateTime, worldName, roleLabel, permissionNotice, grantWithReport, HOST_SUMMARY, guestAutoText } from '../ui/owned-status.js';
+import { dateTime, worldName, roleLabel, permissionNotice, grantWithReport, refreshNow, HOST_SUMMARY, guestAutoText } from '../ui/owned-status.js';
 import { palIcon, palsById } from '../ui/pal-icon.js';
 import { buildHash } from '../router.js';
 import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
@@ -290,7 +290,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   const autoState = statusChip('', 'neutral', 'owned-auto-state');
   // この PC の役割（ホスト・参加）の短いチップ（前は状態の dl の「この PC」の括弧書き。C-36）
   const roleChip = statusChip('', 'neutral', 'owned-role-chip');
-  const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
+  const autoNow = button('今すぐ読み込む', () => runButton(autoNow, () => refreshNow(owned), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
   // 許可はクリックの中で（await を挟まずに）求める。許可されなかったときのトーストは grantWithReport（3 か所で同じ）
   const grant = button('読み込みを許可', () => runButton(grant, () => grantWithReport(owned), () => {}), 'button primary');
   const stateRow = el('div', 'owned-import-row');

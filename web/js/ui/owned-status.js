@@ -94,6 +94,20 @@ export function grantWithReport(owned) {
   }, (error) => toast(error?.code === 'permission' ? PERMISSION_DENIED : error.message, { kind: 'error' }));
 }
 
+// 「今すぐ読み込む」で、保存の途中に読んだ・読めないファイルがあるため一式を採用せずに読み直しを待つ（owned.js の 'held'。save-watch）ときの知らせ
+export const HELD_TEXT = 'セーブの一部をまだ読めないため、少し待ってから自動で読み直します';
+
+/**
+ * 「今すぐ読み込む」のボタンの動き（2 か所で同じ）。読み直しを待つ（'held'）ときは、何も起きないように見えないよう知らせる。
+ * 失敗は呼び出し側（runButton）がトーストにする
+ */
+export function refreshNow(owned) {
+  return owned.refreshAuto({ enable: true }).then((result) => {
+    if (result === 'held') toast(HELD_TEXT);
+    return result;
+  });
+}
+
 // ---- プレイ中の仲間・ゲーム内の日数・Lv（save-extras。F006） ----
 // プレイ中は「その保存の時点で接続していた」（ギルドの最終ログインとワールドの通算の時間が一致）。ゲームを閉じた後も最後の保存には
 // 残るので、文には必ず保存（共有）の時刻を添え、所持者の選択肢の「（プレイ中）」は保存が新しいときだけ付ける。
