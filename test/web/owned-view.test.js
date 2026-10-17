@@ -962,7 +962,7 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   // チェックを外すと、行の状態もすぐ変わる
   assert.match(host.querySelector('.owned-world-state').textContent, /配合の自動登録: オフ/);
   // ホストの行のチェックの下に、ページを閉じている間は止まることの 1 行（roles）
-  assert.match(box.querySelector('.owned-role-note').textContent, /このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。/);
+  assert.match(box.querySelector('.owned-role-note').textContent, /このページを開いている間（タブが裏でもよい）、ゲームが保存するたびにセーブを読みます。閉じている間に孵化したタマゴは登録できません。/);
   // プレイヤーの対応はワールドの行の外の独立した欄（「使うワールド」の下。roles。C-03）
   assert.equal(box.querySelector('.owned-breeding-player'), null);
   const players = card.element.querySelector('.owned-players');

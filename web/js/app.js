@@ -901,7 +901,9 @@ async function boot() {
   // 所持パルの読み直しは、どの画面でもこの 10 秒ごとの 1 本で行う（画面ごとのタイマーは持たない。share-fetch）。
   // 表のタブなら共有も読み直す（autoRefresh。ホストのセーブは 20 秒以上空ける）。裏のタブでは共有を読まず（D26）、セーブのファイルを
   // 登録していれば読み直す（pollAuto。配合牧場の自動登録で、タマゴを拾う前に読むため）。長く裏にあるタブのタイマーは、ブラウザが
-  // 1 分に 1 回まで遅らせる。古いデータの印（時刻で変わる）も、このときに確かめ直す
+  // 1 分に 1 回まで遅らせる。ゲームの保存はセーブのファイルの見張り（save/watch.js の Worker。裏でも遅れない）が owned.refreshFromWatch で
+  // 知らせるので、ここでのセーブの読み直しは安全網（見張りの Worker を作れないブラウザでは、これだけで読む。save-watch）。
+  // 古いデータの印（時刻で変わる）も、このときに確かめ直す
   setInterval(() => {
     const refreshing = document.visibilityState === 'hidden' ? owned.pollAuto() : owned.autoRefresh();
     refreshing.catch(() => {});

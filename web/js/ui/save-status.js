@@ -2,11 +2,12 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems, dimensionNotice, uploadNotice } from './owned-status.js';
+import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
-// 古いデータの目安。この PC で読むデータは 1 分ごとに読み直すので 5 分、共有のデータは 60 分（実機で直してよい）
+// 古いデータの目安。この PC で読むデータはゲームが保存するたび（約 30 秒ごと。見張れないブラウザでは定期の確認）に読み直すので 5 分、
+// 共有のデータは 60 分（実機で直してよい）
 export const STALE_LOCAL_MS = 5 * 60 * 1000;
 export const STALE_SHARED_MS = 60 * 60 * 1000;
 
@@ -57,7 +58,7 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   if (sent) lines.push(sent.text);
   if (meta.source === 'local') {
     const stale = Boolean(auto.enabled) && olderThan(meta.importedAt, STALE_LOCAL_MS, now);
-    if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんは 1 分ごとに読み直します）`);
+    if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんはゲームが保存するたびに読み直します）`);
     const parts = { world, time: `セーブ ${formatShortTime(meta.saveUpdatedAt, now, '不明')}` };
     if (state.role === 'host') parts.auto = `自動登録 ${autoEnabled(meta.worldId) ? 'オン' : 'オフ'}`;
     return result(stale ? 'stale' : 'ok', parts, lines.join('\n'));
@@ -146,6 +147,9 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? state.meta.palCount ?? 0} 体` : '（データなし）'}` : 'なし']);
       const lines = timeLines(state);
       if (lines.length) items.push(['更新', lines.join('\n')]);
+      // セーブのファイルの見張りの方式と最後の保存（自動の読み込みが有効で登録があるときだけ。save-watch）
+      const watching = watchSummary(state, { now });
+      if (watching) items.push(['監視', watching]);
       // 共有の送信の結果（「同じセーブが共有済み（Alice の PC から）」など。share-upload）
       const sent = uploadNotice(state);
       if (sent) items.push(['共有', sent.text]);

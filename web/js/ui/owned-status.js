@@ -27,8 +27,9 @@ export function permissionNotice(state, { now = Date.now } = {}) {
 }
 
 // ---- 役割ごとの案内（roles。X-05・X-06・X-07） ----
-// ホストの 1 行（設定のホストのワールドの行の自動登録のチェックの下・ヘッダーのセーブ連携）
-export const HOST_SUMMARY = 'このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。';
+// ホストの 1 行（設定のホストのワールドの行の自動登録のチェックの下・ヘッダーのセーブ連携）。ゲームの保存はセーブのファイルの見張り
+//（save/watch.js。sync-fixes の save-watch）が知らせ、見張れないブラウザでも定期の確認で読む
+export const HOST_SUMMARY = 'このページを開いている間（タブが裏でもよい）、ゲームが保存するたびにセーブを読みます。閉じている間に孵化したタマゴは登録できません。';
 // 共有が古いとみなす経過（ホストの画面が閉じている目安）
 export const SHARED_STALE_MS = 10 * 60 * 1000;
 
@@ -96,7 +97,8 @@ export function grantWithReport(owned) {
 // ---- プレイ中の仲間・ゲーム内の日数・Lv（save-extras。F006） ----
 // プレイ中は「その保存の時点で接続していた」（ギルドの最終ログインとワールドの通算の時間が一致）。ゲームを閉じた後も最後の保存には
 // 残るので、文には必ず保存（共有）の時刻を添え、所持者の選択肢の「（プレイ中）」は保存が新しいときだけ付ける。
-// ゲームは約 30 秒ごとに保存し、ホストの画面は 1 分ごとに読むので、この PC のデータは 5 分、共有は 10 分（ホストの PC との時計のずれの分）
+// ゲームは約 30 秒ごとに保存し、ホストの画面は保存のたびに読む（見張れないブラウザでは定期の確認で、タブが裏だと 1 分ごとまで遅れる）ので、
+// この PC のデータは 5 分、共有は 10 分（ホストの PC との時計のずれの分）
 export const PRESENCE_FRESH_LOCAL_MS = 5 * 60 * 1000;
 export const PRESENCE_FRESH_SHARED_MS = SHARED_STALE_MS;
 // Lv の行に並べる人数（残りは「ほか n 人」）
@@ -192,6 +194,36 @@ export function uploadNotice(state) {
   if (upload.status === 'stale') return { text: '共有されているセーブの方が新しいため、そちらを表示しています', kind: 'info' };
   const who = upload.published?.uploadedBy;
   return { text: `同じセーブが共有済み${who ? `（${who} の PC から）` : ''}`, kind: 'info' };
+}
+
+// ---- セーブのファイルの見張り（sync-fixes の save-watch。owned.js の state.watch） ----
+export const WATCH_MODE_TEXT = Object.freeze({
+  observer: 'ファイルの変更', poll: '5 秒ごとの確認', timer: '定期の確認（タブが裏だと 1 分ごと）',
+});
+
+// 時:分:秒（今日でなければ月/日も）
+function clockTime(value, now) {
+  const time = new Date(value);
+  const today = new Date(now);
+  const sameDay = time.getFullYear() === today.getFullYear() && time.getMonth() === today.getMonth() && time.getDate() === today.getDate();
+  return new Intl.DateTimeFormat('ja-JP', {
+    ...(sameDay ? {} : { month: 'numeric', day: 'numeric' }), hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).format(time);
+}
+
+/**
+ * ヘッダーのセーブ連携のパネルの「監視」の行（「ファイルの変更 · 最後の保存 12:03:30（7 ファイル・0.8 秒）」）。自動の読み込みが有効で
+ * 登録があり、見張りの方式が分かるときだけ（なければ ''）。最後の保存は、今のワールドで見張りが知らせた一式の書き終わりの時刻・変わった
+ * ファイルの数・書き始めから書き終わりまで
+ */
+export function watchSummary(state, { now = Date.now } = {}) {
+  if (!state?.auto?.enabled || !state.auto.worlds?.length) return '';
+  const mode = WATCH_MODE_TEXT[state.watch?.mode];
+  if (!mode) return '';
+  const last = state.watch.lastSave;
+  if (!last || !Number.isFinite(Date.parse(last.at))) return mode;
+  const span = Number.isFinite(last.spanMs) ? `・${(Math.max(0, last.spanMs) / 1000).toFixed(1)} 秒` : '';
+  return `${mode} · 最後の保存 ${clockTime(last.at, now())}（${last.files} ファイル${span}）`;
 }
 
 /** 所持パルの更新時刻（セーブ・共有）。 */
