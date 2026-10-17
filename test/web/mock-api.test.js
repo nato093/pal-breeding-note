@@ -290,3 +290,30 @@ test('モック（roles）: as=viewer なら、ホスト（Alice）が 3 分前�
   assert.deepEqual((await createDevelopmentApi({ as: 'host' })(ownedRequest('ownedWorlds'))).worlds, []);
   assert.deepEqual((await createDevelopmentApi()(ownedRequest('ownedWorlds'))).worlds, []);
 });
+
+test('モック（page-presence）: ページを開いている PC はページの ID ごとに 1 件（送り直しは入れ替え）、サーバーの時刻つき。ownedSince は載せなくても一覧を返し、形の違う presence は記録しない', async () => {
+  let clock = Date.parse('2026-10-17T10:00:00.000Z');
+  const api = createDevelopmentApi({ now: () => clock });
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  const ownedRequest = (action, extra = {}) => ({ action, passcode: 'ローカル動作確認', worldId: world, ...extra });
+  const page = (pageId, extra = {}) => ({ pageId, device: 'alice-device-01', user: 'Alice', role: 'host', playing: false, canShare: true, ...extra });
+  const first = await api(ownedRequest('presence', { presence: page('alice-page-0001') }));
+  assert.deepEqual([first.saved, first.serverTime, first.presence], [true, '2026-10-17T10:00:00.000Z', [
+    { device: 'alice-device-01', user: 'Alice', role: 'host', playing: false, canShare: true, at: '2026-10-17T10:00:00.000Z' },
+  ]]);
+  // 同じページの 60 秒後の送り直しは入れ替え、同じ PC の 2 つ目のタブは別の 1 件（新しい順）
+  clock += 60000;
+  await api(ownedRequest('presence', { presence: page('alice-page-0001', { playing: true }) }));
+  clock += 1000;
+  const second = await api(ownedRequest('presence', { presence: page('alice-page-0002', { role: 'none', canShare: false }) }));
+  assert.deepEqual(second.presence.map((item) => [item.device, item.role, item.playing, item.at]), [
+    ['alice-device-01', 'none', false, '2026-10-17T10:01:01.000Z'],
+    ['alice-device-01', 'host', true, '2026-10-17T10:01:00.000Z'],
+  ]);
+  // ownedSince は presence を載せなくても一覧を返す（共有がなくても）。形の違う presence は本体を断らず、記録もしない
+  const since = await api(ownedRequest('ownedSince', { uploadedAt: '', presence: page('bad page id') }));
+  assert.deepEqual([since.ok, since.changed, since.world, since.presence.length], [true, true, null, 2]);
+  assert.equal((await api(ownedRequest('ownedSince', { uploadedAt: '' }))).presence.length, 2);
+  // presence の操作で形が違えば VALIDATION
+  assert.equal((await api(ownedRequest('presence', { presence: page('alice-page-0003', { role: 'admin' }) }))).code, 'VALIDATION');
+});

@@ -8,10 +8,10 @@ import {
   normalizeOwned, createSpeciesResolver, filterOwned, sortOwned, ownedRows, rowsToCsv, OWNED_COLUMNS,
   ownedRouteStarts, partnerOwnership, ownedBySpecies, canBeParent, ownedCounts, canPairRecord, passiveCounts, palboxPosition, sharedUpload, ownedFromShared,
   keywordTerms, keywordNotes, workEntries, speciesGenderCounts, OWNED_SORTS, sortKey, sortLabel, palboxLabel, parseBoxLabel, eggName, isMutantEgg,
-  PLACE_ORDER, PLACE_LABELS, cakeInfo,
+  PLACE_ORDER, PLACE_LABELS, cakeInfo, dpsLabel, boxShort, dpsMissing, ownedContentText,
 } from '../../web/js/core/owned.js';
 import { palsOfPlayers } from '../../web/js/core/ideal-goals.js';
-import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS } from '../../web/js/core/owned-shared.js';
+import { cleanOwnedFarms, validateOwnedUpload, OWNED_FIELDS, OWNED_ADDED_FIELDS, OWNED_MAX_FARMS, OWNED_DPS_GAP_MAX, cleanOwnedPlayer } from '../../web/js/core/owned-shared.js';
 import { isParentCandidate } from '../../web/js/core/ideal.js';
 import palWork from '../../web/data/work.js';
 
@@ -276,6 +276,76 @@ test('所持パル: パルボックスの位置（box）はセーブの通し番
     OWNED_FIELDS.map((field) => ({ instanceId: 'old', palId: 'SheepBall', place: 'palbox', placeLabel: 'パルボックス' })[field] ?? ''),
   ] }, { pals, passives });
   assert.deepEqual([old.pals[0].box, old.pals[0].placeLabel], [null, 'パルボックス']);
+});
+
+test('所持パル: パル次元ストレージの位置（box）も添字から求め、placeLabel・短い表記・共有の読み戻しはパルボックスと分ける', () => {
+  // 2026-10-12 に実セーブで確かめた位置（次元ストレージの添字 → ページ・行・列）
+  const local = normalizeOwned({ ...snapshot, pals: [
+    pal('d0', 'SheepBall', { kind: 'dps', slotIndex: 0 }),
+    pal('d55', 'SheepBall', { kind: 'dps', slotIndex: 55 }),
+    pal('d77', 'SheepBall', { kind: 'dps', slotIndex: 77 }),
+    pal('d7820', 'SheepBall', { kind: 'dps', slotIndex: 7820 }),
+    pal('dnone', 'SheepBall', { kind: 'dps', slotIndex: undefined }),
+    pal('box', 'SheepBall', { kind: 'palbox', slotIndex: 55 }),
+  ] }, { pals, passives });
+  assert.deepEqual(local.pals.map((item) => item.box && [item.box.page, item.box.row, item.box.column]), [[1, 1, 1], [2, 5, 2], [3, 3, 6], [261, 4, 3], null, [2, 5, 2]]);
+  assert.deepEqual(local.pals.map((item) => item.placeLabel), [
+    'パル次元ストレージ 1 ページ・1 行 1 列', 'パル次元ストレージ 2 ページ・5 行 2 列', 'パル次元ストレージ 3 ページ・3 行 6 列',
+    'パル次元ストレージ 261 ページ・4 行 3 列', 'パル次元ストレージ', 'パルボックス 2 ページ・5 行 2 列',
+  ]);
+  // 所持者は次元ストレージの持ち主のまま
+  assert.deepEqual(local.pals.map((item) => item.holder), ['Alice', 'Alice', 'Alice', 'Alice', 'Alice', 'Alice']);
+  // 短い表記は、次元ストレージだけ頭に「次元 」（位置が分からなければ空）
+  assert.deepEqual(local.pals.map(boxShort), ['次元 P1 · 1-1', '次元 P2 · 5-2', '次元 P3 · 3-6', '次元 P261 · 4-3', '', 'P2 · 5-2']);
+  assert.equal(boxShort(byId.a), '');
+  assert.equal(boxShort(null), '');
+  // 参加者の画面は placeLabel の文字から位置を読み戻す（パルボックスと同じ）
+  const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...sharedUpload(local) }, { pals, passives });
+  assert.deepEqual(shared.pals.map((item) => item.box), local.pals.map((item) => item.box));
+  assert.deepEqual(shared.pals.map((item) => item.placeLabel), local.pals.map((item) => item.placeLabel));
+  // パルボックスの書式は変えない（共有の互換。古い画面も同じ書式で位置を読む）
+  assert.equal(palboxLabel({ page: 2, row: 5, column: 2 }), 'パルボックス 2 ページ・5 行 2 列');
+  assert.deepEqual(parseBoxLabel('パルボックス 2 ページ・5 行 2 列'), { page: 2, row: 5, column: 2 });
+  // 書式（dpsLabel）と読み取り（parseBoxLabel の 'dps'）は往復し、場所が違えば読まない（パルボックスの文字を次元ストレージとして読まない・逆も）
+  for (const index of [0, 55, 77, 7820]) {
+    const position = palboxPosition(index);
+    assert.equal(dpsLabel(position), `パル次元ストレージ ${position.page} ページ・${position.row} 行 ${position.column} 列`);
+    assert.deepEqual(parseBoxLabel(dpsLabel(position), 'dps'), position);
+    assert.equal(parseBoxLabel(dpsLabel(position)), null);
+    assert.equal(parseBoxLabel(dpsLabel(position), 'palbox'), null);
+    assert.equal(parseBoxLabel(palboxLabel(position), 'dps'), null);
+    for (const kind of ['party', 'base', 'global', 'unknown', 'toString', '']) assert.equal(parseBoxLabel(dpsLabel(position), kind), null, kind);
+  }
+  // 形の違う文字・範囲の外の値は null
+  for (const label of ['パル次元ストレージ', 'パル次元ストレージ 2 ページ', 'パル次元ストレージ 0 ページ・1 行 1 列', 'パル次元ストレージ 1 ページ・6 行 1 列',
+    'パル次元ストレージ 1 ページ・1 行 7 列', 'パル次元ストレージ 10000 ページ・1 行 1 列', null]) {
+    assert.equal(parseBoxLabel(label, 'dps'), null, String(label));
+  }
+  // 古い共有（位置のない「パル次元ストレージ」）は位置なしで、文字だけを出す
+  const old = ownedFromShared({ world: { worldName: 'テスト' }, columns: OWNED_FIELDS, rows: [
+    OWNED_FIELDS.map((field) => ({ instanceId: 'old', palId: 'SheepBall', place: 'dps', placeLabel: 'パル次元ストレージ' })[field] ?? ''),
+    // 場所が dps 以外なのに次元ストレージの位置の文字（壊れた行）は位置を読まない
+    OWNED_FIELDS.map((field) => ({ instanceId: 'odd', palId: 'SheepBall', place: 'base', placeLabel: 'パル次元ストレージ 1 ページ・1 行 1 列' })[field] ?? ''),
+  ] }, { pals, passives });
+  assert.deepEqual(old.pals.map((item) => [item.box, item.placeLabel, boxShort(item)]), [
+    [null, 'パル次元ストレージ', ''], [null, 'パル次元ストレージ 1 ページ・1 行 1 列', ''],
+  ]);
+});
+
+test('所持パル: ボックス順で、パル次元ストレージも位置の順に並び、パルボックスとは混ざらない（所持者 → 場所 → 位置）', () => {
+  const list = normalizeOwned({ ...snapshot, pals: [
+    pal('a-dps-p2', 'SheepBall', { kind: 'dps', playerUid: P1, slotIndex: 30 }),
+    pal('a-box-p3', 'SheepBall', { kind: 'palbox', playerUid: P1, slotIndex: 60 }),
+    pal('a-dps-r2', 'PinkCat', { kind: 'dps', playerUid: P1, slotIndex: 6 }),
+    pal('a-dps-none', 'PinkCat', { kind: 'dps', playerUid: P1, slotIndex: undefined }),
+    pal('a-box-p1', 'PinkCat', { kind: 'palbox', playerUid: P1, slotIndex: 0 }),
+    pal('a-dps-c1', 'PinkCat', { kind: 'dps', playerUid: P1, slotIndex: 0 }),
+    pal('b-dps-1', 'SheepBall', { kind: 'dps', playerUid: P2, slotIndex: 1 }),
+    pal('a-base', 'SheepBall', { kind: 'base', playerUid: '', baseId: BASE }),
+  ] }, { pals, passives }).pals;
+  // 拠点 2（所持者は拠点）→ Alice（パルボックス → 次元ストレージ。位置のない個体はグループの最後）→ Bob
+  assert.deepEqual(sortOwned(list, 'place').map((p) => p.id), ['a-box-p1', 'a-box-p3', 'a-dps-c1', 'a-dps-r2', 'a-dps-p2', 'a-dps-none', 'b-dps-1', 'a-base']);
+  assert.deepEqual(sortOwned(list, 'place', 'desc').map((p) => p.id), ['a-base', 'b-dps-1', 'a-dps-none', 'a-dps-p2', 'a-dps-r2', 'a-dps-c1', 'a-box-p3', 'a-box-p1']);
 });
 
 test('所持パル: キーワードはすべての項目から探し、空白で区切るとすべてを含む個体に絞る（レベル・★・個体値は含めない）', () => {
@@ -859,4 +929,110 @@ test('save-extras: ケーキの名前と表の ID（アイコンのファイル�
   assert.deepEqual(cakeInfo('Cake02'), { name: 'キノコケーキ', icon: 'Cake02' });
   assert.deepEqual(cakeInfo('cake05'), { name: 'スペシャルケーキ', icon: 'Cake05' });
   assert.deepEqual(cakeInfo('Cake09'), { name: 'Cake09', icon: '' });
+});
+
+// ---- パル次元ストレージの読み漏れ（dps-missing） ----
+const P3 = 'ffff0000-0000-0000-0000-000000000003';
+const FILE = (uid) => `Players/${uid.replace(/-/g, '').toUpperCase()}`;
+const gapSnapshot = ({ inLocker = 118, inLockerMissing = 27, used = [FILE(P1) + '.sav', FILE(P1) + '_dps.sav', FILE(P2) + '.sav'], players = snapshot.players } = {}) => ({
+  ...snapshot, players, stats: { inLocker, inLockerMissing }, files: { used: ['Level.sav', ...used], skipped: [] },
+});
+
+test('次元ストレージの読み漏れ（dpsMissing）: Players/<uid>.sav は読めたのに _dps.sav を読めていない人を候補にする（Lv の分かる人だけ・ファイル名の大文字小文字は問わない）', () => {
+  const gap = dpsMissing(gapSnapshot());
+  assert.deepEqual(gap, { expected: 118, missing: 27, candidates: [{ uid: P2, name: 'Bob', file: `${P2.replace(/-/g, '').toUpperCase()}_dps.sav` }] });
+  // 候補が 2 人。欠けの数は人数で割らない
+  const two = dpsMissing(gapSnapshot({ used: [FILE(P1) + '.sav', FILE(P2).toLowerCase() + '.sav'] }));
+  assert.deepEqual([two.missing, two.candidates.map((player) => player.name)], [27, ['Alice', 'Bob']]);
+  // .sav も読めていない人（登録されていないプレイヤーのファイルの案内に任せる）・Lv の分からない人は候補にしない → 候補なし
+  const none = dpsMissing(gapSnapshot({ used: [FILE(P1) + '.sav', FILE(P1) + '_dps.sav'], players: [...snapshot.players, { uid: P3, name: 'Carol', level: 0 }] }));
+  assert.deepEqual(none.candidates, []);
+  assert.deepEqual(dpsMissing(gapSnapshot({ used: [FILE(P3) + '.sav'], players: [{ uid: P3, name: 'Carol', level: 0 }] })).candidates, []);
+  // 読めていない個体がなければ候補を探さない
+  assert.deepEqual(dpsMissing(gapSnapshot({ inLockerMissing: 0 })), { expected: 118, missing: 0, candidates: [] });
+});
+
+test('次元ストレージの読み漏れ（dpsMissing）: 数のない古い解析結果・壊れた数は「分からない」（null）。読み漏れが一覧の数より多ければ一覧の数まで', () => {
+  for (const stats of [undefined, {}, { inLocker: 118 }, { inLockerMissing: 3 }, { inLocker: 'x', inLockerMissing: 1 }]) {
+    assert.equal(dpsMissing({ ...snapshot, stats }), null, JSON.stringify(stats));
+  }
+  assert.equal(dpsMissing(null), null);
+  assert.equal(dpsMissing(gapSnapshot({ inLocker: 5, inLockerMissing: 9 })).missing, 5);
+  // files がない（古い形）ときは、読めたファイルが分からないので候補もない
+  assert.deepEqual(dpsMissing({ ...snapshot, stats: { inLocker: 3, inLockerMissing: 1 } }).candidates, []);
+});
+
+test('次元ストレージの読み漏れ: 候補のプレイヤーにだけ dpsGap（欠けの数）を付けて共有し、GAS の検査（cleanOwnedPlayer）を通って参加者の画面に戻る', () => {
+  const host = normalizeOwned(gapSnapshot({ used: [FILE(P1) + '.sav', FILE(P2) + '.sav'] }), { pals, passives });
+  assert.deepEqual(host.players.map((player) => [player.name, player.dpsGap]), [['Alice', 27], ['Bob', 27]]);
+  // 解析結果に残っていた値は使わない（ここで求めた値だけ）
+  const stray = normalizeOwned({ ...snapshot, players: [{ uid: P1, name: 'Alice', level: 50, dpsGap: 5 }] }, { pals, passives });
+  assert.equal('dpsGap' in stray.players[0], false);
+  const upload = sharedUpload(host);
+  assert.deepEqual(upload.players, [{ uid: P1, name: 'Alice', level: 50, dpsGap: 27 }, { uid: P2, name: 'Bob', level: 40, dpsGap: 27 }]);
+  // 候補でないプレイヤー・読み漏れのないセーブでは送らない
+  assert.equal(JSON.stringify(sharedUpload(normalizeOwned(gapSnapshot({ inLockerMissing: 0 }), { pals, passives })).players).includes('dpsGap'), false);
+  assert.deepEqual(sharedUpload(normalizeOwned(gapSnapshot(), { pals, passives })).players.map((player) => player.dpsGap), [undefined, 27]);
+  const checked = validateOwnedUpload({ worldId: 'ABCDEF0123456789ABCDEF0123456789', world: { name: 'World9' }, saveUpdatedAt: '2026-10-16T12:00:00.000Z', ...upload });
+  assert.deepEqual(checked.value.players, upload.players);
+  const shared = ownedFromShared({ world: { worldName: 'World9', players: checked.value.players }, columns: OWNED_FIELDS, rows: checked.value.rows }, { pals, passives });
+  assert.deepEqual(shared.players.map((player) => [player.name, player.dpsGap]), [['Alice', 27], ['Bob', 27]]);
+  // 古い共有（dpsGap がない）は付けない
+  const legacy = ownedFromShared({ world: { players: [{ uid: P1, name: 'Alice' }] }, columns: OWNED_FIELDS, rows: [] }, { pals, passives });
+  assert.equal('dpsGap' in legacy.players[0], false);
+});
+
+test('次元ストレージの読み漏れ: cleanOwnedPlayer（GAS と共有）は dpsGap を 1〜上限の整数だけ残す。送る側は上限で切る', () => {
+  for (const value of [0, -1, 1.5, '3', null, true, OWNED_DPS_GAP_MAX + 1, Infinity]) {
+    assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: value }), { uid: P1, name: 'Alice' }, String(value));
+  }
+  assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: 1 }), { uid: P1, name: 'Alice', dpsGap: 1 });
+  assert.deepEqual(cleanOwnedPlayer({ uid: P1, name: 'Alice', dpsGap: OWNED_DPS_GAP_MAX }), { uid: P1, name: 'Alice', dpsGap: OWNED_DPS_GAP_MAX });
+  const many = sharedUpload({ ...owned, players: [{ uid: P1, name: 'Alice', level: 1, online: null, dpsGap: OWNED_DPS_GAP_MAX + 5 }] });
+  assert.equal(many.players[0].dpsGap, OWNED_DPS_GAP_MAX);
+});
+
+test('共有の中身の印の元（ownedContentText。share-upload）: 決まった順の配列の JSON。識別・送った人・ファイルの更新日時は入れず、行・一覧・object の鍵の並びとセルの型によらない', () => {
+  const columns = ['instanceId', 'palId', 'level'];
+  const base = {
+    userId: 'ホスト', worldId: 'ABCDEF0123456789ABCDEF0123456789', saveUpdatedAt: '2026-10-05T10:00:00.000Z',
+    world: { name: 'World9', hostName: 'Alice', inGameDay: 12, saveStamp: '638650000000000001', contentHash: 'a'.repeat(64), format: 4, fileCount: 3, missingCount: 0, force: true },
+    players: [{ uid: 'u1', name: 'Alice', level: 50, online: true }], bases: [{ id: 'b1', label: '拠点 1' }],
+    farms: [{ id: 'f1', baseId: 'b1', parents: ['p1', 'p2'], n: 1, eggs: [{ id: 'e1', p: 'SheepBall' }] }],
+    columns, rows: [['p1', 'SheepBall', '5'], ['p2', 'PinkCat', '7']],
+  };
+  const text = ownedContentText(base);
+  assert.equal(text, JSON.stringify([
+    base.worldId, 'World9', 'Alice', 12,
+    [{ level: 50, name: 'Alice', online: true, uid: 'u1' }], [{ id: 'b1', label: '拠点 1' }],
+    [{ baseId: 'b1', eggs: [{ id: 'e1', p: 'SheepBall' }], id: 'f1', n: 1, parents: ['p1', 'p2'] }],
+    columns, base.rows,
+  ]));
+  // 識別・送った人・ファイルの更新日時が違っても、鍵の順が違っても、セルが数でも同じ
+  const same = {
+    ...base, userId: '別の人', saveUpdatedAt: '2026-10-06T00:00:00.000Z',
+    world: { hostName: 'Alice', name: 'World9', inGameDay: 12, saveStamp: '1', force: false },
+    players: [{ online: true, uid: 'u1', level: 50, name: 'Alice' }],
+    farms: [{ eggs: [{ p: 'SheepBall', id: 'e1' }], parents: ['p1', 'p2'], n: 1, baseId: 'b1', id: 'f1' }],
+    rows: [['p1', 'SheepBall', 5], ['p2', 'PinkCat', 7]],
+  };
+  assert.equal(ownedContentText(same), text);
+  // 並びによらない（個体の並びは登録したファイルの順で変わる。PC ごとに登録の順が違うことがある）
+  const players = [{ uid: 'u2', name: 'Bob' }, { uid: 'u1', name: 'Alice', level: 50, online: true }];
+  const farms = [...base.farms, { id: 'f0', baseId: 'b1', parents: [], n: 0 }];
+  const ordered = { ...base, players, farms, bases: [...base.bases, { id: 'b0', label: '拠点 0' }] };
+  const reordered = { ...ordered, players: [...players].reverse(), farms: [...farms].reverse(), bases: [...ordered.bases].reverse(), rows: [...base.rows].reverse() };
+  assert.equal(ownedContentText(reordered), ownedContentText(ordered));
+  assert.deepEqual(JSON.parse(ownedContentText(reordered))[8].map((row) => row[0]), ['p1', 'p2']);
+  // 中身が違えば違う（行・列の幅・列の並び・牧場の有無・日数）
+  for (const changed of [
+    { ...base, rows: [['p1', 'SheepBall', '6'], ['p2', 'PinkCat', '7']] },
+    { ...base, columns: columns.slice(0, 2), rows: base.rows.map((row) => row.slice(0, 2)) },
+    { ...base, columns: [...columns].reverse(), rows: base.rows.map((row) => [...row].reverse()) },
+    { ...base, farms: undefined },
+    { ...base, world: { ...base.world, inGameDay: 13 } },
+  ]) assert.notEqual(ownedContentText(changed), text);
+  // 牧場を送らないときは null、日数がないときも null
+  const bare = JSON.parse(ownedContentText({ worldId: 'W', world: { name: 'N', hostName: '' }, players: [], bases: [], columns: [], rows: [] }));
+  assert.deepEqual(bare, ['W', 'N', '', null, [], [], null, [], []]);
 });

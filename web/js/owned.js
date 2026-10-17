@@ -4,23 +4,103 @@
 // 同じワールドのデータが手元と共有の両方にあるときは、セーブの新しい方を出す。
 import pals from '../data/pals.js';
 import passives from '../data/passives.js';
-import { normalizeOwned, ownedFromShared, sharedUpload } from './core/owned.js';
-import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS } from './core/owned-shared.js';
+import { normalizeOwned, ownedFromShared, sharedUpload, ownedContentText } from './core/owned.js';
+import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS, OWNED_FORMAT, OWNED_RESULTS, compareSaves, ownedSaveStamp } from './core/owned-shared.js';
 import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
+import { userIdKey } from './core/user.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
+import { createWatchClient, observable } from './save/watch.js';
+import { emptyPlay, trackPlay, playTicksMs, isPlaying } from './core/playing.js';
+import { errorMessage } from './api.js';
 
 const DATA_VERSION = 1;
+// 定期の確認（app.js の 10 秒ごとのタイマー）でセーブを読む間隔。ゲームの保存は見張り（save/watch.js）が知らせるので、これは安全網
+//（見張りの Worker を作れないブラウザでは、これだけで読む。sync-fixes の save-watch）
 const AUTO_INTERVAL = 20000;
-// 共有の読み直しの間隔（開いている画面の 10 秒ごとの読み直し〔views/shared.js の keepRefreshing〕に合わせる。D26）。読むのはワールドの一覧の
-// 小さなシートで、書き込みのロックは取らない。中身はホストが送り直したとき（uploadedAt が変わったとき）だけ取る
+// 読み直しの保留（sync-fixes の save-watch）: 読んだ一式を採用せずに、前の手元のデータ・表示・共有を残したまま読み直す。
+// 読む前と後でファイルの印が違う（保存の途中に読んだ。P0 で Level.sav と LevelMeta.sav が食い違った）ときは 1 秒後
+const HOLD_CHANGED_DELAY = 1000;
+// 登録したファイルの読み・解凍・解析の失敗と一時的な消失（スナップショットの files.skipped）は、最初に見た時刻からこの段で読み直す。
+// 最後の段（ゲームの保存の間隔 30 秒をまたぐ）でも同じ形なら、壊れた・消えたとみなして今までどおり飛ばして採用する
+const HOLD_SKIPPED_STEPS = [1000, 3000, 10000, 30000];
+// 見張りから読んだとき（transient。見張りが動いている間の定期の確認も）の読めない失敗（保存の途中の置き換え）は、最初の失敗からこの段で
+// 読み直し、3 回目もだめなら今の扱い
+const HOLD_UNREADABLE_STEPS = [1000, 3000, 10000];
+// 見張りから読むときに、読めない失敗として待つ読み込みのエラー（handles.js の readFiles）
+const UNREADABLE_CODES = new Set(['NOT_READABLE', 'MISSING']);
+// 共有の読み直しの間隔（表のタブなら、どの画面でも app.js の 10 秒ごとのタイマーで読み直す。裏のタブでは読まない。D26）。
+// タイマーが少し早く来た回が次の回に回らないよう、SHARED_SLACK だけ短くても読む。読むのは今のワールドの ownedSince（GAS の G）で、
+// 中身はホストが送り直したとき（uploadedAt が変わったとき）だけ届く（sync-fixes の share-fetch）
 const SHARED_INTERVAL = 10000;
-// 自動のアップロードの間隔（ゲームは数分おきに保存するので、毎回は送らない）
-const UPLOAD_INTERVAL = 60000;
+const SHARED_SLACK = 1000;
+// 共有されたワールドの一覧（ownedWorlds）を読み直す間隔。起動・ログインの切り替え・force・目当てのワールドが一覧にないときは、間隔によらず読む
+const WORLDS_INTERVAL = 5 * 60 * 1000;
+// 古い GAS（ownedSince を知らず BAD_ACTION を返す）と分かってから、ownedSince を試し直すまで（それまでは一覧 → owned の 2 回呼び）
+const SINCE_RETRY = 60 * 60 * 1000;
+// ページを開いている PC（presence。sync-fixes の page-presence）を送る間隔。ログインしているページは、今のワールドについてこの間隔で送る
+//（共有の読み直しで ownedSince を呼ぶ回はそれに載せ、載せる回がなければ app.js の 10 秒ごとのタイマーの reportPresence で別に送る。裏のタブで
+// タイマーが 1 分ごとまで遅れても、表示は 3 分の幅で見る）。タイマーが少し早く来た回が次の回に回らないよう、PRESENCE_SLACK だけ短くても送る。
+// ワールド・送る値（役割・ゲーム中・共有できる）が変わったら、間隔によらず次の回に送る
+const PRESENCE_INTERVAL = 60000;
+const PRESENCE_SLACK = 5000;
+// ページと PC の ID の形（core/owned-shared.js の cleanPresenceInput と同じ）
+const PRESENCE_ID = /^[A-Za-z0-9_-]{8,64}$/;
+// ページを開いている PC の一覧（state.pages）の空の形
+const emptyPages = () => ({ worldId: '', list: null, serverTime: '', receivedAt: 0, device: '' });
+// 受け取った行の数が palCount と違う・PARTIAL（共有の書き込みと重なった）ときに、前の表示を残して読み直すまでの間と回数
+const PARTIAL_DELAY = 5000;
+const PARTIAL_RETRIES = 3;
+// ownedSince の「変わっていない」応答で入れ替えるワールドの項目（所持パルの変換〔core/owned.js の ownedFromShared〕は読まない項目）
+const SINCE_FIELDS = ['uploadedAt', 'uploadedBy', 'saveUpdatedAt', 'palCount', 'saveStamp'];
+// ownedFromShared が読むワールドの項目。共有のデータがこれ以外（SINCE_FIELDS など）だけ違うときは、所持パルを作り直さない
+const OWNED_WORLD_FIELDS = ['worldName', 'hostName', 'inGameDay', 'players', 'bases', 'farms'];
+// 応答で受け取った生の行の数（重複・壊れた行を除く前。api.js が receivedRows に入れる。入っていなければ rows の数）
+const receivedRows = (response) => (Number.isInteger(response.receivedRows) ? response.receivedRows : response.rows.length);
+// 読み込みの途中にワールド・保存先が替わった（応答を捨てる）
+const STALE = Symbol('stale');
+// 共有の送り始めの最短の間隔（ゲームは約 30 秒ごとに保存する。送っている間に読んだセーブは、終わった後に最新を 1 回送る。sync-fixes の share-upload）
+const UPLOAD_MIN_GAP = 15000;
+// 送れなかったときに送り直すまでの間（続けて失敗するたびに次の段。最後の段のまま繰り返す。送れたら最初の段に戻す）
+const UPLOAD_RETRY_DELAYS = [15000, 30000, 60000, 120000, 300000];
+// 送り直す失敗（通信・混雑・サーバーの一時的なエラー・応答の読み取り）。VALIDATION・AUTH・TOO_LARGE など、同じ中身では通らない失敗は
+// 送り直さない（次に新しいセーブを読んだときに送る）
+const UPLOAD_RETRY_CODES = new Set(['TIMEOUT', 'CONNECTION', 'BUSY', 'INTERNAL', 'RESPONSE']);
 // 古い GAS に合わせて狭めた列の幅を、全部の列で試し直すまでの間（save-extras）
 const UPLOAD_WIDTH_RETRY = 60 * 60 * 1000;
 // 古い GAS が列の幅の違う共有を断ったか（core/owned-shared.js の validateOwnedUpload の INVALID_COLUMNS。api.js の ApiError の response.errors）
 const columnsRejected = (error) => error?.code === 'VALIDATION'
   && (Array.isArray(error.response?.errors) ? error.response.errors : []).some((item) => item?.field === 'columns' && item?.code === 'INVALID_COLUMNS');
+// 共有の送信の結果（state.upload）の空の形
+const emptyUpload = () => ({ status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', savedAt: '', scope: '', userId: '', published: null });
+
+/**
+ * 共有の中身の印（world.contentHash）。core/owned.js の ownedContentText を UTF-8 にした SHA-256 の 16 進（64 字）。
+ * crypto.subtle のない環境（古いブラウザ・安全でない接続）では ''（識別なしとして送り、GAS は今までどおり更新日時で比べる）
+ */
+export async function ownedContentHash(upload) {
+  try {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(ownedContentText(upload)));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '';
+  }
+}
+
+// 読めたファイルの数（GlobalPalStorage.sav も数える。LocalData.sav は解析しないので入らない）と、登録してあるのに読めなかったファイルの数
+//（消えていた・読めなかった・種類が違う）。解析の結果の files.used・files.skipped（save/import.js）から、同じパスは 1 つに数える
+const fileCountOf = (snapshot) => (Array.isArray(snapshot?.files?.used) ? new Set(snapshot.files.used).size : 0);
+const missingCountOf = (snapshot) => (Array.isArray(snapshot?.files?.skipped) ? new Set(snapshot.files.skipped.map((file) => file?.path)).size : 0);
+
+/** ランダムな ID（16 進 32 字）。ページを開いている PC の pageId・device に使う（認証にも本人の証明にも使わない） */
+function randomId() {
+  const bytes = new Uint8Array(16);
+  try {
+    globalThis.crypto.getRandomValues(bytes);
+  } catch {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 /** IndexedDB のキー・値の保存先。使えない環境ではメモリに置く（再読み込みで消える）。 */
 export function idbPersist(name = 'pal-note', indexedDB = globalThis.indexedDB) {
@@ -148,23 +228,32 @@ function cleanSharedCache(value) {
   return { worlds: cleanOwnedWorlds(value.worlds), current: current?.world ? current : null, fetchedAt: isoTime(value.fetchedAt) };
 }
 
-const timeOf = (value) => {
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? time : 0;
-};
-
 const WORLD_ID = /^[0-9A-F]{32}$/i;
+
+// セーブの新旧を比べる形（core/owned-shared.js の compareSaves）。手元は Level.sav の中の保存時刻（snapshot.world.savedAtTicks）と
+// ファイルの更新日時、共有はワールドの行の saveStamp と saveUpdatedAt（どちらかに保存時刻がなければ更新日時で比べる）
+const localSave = (local) => ({ stamp: local.snapshot?.world?.savedAtTicks, updatedAt: local.world.updatedAt });
+const sharedSave = (world) => ({ stamp: world.saveStamp, updatedAt: world.saveUpdatedAt });
 
 /**
  * @param {object} options
- * @param {{ scope: () => string, userId: () => string, request: (action: string, input?: object) => Promise<object> }} [options.server]
- *   スプレッドシートとの通信。scope はログイン中の環境（'prod' / 'test'）、ログインしていなければ ''。
+ * @param {{ scope: () => string, userId: () => string, request: (action: string, input?: object) => Promise<object>, endpoint?: () => string }} [options.server]
+ *   スプレッドシートとの通信。scope はログイン中の環境（'prod' / 'test'）、ログインしていなければ ''。endpoint は接続先（API の URL）で、
+ *   GAS ができること（ownedSince）を接続先と環境ごとに覚えるのに使う。
  * @param {object} [options.handles] 登録したセーブのファイル（save/handles.js の createHandleSource）。
+ * @param {() => boolean} [options.hidden] タブが裏にあるか（共有の読み直しの再試行は、裏では行わない。D26）
+ * @param {(callbacks: { onSettled: (message: object) => void, onMode: (mode: string) => void }) => { update: (targets: object[]) => void, stop: () => void }} [options.watch]
+ *   セーブのファイルの見張り（save/watch.js の createWatchClient。テストは偽物を渡す）。対象ができたときに 1 回だけ作る
+ * @param {string} [options.pageId] このページの ID（ページを開いている PC。ページを読み込むたびにメモリの中で作る。sessionStorage は複製した
+ *   タブで同じ値になるので使わない）
  */
 export function createOwnedStore({
   persist = idbPersist(), settings, namespace = 'pal-note', runImport = runImportInWorker,
   handles = null, now = Date.now, server = null,
   schedule = (fn, ms) => setTimeout(fn, ms), cancel = (id) => clearTimeout(id),
+  hidden = () => globalThis.document?.visibilityState === 'hidden',
+  watch = createWatchClient,
+  pageId = randomId(),
 } = {}) {
   const source = handles ?? createHandleSource({ persist, key: `${namespace}.owned.handles` });
   const listeners = new Set();
@@ -176,25 +265,71 @@ export function createOwnedStore({
   try { saved = JSON.parse(settings?.get(settingsKey)) ?? {}; } catch { saved = {}; }
   let lastAuto = -Infinity;
   let lastShared = -Infinity;
+  // 共有の送信（uploadLocal）: 最後に送り始めた時刻・予約（間隔・再試行）・送っている途中の Promise（1 つずつ送る）・送っている間に
+  // 新しいセーブを読んだか（dirty）・続けて失敗した数と次に送ってよい時刻（再試行の段）・送り始めた数・止めた数（blockUpload）
   let lastUpload = -Infinity;
   let uploadTimer = null;
+  let uploading = null;
+  let uploadDirty = false;
+  let retryStep = 0;
+  let retryAt = -Infinity;
+  let uploadSeq = 0;
+  let uploadEpoch = 0;
+  // 送るはずだった予約・送っている間の 1 回を、共有を止めている間（セーブの読み直しの途中）に取り消した・飛ばした。読み直せずに今のセーブの
+  // まま（runAuto の 'unchanged'）になったら、もう一度 uploadLocal を呼ぶ
+  let uploadOwed = false;
+  // 登録の確定で読んだ手元のデータ（それを送るときだけ world.force を付ける。別のセーブを読んだら付けない）
+  let commitLocal = null;
   // 共有で GAS が受け付けた列の幅と、幅を狭めた時刻（古い GAS。uploadLocal）
   let uploadWidth = Infinity;
   let uploadWidthAt = -Infinity;
   // 登録の削除・解除を求めるたびに増やす。読み込みの途中で求められたら、その読み込みの結果では共有しない
   let linkEpoch = 0;
-  // このページで実際に読み込んだ、登録したファイルの一式の印（開き直した直後の保存済みのデータでは共有しない）
+  // このページで実際に読み込んだ、登録したファイルの一式の印（開き直した直後の保存済みのデータでは共有しない）と、そのうち解析が読む
+  // ファイルの印（LocalData.sav を除く。save/handles.js の list の readSignature）
   let verifiedSignature = '';
+  let verifiedRead = '';
   // 登録したファイルから読み込んでいる途中のワールド
   let readingWorldId = '';
   // 削除を求められ、まだ消し終えていないワールド（順番待ちの読み込みでも選ばず、共有もしない）
   const removing = new Set();
   let loading = null;
   let loadedScope = null;
+  let sharedLoading = null;
   let sharedInflight = null;
+  // 共有を読んでいる途中に強制の読み直しを求められたら、終わってからもう 1 回読む
+  let sharedFollow = null;
+  // 共有の保存先（scope）が替わるたびに増やす。前の保存先への応答は捨てる
+  let sharedEpoch = 0;
+  // ワールドの一覧を最後に読んだ時刻
+  let listedAt = -Infinity;
+  // GAS ができないこと（接続先|環境|操作 → 試し直す時刻）。古い GAS の ownedSince は BAD_ACTION
+  const unsupported = new Map();
+  // 行の数の食い違い・PARTIAL の読み直し（どのワールドの何回目か）
+  let partial = { key: '', count: 0, timer: null };
   // 読み込みは 1 つずつ行う（自動の読み込みの途中で別のワールドを選んでも、後の操作の結果が残る）
   let chain = Promise.resolve();
   let pending = 0;
+  // 読み直しの保留（save-watch）。保留しているワールド・読み直しのタイマー（1 本）・読み直しを見張りから読んだときと同じに扱うか・
+  // 登録したファイルの失敗と消失の形（パスと理由の集合）と最初に見た時刻・見張りから読んだときの読めない失敗を最初に見た時刻
+  const emptyHold = () => ({ worldId: '', timer: null, transient: false, skipped: null, unreadable: null });
+  let hold = emptyHold();
+  // 30 秒続いて受け入れた失敗・消失の形（ワールドごと。メモリだけ）。同じ形なら次から待たずに採用し、全部読めたら忘れる
+  const acceptedShapes = new Map();
+  // セーブのファイルの見張り（save/watch.js）。送った対象の印（同じなら送り直さない）・対象のワールド・今のワールド・読み込みの後の 1 回
+  let watcher = null;
+  let watchKey = '';
+  // 今のワールドの見張りの対象の印（変わったらゲーム中の推定を数え直す。見張っていなければ ''）
+  let watchPlayKey = '';
+  let watchedIds = new Set();
+  let watchCurrent = '';
+  let watchFollow = null;
+  let watchFollowId = '';
+  // ページを開いている PC（page-presence）: 最後に送った値の印と時刻（ownedSince に載せた回も）・別に送っている途中か・この PC の ID
+  //（localStorage に残せない端末では、このページの中だけ）
+  let presenceSent = { key: '', at: -Infinity };
+  let presenceSending = false;
+  const memoryDevices = new Map();
   // 旧版の worldDir は「Steam ID/ワールド ID」。末尾のワールド ID に読み替える
   const savedWorldId = String(saved.worldId ?? saved.worldDir ?? '').split('/').pop();
   const state = {
@@ -207,10 +342,30 @@ export function createOwnedStore({
     // 表示するワールド（空なら自動）
     viewWorldId: worldId(saved.viewWorldId),
     local: null,
-    shared: { worlds: [], current: null, fetchedAt: '', error: '' },
-    upload: { status: '', at: '', error: '', worldId: '' },
+    // fetchedWorldId は最後に取得に成功したときに確かめたワールド（fetchedAt と組。キャッシュには残さない。host-rotation）
+    shared: { worlds: [], current: null, fetchedAt: '', fetchedWorldId: '', error: '' },
+    // 共有の送信の結果（uploadLocal。sync-fixes の share-upload）。status: 'sending'・'done'（自分の共有が載っている。new・newer・resent・
+    // 自分の前の送信が届いていた unchanged・古い GAS の stored）・'same'（同じセーブを別の人〔か同じ ID の別のタブ・PC〕が共有済み。same・
+    // 他人の unchanged）・'stale'（共有されているセーブの方が新しい）・'error'・''。result は GAS の結果の種類（古い GAS は ''）、
+    // signature・stamp は送ったスナップショットの印（state.local.world.signature）と Level.sav の中の保存時刻、published は応答の
+    // 今公開されているワールドの { saveStamp, uploadedBy, uploadedAt }。新しいセーブを読んだら消す（送っている途中・送れなかった知らせは残す）。
+    // savedAt は送ったセーブの更新日時（送った saveUpdatedAt と同じ値）、scope・userId は送ったときの環境と ID（自動登録が、識別のない
+    // セーブの結果と、環境を切り替えた後に残った前の環境の結果を見分けるため。host-rotation）
+    upload: emptyUpload(),
     // 共有してよいか。このページで、ホストのワールドのセーブを正常に読めたときだけ true（保存済みのデータや判定できないときは共有しない）
     uploadReady: false,
+    // セーブのファイルの見張り（sync-fixes の save-watch）。mode: 'observer'（ファイルの変更）・'poll'（Worker の 5 秒ごとの確認）・
+    // 'timer'（Worker を作れない。app.js の定期の確認だけ）・''（見張っていない）。lastSave は今のワールドの最後の保存
+    //（at: 書き終えた時刻〔変わったファイルの更新日時の最大〕の ISO・files: 変わったファイルの数・spanMs: 書き始めから書き終わりまで）
+    watch: { mode: '', lastSave: null },
+    // ゲーム中の推定の記録（core/playing.js の trackPlay。sync-fixes の host-rotation）。ホストは登録したファイルから読んだ Level.sav の中の
+    // 保存時刻、参加者は LocalData.sav の更新日時を読むたびに足す。使う側は isPlaying(state.play, { worldId: state.linkedWorldId, role: state.role })
+    play: emptyPlay(),
+    // ページを開いている PC（sync-fixes の page-presence）。worldId のワールドの一覧（GAS の ownedSince・presence の応答の presence。
+    // core/boundary.js の cleanPresenceList の形で新しい順・6 時間まで。ページごとの { user, device, role, playing, canShare, at }）。
+    // serverTime はその応答のサーバーの時刻、receivedAt は受け取った時刻（表示はサーバーの時刻で経過を測る）、device はこの PC の ID
+    //（一覧の中のこの PC を見分ける）。ログインの環境が替わったら空にする
+    pages: emptyPages(),
     data: null, owned: null, meta: null,
   };
   const emit = () => listeners.forEach((listener) => listener(state));
@@ -223,23 +378,45 @@ export function createOwnedStore({
     }));
   }
 
-  // 共有を止め、予約していた共有も取り消す
+  function cancelUploadTimer() {
+    if (uploadTimer !== null) { cancel(uploadTimer); uploadTimer = null; }
+  }
+  // 共有を止め、予約（間隔・再試行）・送っている間に読んだセーブの 1 回（dirty）・再試行の段・登録の確定の印を全部消す（登録の削除・解除・
+  // 参加者・読めないとき）。送っている途中の送信は止められないが、終わっても次を予約しない（uploadEpoch）
   function blockUpload() {
     state.uploadReady = false;
-    if (uploadTimer !== null) { cancel(uploadTimer); uploadTimer = null; }
+    uploadEpoch++;
+    cancelUploadTimer();
+    uploadDirty = false;
+    uploadOwed = false;
+    retryStep = 0;
+    retryAt = -Infinity;
+    commitLocal = null;
+  }
+  // セーブを読み直す間だけ共有を止める（読み終えたら uploadLocal が予約し直す）。再試行の段は残す（新しいセーブを読むたびに段が戻ると、
+  // 送れない間も保存のたびに送ってしまう）。取り消した予約は、読み直せなかったときに uploadOwed で戻す
+  function holdUpload() {
+    state.uploadReady = false;
+    if (uploadTimer !== null) uploadOwed = true;
+    cancelUploadTimer();
   }
 
   const registeredWorlds = () => source.worlds().map((record) => ({
     id: record.id, dir: record.id, steamId: record.steamId ?? '', kind: record.kind, name: record.name ?? '', hostName: record.hostName ?? '', status: '', role: '', playedAt: '', files: Object.keys(record.files),
   }));
 
-  // 表示するワールド: 連携しているワールド → 設定で選んだワールド → いちばん新しく共有されたワールド
-  function targetWorldId() {
+  // 表示するワールド: 連携しているワールド → 設定で選んだワールド → いちばん新しく共有されたワールド（worlds は共有されたワールドの一覧）
+  function targetWorldId(worlds = state.shared.worlds) {
     if (state.linkedWorldId) return state.linkedWorldId;
     if (state.viewWorldId) return state.viewWorldId;
-    if (state.local && !state.shared.worlds.length) return state.local.world.id;
-    return [...state.shared.worlds].sort((a, b) => timeOf(b.saveUpdatedAt) - timeOf(a.saveUpdatedAt))[0]?.worldId ?? '';
+    if (state.local && !worlds.length) return state.local.world.id;
+    // いちばん新しいセーブ（同じなら先の方）
+    return worlds.reduce((best, world) => (!best || compareSaves(sharedSave(world), sharedSave(best)) > 0 ? world : best), null)?.worldId ?? '';
   }
+
+  // 共有のデータで、所持パルの変換が読む中身（行・列・OWNED_WORLD_FIELDS）が同じか（ownedSince の「変わっていない」応答で時刻などだけを入れ替えたとき）
+  const sameSharedContent = (a, b) => Boolean(a?.rows && b?.rows) && a.rows === b.rows && a.columns === b.columns
+    && OWNED_WORLD_FIELDS.every((field) => a.world?.[field] === b.world?.[field]);
 
   let normalizedFrom = null;
   function recompute() {
@@ -249,13 +426,16 @@ export function createOwnedStore({
     const shared = current?.world && current.world.worldId === target ? current : null;
     const sharedMeta = state.shared.worlds.find((world) => world.worldId === target) ?? shared?.world ?? null;
     // 手元と共有で、セーブの新しい方を出す（同じなら手元）。参加している側では手元のデータ（前にホストしたときの残り）は出さない
-    const useLocal = local && state.role !== 'guest' && (!shared || timeOf(local.world.updatedAt) >= timeOf(shared.world.saveUpdatedAt));
+    const useLocal = local && state.role !== 'guest' && (!shared || compareSaves(localSave(local), sharedSave(shared.world)) >= 0);
     const source = useLocal ? local : shared;
     if (source !== normalizedFrom) {
+      // 共有の時刻・共有した人などだけが変わったときは、所持パルを作り直さない（画面が作り直されない）
+      if (useLocal || !sameSharedContent(source, normalizedFrom)) {
+        state.owned = !source ? null : useLocal
+          ? normalizeOwned(local.snapshot, { pals, passives })
+          : ownedFromShared(shared, { pals, passives });
+      }
       normalizedFrom = source;
-      state.owned = !source ? null : useLocal
-        ? normalizeOwned(local.snapshot, { pals, passives })
-        : ownedFromShared(shared, { pals, passives });
     }
     state.data = source;
     state.meta = !source ? (target ? { worldId: target, worldName: sharedMeta?.worldName ?? '', hostName: sharedMeta?.hostName ?? '' } : null) : {
@@ -265,20 +445,31 @@ export function createOwnedStore({
       source: useLocal ? 'local' : 'shared',
       saveUpdatedAt: useLocal ? local.world.updatedAt || local.importedAt : shared.world.saveUpdatedAt,
       importedAt: useLocal ? local.importedAt : '',
-      sharedAt: sharedMeta?.uploadedAt ?? '',
-      uploadedBy: sharedMeta?.uploadedBy ?? '',
+      // 共有を出すときは、出している版の時刻と共有した人（一覧の方が新しくても、中身を読めるまでは前の版。share-fetch の安全網）
+      sharedAt: (useLocal ? sharedMeta : shared.world)?.uploadedAt ?? '',
+      uploadedBy: (useLocal ? sharedMeta : shared.world)?.uploadedBy ?? '',
       palCount: useLocal ? local.snapshot.pals.length : shared.rows.length,
     };
   }
 
   const update = () => { recompute(); emit(); };
 
-  async function loadShared() {
+  // 共有の保存先（ログイン中の環境）のキャッシュを読む。保存先が替わったら、読み込みの途中の応答を捨て、次は一覧から読む
+  function loadShared() {
     const key = scope();
-    if (loadedScope === key) return;
+    if (loadedScope === key) return sharedLoading?.key === key ? sharedLoading.promise : Promise.resolve();
     loadedScope = key;
-    const cached = key ? cleanSharedCache(await persist.get(sharedKey(key))) : null;
-    state.shared = { worlds: cached?.worlds ?? [], current: cached?.current ?? null, fetchedAt: cached?.fetchedAt ?? '', error: '' };
+    sharedEpoch++;
+    listedAt = -Infinity;
+    stopPartial();
+    state.pages = emptyPages();
+    const promise = (async () => {
+      const cached = key ? cleanSharedCache(await persist.get(sharedKey(key))) : null;
+      if (loadedScope !== key) return;
+      state.shared = { worlds: cached?.worlds ?? [], current: cached?.current ?? null, fetchedAt: cached?.fetchedAt ?? '', fetchedWorldId: '', error: '' };
+    })();
+    sharedLoading = { key, promise };
+    return promise;
   }
 
   async function load() {
@@ -319,77 +510,435 @@ export function createOwnedStore({
 
   // ---- スプレッドシート ----
 
-  async function fetchShared({ force = false } = {}) {
+  // GAS ができること（接続先と環境ごと。古い GAS は ownedSince を知らない）
+  const capabilityKey = (action, env = scope()) => `${server?.endpoint?.() ?? ''}|${env}|${action}`;
+  const supports = (action) => !(unsupported.get(capabilityKey(action)) > now());
+
+  // ---- ページを開いている PC（sync-fixes の page-presence） ----
+
+  // この PC の ID（ワールドごとのランダムな値。localStorage に残す）
+  const deviceKey = (id) => `${namespace}.owned.device.${id}`;
+  function deviceOf(id) {
+    const stored = settings?.get(deviceKey(id));
+    if (typeof stored === 'string' && PRESENCE_ID.test(stored)) return stored;
+    if (!memoryDevices.has(id)) memoryDevices.set(id, randomId());
+    settings?.set(deviceKey(id), memoryDevices.get(id));
+    return memoryDevices.get(id);
+  }
+
+  // そのワールド（ふつうは今のワールド＝表示するワールド）について送る値。role は判定の結果（連携しているワールドでなければ none）、playing は
+  // ゲーム中の推定（core/playing.js）、canShare はこのワールドをホストの一式（Level.sav・LevelMeta.sav・LocalData.sav）で登録していて、直近の
+  // 確認で読む許可があるか。一覧の確認では許可があっても、その後の読み込みで許可が外れた（自動の読み込みが許可待ちで止まった。一覧の status は
+  // 'ok' のまま）間は共有できないとする。ワールドがなければ null
+  function presenceValue(id) {
+    if (!WORLD_ID.test(id)) return null;
+    const role = id === state.linkedWorldId && ['host', 'guest'].includes(state.role) ? state.role : 'none';
+    const listed = state.auto.worlds.find((world) => world.id === id);
+    const canShare = Boolean(state.auto.enabled && state.auto.status !== 'permission' && source.get(id)?.kind === 'host' && !removing.has(id)
+      && listed?.status && listed.status !== 'permission');
+    const playing = role !== 'none' && isPlaying(state.play, { worldId: id, role }, now());
+    return { worldId: id, presence: { pageId, device: deviceOf(id), user: text(server?.userId?.() ?? '', 20), role, playing, canShare } };
+  }
+
+  // 送る回なら今の値（{ worldId, presence, key }）、でなければ null（ログインしていない・古い GAS と覚えている間・ワールドがない・前に送ってから
+  // 間隔の中で、ワールドも値も同じ）。worldId は共有の読み直しが読んでいるワールド（一覧を読んだ直後は state にまだ入っていない）
+  function presenceDue(worldId = targetWorldId()) {
+    if (!server || !scope() || !supports('presence')) return null;
+    const value = presenceValue(worldId);
+    if (!value) return null;
+    const key = JSON.stringify([scope(), value.worldId, value.presence]);
+    if (key === presenceSent.key && now() - presenceSent.at < PRESENCE_INTERVAL - PRESENCE_SLACK) return null;
+    return { ...value, key };
+  }
+
+  // 送った（送り始めた）ことを覚える。失敗しても次は間隔を空ける
+  const markPresence = (value) => { presenceSent = { key: value.key, at: now() }; };
+
+  // 応答の一覧を、そのワールドの一覧として残す（presence が配列でない〔サーバーのキャッシュを読めなかった〕ときは前のまま）
+  function keepPages(id, response) {
+    if (!Array.isArray(response?.presence)) return;
+    state.pages = { worldId: id, list: response.presence, serverTime: isoTime(response.serverTime), receivedAt: now(), device: deviceOf(id) };
+  }
+
+  // 古い GAS（BAD_ACTION）と分かった: 1 時間は送らず、前に受け取った一覧も出さない（GAS を古い版に戻したときに、前の一覧が 6 時間残らない）
+  function presenceUnsupported(env) {
+    unsupported.set(capabilityKey('presence', env), now() + SINCE_RETRY);
+    if (scope() === env) state.pages = emptyPages();
+  }
+
+  /**
+   * ページを開いている PC を送る（app.js の 10 秒ごとのタイマーから、セーブ・共有の読み直しの後に呼ぶ。表のタブでも裏のタブでも）。
+   * 送る回でなければ（間隔の中・ownedSince に載せた・送っている途中・古い GAS・ログインしていない・ワールドがない）'skipped'。
+   * 失敗しても例外にしない（共有・セーブの読み込みには関わらない）。古い GAS（BAD_ACTION）なら 1 時間は送らない
+   * @returns {Promise<'skipped'|'sent'|'error'>}
+   */
+  async function reportPresence() {
+    if (!server || !scope() || presenceSending) return 'skipped';
+    presenceSending = true;
+    try {
+      await load();
+      await loadShared();
+      const beat = presenceDue();
+      if (!beat) return 'skipped';
+      const key = scope();
+      const epoch = sharedEpoch;
+      markPresence(beat);
+      try {
+        const response = await server.request('presence', { worldId: beat.worldId, presence: beat.presence });
+        // 応答が届くまでに環境か表示するワールドが替わった（その間に受け取った今のワールドの一覧を、前のワールドの一覧で戻さない）
+        if (scope() !== key || sharedEpoch !== epoch || targetWorldId() !== beat.worldId) return 'skipped';
+        keepPages(beat.worldId, response);
+        emit();
+        return 'sent';
+      } catch (error) {
+        if (error?.code === 'BAD_ACTION') {
+          presenceUnsupported(key);
+          emit();
+        }
+        return 'error';
+      }
+    } catch {
+      return 'error';
+    } finally {
+      presenceSending = false;
+    }
+  }
+
+  // ワールドの時刻・共有した人など（SINCE_FIELDS）だけを from から入れる。何も変わらなければ同じ物を返す
+  function withSinceFields(world, from) {
+    const merged = { ...world };
+    for (const field of SINCE_FIELDS) if (from[field] !== undefined) merged[field] = from[field];
+    return JSON.stringify(merged) === JSON.stringify(world) ? world : merged;
+  }
+  // 一覧のワールドを入れ替える（なければ足す。同じ中身なら一覧をそのまま返す）
+  function upsertWorld(worlds, world) {
+    const index = worlds.findIndex((item) => item.worldId === world.worldId);
+    if (index < 0) return [...worlds, world];
+    if (worlds[index] === world || JSON.stringify(worlds[index]) === JSON.stringify(world)) return worlds;
+    return worlds.map((item, i) => (i === index ? world : item));
+  }
+
+  function stopPartial() {
+    if (partial.timer !== null) cancel(partial.timer);
+    partial = { key: '', count: 0, timer: null };
+  }
+  // 受け取った行の数が palCount と違う・PARTIAL: 前の表示を残し（キャッシュにも書かない）、5 秒後に読み直す（3 回まで）。
+  // それでも合わなければ、次の定期の読み直しに任せる（表示しているデータがなければ、読めなかったことを知らせる）
+  function partialRead(key, message) {
+    if (partial.key !== key) stopPartial();
+    partial.key = key;
+    if (partial.timer !== null) return 'partial';
+    if (partial.count >= PARTIAL_RETRIES) {
+      state.shared.error = message;
+      return 'partial';
+    }
+    partial.count++;
+    partial.timer = schedule(() => {
+      partial.timer = null;
+      // タブが裏にある間は読まない（表に戻ったときの読み直しで読む。D26）
+      return hidden() ? 'skipped' : fetchShared({ retry: true }).catch(() => 'error');
+    }, PARTIAL_DELAY);
+    return 'partial';
+  }
+
+  /**
+   * 共有を読み直す。force は一覧も必ず読む（ワールドの選び直し・ログインの切り替えなど）。retry は行の数の食い違いの読み直し（間隔を空けない）。
+   * 読んでいる途中なら、その結果を返す（force のときは、終わってからもう 1 回読む）。
+   */
+  async function fetchShared({ force = false, retry = false } = {}) {
     if (!server || !scope()) return 'skipped';
     await load();
     await loadShared();
-    if (!force && now() - lastShared < SHARED_INTERVAL) return 'skipped';
-    sharedInflight ??= (async () => {
-      lastShared = now();
-      const key = scope();
-      try {
-        const list = await server.request('ownedWorlds');
-        if (scope() !== key) return 'skipped';
-        state.shared.worlds = list.worlds;
-        state.shared.error = '';
-        const target = targetWorldId();
-        const meta = list.worlds.find((world) => world.worldId === target);
-        const current = state.shared.current;
-        if (!meta) {
-          if (current?.world?.worldId === target) state.shared.current = null;
-        } else if (!current || current.world?.worldId !== target || current.world.uploadedAt !== meta.uploadedAt) {
-          const owned = await server.request('owned', { worldId: target });
-          if (scope() !== key) return 'skipped';
-          state.shared.current = owned.world ? { world: owned.world, columns: owned.columns, rows: owned.rows } : null;
-        } else {
-          // 所持パルは同じでも、共有した人の名前が変わっていることがある（名前の変更）。
-          // 何も変わっていなければ置き換えない（置き換えると所持パルを作り直したことになり、画面が作り直される）
-          const world = { ...current.world, ...meta };
-          if (JSON.stringify(world) !== JSON.stringify(current.world)) state.shared.current = { ...current, world };
-        }
-        state.shared.fetchedAt = new Date(now()).toISOString();
-        await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
-        return 'fetched';
-      } catch (error) {
-        state.shared.error = error.message;
-        return 'error';
-      } finally {
-        sharedInflight = null;
-        update();
-      }
-    })();
+    if (sharedInflight) {
+      if (!force) return sharedInflight;
+      sharedFollow ??= sharedInflight.then(() => {
+        sharedFollow = null;
+        return fetchShared({ force: true });
+      });
+      return sharedFollow;
+    }
+    if (!force && !retry && now() - lastShared < SHARED_INTERVAL - SHARED_SLACK) return 'skipped';
+    sharedInflight = readShared({ force }).finally(() => {
+      sharedInflight = null;
+      update();
+    });
     return sharedInflight;
   }
 
-  // ホストのセーブを共有する。古いセーブは GAS が受け付けない（新しい方を残す）。
-  async function uploadLocal({ force = false } = {}) {
+  // 共有を 1 回読む。今のワールドの共有を持っていれば ownedSince を 1 回だけ呼ぶ（古い GAS なら一覧 → owned の 2 回呼び）。
+  // 応答はこの関数の中で集め、最後にまとめて state に入れる（途中で保存先・ワールド・共有のデータが替わったら、何も入れずに捨てる）
+  async function readShared({ force }) {
+    lastShared = now();
+    const key = scope();
+    const epoch = sharedEpoch;
+    const before = { worlds: state.shared.worlds, current: state.shared.current };
+    const { current } = before;
+    let worlds = before.worlds;
+    let target = '';
+    // target を決めたときの一覧（中身を受け取って一覧を直した後も、表示するワールドが替わっていないかをこれで確かめる）
+    let chosenFrom = worlds;
+    // この回に一覧を読んだ時刻（読んでいなければ null）
+    let listed = null;
+    const same = () => scope() === key && sharedEpoch === epoch && state.shared.worlds === before.worlds && state.shared.current === current;
+    // 応答を受け取った直後と、state に入れる直前に確かめる（その間にも送信・削除の応答が割り込める）
+    const fresh = () => same() && targetWorldId(chosenFrom) === target;
+    const check = () => { if (!fresh()) throw STALE; };
+    const have = () => (current?.world?.worldId === target ? current : null);
+    const listWorlds = async () => {
+      const list = await server.request('ownedWorlds');
+      if (!same()) throw STALE;
+      // 同じ中身なら前の一覧のまま（キャッシュを書き直さない）
+      if (JSON.stringify(list.worlds) !== JSON.stringify(worlds)) worlds = list.worlds;
+      listed = now();
+      chosenFrom = worlds;
+      target = targetWorldId(worlds);
+    };
+    // 一覧で分かること: 共有がない（消えた）・持っている版と同じ。分からなければ null（中身を読む）
+    const fromList = () => {
+      const entry = worlds.find((world) => world.worldId === target);
+      const own = have();
+      if (!entry) return { current: own ? null : current };
+      if (own && own.world.uploadedAt === entry.uploadedAt) {
+        // 所持パルは同じでも、共有した人の名前が変わっていることがある（ID の変更）。何も変わっていなければ置き換えない
+        const world = withSinceFields(own.world, entry);
+        return { current: world === own.world ? own : { ...own, world } };
+      }
+      return null;
+    };
+    // owned・ownedSince（変わった）の中身。行の数が palCount と違えば受け取らない
+    const fromPayload = (response) => {
+      if (!response.world) {
+        worlds = worlds.filter((world) => world.worldId !== target);
+        return { current: have() ? null : current };
+      }
+      if (response.world.worldId !== target || receivedRows(response) !== response.world.palCount) return { partial: true };
+      worlds = upsertWorld(worlds, response.world);
+      return { current: { world: response.world, columns: response.columns, rows: response.rows } };
+    };
+    const readSince = async () => {
+      const own = have();
+      const since = own?.world.uploadedAt ?? '';
+      const input = { worldId: target, uploadedAt: since };
+      // ページを開いている PC を送る回なら、ここに載せる（この回は別に送らない。page-presence）
+      const beat = presenceDue(target);
+      if (beat) {
+        input.presence = beat.presence;
+        markPresence(beat);
+      }
+      let response;
+      try {
+        response = await server.request('ownedSince', input);
+      } catch (error) {
+        // 共有の書き込みと重なった（GAS が行の数の違いを返した）
+        if (error?.code === 'PARTIAL') { check(); return { partial: true }; }
+        if (error?.code !== 'BAD_ACTION') throw error;
+        // 古い GAS。送った先の環境では、1 時間は今までの 2 回呼びにする（presence も同じ版で足したので送らず、前の一覧も出さない。
+        // 知らせるのは fetchShared の最後の update）
+        unsupported.set(capabilityKey('ownedSince', key), now() + SINCE_RETRY);
+        presenceUnsupported(key);
+        check();
+        return null;
+      }
+      check();
+      // 応答にはいつもページを開いている PC の一覧が付く（載せなかった回も）
+      keepPages(target, response);
+      if (response.changed) return fromPayload(response);
+      if (!own || response.uploadedAt !== since) return { partial: true };
+      const world = withSinceFields(own.world, response);
+      worlds = upsertWorld(worlds, world);
+      return { current: world === own.world ? own : { ...own, world } };
+    };
+    const readOwned = async () => {
+      let response;
+      try {
+        response = await server.request('owned', { worldId: target });
+      } catch (error) {
+        if (error?.code !== 'PARTIAL') throw error;
+        check();
+        return { partial: true };
+      }
+      check();
+      return fromPayload(response);
+    };
+    try {
+      const wanted = targetWorldId(worlds);
+      if (force || !supports('ownedSince') || now() - listedAt >= WORLDS_INTERVAL || !wanted || !worlds.some((world) => world.worldId === wanted)) {
+        await listWorlds();
+      } else {
+        target = wanted;
+      }
+      let outcome = !target ? { current } : listed !== null ? fromList() : null;
+      if (!outcome && supports('ownedSince')) outcome = await readSince();
+      if (!outcome && listed === null) {
+        // 古い GAS（ownedSince を知らない）。今までの 2 回呼び（一覧 → owned）に落とす
+        await listWorlds();
+        outcome = !target ? { current } : fromList();
+      }
+      outcome ??= await readOwned();
+      check();
+      if (outcome.partial) {
+        // 読んだ一覧は使う（5 分は読み直さない。キャッシュには書かない）。表示する所持パルと時刻は前の版のまま（current。recompute は
+        // 共有を出すとき current の時刻を出す）。ただし一覧で表示するワールドが替わる（いちばん新しく共有されたワールドが替わった）ときは、
+        // そのワールドの中身を読めていないので、前の一覧と表示のまま（次の回は一覧から読み直す。前のワールドの読み直しに戻らない）。
+        // 何も表示していなければ、替わっても一覧を使う（ワールドの名前は出せる）
+        if (listed !== null) {
+          if (targetWorldId(before.worlds) === target || !state.data) {
+            state.shared.worlds = worlds;
+            listedAt = listed;
+          } else {
+            listedAt = -Infinity;
+          }
+        }
+        return partialRead(`${key}|${epoch}|${target}`, errorMessage('PARTIAL'));
+      }
+      stopPartial();
+      if (listed !== null) listedAt = listed;
+      const changed = worlds !== before.worlds || outcome.current !== current;
+      state.shared.worlds = worlds;
+      state.shared.current = outcome.current;
+      state.shared.error = '';
+      state.shared.fetchedAt = new Date(now()).toISOString();
+      state.shared.fetchedWorldId = target;
+      // 何も変わっていなければ書かない（20,000 行の所持パルを 10 秒ごとに書き直さない）
+      if (changed) await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
+      return 'fetched';
+    } catch (error) {
+      if (error === STALE) return 'skipped';
+      if (same()) state.shared.error = error.message;
+      return 'error';
+    }
+  }
+
+  // 共有してよいセーブか（ホストとして、このページで読んだ、登録の残っているワールドのセーブ）。ログインの環境は問わない
+  const shareable = (local) => Boolean(server && local && state.uploadReady && state.role === 'host' && local.world.id === state.linkedWorldId)
+    && !(local.source === 'handles' && (!source.has(local.world.id) || removing.has(local.world.id)));
+  // 今共有してよいか（ログインしていて、共有してよいセーブ）
+  const canUpload = (local) => Boolean(scope()) && shareable(local);
+
+  // 手元に持っている同じワールドの共有（一覧の項目・今の中身）が、world より後に公開されたものか（GAS のサーバーの時刻 uploadedAt で比べる。
+  // 同じ・比べられないときは false）
+  function heldNewer(world) {
+    const at = Date.parse(world?.uploadedAt ?? '');
+    if (!Number.isFinite(at)) return false;
+    const listed = state.shared.worlds.find((item) => item.worldId === world.worldId);
+    const current = state.shared.current?.world?.worldId === world.worldId ? state.shared.current.world : null;
+    return [listed, current].some((item) => Date.parse(item?.uploadedAt ?? '') > at);
+  }
+
+  // 予約した時刻に、そのときの最新を送る（間隔・再試行の待ちは予約の時刻で済んでいる）
+  function scheduleUpload(wait) {
+    uploadTimer ??= schedule(() => { uploadTimer = null; uploadLocal({ force: true, resume: true }).catch(() => {}); }, wait);
+  }
+
+  /**
+   * ホストのセーブを共有する（古いセーブは GAS が受け付けない。新しい方を残す。sync-fixes の share-upload）。
+   * 1 つずつ送る: 送っている間に呼ばれたら dirty にし、終わった後に最新を 1 回送る。送り始めの間を UPLOAD_MIN_GAP 空け、空いていなければ
+   * 予約する。送れなかったら（UPLOAD_RETRY_CODES）UPLOAD_RETRY_DELAYS の段で予約し直す。
+   * force は間隔・再試行の待ちを空けずに今送る（送っている途中なら終わってから。その後の 1 回が始まっていれば、それを待つ）。
+   * commit は登録の確定（commitRegistration）から送るとき（そのセーブを送るときだけ GAS に world.force を送る）。
+   * resume は予約・送っている間の 1 回から呼ぶとき（共有を止めている間で送れなければ uploadOwed に残す）。
+   * @returns {Promise<'skipped'|'queued'|'scheduled'|'uploaded'|'unchanged'|'same'|'stale'|'error'>}
+   */
+  async function uploadLocal({ force = false, commit = false, resume = false } = {}) {
     const local = state.local;
-    if (!server || !scope() || !local || !state.uploadReady || state.role !== 'host' || local.world.id !== state.linkedWorldId) return 'skipped';
-    if (local.source === 'handles' && (!source.has(local.world.id) || removing.has(local.world.id))) return 'skipped';
-    const wait = UPLOAD_INTERVAL - (now() - lastUpload);
+    if (!canUpload(local)) {
+      // セーブの読み直しの途中（holdUpload）など。止めた理由が登録の削除・解除なら blockUpload が消す。ログインの前に読んだセーブは、
+      // 環境が決まったとき（scopeChanged）に送る
+      if (resume || (!scope() && shareable(local))) uploadOwed = true;
+      return 'skipped';
+    }
+    uploadOwed = false;
+    if (commit) commitLocal = local;
+    if (uploading) {
+      if (!force) {
+        uploadDirty = true;
+        return 'queued';
+      }
+      const seq = uploadSeq;
+      await uploading;
+      // 終わった後の 1 回（dirty）がもう送り始めていれば、それが最新を送っている
+      if (uploading && uploadSeq > seq) return (await uploading).result;
+      return uploadLocal({ force: true });
+    }
+    const wait = Math.max(lastUpload + UPLOAD_MIN_GAP, retryAt) - now();
     if (!force && wait > 0) {
-      // 間隔を空けて、そのときの最新を送る
-      uploadTimer ??= schedule(() => { uploadTimer = null; uploadLocal({ force: true }).catch(() => {}); }, wait);
+      scheduleUpload(wait);
       return 'scheduled';
     }
-    lastUpload = now();
-    state.upload = { status: 'sending', at: state.upload.at, error: '', worldId: local.world.id };
-    emit();
-    const owned = normalizeOwned(local.snapshot, { pals, passives });
-    const payload = sharedUpload(owned);
+    cancelUploadTimer();
+    uploadDirty = false;
+    const epoch = uploadEpoch;
+    const sending = sendLocal(local);
+    uploading = sending;
+    let outcome;
     try {
-      const head = {
-        userId: server.userId?.() ?? '', worldId: local.world.id,
-        // ゲーム内の日数（save-extras）は GAS の最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）
-        world: {
-          name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '',
-          ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
-        },
-        saveUpdatedAt: local.world.updatedAt || local.importedAt,
+      outcome = await sending;
+    } finally {
+      if (uploading === sending) uploading = null;
+    }
+    // 送っている間に共有を止めた（登録の削除・解除・別のワールドに替わったなど）なら、このセーブの再試行の段は動かさない（blockUpload が
+    // 消した）。止めた後に呼ばれた分（dirty。blockUpload が消した後に立った）は、今のワールドのセーブなので送る
+    if (epoch === uploadEpoch) {
+      if (outcome.retry) {
+        retryStep++;
+        const delay = UPLOAD_RETRY_DELAYS[Math.min(retryStep, UPLOAD_RETRY_DELAYS.length) - 1];
+        retryAt = now() + delay;
+        cancelUploadTimer();
+        scheduleUpload(delay);
+      } else {
+        retryStep = 0;
+        retryAt = -Infinity;
+      }
+      // 送っている間に環境が替わって捨てた: 新しい環境にはまだ送っていないので送る（共有を止めていれば送らない）。ログインしていなければ
+      // uploadOwed に残り、環境が決まったとき（scopeChanged）に送る
+      if (outcome.owed) uploadOwed = true;
+    }
+    if (uploadDirty || (outcome.owed && uploadOwed)) {
+      uploadDirty = false;
+      uploadLocal({ resume: true }).catch(() => {});
+    }
+    return outcome.result;
+  }
+
+  // 1 回送る（例外にしない）。{ result, retry }（retry は送り直す失敗）を返す
+  async function sendLocal(local) {
+    lastUpload = now();
+    uploadSeq++;
+    const signature = local.world.signature ?? '';
+    const stamp = ownedSaveStamp(local.snapshot?.world?.savedAtTicks);
+    const savedAt = local.world.updatedAt || local.importedAt;
+    // 送った先の保存先（ログイン中の環境）。応答が届くまでに替わったら、その応答は今の共有に入れない
+    const key = scope();
+    const epoch = sharedEpoch;
+    const userId = server.userId?.() ?? '';
+    // 結果に残す、送ったセーブと送ったときの環境・ID
+    const origin = { worldId: local.world.id, signature, stamp, savedAt, scope: key, userId };
+    state.upload = { ...emptyUpload(), status: 'sending', at: state.upload.at, ...origin };
+    emit();
+    const force = commitLocal === local;
+    // 登録の確定の後に別のセーブを読んだ（送るのはいつも今の手元のデータなので、前の印はもう使わない）
+    if (!force) commitLocal = null;
+    const changed = () => scope() !== key || sharedEpoch !== epoch;
+    // 送っている間にログイン・環境が替わった: 前の保存先への送信・応答なので、今の共有とキャッシュには入れず、再試行もしない。
+    // 新しい環境にはまだ送っていない（owed。uploadLocal が送る）
+    const dropped = (result) => {
+      state.upload = emptyUpload();
+      return { result, retry: false, owed: true };
+    };
+    try {
+      const owned = normalizeOwned(local.snapshot, { pals, passives });
+      const payload = sharedUpload(owned);
+      // ゲーム内の日数（save-extras）とセーブの識別（owned-gas）は、GAS の最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）
+      const world = {
+        name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '',
+        ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
       };
+      const head = { userId, worldId: local.world.id, saveUpdatedAt: savedAt };
+      const counts = { fileCount: fileCountOf(local.snapshot), missingCount: missingCountOf(local.snapshot) };
       // 古い GAS（後から足した列を知らない）は列の幅が違う共有を INVALID_COLUMNS で断るので、末尾の列を 1 つずつ外して送り直し、受け付けた
       // 幅を覚える（UPLOAD_WIDTH_RETRY ごとに全部の列で試し直す。GAS を後から更新しても戻る）。画面を GAS より先に配信しても共有は止まらない
-      //（足した列〔入手時刻など〕だけが届かない。save-extras の Codex のレビュー）
+      //（足した列〔入手時刻など〕だけが届かない。save-extras の Codex のレビュー）。中身の印（contentHash）は狭めた後の中身で計算し、形の版
+      //（format）は外した列の数だけ下げる（新しい GAS が狭めた共有を受けていても、全部の列で送り直したときに resent で書き直される）
       const full = payload.columns.length;
       const start = uploadWidth < full && now() - uploadWidthAt < UPLOAD_WIDTH_RETRY ? uploadWidth : full;
       let width = start;
@@ -397,8 +946,13 @@ export function createOwnedStore({
       let response;
       for (;;) {
         sent = width >= full ? payload : { ...payload, columns: payload.columns.slice(0, width), rows: payload.rows.map((row) => row.slice(0, width)) };
+        const contentHash = await ownedContentHash({ worldId: head.worldId, world, ...sent });
+        // 印の計算の間に環境が替わったら送らない（応答を捨てるだけでは、前の環境で始めた送信が新しい環境のシートに書かれてしまう。
+        // 列を狭めて送り直す回も、送る直前に毎回確かめる）
+        if (changed()) return dropped('skipped');
+        const identity = { saveStamp: stamp, contentHash, format: OWNED_FORMAT - (full - width), ...counts, force };
         try {
-          response = await server.request('ownedUpload', { ...head, ...sent });
+          response = await server.request('ownedUpload', { ...head, world: { ...world, ...identity }, ...sent });
           break;
         } catch (error) {
           if (!columnsRejected(error) || width <= full - OWNED_ADDED_FIELDS.length) throw error;
@@ -408,21 +962,44 @@ export function createOwnedStore({
       // 全部の列で試して狭めたときだけ時刻を残す（覚えた幅で送ったときは、試し直す時刻を延ばさない）
       if (start === full && width < full) uploadWidthAt = now();
       uploadWidth = width;
-      const others = state.shared.worlds.filter((world) => world.worldId !== response.world.worldId);
-      state.shared.worlds = [...others, response.world];
-      if (response.stored) {
+      // 環境が替わって捨てる送信は、登録の確定の印を残す（新しい環境への送り直しも force で送る）
+      if (changed()) return dropped('skipped');
+      if (commitLocal === local) commitLocal = null;
+      const result = OWNED_RESULTS.includes(response.result) ? response.result : '';
+      const published = { saveStamp: response.world.saveStamp ?? '', uploadedBy: response.world.uploadedBy ?? '', uploadedAt: response.world.uploadedAt ?? '' };
+      // 自分の共有が載っているか（応答を失った後の再送・読み込み直しで、前の自分の送信が届いていた unchanged も）。送った人は ID で比べる
+      const mine = Boolean(userId) && userIdKey(published.uploadedBy) === userIdKey(userId);
+      const status = response.stored || (result === 'unchanged' && mine) ? 'done' : ['same', 'unchanged'].includes(result) ? 'same' : 'stale';
+      state.upload = { ...origin, status, at: published.uploadedAt, error: '', result, published };
+      // 応答が遅れて届く間に、このページが同じワールドのもっと後の共有（別の PC が後から公開したセーブ）を読んでいたら、応答の world（その時に
+      // 公開されていたもの）で一覧・中身・キャッシュを戻さない。結果の記録（state.upload）は上のとおり残す
+      const outdated = heldNewer(response.world);
+      if (!outdated) {
+        const others = state.shared.worlds.filter((item) => item.worldId !== response.world.worldId);
+        state.shared.worlds = [...others, response.world];
+      }
+      const wrote = response.stored || result === 'unchanged';
+      // 書いた・同じ中身が載っている。送っている間に表示するワールドが替わっていたら、一覧だけに入れる（今のワールドの所持パルは置き換えない）
+      if (!outdated && wrote && response.world.worldId === targetWorldId()) {
         state.shared.current = { world: response.world, columns: sent.columns, rows: sent.rows.map((row) => row.map(String)) };
-        state.upload = { status: 'done', at: response.world.uploadedAt, error: '', worldId: local.world.id };
-        await persist.set(sharedKey(scope()), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
-      } else {
-        // 共有されている方が新しい（別の PC から共有された）ので、そちらを読む
-        state.upload = { status: 'stale', at: '', error: '', worldId: local.world.id };
+      }
+      // 結果はすぐ知らせる（キャッシュの保存・読み直しを待つ間に新しいセーブを読むと、runImportTask が結果を消すため）
+      update();
+      // 持っている方が新しければ（outdated）、キャッシュも書かず、読み直しもしない
+      if (!outdated && wrote) {
+        await persist.set(sharedKey(key), { worlds: state.shared.worlds, current: state.shared.current, fetchedAt: state.shared.fetchedAt });
+      } else if (!outdated && status === 'stale') {
+        // 共有されている方が新しい（別の PC から共有された）ので、そちらを読む。same（同じセーブの別の中身）は、この PC では手元のセーブを
+        // 出すので読まない（次の定期の読み直しで入る）
         await fetchShared({ force: true });
       }
-      return response.stored ? 'uploaded' : 'stale';
+      return { result: response.stored ? 'uploaded' : result === 'unchanged' ? 'unchanged' : status, retry: false };
     } catch (error) {
-      state.upload = { status: 'error', at: '', error: error.message, worldId: local.world.id };
-      return 'error';
+      if (changed()) return dropped('error');
+      const retry = UPLOAD_RETRY_CODES.has(error?.code);
+      state.upload = { ...emptyUpload(), ...origin, status: 'error', error: error?.message ?? String(error) };
+      if (!retry && commitLocal === local) commitLocal = null;
+      return { result: 'error', retry };
     } finally {
       update();
     }
@@ -452,9 +1029,17 @@ export function createOwnedStore({
       state.local = data;
       state.role = 'host';
       state.linkedWorldId = data.world.id;
+      // ゲーム中の推定は、登録したファイルから読んだセーブ（登録の確定で読んだものも）の中の保存時刻で数える（同期でファイルの更新日時が
+      // 書き換わっても、中の時刻は変わらない）
+      if (from === 'handles') state.play = trackPlay(state.play, { worldId: data.world.id, role: 'host', value: playTicksMs(snapshot.world?.savedAtTicks), at: now() });
       // 読み込みの途中で登録の削除・解除を求められていたら、共有しない
       state.uploadReady = epoch === linkEpoch;
-      if (from === 'handles') verifiedSignature = data.world.signature;
+      // 前のセーブを送った結果は消す（送っている途中と、送れなかった知らせは次の応答まで残す。share-upload）
+      if (!['sending', 'error'].includes(state.upload.status)) state.upload = emptyUpload();
+      if (from === 'handles') {
+        verifiedSignature = data.world.signature;
+        verifiedRead = world.readSignature ?? '';
+      }
       await persist.set(dataKey, data);
       return data;
     } catch (error) {
@@ -474,6 +1059,7 @@ export function createOwnedStore({
     state.auto.error = message;
     // 許可待ちで止まった時刻は、止まったときだけ入れる（続けて止まっている間・ほかの理由で止まっている間は上書きしない）
     if (status === 'permission' && !state.auto.stoppedAt) state.auto.stoppedAt = new Date(now()).toISOString();
+    clearHold();
     blockUpload();
     if (!auto) throw Object.assign(new Error(message), { code: status });
     return status;
@@ -481,13 +1067,101 @@ export function createOwnedStore({
 
   const worldLabel = (world) => (world.name ? `「${world.name}」` : `ワールド ${world.id.slice(0, 8)}`);
 
+  // ---- 読み直しの保留（sync-fixes の save-watch） ----
+
+  function clearHold() {
+    if (hold.timer !== null) cancel(hold.timer);
+    hold = emptyHold();
+  }
+  // そのワールドの保留（別のワールドの保留は捨てる）
+  function holdOf(worldId) {
+    if (hold.worldId !== worldId) {
+      clearHold();
+      hold.worldId = worldId;
+    }
+    return hold;
+  }
+  // 読み直しを予約する（タイマーは 1 本。transient は見張りから読んだときと同じに扱うか）
+  function scheduleReread(delay, transient) {
+    if (hold.timer !== null) cancel(hold.timer);
+    hold.transient = transient;
+    hold.timer = schedule(() => {
+      hold.timer = null;
+      if (!state.auto.enabled) return 'skipped';
+      lastAuto = now();
+      return runAuto({ auto: true, transient: hold.transient, watchWorldId: hold.worldId, shared: false }).catch(() => 'error');
+    }, Math.max(0, delay));
+  }
+  // 登録したファイルの失敗・消失の形（パスと理由の集合。並びによらない）
+  const shapeOf = (skipped) => [...new Set(skipped.map((item) => `${item?.path ?? ''}\u0000${item?.reason ?? ''}`))].sort().join('\n');
+
+  /**
+   * 登録したファイルの失敗・消失（files.skipped）があれば、初めて見た形なら採用せずに、最初に見た時刻から HOLD_SKIPPED_STEPS で読み直す。
+   * 同じ形が最後の段まで続いたら受け入れて覚え（同じ形なら次から待たない）、今までどおり飛ばして採用する。true なら保留
+   */
+  function holdSkipped(worldId, skipped, transient) {
+    const items = Array.isArray(skipped) ? skipped : [];
+    if (!items.length) {
+      acceptedShapes.delete(worldId);
+      return false;
+    }
+    const shape = shapeOf(items);
+    if (acceptedShapes.get(worldId) === shape) return false;
+    const current = holdOf(worldId);
+    // 形が変われば待ち直す
+    if (current.skipped?.shape !== shape) current.skipped = { shape, since: now() };
+    const elapsed = now() - current.skipped.since;
+    const step = HOLD_SKIPPED_STEPS.find((ms) => ms > elapsed);
+    if (step === undefined) {
+      acceptedShapes.set(worldId, shape);
+      return false;
+    }
+    scheduleReread(current.skipped.since + step - now(), transient);
+    return true;
+  }
+  /** 見張りから読んだときの読めない失敗。最初の失敗から HOLD_UNREADABLE_STEPS で読み直し、3 回目の読み直しもだめなら false（今の扱い）。 */
+  function holdUnreadable(worldId) {
+    const current = holdOf(worldId);
+    current.unreadable ??= { since: now() };
+    const elapsed = now() - current.unreadable.since;
+    const step = HOLD_UNREADABLE_STEPS.find((ms) => ms > elapsed);
+    if (step === undefined) {
+      current.unreadable = null;
+      return false;
+    }
+    scheduleReread(current.unreadable.since + step - now(), true);
+    return true;
+  }
+
+  // 読んだファイルを解析する（まだ採用しない）。読む前に消えていたファイルも、読めなかったファイルとして足す
+  async function parseFiles(files, skipped) {
+    state.error = '';
+    state.progress = 'セーブを読み込み中…';
+    emit();
+    const result = await runImport(files, (message) => { state.progress = message; emit(); });
+    return skipped.length ? { ...result, files: { ...result.files, skipped: [...skipped, ...(result.files?.skipped ?? [])] } } : result;
+  }
+
   // 登録したファイルからワールドを読む。auto のときは、前回読んだセーブ一式から変わっていなければ読まない。
   // preview（登録の確認で読んだ結果）があり、そのワールドのファイルが変わっていなければ、それを使う。
-  // epoch は呼び出した（キューに入れた）ときの linkEpoch。その後に削除・解除を求められていたら共有しない
-  async function autoTask({ auto, preview = null, epoch = linkEpoch }) {
+  // epoch は呼び出した（キューに入れた）ときの linkEpoch。その後に削除・解除を求められていたら共有しない。
+  // 見張りの対象は、一覧を読んだ後（読めなかったときも）に送り直す（同じ対象なら送らない）
+  async function autoTask(options) {
+    try {
+      return await readAuto(options);
+    } finally {
+      updateWatch();
+    }
+  }
+
+  // transient は見張りから読んだとき（refreshFromWatch とその読み直し。見張りが動いている間の定期の確認も）。保存の途中のファイルの置き換えで
+  // 読めなくても、エラーを出さずに読み直す。
+  // watchWorldId は見張りが知らせた（読み直しを保留した）ワールド。読み直しを保留したら 'held'（前の手元のデータ・表示・共有は残す）
+  async function readAuto({ auto, preview = null, epoch = linkEpoch, transient = false, watchWorldId = '' }) {
     if (!state.auto.enabled) return 'skipped';
     await load();
     // 前のエラーは結果が出るまで残す（確かめるたびにエラーの行が消えてまた出ないように）
+    const previous = state.auto.status;
     state.auto.status = 'checking';
     emit();
     let worlds;
@@ -504,9 +1178,20 @@ export function createOwnedStore({
       return stop('permission', 'セーブを読む許可が必要です', auto);
     }
     const chosen = state.auto.worldId ? worlds.find((world) => world.id === state.auto.worldId) : null;
+    // 見張りから読んだときに、選んだワールド（選んでいなければ、見張りが知らせたワールドか今のワールド）の必須のファイルが一時的に読めない
+    //（保存の途中の置き換え）なら、別のワールドに替えたり止めたりせずに読み直す。読めないワールドは更新日時が分からず一覧の後ろに回るので、
+    // 一覧の先頭では決めない（先頭の古いワールドに替わってしまう。Codex のレビュー）
+    const suspects = chosen ? [chosen] : [watchWorldId, state.linkedWorldId].map((id) => worlds.find((item) => item.id === id)).filter(Boolean);
+    const preferred = suspects.find((item) => ['missing', 'error'].includes(item.status));
+    if (transient && preferred && holdUnreadable(preferred.id)) {
+      state.auto.status = previous === 'checking' ? 'ready' : previous;
+      return 'held';
+    }
     // 選んでいなければ、読めるワールドのうち最後に遊んだもの（読めないワールドがあれば知らせる）
     const world = chosen || worlds.find((item) => item.status === 'ok') || worlds[0];
     const broken = chosen ? [] : worlds.filter((item) => item.status !== 'ok' && item.playedAt > world.playedAt);
+    // 別のワールドに替わったら、前のワールドの保留は捨てる
+    if (hold.worldId && hold.worldId !== world.id) clearHold();
     state.linkedWorldId = world.id;
     if (world.status !== 'ok') {
       // ホストか参加か判定できないときは、手元のデータで共有しない
@@ -520,20 +1205,40 @@ export function createOwnedStore({
     else if (broken.length) state.auto.error = `${broken.map(worldLabel).join('・')}を読めないため、読めるワールドのうち最後に遊んだワールドを読みます`;
     if (world.role === 'guest') {
       state.role = 'guest';
+      clearHold();
       blockUpload();
+      // 参加者のゲーム中の推定は LocalData.sav の更新日時で数える。参加者と判定するのは LocalData.sav が Level.sav より 60 秒以上新しいか
+      // Level.sav がないとき（save/source.js の judgeRole。ホストの保存の途中の約 30 秒の差は参加と取り違えない）なので、一覧の playedAt
+      //（2 つの更新日時の新しい方）は LocalData.sav の更新日時
+      state.play = trackPlay(state.play, { worldId: world.id, role: 'guest', value: Date.parse(world.playedAt), at: now() });
       return 'guest';
     }
     state.role = 'host';
     const current = state.local;
-    // このページで読み込んだときから変わっていなければ読まない（開き直した直後は、保存済みのデータがあっても一度読む）
-    if (auto && current?.source === 'handles' && current.world.id === world.id && current.world.signature === world.signature && verifiedSignature === world.signature) {
+    // このページで読み込んだときから変わっていなければ読まない（開き直した直後は、保存済みのデータがあっても一度読む）。LocalData.sav だけが
+    // 変わったとき（ゲームの保存の途中。Level.sav はその少し後に書かれる）も、解析は LocalData.sav を読まず同じスナップショットになるので
+    // 読まない（前のデータ・共有の結果・予約を残す。読み直すと同じ中身を送り直し、続く新しいセーブの共有が最短の間隔の分だけ遅れる）
+    const verified = auto && current?.source === 'handles' && current.world.id === world.id && verifiedSignature === current.world.signature;
+    if (verified && (current.world.signature === world.signature || (Boolean(world.readSignature) && verifiedRead === world.readSignature))) {
+      clearHold();
       state.uploadReady = epoch === linkEpoch;
       return 'unchanged';
     }
-    blockUpload();
+    // 読み終えるまで共有しない。同じワールドの新しいセーブなら再試行の段は残す（別のワールドに替わるなら全部消す）
+    if (current?.world.id === world.id) holdUpload();
+    else blockUpload();
+    // 保留する（採用しない）ときは、このページで読んだ前の完全なデータの共有を続ける（holdUpload で取り消した予約は runAuto が戻す）
+    const held = () => {
+      if (current?.source === 'handles' && current.world.id === world.id && verifiedSignature === current.world.signature) state.uploadReady = epoch === linkEpoch;
+      return 'held';
+    };
     readingWorldId = world.id;
     try {
       if (preview?.snapshot && preview.worldId === world.id && preview.fileSignature === world.fileSignature) {
+        // 登録の確定は、読めなかったファイルがあってもすぐ採用する（その形は受け入れたものとして覚える）
+        const skipped = preview.snapshot.files?.skipped ?? [];
+        if (skipped.length) acceptedShapes.set(world.id, shapeOf(skipped));
+        else acceptedShapes.delete(world.id);
         await runImportTask([], { source: 'handles', world, snapshot: preview.snapshot, epoch });
       } else {
         let read;
@@ -542,11 +1247,28 @@ export function createOwnedStore({
         } catch (error) {
           // 一覧を確かめた後に許可が外れたときも、許可のボタンを出す
           if (error.code === 'NEEDS_PERMISSION') return stop('permission', error.message, auto);
+          if (transient && UNREADABLE_CODES.has(error.code) && holdUnreadable(world.id)) return held();
           // ゲームの保存中で読めなかっただけなら、自動のときは次の機会に読み直す
           if (!(auto && error.code === 'NOT_READABLE')) state.error = error.message;
           throw error;
         }
-        await runImportTask(read.files, { source: 'handles', world, skipped: read.skipped, epoch });
+        // 読む前と後で印が違う: 保存の途中に読んだかもしれない（ファイルどうしが食い違う）ので採用せず、1 秒後に読み直す
+        if (typeof read.fileSignature === 'string' && read.fileSignature !== world.fileSignature) {
+          holdOf(world.id);
+          scheduleReread(HOLD_CHANGED_DELAY, transient);
+          return held();
+        }
+        let snapshot;
+        try {
+          snapshot = await parseFiles(read.files, read.skipped ?? []);
+        } catch (error) {
+          // Level.sav を読めない・解析できない
+          if (transient && holdUnreadable(world.id)) return held();
+          state.error = error.message;
+          throw error;
+        }
+        if (holdSkipped(world.id, snapshot.files?.skipped, transient)) return held();
+        await runImportTask([], { source: 'handles', world, snapshot, epoch });
       }
     } catch (error) {
       if (!auto) throw error;
@@ -554,6 +1276,7 @@ export function createOwnedStore({
     } finally {
       readingWorldId = '';
     }
+    clearHold();
     source.rename(world.id, { name: state.local.world.name, hostName: state.local.world.hostName }).catch(() => {});
     return 'imported';
   }
@@ -561,13 +1284,120 @@ export function createOwnedStore({
   function runAuto(options) {
     const epoch = linkEpoch;
     return serial(() => autoTask({ ...options, epoch })).then(async (result) => {
-      if (result === 'imported') uploadLocal().catch(() => {});
-      // shared: false のとき（定期の読み直し）は共有を読み直さない
-      if (options.shared !== false && (result === 'guest' || result === 'unchanged' || result === 'imported')) {
+      // 読み直しの間に取り消した予約は、読み直せずに今のセーブのまま（unchanged）・保留（held）でも送り直す（share-upload・save-watch）
+      if (result === 'imported' || ((result === 'unchanged' || result === 'held') && uploadOwed)) uploadLocal().catch(() => {});
+      // shared: false のとき（定期の読み直し・見張りから）は共有を読み直さない
+      if (options.shared !== false && ['guest', 'unchanged', 'imported', 'held'].includes(result)) {
         await fetchShared({ force: result === 'guest' && !options.auto });
       }
       return result;
     });
+  }
+
+  // ---- セーブのファイルの見張り（sync-fixes の save-watch） ----
+
+  // 今のワールド（連携しているワールド。なければ一覧の先頭＝最後に遊んだワールド）
+  const currentWatchWorld = () => state.linkedWorldId || state.auto.worlds[0]?.id || '';
+  // 見張りが動いているか（Observer か Worker の 5 秒ごとの確認）。動いている間は、定期の確認（autoRefresh・pollAuto）が保存の途中の一時的な
+  // 失敗・消失に当たっても、見張りから読んだとき（transient）と同じに保留して読み直す（保存の書き終わりは見張りが知らせるので、定期の確認で
+  // 止めたり別のワールドに替えたりしない）。Worker を作れないブラウザ（'timer'）では、今までどおり定期の確認だけで決める
+  const watching = () => ['observer', 'poll'].includes(state.watch.mode);
+
+  /**
+   * 見張る対象。登録したワールドのうち、直近の list() で許可があった（status が 'permission' でない）もの。保存の途中などで一時的に読めない
+   *（'missing'・'error'）ワールドも外さない（外すと、戻ったことに Worker が気づけず、画面のタイマー頼みになる。Codex のレビュー）。
+   * 使うワールドを選んでいればそれだけ。
+   * 今のワールドは登録した全ファイル、ほかのワールドは Level.sav・LocalData.sav だけ（最後に遊んだワールドが替わったことに気づくため）。
+   * observe（Observer に渡す）は今のワールドのフォルダの直下のファイルだけ。Players・../GlobalPalStorage.sav は Worker の 5 秒ごとの確認だけ
+   *（Players の中を見張ると、SaveSync が同期を受け取るときに止まり、ワールドが消えた状態になる。2026-10-17 の P0 の事故）。ほかのワールドも
+   * 5 秒ごとの確認だけにする（気づくのが数秒遅れても困らない。Chrome が押さえるフォルダを今のワールドの 1 つにする）
+   */
+  function watchTargets() {
+    if (!state.auto.enabled) return [];
+    const worlds = state.auto.worlds.filter((world) => !removing.has(world.id) && source.has(world.id));
+    const pinned = state.auto.worldId ? worlds.find((world) => world.id === state.auto.worldId) : null;
+    const currentId = currentWatchWorld();
+    return (pinned ? [pinned] : worlds).filter((world) => world.status && world.status !== 'permission').map((world) => {
+      const record = source.get(world.id);
+      const current = world.id === currentId;
+      const files = Object.entries(record.files)
+        .filter(([path]) => current || path === 'Level.sav' || path === 'LocalData.sav')
+        .map(([path, handle]) => ({ path, handle, observe: current && observable(path) }));
+      return { worldId: world.id, host: record.kind === 'host', current, revision: record.revision ?? 0, files };
+    });
+  }
+
+  // 見張りの対象を送り直す（同じ対象〔ワールド ID・パス・revision・今のワールドか〕なら送らない）。自動が無効・対象なしなら止める
+  function updateWatch() {
+    const currentId = currentWatchWorld();
+    if (currentId !== watchCurrent) {
+      watchCurrent = currentId;
+      state.watch.lastSave = null;
+    }
+    const targets = watchTargets();
+    const shape = (target) => JSON.stringify([target.worldId, target.host, target.current, target.revision, target.files.map((file) => file.path)]);
+    // ワールド ID の順に並べてから作る（一覧の並び〔最後に遊んだ順〕が入れ替わっただけでは送り直さない）
+    const key = JSON.stringify(targets.map(shape).sort());
+    if (key === watchKey) return;
+    watchKey = key;
+    // 今のワールドの見張りをやり直したら、ゲーム中の推定を数え直す（次に読んだ値が基準）。ほかのワールドの登録の削除・編集・許可の変化では
+    // 数え直さない（今のワールドの見張りは変わらない）。今のワールドを見張っていなかったところから始めるとき（ページを開いた直後・初めての
+    // 登録・許可が戻った）は、読んだばかりの基準を残す
+    const currentTarget = targets.find((target) => target.current);
+    const playKey = currentTarget ? shape(currentTarget) : '';
+    if (playKey !== watchPlayKey) {
+      if (watchPlayKey) state.play = emptyPlay();
+      watchPlayKey = playKey;
+    }
+    watchedIds = new Set(targets.map((target) => target.worldId));
+    if (!targets.length) {
+      watcher?.stop();
+      state.watch = { mode: '', lastSave: null };
+      return;
+    }
+    watcher ??= watch({
+      onSettled,
+      onMode: (mode) => {
+        if (!watchedIds.size || state.watch.mode === mode) return;
+        state.watch.mode = mode;
+        emit();
+      },
+    });
+    watcher.update(targets.map(({ worldId: id, host, files }) => ({ worldId: id, host, files })));
+  }
+
+  // 見張りが、一式を書き終えたワールドを知らせた
+  function onSettled(message) {
+    const id = typeof message?.worldId === 'string' ? message.worldId : '';
+    if (!watchedIds.has(id)) return;
+    const changed = Array.isArray(message.changed) ? message.changed : [];
+    if (id === currentWatchWorld() && Number.isFinite(message.lastAt)) {
+      const first = Number.isFinite(message.firstAt) ? message.firstAt : message.lastAt;
+      state.watch.lastSave = { at: new Date(message.lastAt).toISOString(), files: changed.length, spanMs: Math.max(0, message.lastAt - first) };
+      emit();
+    }
+    refreshFromWatch(id).catch(() => {});
+  }
+
+  /**
+   * 見張りの知らせで読み直す（自動の読み込みが有効で、そのワールドが対象のときだけ）。共有は読み直さない。
+   * 読み込み中・順番待ちがあれば、それが終わってから 1 回だけ読む（知らせが続けて来ても読み込みを積み上げない）
+   */
+  function refreshFromWatch(worldId) {
+    if (!state.auto.enabled || !watchedIds.has(worldId)) return Promise.resolve('skipped');
+    // まとめた知らせのうち最後のワールド（一時的に読めなければ、そのワールドで保留する）
+    watchFollowId = worldId;
+    if (watchFollow) return watchFollow;
+    const run = () => {
+      lastAuto = now();
+      return runAuto({ auto: true, transient: true, watchWorldId: watchFollowId, shared: false });
+    };
+    if (!pending) return run();
+    watchFollow = chain.then(() => {
+      watchFollow = null;
+      return state.auto.enabled ? run() : 'skipped';
+    });
+    return watchFollow;
   }
 
   // 登録の確認: ドロップしたファイル（同じワールドの登録済みのファイルと合わせて）を読んでみる。まだ保存・共有はしない。
@@ -616,27 +1446,34 @@ export function createOwnedStore({
       if (!state.auto.enabled) return Promise.resolve('skipped');
       return runAuto({ auto });
     },
-    // 画面の表示・タブの切り替えのたびに呼ぶ。自動の読み込みが有効なら間隔を空けて新しいセーブを読み、共有も読み直す。
+    // 表のタブで約 10 秒ごと（app.js のタイマー）と、画面の表示・タブに戻ったときに呼ぶ。自動の読み込みが有効なら間隔を空けて新しいセーブを読み、
+    // 共有も読み直す（SHARED_INTERVAL）
     async autoRefresh() {
       await load();
       if (state.auto.enabled && !state.busy && now() - lastAuto >= AUTO_INTERVAL) {
         lastAuto = now();
-        return runAuto({ auto: true });
+        return runAuto({ auto: true, transient: watching() });
       }
       return fetchShared();
     },
-    // 一定の間隔で呼ぶ（タブが裏にあっても）。配合牧場のタマゴを拾われる前に読めるよう、自動の読み込みが有効なときだけ新しいセーブを読む。
-    // 共有の読み直しはしない（参加している側の画面は、表示・タブの切り替えのときに autoRefresh で読む）
+    // タブが裏にある間に約 10 秒ごと（app.js のタイマー）に呼ぶ。配合牧場のタマゴを拾われる前に読めるよう、自動の読み込みが有効なときだけ
+    // 新しいセーブを読む。共有の読み直しはしない（裏のタブでは共有を読まない。D26。表に戻ったら autoRefresh で読む）
     async pollAuto() {
       await load();
       if (!state.auto.enabled || state.busy || now() - lastAuto < AUTO_INTERVAL) return 'skipped';
       lastAuto = now();
-      return runAuto({ auto: true, shared: false });
+      return runAuto({ auto: true, shared: false, transient: watching() });
     },
+    // セーブのファイルの見張り（save/watch.js）が、一式を書き終えたワールドを知らせたときに読み直す（タブが裏でも。sync-fixes の save-watch）
+    refreshFromWatch,
+    // ページを開いている PC を送る（app.js の 10 秒ごとのタイマーから。sync-fixes の page-presence）
+    reportPresence,
     // ログイン・ログアウトで共有の保存先（環境）が変わったときに呼ぶ
     async scopeChanged() {
       await loadShared();
       update();
+      // ログインの前に読んだセーブ・送っている間に環境が替わって捨てた送信を、新しい環境に送る（ログアウトしたなら uploadOwed に残す）
+      if (uploadOwed) uploadLocal({ resume: true }).catch(() => {});
       return fetchShared({ force: true });
     },
     /** 登録の確認（ドロップしたファイルを読んでみる）。結果を commitRegistration に渡すと登録する。 */
@@ -653,7 +1490,8 @@ export function createOwnedStore({
         lastAuto = now();
         return { persisted, result: await autoTask({ auto: false, preview, epoch }) };
       }).then(async (outcome) => {
-        if (outcome.result === 'imported') uploadLocal().catch(() => {});
+        // 登録の確定で読んだセーブは、別の人が同じセーブを共有していても、悪くならなければ書き直してよい（GAS の force。share-upload）
+        if (outcome.result === 'imported') uploadLocal({ commit: true }).catch(() => {});
         await fetchShared({ force: true });
         return outcome;
       });
@@ -667,11 +1505,16 @@ export function createOwnedStore({
         blockUpload();
       }
       removing.add(worldId);
+      // 消すワールドの読み直しの保留・受け入れた失敗の形を捨て、見張りからも外す
+      if (hold.worldId === worldId) clearHold();
+      acceptedShapes.delete(worldId);
+      updateWatch();
       return serial(async () => {
         try {
           await source.remove(worldId);
         } finally {
           removing.delete(worldId);
+          updateWatch();
         }
         if (state.local?.source === 'handles' && state.local.world.id === worldId) {
           state.local = null;
@@ -690,6 +1533,8 @@ export function createOwnedStore({
           state.auto.error = '';
         }
         saveSettings();
+        // 登録を消した・自動の読み込みが無効になった（対象がなければ見張りを止める）
+        updateWatch();
       }).then(() => {
         if (!state.auto.enabled) return fetchShared({ force: true });
         lastAuto = now();

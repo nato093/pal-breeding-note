@@ -46,6 +46,8 @@
 
 - 拠点のパルには `OwnerPlayerUId` がない。`OldOwnerPlayerUIds` の最後を「預けた人」として出す。
 - パル次元ストレージ（`_dps.sav`）とグローバルパルボックス（`GlobalPalStorage.sav`）は、それぞれのファイルの `SaveParameterArray` から読む（空き枠は `CharacterID` が `None`）。
+  パル次元ストレージの位置は `SaveParameterArray` の添字（スナップショットの `location.slotIndex`）で、パルボックスと同じ 1 ページ 30 枠・横 6 列（2026-10-12 に実セーブで 7820 → 261 ページ 4 行 3 列などを確認）。個体の中の `SlotId` は預ける前のパルボックスの位置なので使わない。
+- `Level.sav` の `worldSaveData.InLockerCharacterInstanceIDArray` は、パル次元ストレージの個体の `InstanceId` の一覧（全員の分。キーの `PlayerUId` は 0 で、誰の分かは分からない）。2026-10-16 に実セーブで 118 件が 2 人の `_dps.sav` の個体 27＋91＝118 と `InstanceId` が全部一致した（グローバルパルボックスの個体は含まない。ほかの 12 ワールドは 0 件）。`buildSnapshot` は、この一覧のうち読めた `_dps.sav` にない個体の数を `stats.inLockerMissing`（一覧の数は `stats.inLocker`）に残す（`_dps.sav` の読み漏れの検知。sync-fixes の dps-missing。`docs/OPERATIONS.md`）。
 - タマゴ（`DynamicItemSaveData` の卵）にも生まれるパルのパッシブが入っている。入っているアイテムの入れ物から場所を決める:
   配合牧場が地面に置いたタマゴ（建物 `Palegg`・`PalEgg_<属性>`）、孵化器、保管箱、プレイヤーの所持品。どこからも参照されないものは数えない。
 - 野生のボス（アルファ）は `CharacterID` に `BOSS_` が付く。捕まえた人間（`Male_Soldier01` など）はパルのマスターにないので、内部名のまま出す。
@@ -103,7 +105,7 @@
 - DateTime（u64 のティック。2^53 を超えるので 10 進の文字列で読む）。持ち主のある個体には全部ある（ないのは持ち主のない NPC・タマゴなど）。パル次元ストレージ・グローバルパルボックスの個体にもある。
 - **ホストの PC のローカル時刻**（日本時間の PC なら日本時間）のティック。`Level.sav` の `Timestamp` と同じで、UTC として読む `ticksToIso` では 9 時間ずれる。`web/js/save/palworld.js` の `ticksToLocalIso` が、ブラウザのタイムゾーンで年月日時を組み立てて本当の時刻（ISO）にする（ページはホストの PC で動くため。BigInt で割るのでミリ秒まで合う）。手元のセーブで、バックアップより後に増えた 27 体は全部それより新しく、孵化させた時刻と合った。
 - 画面は個体の `ownedAt`（toISOString の形。空は分からない）。入手の新しい順の並べ替え（`OWNED_SORTS` の `ownedAt`。時刻のない個体は向きによらず最後）と、所持パルの「NEW」（前に所持パルの画面で見ていたデータのセーブの時刻より後に入手した個体。`web/js/owned-seen.js`）。共有は個体の列の末尾 `ownedAt`（`OWNED_ADDED_FIELDS`）。
-- なお、スナップショットの `world.savedAt`（`Level.sav` の `Timestamp` を `ticksToIso` で読んだもの）も同じく 9 時間ずれているが、画面では使っていない（セーブの更新日時はファイルの日時）。
+- なお、スナップショットの `world.savedAt`（`Level.sav` の `Timestamp` を `ticksToIso` で読んだもの）も同じく 9 時間ずれているが、画面では使っていない（セーブの更新日時はファイルの日時）。セーブの新旧と同じセーブの見分けには、生のティックの 10 進の文字列 `world.savedAtTicks`（`ticksText`。ISO にするとミリ秒より細かい桁が落ちる）を使う（下の「注意」の `Timestamp` の項目）。
 
 ### 魂の強化と状態
 
@@ -174,6 +176,7 @@
 
 - ブラウザ（Chrome・Edge）は `AppData` 配下のフォルダを File System Access API で開けない（フォルダのドラッグ＆ドロップも同じ制限。Chromium の blocklist で `DIR_LOCAL_APP_DATA` が `kBlockAllChildren`）。ただし、ドロップした**ファイル**はこの確認を受けず、`DataTransferItem.getAsFileSystemHandle()` のハンドルを IndexedDB に保存して後から読み直せる（Chrome 154 で確認。ゲームが保存し直した後も同じハンドルで最新を読める。「毎回のアクセスを許可」を選ぶと、開き直しても確認なしで読める）。自動の読み込みはこの仕組みを使う（`web/js/save/handles.js`）。
 - `Level.sav`・`LevelMeta.sav` にはワールド ID（フォルダ名）が入っていない（2026-10-05 に確認）。ファイルの登録では、貼ってもらったフォルダのパスから ID を取る。
-- ホストか参加かは `Level.sav` と `LocalData.sav` の更新日時で決める。ホストで保存すると 2 つはほぼ同時に書かれる（実測で `LocalData.sav` が後になるのは 1 秒ほど、先になるのは最大 18 秒）。参加すると `LocalData.sav` だけが書かれる。`LocalData.sav` が 10 秒以上新しければ参加（`Level.sav` は前にホストしたときの残り）。
-- `Level.sav` の `Timestamp` は PC のローカル時刻なので、セーブの更新日時にはファイルの更新日時を使う。
+- ホストか参加かは `Level.sav` と `LocalData.sav` の更新日時で決める。ホストで保存すると `LocalData.sav` が先に、`Level.sav` がその少し後に書かれる（2026-10-17 の P0 の実測で中央値 0.79 秒・最大 2.74 秒。ゲームを終えたときの保存だけは `LocalData.sav` が最後）。参加すると `LocalData.sav` だけが書かれる。`LocalData.sav` が 60 秒以上新しければ参加（`Level.sav` は前にホストしたとき・同期で受け取ったときの残り）。保存の途中は `LocalData.sav` が前の保存の `Level.sav` より保存の間隔（約 30 秒）ほど新しくなるので、それより十分長くしてある（前は 10 秒で、保存の途中に読むと参加と取り違えた）。
+- `Level.sav` の `Timestamp` は PC のローカル時刻なので、セーブの更新日時（画面の表示・古さの判定）にはファイルの更新日時を使う。
+- **セーブの新旧と同じセーブの見分けは、`Timestamp` の生のティックで比べる**（2026-10-16。sync-fixes の owned-gas）。SaveSync の同期でファイルの更新日時が書き換わっても、中の `Timestamp` は変わらない。スナップショットの `world.savedAtTicks`（10 進の文字列。2^53 を超えるので数にしない）を、共有の `saveStamp`（`OwnedWorlds` の列 `saveKey` の中）として送り、`web/js/core/owned-shared.js` の `compareSaves` で桁をそろえて比べる（GAS の共有・手元と共有の選択・自動登録の記録で同じ関数）。片方にない（古いデータ）ときだけ、ファイルの更新日時で比べる。ホストの PC のローカル時刻なので、**仲間が全員同じタイムゾーン（日本時間）で遊ぶ前提**（別のタイムゾーンの人がホストすると、交代の前後の新旧を誤る）。
 - ゲームの更新で構造が変わったら、`npm run check:save -- "<ワールドのフォルダ>"` で読み込みを確かめる。

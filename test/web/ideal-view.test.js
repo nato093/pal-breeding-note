@@ -155,11 +155,12 @@ test('理想個体画面: 条件を sticky のパネルにまとめる（1 段�
   const owned = fakeOwned();
   const view = idealView(withIdeals(context(owned), owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
   const children = view.element.children;
-  // 並び: 見出し → パネル → 手術で付ける前提の帯（URL の s があるときだけ。implants）→ 足りないパッシブ → 孵化させると完成するタマゴ →
-  // 牧場の帯 → 牧場の詳細 → 結果
+  // 並び: 見出し → パネル → パル次元ストレージの読み漏れ（あるときだけ。dps-missing）→ 手術で付ける前提の帯（URL の s があるときだけ。
+  // implants）→ 足りないパッシブ → 孵化させると完成するタマゴ → 牧場の帯 → 牧場の詳細 → 結果
   //（登録の行・登録した一覧の折りたたみはない。データ元の 1 行は上のバーのセーブ連携の表示と重なるのでなくした〔D29〕。要約の行もなくした〔D30〕。
   // パルリバーサーの案内〔implants・D17〕は結果の流れに置かず、ケーキの行の印と押すと開く板にした〔フェーズ 4 の終わりのレビューの性能 1・2〕）
-  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-surgery-band', 'ideal-missing-note', 'ideal-hatch', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  assert.deepEqual(children.map((node) => node.className), ['view-heading', 'ideal-panel', 'ideal-dps-hint', 'ideal-surgery-band', 'ideal-missing-note', 'ideal-hatch', 'ideal-farm-strip', 'ideal-farms', 'ideal-results']);
+  assert.equal(view.element.querySelector('.ideal-dps-hint').hidden, true);
   assert.equal(view.element.querySelector('.ideal-surgery-band').hidden, true);
   assert.equal(view.element.querySelector('.ideal-reverser-slot').hidden, true);
   assert.equal(view.element.querySelector('.ideal-goals'), null);
@@ -542,30 +543,23 @@ test('理想個体画面: 欲しいパッシブ以外のパッシブは、確率
   view.destroy();
 });
 
-test('理想個体画面: 開いている間は 10 秒ごとに読み直し、閉じた後は読まない（D26 で 20.5 秒から 10 秒にした）', async (t) => {
+test('理想個体画面: 画面は自分でタイマーを持たず（開いている間の読み直しは app.js の 10 秒ごとの 1 本。share-fetch）、閉じた後は読まない', async (t) => {
   install(t);
+  const intervals = t.mock.method(globalThis, 'setInterval');
   let release;
   const owned = fakeOwned();
   let refreshes = 0;
   owned.autoRefresh = () => { refreshes++; return Promise.resolve('skipped'); };
   owned.load = () => new Promise((resolve) => { release = resolve; });
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall'));
-  t.mock.timers.tick(10 * 1000);
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 2);
-  // タブが裏にある間は読まない
-  document.visibilityState = 'hidden';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 2);
-  document.visibilityState = 'visible';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 3);
-  view.destroy();
   t.mock.timers.tick(60 * 1000);
+  assert.equal(refreshes, 0);
+  assert.equal(intervals.mock.callCount(), 0);
+  view.destroy();
   // 閉じた後に最初の読み込みが終わっても、読み直さない
   release();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(refreshes, 3);
+  assert.equal(refreshes, 0);
 });
 
 test('理想個体画面: 開いて最初の読み込みが終わったら、一度読み直す', async (t) => {
@@ -3405,4 +3399,67 @@ test('理想個体画面: ケーキの押しボタンの「なし」は絵を出
   assert.deepEqual(options.map((node) => [node.getAttribute('data-value'), node.querySelector('img')?.src.replace(/^.*item\//, '') ?? null, node.className.split(' ').includes('cake-plain')]),
     [['none', null, true], ['talent', 'cake-Cake02.png', false], ['special', 'cake-Cake05.png', false]]);
   view.destroy();
+});
+
+
+test('理想個体画面（dps-missing）: パル次元ストレージの読み漏れを結果の上に 1 文で出し、ホストは［ワールドを編集］でワールドの編集のモーダルを開く（同じ文なら作り直さない）', async (t) => {
+  const { body } = install(t);
+  const BOB = '00000000-0000-0000-0000-000000000002';
+  const hex = (uid) => uid.replace(/-/g, '');
+  const owned = fakeOwned(basePals, {
+    players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: BOB, name: 'Bob', level: 40 }], stats: { inLocker: 118, inLockerMissing: 27 },
+    files: { used: ['Level.sav', `Players/${hex(P1)}.sav`, `Players/${hex(P1)}_dps.sav`, `Players/${hex(BOB)}.sav`], skipped: [] },
+  });
+  Object.assign(owned.state, {
+    role: 'host', linkedWorldId: 'W', meta: { worldId: 'W', worldName: 'テスト', source: 'local' },
+    auto: { enabled: true, status: 'ready', worlds: [{ id: 'W', steamId: '7656', kind: 'host', name: 'テスト', files: ['Level.sav'] }], worldId: '', error: '' },
+  });
+  const ctx = context(owned);
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  body.append(view.element);
+  const slot = view.element.querySelector('.ideal-dps-hint');
+  assert.equal(slot.hidden, false);
+  const hint = slot.querySelector('.setup-hint');
+  assert.match(hint.className, /setup-hint-warning/);
+  assert.equal(hint.querySelector('p').textContent, 'Level.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players\\00000000000000000000000000000002_dps.sav（Bob）が登録されていないかもしれません。');
+  // 読み直しで同じ文なら作り直さない
+  owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
+  owned.emit();
+  assert.equal(slot.querySelector('.setup-hint'), hint);
+  await hint.querySelector('button').dispatch('click');
+  assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを編集');
+  // 登録したワールドが分からなければ、設定のセーブ連携へ
+  owned.state.auto = { ...owned.state.auto, worlds: [] };
+  await hint.querySelector('button').dispatch('click');
+  assert.deepEqual(ctx.navigations.at(-1), '#/settings?world=W&open=status');
+  // 読み漏れがなくなったら隠す
+  owned.state.data = { snapshot: { ...owned.state.data.snapshot, stats: { inLocker: 118, inLockerMissing: 0 } } };
+  owned.state.owned = normalizeOwned(owned.state.data.snapshot, { pals, passives });
+  owned.emit();
+  assert.equal(slot.hidden, true);
+  view.destroy();
+});
+
+test('理想個体画面（dps-missing）: 参加者は、共有のデータで自分のプレイヤーが候補（dpsGap）のときだけ、ボタンなしの 1 文', (t) => {
+  const { body } = install(t);
+  const BOB = '00000000-0000-0000-0000-000000000002';
+  const owned = fakeOwned(basePals);
+  owned.state.role = 'guest';
+  owned.state.meta = { worldId: 'W', source: 'shared' };
+  owned.state.owned = { ...owned.state.owned, players: [{ uid: P1, name: 'Alice', level: 50 }, { uid: BOB, name: 'Bob', level: 40, dpsGap: 27 }] };
+  let self = new Set([BOB]);
+  const ctx = { ...context(owned), ideals: { ...fakeIdeals(), selfUids: () => self } };
+  const view = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  body.append(view.element);
+  const slot = view.element.querySelector('.ideal-dps-hint');
+  assert.equal(slot.hidden, false);
+  assert.equal(slot.textContent, 'ワールド全体で、パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。');
+  assert.equal(slot.querySelector('button'), null);
+  view.destroy();
+  // 自分が候補でなければ出さない
+  self = new Set([P1]);
+  const other = idealView(ctx, parseHash('#/ideal?to=SheepBall&p=Rare'));
+  body.append(other.element);
+  assert.equal(other.element.querySelector('.ideal-dps-hint').hidden, true);
+  other.destroy();
 });

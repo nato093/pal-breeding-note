@@ -1,8 +1,8 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, ownedInGameDay } from './owned-shared.js';
-import { isObject, int, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
+import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay } from './owned-shared.js';
+import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
 import { ELEMENTS } from '../../data/pals.js';
@@ -59,20 +59,46 @@ export function palboxLabel({ page, row, column }) {
   return `${PLACE_LABELS.palbox} ${page} ページ・${row} 行 ${column} 列`;
 }
 
+/**
+ * パル次元ストレージの位置の文字（placeLabel。共有の列にもこのまま載る）。並びはパルボックスと同じ 1 ページ 30 枠・横 6 列で、通し番号は
+ * 次元ストレージの中の添字（2026-10-12 に実セーブで、0 → 1 ページ 1 行 1 列・7820 → 261 ページ 4 行 3 列と確認）。
+ * 書式を変えると、共有から位置（parseBoxLabel の 'dps'）が読めなくなるので変えない
+ */
+export function dpsLabel({ page, row, column }) {
+  return `${PLACE_LABELS.dps} ${page} ページ・${row} 行 ${column} 列`;
+}
+
 const BOX_LABEL = /^パルボックス (\d{1,4}) ページ・(\d) 行 (\d) 列$/;
+const DPS_LABEL = /^パル次元ストレージ (\d{1,4}) ページ・(\d) 行 (\d) 列$/;
+// 位置のある場所ごとの、位置の文字の書式と読み取り
+const BOX_FORMATS = new Map([['palbox', [palboxLabel, BOX_LABEL]], ['dps', [dpsLabel, DPS_LABEL]]]);
 const BOX_ROWS = PALBOX_PAGE_SIZE / PALBOX_COLUMNS;
 /**
- * placeLabel（palboxLabel の書式）からパルボックスの位置を読む（共有のデータには位置の列がないので、文字から読み戻す）。
- * 書式が違う・範囲の外なら null（古い共有の「パルボックス」など。画面は文字だけを出す）
+ * placeLabel（palboxLabel・dpsLabel の書式）から、kind の場所（palbox・dps）の位置を読む（共有のデータには位置の列がないので、文字から読み戻す）。
+ * 書式が違う・場所が違う・範囲の外なら null（古い共有の「パルボックス」「パル次元ストレージ」など。画面は文字だけを出す）
+ * @param {string} label
+ * @param {'palbox'|'dps'} [kind]
  * @returns {{ page: number, row: number, column: number } | null}
  */
-export function parseBoxLabel(label) {
+export function parseBoxLabel(label, kind = 'palbox') {
   if (typeof label !== 'string') return null;
-  const match = BOX_LABEL.exec(label);
+  const pattern = BOX_FORMATS.get(kind)?.[1];
+  if (!pattern) return null;
+  const match = pattern.exec(label);
   if (!match) return null;
   const [page, row, column] = [Number(match[1]), Number(match[2]), Number(match[3])];
   if (page < 1 || row < 1 || row > BOX_ROWS || column < 1 || column > PALBOX_COLUMNS) return null;
   return { page, row, column };
+}
+
+/**
+ * 位置の短い表記（所持パル・理想個体の行と案内）。パルボックスは「P2 · 1-6」、パル次元ストレージは「次元 P2 · 1-6」。
+ * 位置が分からなければ ''（場所の文字を出す）
+ */
+export function boxShort(pal) {
+  if (!pal?.box) return '';
+  const short = `P${pal.box.page} · ${pal.box.row}-${pal.box.column}`;
+  return pal.place === 'dps' ? `次元 ${short}` : short;
 }
 
 /**
@@ -349,6 +375,40 @@ export function stockText(stock, { short = false } = {}) {
   return `在庫 ${stock.total}（${shown.map((place) => `${place.label} ${place.count}`).join('・')}${more ? ' ほか' : ''}）`;
 }
 
+// Players の中のファイル名の 32 桁（UID からハイフンを除いたもの。大文字）
+const playerFileId = (uid) => String(uid ?? '').replace(/-/g, '').toUpperCase();
+// 数の上限（壊れた値で文が崩れないように）
+const LOCKER_COUNT = { min: 0, max: 1000000 };
+
+/**
+ * パル次元ストレージの読み漏れ（dps-missing）。この PC で読んだセーブの解析結果（buildSnapshot の結果に files を足したもの。IndexedDB から
+ * 戻したものも）から、Level.sav の次元ストレージの個体の数（expected）・そのうち読めた _dps.sav にない数（missing）と、
+ * missing が 1 以上のときの候補（Players/<uid>.sav は読めたのに Players/<uid>_dps.sav を読めていないプレイヤー。Lv が分かる人だけ
+ *〔登録されていないプレイヤーのファイルの案内と同じ考え方〕。{ uid, name, file: 'XXXX_dps.sav' }）。
+ * 数を持たない古い解析結果は「分からない」で null。欠けは候補のだれの分かは分からないので、人数で割ったり、1 人に決めたりしない
+ * @returns {null | { expected: number, missing: number, candidates: { uid: string, name: string, file: string }[] }}
+ */
+export function dpsMissing(snapshot) {
+  const stats = isObject(snapshot?.stats) ? snapshot.stats : {};
+  const expected = intOrNull(stats.inLocker, LOCKER_COUNT);
+  const counted = intOrNull(stats.inLockerMissing, LOCKER_COUNT);
+  if (expected === null || counted === null) return null;
+  const missing = Math.min(counted, expected);
+  if (!missing) return { expected, missing, candidates: [] };
+  const used = new Set(list(snapshot?.files?.used, { map: (path) => (typeof path === 'string' ? path.toLowerCase() : null) }));
+  const candidates = list(snapshot?.players, {
+    max: PLAYERS_MAX,
+    map: (player) => {
+      if (!isObject(player) || !idText(player.uid, 40) || !(int(player.level, { fallback: 0 }) > 0)) return null;
+      const id = playerFileId(player.uid);
+      if (!used.has(`players/${id.toLowerCase()}.sav`) || used.has(`players/${id.toLowerCase()}_dps.sav`)) return null;
+      return { uid: player.uid, name: text(player.name, 50), file: `${id}_dps.sav` };
+    },
+    key: (player) => player.uid,
+  });
+  return { expected, missing, candidates };
+}
+
 /**
  * スナップショットを画面用の一覧にする。
  * @param {object} snapshot buildSnapshot の結果
@@ -364,10 +424,17 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   const objects = (value) => list(value, { map: (item) => (isObject(item) ? item : null) });
   // プレイヤーの Lv とプレイ中（save-extras）は形を確かめて入れ直す（古いスナップショットのプレイヤーには online がない＝分からない）。
   // 捕獲数（paldex）はパル ID ごとの回数にして、読めたプレイヤーだけに captures を付ける（古いスナップショットには項目がない）
+  // パル次元ストレージの読み漏れ（dps-missing）の候補のプレイヤーには、読めていない数（dpsGap）を付ける（共有で参加者に知らせる）。
+  // 解析結果のプレイヤーに同じ名前の項目があっても使わない（ここで求めた値だけ）
+  const gap = dpsMissing(snapshot);
+  const gapUids = new Set(gap?.candidates.map((player) => player.uid) ?? []);
   const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
-    .map(({ captures: raw, ...player }) => {
+    .map(({ captures: raw, dpsGap: _gap, ...player }) => {
       const captures = capturesOf(raw, resolve);
-      return [player.uid, { ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}) }];
+      return [player.uid, {
+        ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}),
+        ...(gapUids.has(player.uid) ? { dpsGap: gap.missing } : {}),
+      }];
     }));
   const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
   // ギルドが複数あるワールドでは、拠点の番号がギルドごとに重なるのでギルド名を添える
@@ -407,9 +474,10 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     else if (kind === 'egg-guild') holder = 'ギルド保管庫';
     else holder = playerName(players, holderUid) || '不明';
     let placeDetail = PLACE_LABELS[kind];
-    // パルボックスはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
-    const boxAt = kind === 'palbox' ? palboxPosition(location.slotIndex) : null;
-    if (boxAt) placeDetail = palboxLabel(boxAt);
+    // パルボックス・パル次元ストレージはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
+    const boxFormat = BOX_FORMATS.get(kind);
+    const boxAt = boxFormat ? palboxPosition(location.slotIndex) : null;
+    if (boxAt) placeDetail = boxFormat[0](boxAt);
     else if (kind === 'base') placeDetail = baseLabel(location.baseId);
     else if ((egg || kind === 'display') && location.baseId && bases.has(location.baseId)) placeDetail = `${PLACE_LABELS[kind]}・${baseLabel(location.baseId)}`;
     const passiveIds = cleanPassives(source.passives);
@@ -444,7 +512,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       place: kind,
       placeGroup: placeGroup(kind),
       placeLabel: text(placeDetail, 200),
-      // パルボックスの位置（ページ・行・列。ボックス順の並べ替えと行の小さな図）。パルボックス以外・位置が分からなければ null
+      // パルボックス・パル次元ストレージの位置（ページ・行・列。ボックス順の並べ替えと行の小さな図）。ほかの場所・位置が分からなければ null
       box: boxAt,
       holderUid,
       holder: text(holder, 60),
@@ -793,7 +861,8 @@ const rankSum = (pal) => {
   for (const id of pal.passives) sum += passiveRanks.get(id) ?? 0;
   return sum;
 };
-// ボックスの位置（パルボックスの外・位置の分からない個体は、同じ所持者・場所のグループの最後）
+// ボックスの位置（パルボックス・パル次元ストレージの外・位置の分からない個体は、同じ所持者・場所のグループの最後。場所のグループで先に
+// 分けるので、パルボックスと次元ストレージの位置は混ざらない）
 const boxIndex = (pal) => (pal.box ? (pal.box.page * 100 + pal.box.row) * 100 + pal.box.column : Infinity);
 
 /**
@@ -1039,10 +1108,12 @@ export function sharedUpload(owned) {
   return {
     // プレイヤーの Lv とプレイ中（save-extras）は players の JSON の中に足す（古い GAS は捨てるだけで、共有は止まらない）。
     // 分からない値（Lv 0・プレイ中 null）は送らない
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）も同じく players の中に、候補のプレイヤーにだけ付ける
     players: owned.players.map((player) => ({
       uid: player.uid, name: player.name,
       ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
       ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
+      ...(Number.isInteger(player.dpsGap) && player.dpsGap > 0 ? { dpsGap: Math.min(player.dpsGap, OWNED_DPS_GAP_MAX) } : {}),
     })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
     // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。牧場ごとにタマゴの数（n）と中身（eggs。20 個まで）を足し、セルに入るよう
@@ -1052,6 +1123,48 @@ export function sharedUpload(owned) {
     columns: OWNED_FIELDS,
     rows,
   };
+}
+
+// 鍵の名前の順に並べ直した写し（配列の中の順は変えない）
+const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys)
+  : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);
+const cellText = (cell) => (typeof cell === 'string' ? cell : cell === null || cell === undefined ? '' : String(cell));
+const textOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+// 一覧（players・bases・farms）を、要素の JSON の順に並べ直す（要素の中の鍵も名前の順）
+const sortedList = (items) => items.map((item) => {
+  const value = sortedKeys(item);
+  return { value, text: JSON.stringify(value) ?? 'null' };
+}).sort((a, b) => textOrder(a.text, b.text)).map((item) => item.value);
+// 行（セルを文字列にした配列）の JSON を、その文字列の順に並べる（先頭は個体 ID なので、ほぼ個体 ID の順。文字列の比べ方は
+// Array.prototype.sort の既定と同じ UTF-16 の順で、環境によらない）。20,000 行でも 1 行ずつ比べるより速い
+const sortedRowTexts = (rows) => rows.map((row) => JSON.stringify(Array.isArray(row) ? row.map(cellText) : [])).sort();
+
+/**
+ * 共有の中身の印（world.contentHash。送る側が UTF-8 の SHA-256 にする。web/js/owned.js）の元にする文字列（sync-fixes の share-upload）。
+ * upload は送る形 { worldId, world: { name, hostName, inGameDay? }, players, bases, farms?, columns, rows }（古い GAS に合わせて列を
+ * 狭めたときは狭めた後の形）。次の順の配列を JSON にする:
+ *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns, rows]
+ * - 入れないもの: world の識別の項目（saveStamp・contentHash・format・fileCount・missingCount・force）、saveUpdatedAt（セーブのファイルの
+ *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる
+ * - 並びによらない: 行は行の JSON の順（先頭のセルが個体 ID なので、ほぼ個体 ID の順）、players・bases・farms は要素の JSON の順に
+ *   並べ直し、object の鍵は名前の順にする（個体の並びは登録したファイルの順〔_dps.sav など〕で変わり、PC ごとに登録の順が違うことが
+ *   ある）。列の並びは中身なので変えない
+ * - 列の名前と行のセルは文字列にする（シートには文字列で残る。null・undefined は ''）
+ */
+export function ownedContentText(upload) {
+  const source = isObject(upload) ? upload : {};
+  const world = isObject(source.world) ? source.world : {};
+  const head = JSON.stringify([
+    cellText(source.worldId), cellText(world.name), cellText(world.hostName),
+    typeof world.inGameDay === 'number' && Number.isFinite(world.inGameDay) ? world.inGameDay : null,
+    sortedList(Array.isArray(source.players) ? source.players : []),
+    sortedList(Array.isArray(source.bases) ? source.bases : []),
+    Array.isArray(source.farms) ? sortedList(source.farms) : null,
+    Array.isArray(source.columns) ? source.columns.map(cellText) : [],
+  ]);
+  // 行は最後の要素。並べた行の JSON をつないで、配列ごとの JSON と同じ文字列にする
+  const rows = Array.isArray(source.rows) ? sortedRowTexts(source.rows) : [];
+  return `${head.slice(0, -1)},[${rows.join(',')}]]`;
 }
 
 /**
@@ -1134,8 +1247,8 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       // eggItemId は後から足した列（farm-board）。列のない共有（GAS の setup() の前・古い画面）では空
       eggItemId: egg ? text(get(EGG_ITEM), 64) : '',
       place: kind, placeGroup: placeGroup(kind), placeLabel,
-      // 共有には位置の列がないので、placeLabel の文字から読む（書式の違う古い共有は null で、文字だけを出す）
-      box: kind === 'palbox' ? parseBoxLabel(placeLabel) : null,
+      // 共有には位置の列がないので、placeLabel の文字から読む（パルボックス・パル次元ストレージ。書式の違う古い共有は null で、文字だけを出す）
+      box: parseBoxLabel(placeLabel, kind),
       holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
       // ownedAt は後から足した列（save-extras）。列のない共有（GAS の setup() の前・古い画面）では空。魂の強化と状態は共有しない（null）
       ownedAt: ownedTime(get(OWNED_AT)), soul: null, condition: null,
@@ -1146,8 +1259,11 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   return {
     // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）
     world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay) },
-    // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）
-    players: cleanSharedPlayers(world.players).map((player) => ({ uid: player.uid, name: player.name || '不明', ...playerExtras(player) })),
+    // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）。
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある
+    players: cleanSharedPlayers(world.players).map((player) => ({
+      uid: player.uid, name: player.name || '不明', ...playerExtras(player), ...(player.dpsGap ? { dpsGap: player.dpsGap } : {}),
+    })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）

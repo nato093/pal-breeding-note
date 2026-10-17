@@ -94,10 +94,15 @@ test('セーブの読み込み: ワールド一式からスナップショット
   await assert.rejects(readWorldFiles([{ path: 'Level.sav', bytes: new Uint8Array(20) }]), /Level\.sav を読めませんでした/);
 });
 
-test('ホストか参加かの判定: LocalData.sav が Level.sav より 10 秒以上新しければ参加', async () => {
+test('ホストか参加かの判定: LocalData.sav が Level.sav より 60 秒以上新しければ参加（保存の途中の約 30 秒の差はホストのまま）', async () => {
   const { judgeRole } = await import('../../web/js/save/source.js');
-  assert.equal(judgeRole({ levelTime: 100000, localTime: 109999 }), 'host');
-  assert.equal(judgeRole({ levelTime: 100000, localTime: 110000 }), 'guest');
+  // ホストの保存の途中: LocalData.sav が先に書かれ、Level.sav はまだ前の保存（保存の間隔 27.7〜30.4 秒。P0 の実測）のまま
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 127700 }), 'host');
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 130400 }), 'host');
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 159999 }), 'host');
+  // 本物の参加（Level.sav は前のホストか同期の時刻のまま。数分以上の差）
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 160000 }), 'guest');
+  assert.equal(judgeRole({ levelTime: 100000, localTime: 100000 + 5 * 60 * 1000 }), 'guest');
   // 同じ保存で LocalData.sav が先に書かれることもある
   assert.equal(judgeRole({ levelTime: 100000, localTime: 82000 }), 'host');
   assert.equal(judgeRole({ levelTime: 100000 }), 'host');

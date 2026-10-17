@@ -21,6 +21,9 @@ function actions_() {
     owned: { run: actionOwned_ },
     ownedUpload: { run: actionOwnedUpload_ },
     ownedDelete: { run: actionOwnedDelete_ },
+    // 共有が変わったか（G）と、ページを開いている PC（owned-gas）。古い GAS は BAD_ACTION を返す
+    ownedSince: { run: actionOwnedSince_ },
+    presence: { run: actionPresence_ },
     probe: { run: actionProbe_, testOnly: true },
     probeStats: { run: actionProbeStats_, testOnly: true },
     probeReset: { run: actionProbeReset_, testOnly: true }

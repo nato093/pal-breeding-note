@@ -2,11 +2,15 @@
 // 許可が切れているときは、押したクリックの中で（await を挟まずに）読む許可を求める。
 import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
-import { dateTime, worldName, timeLines, permissionNotice, grantWithReport, roleSummary, presenceItems } from './owned-status.js';
+import {
+  dateTime, worldName, timeLines, permissionNotice, grantWithReport, refreshNow, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary,
+  playSummary, shareLagNotice, openPagesLines,
+} from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
 
-// 古いデータの目安。この PC で読むデータは 1 分ごとに読み直すので 5 分、共有のデータは 60 分（実機で直してよい）
+// 古いデータの目安。この PC で読むデータはゲームが保存するたび（約 30 秒ごと。見張れないブラウザでは定期の確認）に読み直すので 5 分、
+// 共有のデータは 60 分（実機で直してよい）
 export const STALE_LOCAL_MS = 5 * 60 * 1000;
 export const STALE_SHARED_MS = 60 * 60 * 1000;
 
@@ -24,10 +28,11 @@ export function saveStatusLine({ world = '', time = '', auto = '' }) {
 /**
  * 表示の中身を決める（DOM なし）。上の行ほど優先する。
  * busy は読み込み中（文は変えず、点を流れる光にする。前の文を残すのは saveStatus の側）。
+ * selfUids は自分のプレイヤー（パル次元ストレージの読み漏れの参加者の案内。ui/owned-status.js の dimensionNotice）。
  * @returns {{ tone: 'ok' | 'busy' | 'warn' | 'stale' | 'none', text: string, world: string, time: string, auto: string,
  *   title: string, action: 'grant' | null, busy: boolean }}
  */
-export function saveStatusModel(state, { autoEnabled = () => false, now = Date.now() } = {}) {
+export function saveStatusModel(state, { autoEnabled = () => false, now = Date.now(), selfUids = new Set() } = {}) {
   const meta = state.meta;
   const busy = Boolean(state.busy || (state.auto?.enabled && state.auto.status === 'checking'));
   const result = (tone, parts, title, action = null) => ({
@@ -40,6 +45,10 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   if (auto.enabled && ['error', 'empty'].includes(auto.status)) return result('warn', { time: 'セーブを読めません' }, auto.error || 'セーブを読めませんでした');
   if (state.upload?.status === 'error') return result('warn', { time: '共有できません' }, `共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !meta?.source) return result('warn', { time: '共有を読めません' }, `共有された所持パルを読めませんでした: ${state.shared.error}`);
+  // 参加者がゲーム中なのに共有が止まっている（今のホストの画面が閉じているかもしれない。host-rotation）。まだ一度も共有されていなければ
+  // 「共有されていません」
+  const lag = shareLagNotice(state, { now: () => now });
+  if (lag) return result('warn', { time: meta?.source === 'shared' ? '共有が止まっています' : '共有されていません' }, lag.text);
   if (!meta?.source) {
     return state.role === 'guest'
       ? result('none', { time: '共有待ち' }, 'ホストがまだこのワールドの所持パルを共有していません')
@@ -48,9 +57,15 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   const world = meta.worldName ? `「${meta.worldName}」` : `ワールド ${String(meta.worldId ?? '').slice(0, 8)}`;
   // ゲーム内の日数・プレイ中・Lv（save-extras）も、押す前の説明（title）に出す
   const lines = [worldName(meta), ...timeLines(state), ...presenceItems(state, { now: () => now }).map(([term, detail]) => `${term}: ${detail}`)];
+  // パル次元ストレージの読み漏れ（dps-missing）も押す前の説明に出す（チップの色は変えない。所持パルは読めた分で出ている）
+  const gap = dimensionNotice(state, { selfUids });
+  if (gap) lines.push(gap.text);
+  // 共有の送信の結果（同じセーブが共有済み・共有の方が新しい。share-upload）も押す前の説明に出す（チップの色は変えない）
+  const sent = uploadNotice(state);
+  if (sent) lines.push(sent.text);
   if (meta.source === 'local') {
     const stale = Boolean(auto.enabled) && olderThan(meta.importedAt, STALE_LOCAL_MS, now);
-    if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんは 1 分ごとに読み直します）`);
+    if (stale) lines.push(`最後に読み込んだのは ${dateTime(meta.importedAt)} です（ふだんはゲームが保存するたびに読み直します）`);
     const parts = { world, time: `セーブ ${formatShortTime(meta.saveUpdatedAt, now, '不明')}` };
     if (state.role === 'host') parts.auto = `自動登録 ${autoEnabled(meta.worldId) ? 'オン' : 'オフ'}`;
     return result(stale ? 'stale' : 'ok', parts, lines.join('\n'));
@@ -61,8 +76,9 @@ export function saveStatusModel(state, { autoEnabled = () => false, now = Date.n
   return result(stale ? 'stale' : 'ok', { world, time: `共有 ${formatShortTime(sharedAt, now, '不明')}` }, lines.join('\n'));
 }
 
-// ポップオーバーに出す、困っていること（なければ空）。許可切れは permissionNotice の文・止まった時刻・勧め
-function problems(state, now) {
+// ポップオーバーに出す、困っていること（なければ空）。許可切れは permissionNotice の文・止まった時刻・勧め、
+// パル次元ストレージの読み漏れは所持パルの案内と同じ文（dimensionNotice）
+function problems(state, now, { selfUids = new Set() } = {}) {
   const items = [];
   const auto = state.auto ?? {};
   const permission = permissionNotice(state, { now: () => now });
@@ -71,14 +87,19 @@ function problems(state, now) {
   if (state.upload?.status === 'error') items.push(`共有できませんでした${state.upload.error ? `（${state.upload.error}）` : ''}`);
   if (state.shared?.error && !state.meta?.source) items.push(`共有された所持パルを読めませんでした: ${state.shared.error}`);
   if (state.error) items.push(`セーブを読み込めませんでした: ${state.error}`);
+  const lag = shareLagNotice(state, { now: () => now });
+  if (lag) items.push(lag.text);
+  const gap = dimensionNotice(state, { selfUids });
+  if (gap) items.push(gap.text);
   return items;
 }
 
 /**
  * ヘッダーの部品。中身は textContent・className・title だけを書き換える（作り直さない）。
  * ヘッダーはアプリと同じ寿命だが、テストのために destroy で購読を全部外せる。
+ * selfUids は自分のプレイヤーの UID を返す関数（app.js は ideals.selfUids。参加者のパル次元ストレージの読み漏れの案内）
  */
-export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen, openFarms }) {
+export function saveStatus({ owned, autoRegister, store, now = () => Date.now(), onOpen, openFarms, selfUids = () => new Set() }) {
   const element = el('div', 'save-status');
   const trigger = button('', onClick, 'save-status-button');
   trigger.setAttribute('aria-haspopup', 'dialog');
@@ -113,7 +134,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     const issues = el('ul', 'save-status-issues');
     // 許可はクリックの中で（await を挟まずに）求める
     const grant = button('読み込みを許可', () => grantPermission(), 'button primary');
-    const reload = button('今すぐ読み込む', () => runButton(reload, () => owned.refreshAuto({ enable: true }), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
+    const reload = button('今すぐ読み込む', () => runButton(reload, () => refreshNow(owned), (error) => toast(error.message, { kind: 'error' })), 'button secondary');
     // 設定のセーブ連携のカード（状態の欄の操作〔許可・今すぐ読み込む〕か見出しへフォーカス。router.js の settingsHash の 'status'）
     const settings = link('設定を開く', settingsHash('', 'status'), 'save-status-settings');
     settings.addEventListener('click', () => popup.close({ focus: false }));
@@ -128,18 +149,37 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
     panel.replaceChildren(el('h2', '', 'セーブ連携'), details, issues, actions);
     const render = () => {
       const state = owned.state;
+      // 行の並び: この PC → 表示中 → 更新 → 共有 → 監視 → ページを開いている PC（ここまで、このページと共有の状態）→ ゲーム内 → プレイ中 →
+      // Lv（セーブの中身）→ 読み込み。[見出し, 文, 幅いっぱいにするか]
       const items = [];
-      // 役割の説明（ホスト・参加者・共有を見ている人。roles）
+      // この PC: 1 行目にゲーム中の推定（ホストは「ホスト中（推定）」と「ホスト用のセーブあり」を分ける。host-rotation）、続けて役割の説明
+      //（ホスト・参加者・共有を見ている人。roles）。前は「ゲーム」の別の行で、「ゲーム内」と紛らわしかった
       const role = roleSummary(state, { userId: store?.state?.userId ?? '', now });
-      if (role) items.push(['この PC', role.hint ? `${role.text}\n${role.hint}` : role.text]);
+      const playing = playSummary(state, { now });
+      const self = [playing, role?.text, role?.hint].filter(Boolean);
+      if (self.length) items.push(['この PC', self.join('\n')]);
       items.push(['表示中', state.meta ? `${worldName(state.meta)}${state.meta.source ? ` · ${state.owned?.pals.length ?? state.meta.palCount ?? 0} 体` : '（データなし）'}` : 'なし']);
       const lines = timeLines(state);
       if (lines.length) items.push(['更新', lines.join('\n')]);
+      // 共有の送信の結果（「同じセーブは Alice の PC から共有済みです。」など。share-upload）
+      const sent = uploadNotice(state);
+      if (sent) items.push(['共有', sent.text]);
+      // セーブのファイルの見張りの方式と最後の保存（自動の読み込みが有効で登録があるときだけ。save-watch）。参加者は LocalData.sav を
+      // ゲーム中の推定のためだけに見張り、セーブは読まない（「この PC では読み込みません」）ので出さない
+      const watching = state.role === 'guest' ? '' : watchSummary(state, { now });
+      if (watching) items.push(['監視', watching]);
+      // ページを開いている PC（3 分以内に応答があった PC は役割など、それより前は「最近の応答なし」。page-presence）。見出しが長いので、
+      // 見出しと一覧を表の幅いっぱいに重ねる（見出しの列を広げて、ほかの行の本文を狭めない）
+      const pages = openPagesLines(state, { now });
+      if (pages.length) items.push(['ページを開いている PC', pages.join('\n'), true]);
       // ゲーム内の日数・プレイ中の仲間（保存か共有の時刻つき）・Lv（save-extras。F006）
       items.push(...presenceItems(state, { now }));
       if (state.busy && state.progress) items.push(['読み込み', state.progress]);
-      details.replaceChildren(...items.flatMap(([term, detail]) => [el('dt', '', term), el('dd', '', detail)]));
-      const found = problems(state, now());
+      details.replaceChildren(...items.flatMap(([term, detail, wide = false]) => {
+        const className = wide ? 'save-status-wide' : '';
+        return [el('dt', className, term), el('dd', className, detail)];
+      }));
+      const found = problems(state, now(), { selfUids: selfUids() });
       issues.replaceChildren(...found.map((item) => el('li', '', item)));
       issues.hidden = !found.length;
       grant.hidden = !(state.auto.enabled && state.auto.status === 'permission');
@@ -167,7 +207,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
   }
 
   function update() {
-    const model = saveStatusModel(owned.state, { autoEnabled: (worldId) => autoRegister?.enabled(worldId) ?? false, now: now() });
+    const model = saveStatusModel(owned.state, { autoEnabled: (worldId) => autoRegister?.enabled(worldId) ?? false, now: now(), selfUids: selfUids() });
     // 読み込み中は文を変えない（幅が揺れない）。最初の「確認中」だけは置き換える
     if (!(model.busy && shown && shown.tone !== 'busy')) shown = model;
     action = model.action;

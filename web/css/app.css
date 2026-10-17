@@ -381,6 +381,10 @@ img, svg { max-width: 100%; }
 .save-status-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
 .save-status-details dt { color: var(--muted); }
 .save-status-details dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+/* 見出しの長い行（ページを開いている PC）は、見出しと本文を表の幅いっぱいに重ねる。両方の列にまたがる要素は auto の見出しの列を
+   広げないので、ほかの行の本文が狭くならない */
+.save-status-details .save-status-wide { grid-column: 1 / -1; }
+.save-status-details dt.save-status-wide { margin-top: 4px; }
 .save-status-issues { margin: 10px 0 0; padding: 8px 12px 8px 28px; border-radius: 8px; font-size: 13px; color: var(--md-sys-color-warning); background: var(--md-sys-color-warning-container); }
 .header-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
 .save-status-settings { font-size: 13px; }
@@ -1876,6 +1880,8 @@ button.route-partner-chip:hover { background: var(--state-hover); }
 }
 /* チェックリストの各行の、① に貼ったパスから作った実際のパス */
 .owned-draft-path { display: block; margin-left: 1.6em; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+/* 「Players\ の中のファイル全部」の行に添える 1 行（後から次元ストレージを使い始めた人の _dps.sav も足せる。dps-missing）。色は行の状態に合わせない */
+.owned-draft-note { display: block; margin-left: 1.6em; color: var(--muted); font-size: 11px; }
 .world-dialog .owned-draft { margin-bottom: 0; }
 .owned-dialog-result.ok { color: var(--md-sys-color-tertiary); }
 .owned-dialog-result.todo { color: var(--warning); }
@@ -3014,6 +3020,8 @@ button.ideal-farm-main:hover { background: var(--state-hover); }
 .ideal-surgery-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 4px; font-size: 13px; font-weight: 700; }
 .ideal-surgery-back { margin-left: auto; font-size: 13px; font-weight: 700; }
 .ideal-surgery-band .ideal-surgery-list { margin: 0; }
+/* パル次元ストレージの読み漏れの 1 文（dps-missing）。ほかの帯と同じ間隔 */
+.ideal-dps-hint .setup-hint { margin: 4px 0 10px; }
 /* パルリバーサーの案内（implants・D17。フェーズ 4 の終わりのレビューの性能 1・2）: 計画を描いた後に求めるので、結果の流れには置かず、
    ケーキの行（.ideal-cake-line）の所持の状況の左に小さな印（.ideal-reverser-slot）を出し、押すと板（.ideal-reverser）を開く。
    印は行の空きに入れる（基準の幅 0 で折り返させず、文字の幅まで伸び、足りなければ省略記号で縮む）ので、出入りでパネルの高さも結果の位置も

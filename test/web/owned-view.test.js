@@ -119,6 +119,34 @@ test('所持パル画面: 読み込んだパルを、パッシブ・所持者・
   view.destroy();
 });
 
+test('所持パル画面: パル次元ストレージの行も「次元 P ページ · 行-列」と 6×5 の図で位置を出し（全文は title と隠した文）、位置のない古い共有は場所の文字だけ', (t) => {
+  installDom(t);
+  const list = normalizeOwned({ ...snapshot, pals: [
+    { instanceId: 'd', characterId: 'SheepBall', gender: 'Female', level: 5, rank: 1, passives: [], talent: {}, location: { kind: 'dps', playerUid: P1, slotIndex: 7820 } },
+    { instanceId: 'p', characterId: 'SheepBall', gender: 'Female', level: 5, rank: 1, passives: [], talent: {}, location: { kind: 'palbox', playerUid: P1, slotIndex: 7820 } },
+  ] }, { pals, passives }).pals;
+  const row = ownedRowItem(list[0]);
+  const where = row.element.querySelector('.owned-where');
+  assert.equal(where.querySelector('strong').textContent, 'Alice');
+  assert.equal(where.querySelector('.owned-box').textContent, '次元 P261 · 4-3');
+  assert.equal(where.querySelector('.owned-box').getAttribute('aria-hidden'), 'true');
+  const map = where.querySelector('.box-map');
+  assert.deepEqual([map.style.getPropertyValue('--r'), map.style.getPropertyValue('--c')], ['4', '3']);
+  assert.equal(where.title, 'パル次元ストレージ 261 ページ・4 行 3 列');
+  assert.equal(where.querySelector('.visually-hidden').textContent, 'パル次元ストレージ 261 ページ・4 行 3 列');
+  // 同じ位置のパルボックスの個体に変われば、短い表記も全文も書き換える（頭の「次元 」が残らない）
+  assert.equal(row.update(list[1]), true);
+  assert.equal(where.querySelector('.owned-box').textContent, 'P261 · 4-3');
+  assert.equal(where.title, 'パルボックス 261 ページ・4 行 3 列');
+  // 位置の分からない次元ストレージ（古い共有の「パル次元ストレージ」だけ）は、所持者と場所の文字（図も title もない）
+  assert.equal(row.update({ ...list[0], placeLabel: 'パル次元ストレージ', box: null }), true);
+  assert.equal(where.querySelector('.owned-box'), null);
+  assert.equal(where.querySelector('.box-map'), null);
+  assert.deepEqual(where.children.map((node) => node.textContent), ['Alice', 'パル次元ストレージ']);
+  assert.equal(where.title, '');
+  row.destroy();
+});
+
 test('所持パル画面: 場所のチップでタマゴを外し・グローバルパルボックスを足し、パッシブで絞り込む（所持者の選択肢はプレイヤーだけ）', async (t) => {
   installDom(t);
   const owned = fakeOwned();
@@ -466,9 +494,10 @@ test('所持パル画面: この PC で読んだセーブに場所の分から�
   view.destroy();
 });
 
-test('所持パル画面: 開いている間は 10 秒ごとに読み直し（タブが裏にある間は読まない）、閉じたら止める（D26 で 20.5 秒から 10 秒にした）', async (t) => {
+test('所持パル画面: 開いたときに 1 回読み直し、画面は自分でタイマーを持たない（開いている間の読み直しは app.js の 10 秒ごとの 1 本。share-fetch）', async (t) => {
   installDom(t);
   t.mock.timers.enable({ apis: ['setInterval'] });
+  const intervals = t.mock.method(globalThis, 'setInterval');
   const owned = fakeOwned();
   let refreshes = 0;
   owned.autoRefresh = () => { refreshes++; return Promise.resolve('skipped'); };
@@ -476,18 +505,10 @@ test('所持パル画面: 開いている間は 10 秒ごとに読み直し（�
   // 開いたときの 1 回
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(refreshes, 1);
-  t.mock.timers.tick(10 * 1000);
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 3);
-  document.visibilityState = 'hidden';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 3);
-  document.visibilityState = 'visible';
-  t.mock.timers.tick(10 * 1000);
-  assert.equal(refreshes, 4);
-  view.destroy();
   t.mock.timers.tick(60 * 1000);
-  assert.equal(refreshes, 4);
+  assert.equal(refreshes, 1);
+  assert.equal(intervals.mock.callCount(), 0);
+  view.destroy();
 });
 
 test('継承ルート: 所持パルの欄にデータ元の 1 行は出さず（上のバーのセーブ連携の表示と重なるため。D29）、読み込みの状態が変わっても欄を描き直さない', (t) => {
@@ -581,6 +602,28 @@ test('継承ルート: パッシブを選ぶと、持っている所持パルを
   assert.equal(box.querySelector('.route-owned-open').textContent, '所持パルで開く');
   assert.equal(box.querySelector('.route-owned-open').href, '#/owned?pal=SheepBall&p=CraftSpeed_up2');
   assert.equal(box.querySelector('.route-owned-more').hidden, true);
+  routeView.destroy();
+});
+
+test('継承ルート: 開始のチップの要約は、パル次元ストレージも場所の名前まで（ページと位置は出さない）。所持個体の行には位置を出す', (t) => {
+  installDom(t);
+  const records = [
+    { id: 'r1', parent1Id: 'SheepBall', parent2Id: 'PinkCat', childId: 'CuteFox', confirmCount: 1 },
+  ];
+  const carrier = (instanceId, location) => ({ instanceId, characterId: 'SheepBall', gender: 'Female', level: 12, rank: 1, passives: ['CraftSpeed_up2'], talent: {}, location });
+  const owned = fakeOwned({ ...fakeOwned().state.data, snapshot: { ...snapshot, pals: [
+    carrier('d1', { kind: 'dps', playerUid: P1, slotIndex: 55 }),
+    carrier('d2', { kind: 'dps', playerUid: P1, slotIndex: 77 }),
+    { instanceId: 'b', characterId: 'PinkCat', gender: 'Male', level: 3, rank: 1, passives: [], talent: {}, location: { kind: 'party', playerUid: P1 } },
+  ] } });
+  const app = context(owned, records);
+  const view = inheritanceView(app, parseHash('#/route?to=CuteFox&p=CraftSpeed_up2'));
+  const chips = view.element.querySelectorAll('.start-chip');
+  assert.equal(chips[1].querySelector('.start-chip-count').textContent, '最短 1 回 · 2 体 · Alice・パル次元ストレージ');
+  view.destroy();
+  const routeView = inheritanceView(app, parseHash('#/route?from=SheepBall&to=CuteFox&p=CraftSpeed_up2'));
+  const rows = routeView.element.querySelector('.route-owned-box').querySelectorAll('.owned-row');
+  assert.deepEqual(rows.map((row) => row.querySelector('.owned-box').textContent).sort(), ['次元 P2 · 5-2', '次元 P3 · 3-6']);
   routeView.destroy();
 });
 
@@ -838,11 +881,13 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   await path.dispatch('input');
   assert.equal(status().textContent, '✓ Steam 7656 ／ ワールド ABCD…');
   assert.match(status().className, /ok/);
-  // ドロップするファイルを 2 組（全員／ホストの PC だけ）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
-  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストの PC だけ']);
+  // ドロップするファイルを 2 組（全員／ホストする PC〔交代でホストする人も。host-rotation〕）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストする PC（交代でホストする人も）']);
   const labels = () => dialog.querySelectorAll('.owned-draft-items').flatMap((list) => list.children)
-    .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', ''));
+    .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', '').replace(item.querySelector('.owned-draft-note')?.textContent ?? '', ''));
   assert.deepEqual(labels(), ['— LocalData.sav', '— Level.sav', '— LevelMeta.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
+  // 「Players\ の中のファイル全部」の行にだけ、後から次元ストレージを使い始めた人の _dps.sav も足せることを添える（dps-missing）
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-note').map((node) => node.textContent), ['後からパル次元ストレージを使い始めた人の _dps.sav も、ここにドロップして足せます']);
   assert.deepEqual(dialog.querySelectorAll('.owned-draft-path').map((node) => node.textContent), [
     '…\\SaveGames\\7656\\ABCD…\\LocalData.sav', '…\\SaveGames\\7656\\ABCD…\\Level.sav', '…\\SaveGames\\7656\\ABCD…\\LevelMeta.sav',
     '…\\SaveGames\\7656\\ABCD…\\Players\\', '…\\SaveGames\\7656\\GlobalPalStorage.sav',
@@ -917,7 +962,7 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   // チェックを外すと、行の状態もすぐ変わる
   assert.match(host.querySelector('.owned-world-state').textContent, /配合の自動登録: オフ/);
   // ホストの行のチェックの下に、ページを閉じている間は止まることの 1 行（roles）
-  assert.match(box.querySelector('.owned-role-note').textContent, /このページを開いている間（タブが裏でもよい）1 分ごとにセーブを読みます。閉じている間に孵化したタマゴは登録できません。/);
+  assert.match(box.querySelector('.owned-role-note').textContent, /このページを開いている間（タブが裏でもよい）、ゲームが保存するたびにセーブを読みます。閉じている間に孵化したタマゴは登録できません。/);
   // プレイヤーの対応はワールドの行の外の独立した欄（「使うワールド」の下。roles。C-03）
   assert.equal(box.querySelector('.owned-breeding-player'), null);
   const players = card.element.querySelector('.owned-players');
@@ -933,7 +978,10 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   await select.dispatch('change');
   assert.deepEqual(calls, [['enabled', false, 'W'], ['mapping', P1, '仲間', 'W']]);
   // 参加しているだけのワールドでは、自動登録はホストの画面が行うこと（「自動登録は動きません」とは言わない。X-06）
-  assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録は ホスト の画面が行います/);
+  assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録はホストの画面が行います（ホストが/);
+  // 交代でホストするなら［編集］でホストの組のファイルを足すこと（host-rotation）
+  assert.equal(guest.querySelector('.owned-rotation-note').textContent, '交代でホストするなら、［編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください（ホストしたときに共有と自動登録が動きます）。');
+  assert.equal(host.querySelector('.owned-rotation-note'), null);
   assert.doesNotMatch(card.element.textContent, /自動登録は動きません/);
   assert.ok(!guest.querySelector('.owned-toggle'));
   // 描き直しても、開いた行は開いたまま
@@ -1037,6 +1085,36 @@ test('所持パル画面: 登録した後に増えたプレイヤーの Players 
   await view.element.querySelector('.owned-notices').querySelector('button').dispatch('click');
   assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを編集');
   view.destroy();
+});
+
+test('所持パル画面（dps-missing）: ホストはパル次元ストレージの読み漏れを［ワールドを編集］つきで、参加者は自分のプレイヤーが候補のときだけ案内する（自分が変わったら描き直す）', async (t) => {
+  const { body } = installDom(t);
+  const P2 = '00000000-0000-0000-0000-000000000002';
+  const data = {
+    version: 1, importedAt: '2026-10-05T00:00:00.000Z', source: 'handles', world: { id: 'W', dir: 'W', name: 'テスト', updatedAt: '2026-10-05T00:00:00.000Z' },
+    snapshot: { ...snapshot, players: [...snapshot.players, { uid: P2, name: 'Bob', level: 10 }], stats: { inLocker: 118, inLockerMissing: 27 },
+      files: { used: ['Level.sav', 'Players/00000000000000000000000000000001.sav', 'Players/00000000000000000000000000000001_dps.sav', 'Players/00000000000000000000000000000002.sav'], skipped: [] } },
+  };
+  const host = ownedView(context(fakeOwned(data)), parseHash('#/owned'));
+  const notices = host.element.querySelector('.owned-notices');
+  assert.match(notices.textContent, /^Level\.sav ではパル次元ストレージに 118 体いますが、27 体を読めていません。Players.00000000000000000000000000000002_dps\.sav（Bob）が登録されていないかもしれません。ワールドを編集$/);
+  await notices.querySelector('button').dispatch('click');
+  assert.equal(body.querySelector('dialog').querySelector('h2').textContent, 'ワールドを編集');
+  host.destroy();
+
+  // 参加者: 共有のデータの Bob に dpsGap がある。自分（ideals.selfUids）が Bob のときだけ
+  const shared = fakeOwned(data, { role: 'guest', meta: { worldId: 'W', worldName: 'テスト', hostName: 'Alice', source: 'shared', saveUpdatedAt: '2026-10-05T00:00:00.000Z', sharedAt: '2026-10-05T00:01:00.000Z', uploadedBy: 'ホスト', palCount: 3 } });
+  shared.state.owned = { ...shared.state.owned, players: shared.state.owned.players.map((player) => (player.uid === P2 ? { ...player, dpsGap: 27 } : { ...player, dpsGap: undefined })) };
+  let self = new Set();
+  const selfListeners = new Set();
+  const ctx = { ...context(shared), ideals: { selfUids: () => self }, self: { subscribe: (listener) => { selfListeners.add(listener); return () => selfListeners.delete(listener); } } };
+  const guest = ownedView(ctx, parseHash('#/owned'));
+  const guestNotices = () => guest.element.querySelector('.owned-notices').textContent;
+  assert.doesNotMatch(guestNotices(), /次元ストレージ/);
+  self = new Set([P2]);
+  for (const listener of selfListeners) listener();
+  assert.match(guestNotices(), /ワールド全体で、パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players.00000000000000000000000000000002_dps\.sav がないかもしれません。ホストに足してもらってください。/);
+  guest.destroy();
 });
 
 // モーダルを開いて、パスを貼り、ファイルをドロップするまで
@@ -3105,7 +3183,9 @@ test('ワールドの登録（roles）: 背景のクリックでは閉じず、�
   await tick();
   const [, host] = dialog.querySelectorAll('.owned-draft-group');
   assert.match(host.className, /is-dim/);
-  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストの PC だけ（参加として登録できます）');
+  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストする PC（交代でホストする人も。なくても参加者として登録できます）');
+  // 参加者として登録する結果欄には、交代でホストするならホストの組のファイルも足すこと（host-rotation）
+  assert.equal(dialog.querySelector('.owned-dialog-result').textContent, '参加者として登録します（交代でホストするなら Level.sav・LevelMeta.sav・Players のファイルも足すと、ホストしたときに共有と自動登録が動きます）');
   assert.equal(register.disabled, false);
 });
 

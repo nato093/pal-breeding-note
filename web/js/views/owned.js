@@ -13,7 +13,7 @@ import { virtualRows } from '../ui/virtual-list.js';
 import { farmBoard, cakesOut } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
 import {
-  viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, keepRefreshing, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
+  viewHeading, syncPicker, syncOptions, renderWhenIdle, ownedSpeciesNotes, changeRoute, holderChoices, holderValue, HOLDER_DEFAULT,
   fieldHead, panelItem, panelLine,
 } from './shared.js';
 import { tabLabel } from './tabs.js';
@@ -21,7 +21,7 @@ import { openWorldDialog } from './owned-settings.js';
 import { toast } from '../ui/toast.js';
 import { buildHash, settingsHash } from '../router.js';
 import {
-  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, eggName, isMutantEgg,
+  filterOwned, sortOwned, sortKey, sortLabel, keywordTerms, keywordNotes, prepareKeywords, OWNED_SORTS, PLACE_ORDER, placeGroupLabel, eggName, isMutantEgg, boxShort,
 } from '../core/owned.js';
 import { palsOfPlayers, goalMarks } from '../core/ideal-goals.js';
 import { cleanSaved, list, internalName, idText, text, oneOf, intIn, BASES_MAX } from '../core/boundary.js';
@@ -463,8 +463,8 @@ export function fillTalentCell(cell, talent, targets) {
   cell.setAttribute('aria-label', `個体値 ${spoken.join('・')}`);
 }
 
-// 所持者と場所。拠点の個体は拠点の名前と「Alice が預けた」（場所の行は重ねない）。パルボックスは「P2 · 1-6」と 6×5 の小さな図
-//（title に場所の全文）。位置が分からなければ場所の文字（個体の詳細のドロワーも使う）
+// 所持者と場所。拠点の個体は拠点の名前と「Alice が預けた」（場所の行は重ねない）。パルボックスは「P2 · 1-6」、パル次元ストレージは
+// 「次元 P2 · 1-6」と 6×5 の小さな図（title に場所の全文）。位置が分からなければ場所の文字（個体の詳細のドロワーも使う）
 export function fillWhereCell(cell, pal) {
   if (pal.place === 'base' && pal.holder === pal.placeLabel) {
     cell.replaceChildren(el('strong', '', pal.holder), ...(pal.lastOwner ? [el('small', 'muted', `${pal.lastOwner} が預けた`)] : []));
@@ -477,7 +477,7 @@ export function fillWhereCell(cell, pal) {
     return;
   }
   // 短い表記と図は見た目だけ（読み上げは隠し、場所の全文「パルボックス 2 ページ・1 行 2 列」を見た目は隠した文で読ませる）
-  const place = el('small', 'muted owned-box', `P${pal.box.page} · ${pal.box.row}-${pal.box.column}`);
+  const place = el('small', 'muted owned-box', boxShort(pal));
   place.setAttribute('aria-hidden', 'true');
   // 図は要素 1 つ（枠は背景の線、位置の印は ::after を --r・--c の枠に置く）
   const map = el('span', 'box-map');
@@ -1192,7 +1192,7 @@ export function ownedView(context, route) {
   let noticesKey = null;
   function renderSummary(state) {
     if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
-    const list = ownedNotices(state, { userId: context.store.state.userId });
+    const list = ownedNotices(state, { userId: context.store.state.userId, selfUids: context.ideals?.selfUids?.() ?? new Set() });
     const key = JSON.stringify(list);
     if (key === noticesKey) return;
     // 案内の帯はパネルより上にあるので、出入りすると下の一覧が上下する（一覧は overflow-anchor: none）。一覧の先頭がパネルの下に
@@ -1855,6 +1855,8 @@ export function ownedView(context, route) {
   const selfChanged = () => {
     if (destroyed) return;
     const sinceChanged = trackNew(owned.state);
+    // 参加者のパル次元ストレージの読み漏れの案内は、自分のプレイヤーで出し分ける（同じ案内なら描き直さない）
+    renderSummary(owned.state);
     if (selfKey() === shownSelf) {
       if (sinceChanged) renderResults({ keepPosition: true });
       return;
@@ -1871,9 +1873,8 @@ export function ownedView(context, route) {
   renderFilters(owned.state);
   renderResults();
   warmKeywords(owned.state.owned);
+  // 開いたときに 1 回読み直す。開いている間の読み直しは、どの画面でも app.js の 10 秒ごとのタイマーが行う（画面はタイマーを持たない。share-fetch）
   owned.load().then(() => owned.autoRefresh()).catch(() => {});
-  // 開いている間は読み直す（参加している人も、ホストが共有し直した所持パルが入る）
-  const stopRefreshing = keepRefreshing(owned);
   return {
     element, update,
     // 同じ画面のまま絞り込みつきの URL が来たとき（URL が条件のすべてを決める）・戻る・進むで app.js が履歴のエントリの条件を filter に
@@ -1893,7 +1894,6 @@ export function ownedView(context, route) {
       destroyed = true;
       // 見ていたデータのセーブの時刻を、次に開いたときの NEW の基準にする（save-extras）
       saveSeen();
-      stopRefreshing();
       stopSelf();
       stopSelfChoice();
       stopGoals();

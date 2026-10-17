@@ -120,10 +120,87 @@ function assertLoginOnly() {
   assert.match(readable(byClass('app-header')), /^(テスト環境)?$/);
 }
 
-test('画面: 登録したセーブは 1 分ごとに読み直す（タブが裏にあっても）', async (t) => {
-  const { intervals } = await boot(t);
-  assert.deepEqual(intervals.map((timer) => timer.ms), [60 * 1000]);
-  assert.doesNotThrow(() => intervals[0].fn());
+test('画面（share-fetch）: 所持パルの読み直しは 10 秒ごとの 1 本。表のタブなら共有も読み直し（autoRefresh）、裏のタブでは共有を読まない（pollAuto。D26）', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-16T00:00:00.000Z') });
+  const api = createDevelopmentApi({ seed: '2' });
+  // 別の PC のホストが共有したワールド（見る人はファイルを登録していない）
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  const row = (id) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : field === 'palId' ? 'SheepBall' : ''));
+  const shared = await api({
+    action: 'ownedUpload', passcode: '入力', userId: 'ホスト', worldId: world, world: { name: 'World9', hostName: 'Alice' },
+    saveUpdatedAt: '2026-10-15T23:59:00.000Z', players: [], bases: [], columns: OWNED_FIELDS, rows: [row('p1'), row('p2')],
+  });
+  assert.equal(shared.stored, true);
+  const { intervals, ownedCalls } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api });
+  for (let i = 0; i < 10; i++) await flush();
+  // 起動では一覧を読み、今のワールドの中身は ownedSince で受け取る
+  assert.deepEqual(ownedCalls.map((call) => call.action), ['ownedWorlds', 'ownedSince']);
+  assert.deepEqual(intervals.map((timer) => timer.ms), [10 * 1000]);
+  const tick = async (visibility) => {
+    ownedCalls.length = 0;
+    t.mock.timers.tick(10 * 1000);
+    document.visibilityState = visibility;
+    assert.doesNotThrow(() => intervals[0].fn());
+    for (let i = 0; i < 10; i++) await flush();
+    return ownedCalls.map((call) => [call.action, call.uploadedAt ?? '']);
+  };
+  // 表のタブ: 持っている版を添えて ownedSince を 1 回（一覧は読まない）
+  assert.deepEqual(await tick('visible'), [['ownedSince', shared.world.uploadedAt]]);
+  // 裏のタブ: 共有を読まない（ファイルの登録がなければ何も読まない）
+  assert.deepEqual(await tick('hidden'), []);
+  // 表に戻れば、また読む
+  assert.deepEqual(await tick('visible'), [['ownedSince', shared.world.uploadedAt]]);
+});
+
+test('画面（page-presence）: 10 秒ごとのタイマーは、表のタブなら ownedSince に 60 秒に 1 回 presence を載せ、裏のタブなら presence だけを別に送る', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-16T00:00:00.000Z') });
+  const api = createDevelopmentApi({ seed: '2' });
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  const row = (id) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : field === 'palId' ? 'SheepBall' : ''));
+  await api({
+    action: 'ownedUpload', passcode: '入力', userId: 'ホスト', worldId: world, world: { name: 'World9', hostName: 'Alice' },
+    saveUpdatedAt: '2026-10-15T23:59:00.000Z', players: [], bases: [], columns: OWNED_FIELDS, rows: [row('p1')],
+  });
+  const { intervals, ownedCalls, calls, values } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' }, api });
+  for (let i = 0; i < 10; i++) await flush();
+  // 起動の ownedSince に載せる（PC の ID はワールドごとに localStorage、ページの ID はメモリの中）
+  const first = ownedCalls.find((call) => call.action === 'ownedSince');
+  const device = values.get(`pal-note.owned.device.${world}`);
+  assert.match(device, /^[0-9a-f]{32}$/);
+  assert.deepEqual({ ...first.presence, pageId: '' }, { pageId: '', device, user: '架空データ', role: 'none', playing: false, canShare: false });
+  assert.equal([...values.values()].includes(first.presence.pageId), false);
+  const tick = async (visibility) => {
+    ownedCalls.length = 0;
+    calls.length = 0;
+    t.mock.timers.tick(10 * 1000);
+    document.visibilityState = visibility;
+    intervals[0].fn();
+    for (let i = 0; i < 10; i++) await flush();
+    return [...ownedCalls, ...calls.filter((call) => call.action === 'presence')].map((call) => [call.action, Boolean(call.presence)]);
+  };
+  for (let i = 1; i < 6; i++) assert.deepEqual(await tick('visible'), [['ownedSince', false]], `${i * 10} 秒`);
+  assert.deepEqual(await tick('visible'), [['ownedSince', true]]);
+  // 裏のタブ: 共有は読まず、60 秒たったら presence だけを送る
+  for (let i = 1; i < 6; i++) assert.deepEqual(await tick('hidden'), [], `${i * 10} 秒`);
+  assert.deepEqual(await tick('hidden'), [['presence', true]]);
+});
+
+test('画面（save-watch）: FileSystemObserver も Worker もない Node でも起動し、所持パルの読み直しは 10 秒ごとの 1 本のまま（見張りは定期の確認に落ちる）', async (t) => {
+  assert.equal(typeof globalThis.Worker, 'undefined');
+  assert.equal(typeof globalThis.FileSystemObserver, 'undefined');
+  const { intervals } = await boot(t, { initial: { 'pal-note.userId': '架空データ', 'pal-note.passcode': '入力' } });
+  for (let i = 0; i < 10; i++) await flush();
+  assert.deepEqual(intervals.map((timer) => timer.ms), [10 * 1000]);
+  // 表と裏のタブの定期の確認も落ちない
+  for (const visibility of ['visible', 'hidden']) {
+    document.visibilityState = visibility;
+    assert.doesNotThrow(() => intervals[0].fn());
+    for (let i = 0; i < 10; i++) await flush();
+  }
+  assert.equal(byClass('startup-error'), undefined);
+  // セーブ連携のパネルに「監視」の行は出さない（登録がない）
+  byClass('save-status-button').dispatch('click');
+  assert.doesNotMatch(byClass('save-status-panel').textContent, /監視/);
 });
 
 test('画面: 未ログイン時は ID とパスワードを表示し、旧招待 URL でもログインしない', async (t) => {

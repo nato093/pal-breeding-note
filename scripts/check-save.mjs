@@ -66,6 +66,8 @@ async function main() {
     for (const p of list) byHolder.set(p.holder, (byHolder.get(p.holder) ?? 0) + 1);
     console.log(`  ${placeGroupLabel(group)}: ${list.length}（${[...byHolder].map(([k, v]) => `${k} ${v}`).join(' / ')}）`);
   }
+  // パル次元ストレージの読み漏れ（dps-missing。Level.sav の InLockerCharacterInstanceIDArray の個体のうち、読めた _dps.sav にない数）
+  console.log(`次元ストレージ: Level.sav ${snapshot.stats.inLocker} 体・読めていない ${snapshot.stats.inLockerMissing} 体`);
   const unknown = owned.pals.filter((p) => !p.known);
   console.log(`マスターにないキャラクター: ${unknown.length} 体${unknown.length ? `（${[...new Set(unknown.map((p) => p.characterId))].slice(0, 8).join(', ')} など）` : ''}`);
   const names = new Set(passives.map((p) => p.id));

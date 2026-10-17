@@ -1,4 +1,4 @@
-import { el, empty, link, button, syncList, clearList, trackHeight, storageWarning, loadingState, statusChip, setChipTone, setDisabled } from '../ui/dom.js';
+import { el, empty, link, button, syncList, clearList, trackHeight, storageWarning, loadingState, statusChip, setChipTone, setDisabled, setupHint } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { captureFocus, restoreFocus } from '../ui/focus.js';
 import { startSliced } from '../ui/slice.js';
@@ -14,12 +14,12 @@ import { actionIcon } from '../ui/breeding-card.js';
 import { toast } from '../ui/toast.js';
 import { eggMatches, goalProgress, palsOfPlayers, isSpeciesGoal, GOAL_LIMIT, GOAL_NAME_MAX, GOAL_STATS } from '../core/ideal-goals.js';
 import { goalOwnedHash } from '../ideals.js';
-import { passiveCounts, ownedCounts, ownedRouteStarts, itemStock, stockText } from '../core/owned.js';
+import { passiveCounts, ownedCounts, ownedRouteStarts, itemStock, stockText, boxShort } from '../core/owned.js';
 import { implantOf, implantNeed, canImplant, cleanSurgery, IMPLANT_KINDS } from '../core/implants.js';
 import { shortestRoute } from '../core/route.js';
 import { findByChild } from '../core/index.js';
 import { goalToggle } from '../ui/goal-toggle.js';
-import { onlineUids, onlineKey } from '../ui/owned-status.js';
+import { onlineUids, onlineKey, dimensionNotice } from '../ui/owned-status.js';
 import { cakeLine } from '../ui/farm-board.js';
 import {
   idealPlanSteps, breedingLayouts, isParentCandidate, planSpeed, cakeSpeedSteps, fastestCake, genderFlipSteps, talentTargets,
@@ -31,8 +31,9 @@ import { targetFarms, farmAdvice, farmSignature, planChanges, planPairKey, farmC
 import { buildHash, settingsHash } from '../router.js';
 import { ownedWorldId } from '../core/owned-shared.js';
 import { ownedRow, rowSignature, DEFAULT_PLACES } from './owned.js';
+import { openWorldDialog } from './owned-settings.js';
 import {
-  viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets, keepRefreshing,
+  viewHeading, validId, navigateSelection, changeRoute, watchView, dataPending, syncPicker, syncOptions, ownedSpeciesNotes, passivePresets,
   holderChoices, holderValue, HOLDER_DEFAULT, fieldHead, panelItem, panelLine,
 } from './shared.js';
 import { tabLabel } from './tabs.js';
@@ -227,7 +228,7 @@ function goalGap(goal, near) {
 // 目標の一覧の状態の欄は狭いので、付けるものの括弧は在庫（手元で読んだホストのデータ〔data の items〕のときだけ）か、在庫が分からなければ
 // インプラントの種類の 1 つだけにし（前は「使い切りインプラント・在庫 4」で、920px で 5 行に折れた。フェーズ 4 の終わりのレビューの操作性 7）、
 // 種類と在庫の両方は title に出す。アイテム名は「使い切りインプラント：〈パッシブ〉」でパッシブ名と重なるので出さない。
-// パルボックスの場所は行と同じ短い形（P4 · 2-5）
+// パルボックス・パル次元ストレージの場所は行と同じ短い形（P4 · 2-5・次元 P4 · 2-5）
 function surgeryLine({ pal, add, count }, data) {
   const parts = add.map((id) => {
     const entry = implantOf(id);
@@ -241,11 +242,11 @@ function surgeryLine({ pal, add, count }, data) {
     title: `${head}${parts.map((part) => `＋${part.name}（${[part.kind, part.stock].filter(Boolean).join('・')}）`).join('')}${more}`,
   };
 }
-// 個体の短い呼び名「アヌビス♂ Lv52（P4 · 2-5）」（パルボックスは行と同じ短い場所。ほかは場所の文字。手術で完成できる個体の 1 行と
-// パルリバーサーの案内で使う）
+// 個体の短い呼び名「アヌビス♂ Lv52（P4 · 2-5）」（パルボックス・パル次元ストレージ〔「次元 P4 · 2-5」〕は行と同じ短い場所。ほかは
+// 場所の文字。手術で完成できる個体の 1 行とパルリバーサーの案内で使う）
 function palBrief(pal) {
   const sex = pal.gender === 'M' ? '♂' : pal.gender === 'F' ? '♀' : '';
-  const where = pal.box ? `P${pal.box.page} · ${pal.box.row}-${pal.box.column}` : pal.placeLabel;
+  const where = boxShort(pal) || pal.placeLabel;
   return `${pal.name}${sex} Lv${pal.level}${where ? `（${where}）` : ''}`;
 }
 // data は所持パルのデータ（在庫を添えるため。implants）
@@ -546,6 +547,29 @@ export function idealView(context, route) {
   // 手術で付ける前提で計画しているとき（URL の s）の帯（implants の X-22。renderSurgeryBand）。s がなければ隠して場所も取らない
   const surgeryBand = el('div', 'ideal-surgery-band');
   surgeryBand.hidden = true;
+  // パル次元ストレージの読み漏れ（dps-missing）の 1 文。読めていない個体は親の候補にも入らないので、結果の上に出す。ホストは
+  // ［ワールドを編集］（所持パルの案内と同じ。登録したワールドが分からなければ設定のセーブ連携へ）、参加者は自分が候補のときだけ（ボタンなし）。
+  // なければ隠して場所も取らない。同じ文なら作り直さない
+  const dpsSlot = el('div', 'ideal-dps-hint');
+  dpsSlot.hidden = true;
+  let dpsShown = '';
+  function renderDpsHint() {
+    const notice = owned ? dimensionNotice(owned.state, { selfUids: ideals?.selfUids?.() ?? new Set() }) : null;
+    const key = notice ? JSON.stringify([notice.text, notice.action ?? '']) : '';
+    if (key === dpsShown) return;
+    dpsShown = key;
+    dpsSlot.hidden = !notice;
+    if (!notice) { dpsSlot.replaceChildren(); return; }
+    const action = notice.action === 'editWorld' ? {
+      label: 'ワールドを編集',
+      run: () => {
+        const world = owned.state.auto?.worlds?.find((item) => item.id === owned.state.linkedWorldId);
+        if (world) openWorldDialog(context, { world });
+        else context.navigate?.(settingsHash(owned.state.linkedWorldId ?? '', 'status'));
+      },
+    } : null;
+    dpsSlot.replaceChildren(setupHint({ text: notice.text, action, kind: 'warning' }));
+  }
   // 孵化させると完成するタマゴ（今の条件を満たすタマゴ。所持者で絞った個体のタマゴと、拠点に置かれた持ち主のないタマゴ。F048・N-16）。
   // 押すと所持パルをタマゴ・その種族・欲しいパッシブで開く。0 個なら出さない（目標を変えたときに下が動くのは利用者の操作なのでよい）
   const hatchBox = el('p', 'ideal-hatch');
@@ -1008,7 +1032,7 @@ export function idealView(context, route) {
     });
   }
 
-  element.append(heading, panel, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
+  element.append(heading, panel, dpsSlot, surgeryBand, missingBox, hatchBox, farmStrip, farmBox, results);
 
   const setPassives = (ids) => {
     const params = new URLSearchParams(current.params);
@@ -1633,6 +1657,7 @@ export function idealView(context, route) {
     if (destroyed) return;
     const started = clock();
     renderSave();
+    renderDpsHint();
     renderSurgeryBand();
     // 消したパルリバーサーの案内を戻すリンク（目標を選ぶ前・データがないときも、消した目標があれば出す）
     renderRestore();
@@ -1977,14 +2002,13 @@ export function idealView(context, route) {
   };
   const stopSelf = context.store.subscribe(selfChanged);
   const stopSelfChoice = context.self?.subscribe?.(selfChanged) ?? (() => {});
-  // 開いている間は 10 秒ごとに読み直し、孵化させて受け取ったパルも順位に入れる（views/shared.js の keepRefreshing）。
-  // 閉じた後と、タブが裏にある間は読まない（destroyed は区切った計算と同じ印）
+  // 開いて最初の読み込みが終わったら 1 回読み直す（閉じた後と、タブが裏にある間は読まない。destroyed は区切った計算と同じ印）。
+  // 開いている間の読み直し（孵化させて受け取ったパルも順位に入れる）は、どの画面でも app.js の 10 秒ごとのタイマーが行う（share-fetch）
   owned.load().then(() => {
     if (!destroyed && globalThis.document?.visibilityState !== 'hidden') return owned.autoRefresh();
   }).catch(() => {});
-  const stopRefreshing = keepRefreshing(owned);
   return {
     element, update, applyRoute, flushInputs,
-    destroy() { destroyed = true; stopRefreshing(); unsubscribe(); stopSelf(); stopSelfChoice(); unsubscribeGoals(); view.destroy(); },
+    destroy() { destroyed = true; unsubscribe(); stopSelf(); stopSelfChoice(); unsubscribeGoals(); view.destroy(); },
   };
 }

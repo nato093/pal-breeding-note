@@ -528,6 +528,10 @@ GAS と画面で同じにしてある上限（そろえる相手）: core/owned-
   | 拠点 | 最大 200 件・id 40 字・名前 60 字 | id が空なら捨てる | owned-shared.js:58・87 |
   | 配合の記録 | 下の cleanRecords | id が無い・重複は捨てる | core/validate.js:17 |
   | 後から足す項目（例: フェーズ 4 の入手時刻） | テーマで決める | `intOrNull` などで「不明」（null）を表す | 欠けと 0 を区別する |
+  | 共有のプレイヤーのパル次元ストレージの読み漏れの数 `dpsGap`（sync-fixes の dps-missing） | 1〜`OWNED_DPS_GAP_MAX`（20000）の整数 | 鍵ごと付けない（参加者の案内を出さない） | owned-shared.js の `cleanOwnedPlayer`・boundary.js の `cleanSharedPlayers` |
+  | 手元の解析の数 `stats.inLocker`・`stats.inLockerMissing`（dps-missing） | 0〜1000000 の整数 | null（分からない。ホストの案内を出さない） | core/owned.js の `dpsMissing`（`intOrNull`） |
+  | 共有のワールドのセーブの中の保存時刻 `saveStamp`（sync-fixes の owned-gas） | 生のティックの 10 進の文字列（1〜20 桁・0 でない。先頭の 0 は除く） | 文字列で届いて形が違えば ''、届かなければ（古い GAS・前のキャッシュ）鍵ごと付けない。どちらも「識別なし」で、新旧は今の更新日時で比べる | owned-shared.js の `ownedSaveStamp`・`compareSaves`・boundary.js の `cleanWorld` |
+  | ページを開いている PC の一覧 `presence`（owned-gas。ownedSince・presence の応答） | 配列・最大 50 件。要素は device（英数字と _- の 8〜64 字）・at（ISO）が必須、user 20 字、role は host・guest・none、playing・canShare は真偽 | 配列でなければ null（分からない）、形の違う要素は捨てる、role の不正は 'none'、真偽の不正は false | boundary.js の `cleanPresenceList` |
 
 ### 実装の手順
 

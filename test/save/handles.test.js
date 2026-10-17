@@ -46,7 +46,10 @@ test('セーブのファイル: ドロップからハンドルを集め、フォ
 test('セーブのファイル: 必要なファイルが読めないときは、ホストか参加かを決めない', async () => {
   const files = hostFiles();
   assert.deepEqual(await inspectFiles('host', files).then((r) => [r.status, r.role]), ['ok', 'host']);
+  // 保存の途中（LocalData.sav が先に書かれ、Level.sav は前の保存のまま。約 30 秒の差）はホストのまま。参加すると数分以上の差になる
   files['LocalData.sav'].time = T0 + 30000;
+  assert.deepEqual(await inspectFiles('host', files).then((r) => [r.status, r.role]), ['ok', 'host']);
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
   assert.deepEqual(await inspectFiles('host', files).then((r) => [r.status, r.role]), ['ok', 'guest']);
   files['Players/00000000000000000000000000000001.sav'].gone = true;
   const optional = await inspectFiles('host', files);
@@ -124,4 +127,51 @@ test('セーブのファイル: 許可は登録したすべてのファイルに
   assert.equal((await session.commit({ worldId: 'B', steamId: '1', files: hostFiles() })).persisted, false);
   await session.remove('B');
   assert.equal(session.has('B'), false);
+});
+
+test('セーブのファイル（save-watch）: read() は読んだ後のファイルの印を返す（list() の fileSignature と同じ形。消えたファイルは入れない）', async () => {
+  const persist = memoryPersist();
+  const source = createHandleSource({ persist, key: 'k' });
+  const files = { ...hostFiles(T0), 'Players/00000000000000000000000000000002.sav': fakeHandle('00000000000000000000000000000002.sav') };
+  files['Players/00000000000000000000000000000002.sav'].gone = true;
+  await source.commit({ worldId: WORLD, steamId: '7656', files });
+  const [world] = await source.list();
+  const read = await source.read(world);
+  assert.equal(read.fileSignature, world.fileSignature);
+  assert.doesNotMatch(read.fileSignature, /0002\.sav/);
+  // 読んでいる間に書き換わったら、印が変わる
+  let release;
+  files['Level.sav'].gate = new Promise((resolve) => { release = resolve; });
+  const reading = source.read(world);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  files['LevelMeta.sav'].time += 30000;
+  release();
+  assert.notEqual((await reading).fileSignature, world.fileSignature);
+  // 消えたファイルが戻っても変わる（getFile のほかの失敗は印を作れない＝''）
+  files['Level.sav'].gate = null;
+  files['LevelMeta.sav'].time -= 30000;
+  files['Players/00000000000000000000000000000002.sav'].gone = false;
+  assert.notEqual((await source.read(world)).fileSignature, world.fileSignature);
+  files['Players/00000000000000000000000000000002.sav'].error = 'NotReadableError';
+  assert.equal((await source.read(world)).fileSignature, '');
+});
+
+test('セーブのファイル: 解析が読むファイルの印（readSignature）は LocalData.sav を除く（ホストの保存の途中に LocalData.sav だけが変わったかを見分ける。sync-fixes の最終レビュー）', async () => {
+  const source = createHandleSource({ persist: memoryPersist(), key: 'k' });
+  const files = hostFiles(T0);
+  await source.commit({ worldId: 'A', steamId: '1', files });
+  const first = (await source.list())[0];
+  assert.match(first.readSignature, /#1$/);
+  assert.ok(!first.readSignature.includes('LocalData.sav'));
+  // LocalData.sav だけが変わった: 一式の印は変わるが、解析が読むファイルの印は同じ
+  files['LocalData.sav'].time += 30000;
+  const midSave = (await source.list())[0];
+  assert.notEqual(midSave.signature, first.signature);
+  assert.equal(midSave.readSignature, first.readSignature);
+  // ほかのファイル・登録（revision）が変わったら変わる
+  files['Level.sav'].time += 30000;
+  const saved = (await source.list())[0];
+  assert.notEqual(saved.readSignature, first.readSignature);
+  await source.commit({ worldId: 'A', steamId: '1', files: { '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav') } });
+  assert.notEqual((await source.list())[0].readSignature, saved.readSignature);
 });

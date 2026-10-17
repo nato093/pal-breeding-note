@@ -224,6 +224,16 @@ export function ticksToLocalIso(ticks) {
   return Number.isNaN(local.getTime()) ? '' : local.toISOString();
 }
 
+/**
+ * DateTime のティック（数か 10 進の文字列）を、そのままの 10 進の文字列にする（先頭の 0 は除く）。0・読めない値は ''。
+ * スナップショットの world.savedAtTicks（Level.sav の Timestamp。セーブの識別と新旧の比べ方に使う。sync-fixes の owned-gas）
+ */
+export function ticksText(ticks) {
+  const raw = typeof ticks === 'number' ? (Number.isSafeInteger(ticks) && ticks > 0 ? String(ticks) : '')
+    : typeof ticks === 'string' ? ticks.trim() : typeof ticks === 'bigint' && ticks > 0n ? ticks.toString() : '';
+  return /^\d{1,20}$/.test(raw) ? raw.replace(/^0+/, '') : '';
+}
+
 function bump(obj, key, n = 1) {
   obj[key] = (obj[key] || 0) + n;
 }
@@ -1054,6 +1064,10 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     orphanEggs: 0,
     orphanEggsDetail: { noParams: 0, noContainer: 0, unreferencedContainer: 0 },
     malformed: {},
+    // パル次元ストレージの読み漏れ（dps-missing）: Level.sav の InLockerCharacterInstanceIDArray の個体の数と、そのうち読めた _dps.sav に
+    // ない数（数だけ。個体の ID は残さない）。この 2 つがない古い解析結果は、画面の側で「分からない」として案内を出さない
+    inLocker: 0,
+    inLockerMissing: 0,
   };
   for (const [k, v] of Object.entries(level.malformed || {})) bump(stats.malformed, `level.${k}`, v);
 
@@ -1166,15 +1180,22 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     add(palEntry('level', p.instanceId, p, loc));
   }
 
+  // 正しく読めた _dps.sav の個体の ID（次元ストレージの読み漏れを数える）
+  const dpsIds = new Set();
   for (const d of dps || []) {
     const data = d && d.data;
     if (!data || !Array.isArray(data.pals)) continue;
     for (const [k, v] of Object.entries(data.malformed || {})) bump(stats.malformed, `dps.${k}`, v);
     const playerUid = normUid(d.playerUid);
     for (const p of data.pals) {
+      if (p.instanceId) dpsIds.add(p.instanceId);
       add(palEntry('dps', p.instanceId, p, location('dps', { playerUid, slotIndex: p.arrayIndex })));
     }
   }
+  // Level.sav の一覧は全員の次元ストレージの個体（キーの PlayerUId は 0 で誰の分かは分からない。グローバルパルボックスは含まない。
+  // 2026-10-16 に実セーブで 118 件が 2 人の _dps.sav の 27＋91 と全部一致）。読めた _dps.sav にない個体の数を、集合の差で数える
+  stats.inLocker = inLocker.size;
+  stats.inLockerMissing = [...inLocker].filter((id) => !dpsIds.has(id)).length;
 
   const gsInput = globalStorage && globalStorage.data ? globalStorage : (globalStorage ? { playerUid: '', data: globalStorage } : null);
   if (gsInput && gsInput.data && Array.isArray(gsInput.data.pals)) {
@@ -1280,6 +1301,9 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     name: m ? m.worldName : '',
     hostName: m ? m.hostPlayerName : '',
     savedAt: ticksToIso(level.savedAtTicks) || (m ? ticksToIso(m.timestampTicks) : ''),
+    // Level.sav の中の保存時刻の生のティック（10 進の文字列。読めなければ ''）。ISO の savedAt は日本時間の PC で 9 時間ずれ、ミリ秒より
+    // 細かい桁も落ちるので、同じセーブの見分けと新旧はこちらで比べる（core/owned-shared.js の compareSaves。sync-fixes の owned-gas）
+    savedAtTicks: ticksText(level.savedAtTicks),
     inGameDay: m && m.inGameDay > 0 ? m.inGameDay : Number.isFinite(gameTicks) && gameTicks > 0 ? Math.floor(gameTicks / TICKS_PER_DAY) : 0,
   };
 
