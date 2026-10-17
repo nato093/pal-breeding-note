@@ -285,8 +285,10 @@ export function createOwnedStore({
   let uploadWidthAt = -Infinity;
   // 登録の削除・解除を求めるたびに増やす。読み込みの途中で求められたら、その読み込みの結果では共有しない
   let linkEpoch = 0;
-  // このページで実際に読み込んだ、登録したファイルの一式の印（開き直した直後の保存済みのデータでは共有しない）
+  // このページで実際に読み込んだ、登録したファイルの一式の印（開き直した直後の保存済みのデータでは共有しない）と、そのうち解析が読む
+  // ファイルの印（LocalData.sav を除く。save/handles.js の list の readSignature）
   let verifiedSignature = '';
+  let verifiedRead = '';
   // 登録したファイルから読み込んでいる途中のワールド
   let readingWorldId = '';
   // 削除を求められ、まだ消し終えていないワールド（順番待ちの読み込みでも選ばず、共有もしない）
@@ -1031,7 +1033,10 @@ export function createOwnedStore({
       state.uploadReady = epoch === linkEpoch;
       // 前のセーブを送った結果は消す（送っている途中と、送れなかった知らせは次の応答まで残す。share-upload）
       if (!['sending', 'error'].includes(state.upload.status)) state.upload = emptyUpload();
-      if (from === 'handles') verifiedSignature = data.world.signature;
+      if (from === 'handles') {
+        verifiedSignature = data.world.signature;
+        verifiedRead = world.readSignature ?? '';
+      }
       await persist.set(dataKey, data);
       return data;
     } catch (error) {
@@ -1207,8 +1212,11 @@ export function createOwnedStore({
     }
     state.role = 'host';
     const current = state.local;
-    // このページで読み込んだときから変わっていなければ読まない（開き直した直後は、保存済みのデータがあっても一度読む）
-    if (auto && current?.source === 'handles' && current.world.id === world.id && current.world.signature === world.signature && verifiedSignature === world.signature) {
+    // このページで読み込んだときから変わっていなければ読まない（開き直した直後は、保存済みのデータがあっても一度読む）。LocalData.sav だけが
+    // 変わったとき（ゲームの保存の途中。Level.sav はその少し後に書かれる）も、解析は LocalData.sav を読まず同じスナップショットになるので
+    // 読まない（前のデータ・共有の結果・予約を残す。読み直すと同じ中身を送り直し、続く新しいセーブの共有が最短の間隔の分だけ遅れる）
+    const verified = auto && current?.source === 'handles' && current.world.id === world.id && verifiedSignature === current.world.signature;
+    if (verified && (current.world.signature === world.signature || (Boolean(world.readSignature) && verifiedRead === world.readSignature))) {
       clearHold();
       state.uploadReady = epoch === linkEpoch;
       return 'unchanged';

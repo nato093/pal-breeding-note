@@ -2876,3 +2876,54 @@ test('所持パル（最終レビュー）: 見張りが動いている間（Obs
   assert.equal(await host.store.autoRefresh(), 'imported');
   assert.equal(host.store.state.linkedWorldId, WORLD_B);
 });
+
+test('所持パル（最終レビュー）: ホストのワールドで LocalData.sav だけが変わった（保存の途中）ときは読み直さない（解析は LocalData.sav を読まず同じスナップショットになる。前のデータ・結果・予約を残し、同じ中身を送り直して次のセーブの共有を遅らせない）', async () => {
+  const up = uploadServer();
+  let imports = 0;
+  let seconds = 0;
+  const host = setup({ server: up.server, runImport: async () => { imports++; return stampedSnapshot(secondsTick(seconds)); } });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  seconds = 30;
+  midSave(files);
+  finishSave(files);
+  host.advance(30000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  await settleUpload(host.store);
+  const { local, upload } = host.store.state;
+  assert.equal(upload.status, 'done');
+  const sent = up.sent.length;
+  const count = imports;
+  // 次の保存の途中（LocalData.sav だけ）に定期の確認が当たった（前の送信から 15 秒より空いている）。表でも裏でも読み直さない
+  midSave(files);
+  host.advance(25000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  host.advance(20000);
+  assert.equal(await host.store.pollAuto(), 'unchanged');
+  await settleUpload(host.store);
+  assert.deepEqual([imports, up.sent.length, pendingTimers(host).length], [count, sent, 0]);
+  assert.equal(host.store.state.local, local);
+  assert.equal(host.store.state.upload, upload);
+  // 保存の続き（Level.sav から後）が書かれたら読んで送る
+  seconds = 60;
+  finishSave(files);
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  await settleUpload(host.store);
+  assert.deepEqual([imports, up.sent.length, up.sent.at(-1).world.saveStamp], [count + 1, sent + 1, secondsTick(60)]);
+  // 共有の予約（送れなかった再試行）がある間も、取り消して作り直したりしない
+  up.control.failures.push('CONNECTION');
+  host.advance(15000);
+  assert.equal(await host.store.uploadLocal({ force: true }), 'error');
+  const [retry] = pendingTimers(host);
+  midSave(files);
+  host.advance(5000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  assert.equal(retry.cancelled, false);
+  assert.deepEqual(pendingTimers(host), [retry]);
+  // 開き直した直後は、LocalData.sav だけが変わっていても一度読む
+  const reopened = host.make();
+  await reopened.load();
+  assert.equal(await reopened.autoRefresh(), 'imported');
+});

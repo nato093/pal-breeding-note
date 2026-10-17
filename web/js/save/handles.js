@@ -95,6 +95,7 @@ export function fileSignature(infos) {
 }
 
 const timeIso = (ms) => (ms ? new Date(ms).toISOString() : '');
+const withoutLocalData = (infos) => Object.fromEntries(Object.entries(infos).filter(([path]) => path !== 'LocalData.sav'));
 
 // 今のファイルの印（inspectFiles の infos から作る fileSignature と同じ形。消えたファイルは入れない）。ほかの失敗で印を作れなければ ''
 async function signatureNow(files) {
@@ -214,6 +215,9 @@ export function createHandleSource({ persist, key }) {
           status: inspected.status, role: inspected.role, error: inspected.error, files: inspected.files, missing: inspected.missing,
           updatedAt: timeIso(record.kind === 'guest' ? local : level), playedAt: timeIso(Math.max(level, local)),
           fileSignature: files, signature: `${files}#${record.revision}`,
+          // 解析が読むファイルの印（LocalData.sav は解析しないので除く）。ホストのワールドで LocalData.sav だけが変わった（ゲームの保存の途中。
+          // Level.sav はその少し後に書かれる）なら、読み直しても同じスナップショットになる（sync-fixes の最終レビュー）
+          readSignature: `${fileSignature(withoutLocalData(inspected.infos))}#${record.revision}`,
         });
       }
       return worlds.sort((a, b) => b.playedAt.localeCompare(a.playedAt));
