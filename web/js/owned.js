@@ -10,7 +10,7 @@ import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload }
 import { userIdKey } from './core/user.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
 import { createWatchClient, observable } from './save/watch.js';
-import { emptyPlay, trackPlay, playTicksMs } from './core/playing.js';
+import { emptyPlay, trackPlay, playTicksMs, isPlaying } from './core/playing.js';
 import { errorMessage } from './api.js';
 
 const DATA_VERSION = 1;
@@ -36,6 +36,16 @@ const SHARED_SLACK = 1000;
 const WORLDS_INTERVAL = 5 * 60 * 1000;
 // 古い GAS（ownedSince を知らず BAD_ACTION を返す）と分かってから、ownedSince を試し直すまで（それまでは一覧 → owned の 2 回呼び）
 const SINCE_RETRY = 60 * 60 * 1000;
+// ページを開いている PC（presence。sync-fixes の page-presence）を送る間隔。ログインしているページは、今のワールドについてこの間隔で送る
+//（共有の読み直しで ownedSince を呼ぶ回はそれに載せ、載せる回がなければ app.js の 10 秒ごとのタイマーの reportPresence で別に送る。裏のタブで
+// タイマーが 1 分ごとまで遅れても、表示は 3 分の幅で見る）。タイマーが少し早く来た回が次の回に回らないよう、PRESENCE_SLACK だけ短くても送る。
+// ワールド・送る値（役割・ゲーム中・共有できる）が変わったら、間隔によらず次の回に送る
+const PRESENCE_INTERVAL = 60000;
+const PRESENCE_SLACK = 5000;
+// ページと PC の ID の形（core/owned-shared.js の cleanPresenceInput と同じ）
+const PRESENCE_ID = /^[A-Za-z0-9_-]{8,64}$/;
+// ページを開いている PC の一覧（state.pages）の空の形
+const emptyPages = () => ({ worldId: '', list: null, serverTime: '', receivedAt: 0, device: '' });
 // 受け取った行の数が palCount と違う・PARTIAL（共有の書き込みと重なった）ときに、前の表示を残して読み直すまでの間と回数
 const PARTIAL_DELAY = 5000;
 const PARTIAL_RETRIES = 3;
@@ -79,6 +89,17 @@ export async function ownedContentHash(upload) {
 //（消えていた・読めなかった・種類が違う）。解析の結果の files.used・files.skipped（save/import.js）から、同じパスは 1 つに数える
 const fileCountOf = (snapshot) => (Array.isArray(snapshot?.files?.used) ? new Set(snapshot.files.used).size : 0);
 const missingCountOf = (snapshot) => (Array.isArray(snapshot?.files?.skipped) ? new Set(snapshot.files.skipped.map((file) => file?.path)).size : 0);
+
+/** ランダムな ID（16 進 32 字）。ページを開いている PC の pageId・device に使う（認証にも本人の証明にも使わない） */
+function randomId() {
+  const bytes = new Uint8Array(16);
+  try {
+    globalThis.crypto.getRandomValues(bytes);
+  } catch {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 /** IndexedDB のキー・値の保存先。使えない環境ではメモリに置く（再読み込みで消える）。 */
 export function idbPersist(name = 'pal-note', indexedDB = globalThis.indexedDB) {
@@ -222,6 +243,8 @@ const sharedSave = (world) => ({ stamp: world.saveStamp, updatedAt: world.saveUp
  * @param {() => boolean} [options.hidden] タブが裏にあるか（共有の読み直しの再試行は、裏では行わない。D26）
  * @param {(callbacks: { onSettled: (message: object) => void, onMode: (mode: string) => void }) => { update: (targets: object[]) => void, stop: () => void }} [options.watch]
  *   セーブのファイルの見張り（save/watch.js の createWatchClient。テストは偽物を渡す）。対象ができたときに 1 回だけ作る
+ * @param {string} [options.pageId] このページの ID（ページを開いている PC。ページを読み込むたびにメモリの中で作る。sessionStorage は複製した
+ *   タブで同じ値になるので使わない）
  */
 export function createOwnedStore({
   persist = idbPersist(), settings, namespace = 'pal-note', runImport = runImportInWorker,
@@ -229,6 +252,7 @@ export function createOwnedStore({
   schedule = (fn, ms) => setTimeout(fn, ms), cancel = (id) => clearTimeout(id),
   hidden = () => globalThis.document?.visibilityState === 'hidden',
   watch = createWatchClient,
+  pageId = randomId(),
 } = {}) {
   const source = handles ?? createHandleSource({ persist, key: `${namespace}.owned.handles` });
   const listeners = new Set();
@@ -296,6 +320,11 @@ export function createOwnedStore({
   let watchCurrent = '';
   let watchFollow = null;
   let watchFollowId = '';
+  // ページを開いている PC（page-presence）: 最後に送った値の印と時刻（ownedSince に載せた回も）・別に送っている途中か・この PC の ID
+  //（localStorage に残せない端末では、このページの中だけ）
+  let presenceSent = { key: '', at: -Infinity };
+  let presenceSending = false;
+  const memoryDevices = new Map();
   // 旧版の worldDir は「Steam ID/ワールド ID」。末尾のワールド ID に読み替える
   const savedWorldId = String(saved.worldId ?? saved.worldDir ?? '').split('/').pop();
   const state = {
@@ -327,6 +356,11 @@ export function createOwnedStore({
     // ゲーム中の推定の記録（core/playing.js の trackPlay。sync-fixes の host-rotation）。ホストは登録したファイルから読んだ Level.sav の中の
     // 保存時刻、参加者は LocalData.sav の更新日時を読むたびに足す。使う側は isPlaying(state.play, { worldId: state.linkedWorldId, role: state.role })
     play: emptyPlay(),
+    // ページを開いている PC（sync-fixes の page-presence）。worldId のワールドの一覧（GAS の ownedSince・presence の応答の presence。
+    // core/boundary.js の cleanPresenceList の形で新しい順・6 時間まで。ページごとの { user, device, role, playing, canShare, at }）。
+    // serverTime はその応答のサーバーの時刻、receivedAt は受け取った時刻（表示はサーバーの時刻で経過を測る）、device はこの PC の ID
+    //（一覧の中のこの PC を見分ける）。ログインの環境が替わったら空にする
+    pages: emptyPages(),
     data: null, owned: null, meta: null,
   };
   const emit = () => listeners.forEach((listener) => listener(state));
@@ -423,6 +457,7 @@ export function createOwnedStore({
     sharedEpoch++;
     listedAt = -Infinity;
     stopPartial();
+    state.pages = emptyPages();
     const promise = (async () => {
       const cached = key ? cleanSharedCache(await persist.get(sharedKey(key))) : null;
       if (loadedScope !== key) return;
@@ -473,6 +508,96 @@ export function createOwnedStore({
   // GAS ができること（接続先と環境ごと。古い GAS は ownedSince を知らない）
   const capabilityKey = (action, env = scope()) => `${server?.endpoint?.() ?? ''}|${env}|${action}`;
   const supports = (action) => !(unsupported.get(capabilityKey(action)) > now());
+
+  // ---- ページを開いている PC（sync-fixes の page-presence） ----
+
+  // この PC の ID（ワールドごとのランダムな値。localStorage に残す）
+  const deviceKey = (id) => `${namespace}.owned.device.${id}`;
+  function deviceOf(id) {
+    const stored = settings?.get(deviceKey(id));
+    if (typeof stored === 'string' && PRESENCE_ID.test(stored)) return stored;
+    if (!memoryDevices.has(id)) memoryDevices.set(id, randomId());
+    settings?.set(deviceKey(id), memoryDevices.get(id));
+    return memoryDevices.get(id);
+  }
+
+  // そのワールド（ふつうは今のワールド＝表示するワールド）について送る値。role は判定の結果（連携しているワールドでなければ none）、playing は
+  // ゲーム中の推定（core/playing.js）、canShare はこのワールドをホストの一式（Level.sav・LevelMeta.sav・LocalData.sav）で登録していて、直近の
+  // 確認で読む許可があるか。一覧の確認では許可があっても、その後の読み込みで許可が外れた（自動の読み込みが許可待ちで止まった。一覧の status は
+  // 'ok' のまま）間は共有できないとする。ワールドがなければ null
+  function presenceValue(id) {
+    if (!WORLD_ID.test(id)) return null;
+    const role = id === state.linkedWorldId && ['host', 'guest'].includes(state.role) ? state.role : 'none';
+    const listed = state.auto.worlds.find((world) => world.id === id);
+    const canShare = Boolean(state.auto.enabled && state.auto.status !== 'permission' && source.get(id)?.kind === 'host' && !removing.has(id)
+      && listed?.status && listed.status !== 'permission');
+    const playing = role !== 'none' && isPlaying(state.play, { worldId: id, role }, now());
+    return { worldId: id, presence: { pageId, device: deviceOf(id), user: text(server?.userId?.() ?? '', 20), role, playing, canShare } };
+  }
+
+  // 送る回なら今の値（{ worldId, presence, key }）、でなければ null（ログインしていない・古い GAS と覚えている間・ワールドがない・前に送ってから
+  // 間隔の中で、ワールドも値も同じ）。worldId は共有の読み直しが読んでいるワールド（一覧を読んだ直後は state にまだ入っていない）
+  function presenceDue(worldId = targetWorldId()) {
+    if (!server || !scope() || !supports('presence')) return null;
+    const value = presenceValue(worldId);
+    if (!value) return null;
+    const key = JSON.stringify([scope(), value.worldId, value.presence]);
+    if (key === presenceSent.key && now() - presenceSent.at < PRESENCE_INTERVAL - PRESENCE_SLACK) return null;
+    return { ...value, key };
+  }
+
+  // 送った（送り始めた）ことを覚える。失敗しても次は間隔を空ける
+  const markPresence = (value) => { presenceSent = { key: value.key, at: now() }; };
+
+  // 応答の一覧を、そのワールドの一覧として残す（presence が配列でない〔サーバーのキャッシュを読めなかった〕ときは前のまま）
+  function keepPages(id, response) {
+    if (!Array.isArray(response?.presence)) return;
+    state.pages = { worldId: id, list: response.presence, serverTime: isoTime(response.serverTime), receivedAt: now(), device: deviceOf(id) };
+  }
+
+  // 古い GAS（BAD_ACTION）と分かった: 1 時間は送らず、前に受け取った一覧も出さない（GAS を古い版に戻したときに、前の一覧が 6 時間残らない）
+  function presenceUnsupported(env) {
+    unsupported.set(capabilityKey('presence', env), now() + SINCE_RETRY);
+    if (scope() === env) state.pages = emptyPages();
+  }
+
+  /**
+   * ページを開いている PC を送る（app.js の 10 秒ごとのタイマーから、セーブ・共有の読み直しの後に呼ぶ。表のタブでも裏のタブでも）。
+   * 送る回でなければ（間隔の中・ownedSince に載せた・送っている途中・古い GAS・ログインしていない・ワールドがない）'skipped'。
+   * 失敗しても例外にしない（共有・セーブの読み込みには関わらない）。古い GAS（BAD_ACTION）なら 1 時間は送らない
+   * @returns {Promise<'skipped'|'sent'|'error'>}
+   */
+  async function reportPresence() {
+    if (!server || !scope() || presenceSending) return 'skipped';
+    presenceSending = true;
+    try {
+      await load();
+      await loadShared();
+      const beat = presenceDue();
+      if (!beat) return 'skipped';
+      const key = scope();
+      const epoch = sharedEpoch;
+      markPresence(beat);
+      try {
+        const response = await server.request('presence', { worldId: beat.worldId, presence: beat.presence });
+        // 応答が届くまでに環境か表示するワールドが替わった（その間に受け取った今のワールドの一覧を、前のワールドの一覧で戻さない）
+        if (scope() !== key || sharedEpoch !== epoch || targetWorldId() !== beat.worldId) return 'skipped';
+        keepPages(beat.worldId, response);
+        emit();
+        return 'sent';
+      } catch (error) {
+        if (error?.code === 'BAD_ACTION') {
+          presenceUnsupported(key);
+          emit();
+        }
+        return 'error';
+      }
+    } catch {
+      return 'error';
+    } finally {
+      presenceSending = false;
+    }
+  }
 
   // ワールドの時刻・共有した人など（SINCE_FIELDS）だけを from から入れる。何も変わらなければ同じ物を返す
   function withSinceFields(world, from) {
@@ -588,19 +713,30 @@ export function createOwnedStore({
     const readSince = async () => {
       const own = have();
       const since = own?.world.uploadedAt ?? '';
+      const input = { worldId: target, uploadedAt: since };
+      // ページを開いている PC を送る回なら、ここに載せる（この回は別に送らない。page-presence）
+      const beat = presenceDue(target);
+      if (beat) {
+        input.presence = beat.presence;
+        markPresence(beat);
+      }
       let response;
       try {
-        response = await server.request('ownedSince', { worldId: target, uploadedAt: since });
+        response = await server.request('ownedSince', input);
       } catch (error) {
         // 共有の書き込みと重なった（GAS が行の数の違いを返した）
         if (error?.code === 'PARTIAL') { check(); return { partial: true }; }
         if (error?.code !== 'BAD_ACTION') throw error;
-        // 古い GAS。送った先の環境では、1 時間は今までの 2 回呼びにする
+        // 古い GAS。送った先の環境では、1 時間は今までの 2 回呼びにする（presence も同じ版で足したので送らず、前の一覧も出さない。
+        // 知らせるのは fetchShared の最後の update）
         unsupported.set(capabilityKey('ownedSince', key), now() + SINCE_RETRY);
+        presenceUnsupported(key);
         check();
         return null;
       }
       check();
+      // 応答にはいつもページを開いている PC の一覧が付く（載せなかった回も）
+      keepPages(target, response);
       if (response.changed) return fromPayload(response);
       if (!own || response.uploadedAt !== since) return { partial: true };
       const world = withSinceFields(own.world, response);
@@ -1280,6 +1416,8 @@ export function createOwnedStore({
     },
     // セーブのファイルの見張り（save/watch.js）が、一式を書き終えたワールドを知らせたときに読み直す（タブが裏でも。sync-fixes の save-watch）
     refreshFromWatch,
+    // ページを開いている PC を送る（app.js の 10 秒ごとのタイマーから。sync-fixes の page-presence）
+    reportPresence,
     // ログイン・ログアウトで共有の保存先（環境）が変わったときに呼ぶ
     async scopeChanged() {
       await loadShared();

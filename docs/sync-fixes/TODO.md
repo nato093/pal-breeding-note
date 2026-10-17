@@ -107,10 +107,11 @@
 
 ## 8. page-presence（M・P0 の後）
 
-- 状態: 未
-- [ ] 送る側（60 秒・ownedSince への相乗り・pageId・device・古い GAS）
-- [ ] 表示（● ○・3 分以内だけでまとめる・6 時間）と 7 の案内への添え書き
-- [ ] テストと release-notes
+- 状態: 実装済（feature/page-presence。マージ前）
+- 決めたこと（詳しくは OPERATIONS.md の「ページを開いている PC」）: GAS は変えていない（テーマ 3 の `presence`・`ownedSince` のまま）。送るのは `owned.js` の `reportPresence`（`app.js` の 10 秒ごとのタイマーで、読み直しの後に呼ぶ。表でも裏でも）と、共有の読み直しの `ownedSince` への相乗り。相乗りは表のタブの参加者だけでなく、`ownedSince` を呼ぶ回のすべてのページ（表のタブのホスト・連携していない人も）。60 秒に 1 回（5 秒の余裕）に加えて、ワールド・値（役割・ゲーム中・共有できる）が変わったら次の回に送る。`canShare` は「このワールドをホストの一式〔Level.sav・LevelMeta.sav・LocalData.sav〕で登録＋直近の一覧で許可待ちでない」（Players は問わない）。表示の役割は 1 台に複数のタブがあれば host → guest → none の順に選ぶ。「（PC 2）」の番号は今の一覧に残る PC の ID の順（見る人によって入れ替わらない。古い PC が一覧から消えると繰り上がることがある）、この PC は「（この PC）」。経過は応答のサーバーの時刻で測る。7 の案内への添え書きは「3 分以内に応答があったほかの PC」（この PC と ○ は除く）。一覧は `state.pages`（環境が替わったら空）。Codex のレビュー（高 0・中 3・低 1）を直した: 遅れて届いた前のワールドの presence の応答は捨てる、自動の読み込みが許可待ちで止まっている間は canShare を false、古い GAS（BAD_ACTION）と分かったら前の一覧も消す、「PC 2」の番号の説明
+- [x] 送る側（60 秒・ownedSince への相乗り・pageId・device・古い GAS）
+- [x] 表示（● ○・3 分以内だけでまとめる・6 時間）と 7 の案内への添え書き
+- [x] テストと release-notes（owned-store・owned-status・save-status・app・mock-api）と OPERATIONS.md
 
 ## 終わり
 
