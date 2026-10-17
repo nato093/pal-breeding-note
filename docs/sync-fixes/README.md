@@ -103,7 +103,7 @@
   | stamp が同じで saveKey も同じ | `unchanged` | ×（③の掃除は要れば行う） |
   | stamp が同じで、同じ人の送信で、`format`・`fileCount` が減らず `missingCount` が増えず、どれかがよくなる（`format`・`fileCount` が増える、`missingCount` が減る＝飛ばしたファイルが戻った）。または登録の確定（`force`。別の人でもよい）で、どれも悪くならない | `resent` | ○ |
   | stamp が同じで、上以外（別の人・古いタブの劣った中身） | `same` | × |
-  | 届いた方か今の行に有効な stamp がない（古い画面・列を足す前・古い GAS が書いた行〔`saveKey` の `uploadedAt` が合わない〕） | 今の更新日時の比較（同じ時刻なら上書き） | 書いたら saveKey は届いた値（なければ空）にする。空どうしを同じセーブとは見ない |
+  | 届いた方か今の行に有効な stamp がない（古い画面・列を足す前・古い GAS が書いた行〔`saveKey` の `uploadedAt` が合わない〕） | 今の更新日時の比較（新しければ `newer`、古ければ `stale`）。同じ時刻は、今の行に識別があり届いた方にない（古い画面）なら `same`（2026-10-17 の最終レビュー。同期を受け取った PC の古いタブの劣った中身で上書きしない）、今の行に識別がなければ上書き | 書いたら saveKey は届いた値（なければ空）にする。空どうしを同じセーブとは見ない |
   応答には、今公開されている world（`saveStamp`・`uploadedBy` を含む）と `cleanup` の成否を必ず返す。
 - **F1 世代の書き込み**（`actionOwnedUpload_`）: 鍵の中で ①新しい行を最後の行の下に `setValues`（`updatedAt`＝serverTime。他のワールドの行は触らない・`clearContent` しない）→ flush → ②OwnedWorlds の行を書く（`uploadedAt`＝serverTime・`saveKey`。**ここで公開**）→ flush → ③そのワールドの「今と 1 つ前」以外の世代を `deleteRows` で消す。③は書かない結果（`unchanged`・`same`・`stale`）のときも、消す世代が残っていれば行う。③の失敗は共有の成功と分け（`cleanup:false`。次の呼び出しでもう一度）、②の前に落ちた行は公開されない孤児として次の ③で消える。
 - **読み込み**（`actionOwned_`）: まずは今と同じく全行を 1 回読み、`worldId` と `updatedAt === world.uploadedAt` で絞る（範囲を絞る読み方は計測で要るときだけ）。数が `palCount` と違えば 1 回だけ読み直し、それでも違えば再試行できるエラー `PARTIAL`。`palCount` 0 は正しい空。「世代が合わなければ worldId の全部」には落とさない（削除したパルが戻るため）。`actionOwnedDelete_` も塊ごとの `deleteRows`。

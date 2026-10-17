@@ -421,19 +421,27 @@ test('owned-gas 結果の種類: 表の全行（new・newer・stale・unchanged�
   assert.equal(worldCell(env, 'saveKey'), `${world.uploadedAt}|${stamp(20)}|${HASH_A}|2|7|0`);
 });
 
-test('owned-gas 結果の種類: どちらかに識別がなければ今の更新日時の比較（同じ時刻なら上書き）。書いたら saveKey は届いた値か空', () => {
+test('owned-gas 結果の種類: どちらかに識別がなければ今の更新日時の比較。今の行に識別があり届いた方にない同じ時刻は same（書かない）、今の行に識別がなければ同じ時刻なら上書き。書いたら saveKey は届いた値か空', () => {
   const env = fixture();
   // 届いた方に識別がない（古い画面）
-  send(env, { id: identity({ n: 10 }), time: '2026-10-05T10:00:00.000Z' });
+  const first = send(env, { id: identity({ n: 10 }), time: '2026-10-05T10:00:00.000Z' });
+  const key = worldCell(env, 'saveKey');
   const legacyStale = send(env, { time: '2026-10-05T09:00:00.000Z' });
   assert.deepEqual([legacyStale.result, legacyStale.stored], ['stale', false]);
-  const legacySame = send(env, { time: '2026-10-05T10:00:00.000Z' });
-  assert.deepEqual([legacySame.result, legacySame.stored, legacySame.world.saveStamp], ['newer', true, '']);
+  // 同じ時刻（同期を受け取った PC の古いタブ。プレイヤーの入れ替え後・登録が少ない劣った中身かもしれない）は、誰からでも書かない
+  const legacySame = send(env, { rows: rowsOf('x', 1), time: '2026-10-05T10:00:00.000Z', user: 'ゲスト' });
+  assert.deepEqual([legacySame.result, legacySame.stored, legacySame.reason], ['same', false, undefined]);
+  assert.deepEqual([legacySame.world.saveStamp, legacySame.world.uploadedAt, legacySame.world.uploadedBy], [stamp(10), first.world.uploadedAt, 'ホスト']);
+  assert.equal(worldCell(env, 'saveKey'), key);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows.map((r) => r[0]), ['p0', 'p1']);
+  // 新しい時刻なら今どおり書く（識別は空になる）
+  const legacyNewer = send(env, { time: '2026-10-05T10:00:01.000Z' });
+  assert.deepEqual([legacyNewer.result, legacyNewer.stored, legacyNewer.world.saveStamp], ['newer', true, '']);
   assert.equal(worldCell(env, 'saveKey'), '');
-  // 今の行に識別がない（空の saveKey）: 空どうしを同じセーブとは見ない（unchanged にしない）
-  const again = send(env, { time: '2026-10-05T10:00:00.000Z' });
+  // 今の行に識別がない（空の saveKey）: 空どうしを同じセーブとは見ない（unchanged にしない）。同じ時刻なら上書き
+  const again = send(env, { time: '2026-10-05T10:00:01.000Z' });
   assert.deepEqual([again.result, again.stored], ['newer', true]);
-  // 今の行に識別がなく、届いた方にある: 更新日時で比べ、書いたら届いた識別を残す
+  // 今の行に識別がなく、届いた方にある: 更新日時で比べ（同じ時刻なら上書き）、書いたら届いた識別を残す
   const withId = send(env, { id: identity({ n: 5 }), time: '2026-10-05T10:00:01.000Z' });
   assert.deepEqual([withId.result, withId.stored, withId.world.saveStamp], ['newer', true, stamp(5)]);
   assert.equal(send(env, { id: identity({ n: 99 }), time: '2026-10-05T10:00:00.500Z' }).result, 'newer', '両方に識別があれば保存時刻で比べる');

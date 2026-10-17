@@ -216,8 +216,8 @@ test('所持パル: 前にホストしたワールドに参加したら、手元
   const { store, register, advance } = setup();
   const files = hostFiles();
   await register(WORLD_A, files);
-  // 参加すると LocalData.sav だけが新しくなる
-  files['LocalData.sav'].time = T0 + 30000;
+  // 参加すると LocalData.sav だけが新しくなる（数分以上。保存の途中の約 30 秒の差はホストのまま）
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
   advance(25000);
   assert.equal(await store.autoRefresh(), 'guest');
   assert.deepEqual([store.state.role, store.state.uploadReady, store.state.owned, store.state.meta.source], ['guest', false, null, undefined]);
@@ -2126,11 +2126,11 @@ test('所持パル（host-rotation）: 参加者は一覧の LocalData.sav の�
   const files = hostFiles();
   await host.register(WORLD_A, files);
   assert.equal(host.store.state.play.role, 'host');
-  // 参加すると LocalData.sav だけが新しくなる（参加者と判定した値を基準に数え直す）
-  files['LocalData.sav'].time = T0 + 30000;
+  // 参加すると LocalData.sav だけが新しくなる（数分以上の差。参加者と判定した値を基準に数え直す）
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
   host.advance(25000);
   assert.equal(await host.store.autoRefresh(), 'guest');
-  assert.deepEqual(host.store.state.play, { worldId: WORLD_A, role: 'guest', value: T0 + 30000, changes: [] });
+  assert.deepEqual(host.store.state.play, { worldId: WORLD_A, role: 'guest', value: T0 + 5 * 60 * 1000, changes: [] });
   for (const step of [1, 2]) {
     files['LocalData.sav'].time += 30000;
     host.advance(25000);
@@ -2549,4 +2549,437 @@ test('所持パル（page-presence・Codex のレビュー）: 一覧を受け�
   assert.equal(await background.store.reportPresence(), 'error');
   assert.deepEqual([background.store.state.pages.list, openPagesLines(background.store.state, { now: background.time })], [null, []]);
   assert.ok(emitted.background > 0);
+});
+
+// ---------------------------------------------------------------------------
+// sync-fixes の最終レビューの直し（画面の側）
+// ---------------------------------------------------------------------------
+
+// 中身の印（SHA-256。crypto.subtle.digest）の計算を止められるようにする。hold() で次からの計算を止め（戻り値の関数で続ける）、count は呼ばれた数
+function holdHashing(t) {
+  const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+  const control = { count: 0, gate: null };
+  t.mock.method(globalThis.crypto.subtle, 'digest', async (...args) => {
+    control.count++;
+    if (control.gate) await control.gate;
+    return digest(...args);
+  });
+  control.hold = () => {
+    let release;
+    control.gate = new Promise((resolve) => { release = resolve; });
+    return () => { control.gate = null; release(); };
+  };
+  return control;
+}
+// 送った ownedUpload ごとに、そのときのログインの環境を残す（開発用 API は呼んだときの環境のシートに書く）
+function recordUploadScopes(shared) {
+  const scopes = [];
+  const request = shared.server.request;
+  shared.server.request = (action, input) => {
+    if (action === 'ownedUpload') scopes.push(shared.server.scope());
+    return request(action, input);
+  };
+  return scopes;
+}
+
+test('所持パル（最終レビュー）: 共有の送信は、中身の印の計算中にログインの環境が替わったら送らない（test で始めた送信を prod に書かない。列を狭めて送り直す回も）', async (t) => {
+  const hashing = holdHashing(t);
+  const up = uploadServer();
+  const scopes = recordUploadScopes(up);
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const release = hashing.hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => hashing.count > 0);
+  assert.equal(host.store.state.upload.status, 'sending');
+  // 送信が GAS に届く前（印の計算中）にログインの環境が替わった
+  up.setScope('prod');
+  await host.store.scopeChanged();
+  release();
+  await settleUpload(host.store);
+  // 応答の後で替わっていたときと同じ扱い（結果を空に・今の共有とキャッシュに入れない・送り直しの段にしない）
+  assert.deepEqual(scopes, []);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.shared.worlds, host.store.state.shared.current], ['', [], null]);
+  assert.equal(await sharedCache(host.persist, 'prod'), null);
+  assert.equal(host.store.state.meta.source, 'local');
+  // 古い GAS が列の幅の違う共有を断り、末尾の列を外して送り直す回の印の計算中に替わったときも、狭めた共有を送らない
+  const { ApiError } = await import('../../web/js/api.js');
+  const shared = sharedServer();
+  const widths = [];
+  let resume = null;
+  const old = {
+    ...shared.server,
+    async request(action, input = {}) {
+      if (action === 'ownedUpload') {
+        widths.push([shared.server.scope(), input.columns.length]);
+        if (input.columns.length === OWNED_FIELDS.length) {
+          // 次の印の計算（狭めた共有の分）を止める
+          resume = hashing.hold();
+          throw new ApiError('VALIDATION', { ok: false, code: 'VALIDATION', errors: [{ field: 'columns', code: 'INVALID_COLUMNS' }] });
+        }
+      }
+      return shared.server.request(action, input);
+    },
+  };
+  const narrowing = setup({ server: old, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  hashing.count = 0;
+  await narrowing.register(WORLD_A, hostFiles());
+  await until(() => widths.length === 1 && hashing.count === 2);
+  shared.setScope('prod');
+  await narrowing.store.scopeChanged();
+  resume();
+  await settleUpload(narrowing.store);
+  assert.deepEqual(widths, [['test', OWNED_FIELDS.length]]);
+  assert.deepEqual([narrowing.store.state.upload.status, narrowing.store.state.shared.worlds], ['', []]);
+});
+
+test('所持パル（最終レビュー）: 送っている間に環境が替わって捨てた送信と、ログインの前に読んだセーブは、環境が決まったら新しい環境に送る（次の保存を待たない）', async (t) => {
+  const hashing = holdHashing(t);
+  // 印の計算中に替わった（送らずに捨てた）: 新しい環境に送る（送り始めの最短の間隔で予約する）
+  const up = uploadServer();
+  const scopes = recordUploadScopes(up);
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const release = hashing.hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => hashing.count > 0);
+  up.setScope('prod');
+  await host.store.scopeChanged();
+  release();
+  await settleUpload(host.store);
+  assert.deepEqual(scopes, []);
+  assert.equal(await fireUpload(host), 15000);
+  assert.deepEqual(scopes, ['prod']);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.upload.result, host.store.state.upload.scope], ['done', 'new', 'prod']);
+  assert.equal((await sharedCache(host.persist, 'prod')).current.world.worldId, WORLD_A);
+  assert.deepEqual(pendingTimers(host), []);
+  // GAS に届いた後に替わった（test に書いて応答を捨てた）: 同じく新しい環境に送る
+  const up2 = uploadServer();
+  const scopes2 = recordUploadScopes(up2);
+  const host2 = setup({ server: up2.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const respond = up2.hold();
+  await host2.register(WORLD_A, hostFiles());
+  await until(() => up2.sent.length === 1);
+  up2.setScope('prod');
+  await host2.store.scopeChanged();
+  respond();
+  await settleUpload(host2.store);
+  assert.equal(host2.store.state.upload.status, '');
+  await fireUpload(host2);
+  assert.deepEqual(scopes2, ['test', 'prod']);
+  assert.deepEqual([host2.store.state.upload.status, host2.store.state.upload.scope], ['done', 'prod']);
+  // 送っている間にログアウトした: ログインしていない間は送らず、ログインしたら（scopeChanged）送る
+  const up3 = uploadServer();
+  const scopes3 = recordUploadScopes(up3);
+  const host3 = setup({ server: up3.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const respond3 = up3.hold();
+  await host3.register(WORLD_A, hostFiles());
+  await until(() => up3.sent.length === 1);
+  up3.setScope('');
+  await host3.store.scopeChanged();
+  respond3();
+  await settleUpload(host3.store);
+  await tick();
+  assert.deepEqual([scopes3, pendingTimers(host3)], [['test'], []]);
+  host3.advance(60000);
+  up3.setScope('test');
+  await host3.store.scopeChanged();
+  await settleUpload(host3.store);
+  assert.deepEqual(scopes3, ['test', 'test']);
+  assert.deepEqual([host3.store.state.upload.status, host3.store.state.upload.result], ['done', 'unchanged']);
+  // ログインの前に読んだセーブ: ログインしたら送る
+  const up4 = uploadServer({ scope: '' });
+  const scopes4 = recordUploadScopes(up4);
+  const host4 = setup({ server: up4.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  await host4.register(WORLD_A, hostFiles());
+  await settleUpload(host4.store);
+  assert.deepEqual([scopes4, host4.store.state.upload.status], [[], '']);
+  up4.setScope('test');
+  await host4.store.scopeChanged();
+  await settleUpload(host4.store);
+  assert.deepEqual(scopes4, ['test']);
+  assert.deepEqual([host4.store.state.upload.status, host4.store.state.upload.scope], ['done', 'test']);
+  // 送ってしまえば、環境の切り替えのたびに送り直しはしない
+  up4.setScope('prod');
+  await host4.store.scopeChanged();
+  await tick();
+  assert.deepEqual([scopes4, pendingTimers(host4)], [['test'], []]);
+});
+
+test('所持パル（最終レビュー）: 送信が書けて応答だけ遅れる間に、別の PC が新しいセーブを公開し、このページがそれを読んだら、遅れて届いた応答で一覧・中身・キャッシュを戻さない（結果の記録は残す）', async () => {
+  // ホストの送信は、書いた後に応答だけを止める（written は GAS が処理し終えたホストの送信の数）
+  let gate = null;
+  let written = 0;
+  const shared = sharedServer({
+    rewrite: async (action, input, pass) => {
+      if (!gate || action !== 'ownedUpload' || input.userId !== 'ホスト') return undefined;
+      const response = await pass();
+      written++;
+      await gate;
+      return response;
+    },
+  });
+  const hold = () => {
+    let release;
+    gate = new Promise((resolve) => { release = resolve; });
+    return () => { gate = null; release(); };
+  };
+  const calls = () => shared.calls.filter((action) => ['ownedWorlds', 'ownedSince', 'owned'].includes(action));
+  const host = setup({ server: shared.server, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const respond = hold();
+  await host.register(WORLD_A, hostFiles());
+  await until(() => written === 1);
+  // S1 は書けている（公開されている）
+  const s1 = (await shared.server.request('ownedWorlds')).worlds.find((world) => world.worldId === WORLD_A);
+  assert.ok(s1);
+  // 別の PC が S2 を公開し、このページが S2 を読む
+  const s2 = await publish(shared, { prefix: 's2', user: '別の人' });
+  assert.ok(Date.parse(s2.uploadedAt) > Date.parse(s1.uploadedAt));
+  host.advance(10000);
+  assert.equal(await host.store.fetchShared({ force: true }), 'fetched');
+  assert.deepEqual([host.store.state.shared.current.world.uploadedAt, host.store.state.meta.source, ids(host.store)], [s2.uploadedAt, 'shared', ['s20', 's21']]);
+  // S1 の応答が届く
+  respond();
+  await settleUpload(host.store);
+  const entry = () => host.store.state.shared.worlds.find((world) => world.worldId === WORLD_A);
+  assert.deepEqual([entry().uploadedAt, host.store.state.shared.current.world.uploadedAt], [s2.uploadedAt, s2.uploadedAt]);
+  assert.deepEqual([host.store.state.meta.source, ids(host.store)], ['shared', ['s20', 's21']]);
+  assert.equal((await sharedCache(host.persist)).current.world.uploadedAt, s2.uploadedAt);
+  // 結果の記録（自動登録の判定に使う）は今どおり
+  const { status, result, published } = host.store.state.upload;
+  assert.deepEqual([status, result, published.uploadedAt, published.saveStamp], ['done', 'new', s1.uploadedAt, tickOf(1)]);
+  // stale の応答（公開されていたのは S2）が遅れる間に S3 を読んでいたら、S2 に戻さず、読み直しもしない
+  const respondStale = hold();
+  host.advance(15000);
+  const sending = host.store.uploadLocal({ force: true });
+  await until(() => written === 2);
+  const s3 = await publish(shared, { prefix: 's3', user: '別の人' });
+  host.advance(10000);
+  assert.equal(await host.store.fetchShared({ force: true }), 'fetched');
+  assert.deepEqual(ids(host.store), ['s30', 's31']);
+  shared.calls.length = 0;
+  respondStale();
+  assert.equal(await sending, 'stale');
+  await settleUpload(host.store);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.upload.published.uploadedAt], ['stale', s2.uploadedAt]);
+  assert.deepEqual([entry().uploadedAt, host.store.state.shared.current.world.uploadedAt, ids(host.store)], [s3.uploadedAt, s3.uploadedAt, ['s30', 's31']]);
+  assert.equal((await sharedCache(host.persist)).current.world.uploadedAt, s3.uploadedAt);
+  assert.deepEqual(calls(), []);
+  // 応答の方が新しい（同じ・比べられない）ときは今どおり入れる
+  host.advance(15000);
+  const s4 = await host.store.uploadLocal({ force: true });
+  assert.equal(s4, 'stale');
+  assert.deepEqual(calls(), ['ownedWorlds']);
+});
+
+// ゲームの保存の途中: LocalData.sav が先に書かれ、Level.sav はまだ前の保存のまま（P0 の実測で 0.8 秒ほど・最大 2.7 秒）
+const midSave = (files) => { files['LocalData.sav'].time += 30000; };
+// 保存の続き（Level.sav から後が書かれた）
+const finishSave = (files) => { files['Level.sav'].time += 30000; };
+
+test('所持パル（最終レビュー）: 保存の途中（LocalData.sav だけが約 30 秒新しい）に定期の確認（autoRefresh・pollAuto）が当たっても、参加者と判定せず、役割・ゲーム中の推定・共有の予約・表示の元を保つ', async () => {
+  for (const trigger of ['autoRefresh', 'pollAuto']) {
+    const up = uploadServer();
+    let seconds = 0;
+    const host = setup({ server: up.server, runImport: async () => stampedSnapshot(secondsTick(seconds)) });
+    const files = hostFiles();
+    await host.register(WORLD_A, files);
+    await settleUpload(host.store);
+    // ゲーム中（保存を続けて 2 回見た）
+    for (const next of [30, 60]) {
+      seconds = next;
+      midSave(files);
+      finishSave(files);
+      host.advance(30000);
+      assert.equal(await host.store[trigger](), 'imported', trigger);
+      await settleUpload(host.store);
+    }
+    assert.equal(playingOf(host), true, trigger);
+    const play = host.store.state.play;
+    // 共有の予約（送れなかった再試行）がある
+    up.control.failures.push('CONNECTION');
+    host.advance(15000);
+    assert.equal(await host.store.uploadLocal({ force: true }), 'error');
+    assert.equal(pendingTimers(host).length, 1, trigger);
+    const sentBefore = up.sent.length;
+    // 次の保存の途中に定期の確認が当たった
+    midSave(files);
+    host.advance(5000);
+    assert.notEqual(await host.store[trigger](), 'guest', trigger);
+    assert.deepEqual([host.store.state.role, host.store.state.linkedWorldId, host.store.state.meta.source, host.store.state.auto.status, host.store.state.auto.error], ['host', WORLD_A, 'local', 'ready', ''], trigger);
+    assert.equal(playingOf(host), true, trigger);
+    assert.equal(host.store.state.play.value, play.value, trigger);
+    assert.equal(host.store.state.upload.status, 'error', trigger);
+    assert.equal(pendingTimers(host).length, 1, trigger);
+    // 予約のとおりに送る（保存の続きを読んだ後）
+    seconds = 90;
+    finishSave(files);
+    host.advance(1000);
+    assert.equal(await host.store.refreshAuto({ auto: true }), 'imported', trigger);
+    await fireUpload(host);
+    assert.equal(up.sent.length, sentBefore + 1, trigger);
+    assert.deepEqual([host.store.state.upload.status, up.sent.at(-1).world.saveStamp], ['done', secondsTick(90)], trigger);
+    assert.equal(playingOf(host), true, trigger);
+  }
+});
+
+test('所持パル（最終レビュー）: 見張りが動いている間（Observer・Worker の確認）は、定期の確認が保存の途中の一時的な消失・読めない失敗に当たっても、見張りと同じく保留して読み直す（別のワールドに替えたり止めたりしない。見張りのないブラウザでは今のまま）', async () => {
+  const fake = fakeWatch();
+  const up = uploadServer();
+  const host = setup({ server: up.server, watch: fake.client, runImport: async () => stampedSnapshot(tickOf(1), 2) });
+  const a = hostFiles(T0 + 60000);
+  await host.register(WORLD_B, hostFiles(T0));
+  await host.register(WORLD_A, a);
+  await settleUpload(host.store);
+  assert.equal(host.store.state.linkedWorldId, WORLD_A);
+  fake.callbacks.onMode('observer');
+  // 共有の予約（送れなかった再試行）がある
+  up.control.failures.push('CONNECTION');
+  host.advance(15000);
+  assert.equal(await host.store.uploadLocal({ force: true }), 'error');
+  const [retry] = pendingTimers(host);
+  // Level.sav の置き換えの途中（一時的に消えている）に、表のタブの定期の確認が当たった
+  a['Level.sav'].gone = true;
+  midSave(a);
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'held');
+  const kept = () => [host.store.state.linkedWorldId, host.store.state.data.world.id, host.store.state.role, host.store.state.auto.status, host.store.state.auto.error, host.store.state.error];
+  assert.deepEqual(kept(), [WORLD_A, WORLD_A, 'host', 'ready', '', '']);
+  assert.equal(retry.cancelled, false);
+  // 戻ったら読む
+  a['Level.sav'].gone = false;
+  finishSave(a);
+  assert.equal(await fireReread(host, 1000), 'imported');
+  assert.equal(host.store.state.data.world.id, WORLD_A);
+  // 裏のタブ（pollAuto）・Worker の確認でも同じ（ゲームの保存中で読めない）
+  fake.callbacks.onMode('poll');
+  a['Level.sav'].error = 'NotReadableError';
+  midSave(a);
+  host.advance(20000);
+  assert.equal(await host.store.pollAuto(), 'held');
+  assert.deepEqual(kept(), [WORLD_A, WORLD_A, 'host', 'ready', '', '']);
+  a['Level.sav'].error = '';
+  finishSave(a);
+  assert.equal(await fireReread(host, 1000), 'imported');
+  // 中身を読むときの失敗（解析・NOT_READABLE）も同じ
+  a['Level.sav'].readError = 'NotReadableError';
+  midSave(a);
+  finishSave(a);
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'held');
+  assert.deepEqual(kept(), [WORLD_A, WORLD_A, 'host', 'ready', '', '']);
+  a['Level.sav'].readError = '';
+  assert.equal(await fireReread(host, 1000), 'imported');
+  // 見張りのないブラウザ（Worker を作れない。定期の確認だけ）では今までどおり、読めるワールドに替える
+  fake.callbacks.onMode('timer');
+  a['Level.sav'].gone = true;
+  midSave(a);
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  assert.equal(host.store.state.linkedWorldId, WORLD_B);
+});
+
+test('所持パル（最終レビュー）: ホストのワールドで LocalData.sav だけが変わった（保存の途中）ときは読み直さない（解析は LocalData.sav を読まず同じスナップショットになる。前のデータ・結果・予約を残し、同じ中身を送り直して次のセーブの共有を遅らせない）', async () => {
+  const up = uploadServer();
+  let imports = 0;
+  let seconds = 0;
+  const host = setup({ server: up.server, runImport: async () => { imports++; return stampedSnapshot(secondsTick(seconds)); } });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  seconds = 30;
+  midSave(files);
+  finishSave(files);
+  host.advance(30000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  await settleUpload(host.store);
+  const { local, upload } = host.store.state;
+  assert.equal(upload.status, 'done');
+  const sent = up.sent.length;
+  const count = imports;
+  // 次の保存の途中（LocalData.sav だけ）に定期の確認が当たった（前の送信から 15 秒より空いている）。表でも裏でも読み直さない
+  midSave(files);
+  host.advance(25000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  host.advance(20000);
+  assert.equal(await host.store.pollAuto(), 'unchanged');
+  await settleUpload(host.store);
+  assert.deepEqual([imports, up.sent.length, pendingTimers(host).length], [count, sent, 0]);
+  assert.equal(host.store.state.local, local);
+  assert.equal(host.store.state.upload, upload);
+  // 保存の続き（Level.sav から後）が書かれたら読んで送る
+  seconds = 60;
+  finishSave(files);
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'imported');
+  await settleUpload(host.store);
+  assert.deepEqual([imports, up.sent.length, up.sent.at(-1).world.saveStamp], [count + 1, sent + 1, secondsTick(60)]);
+  // 共有の予約（送れなかった再試行）がある間も、取り消して作り直したりしない
+  up.control.failures.push('CONNECTION');
+  host.advance(15000);
+  assert.equal(await host.store.uploadLocal({ force: true }), 'error');
+  const [retry] = pendingTimers(host);
+  midSave(files);
+  host.advance(5000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  assert.equal(retry.cancelled, false);
+  assert.deepEqual(pendingTimers(host), [retry]);
+  // 開き直した直後は、LocalData.sav だけが変わっていても一度読む
+  const reopened = host.make();
+  await reopened.load();
+  assert.equal(await reopened.autoRefresh(), 'imported');
+});
+
+test('所持パル（最終レビュー）: ゲーム中の推定を数え直すのは、今のワールドの見張りの対象が変わったときだけ（別のワールドの登録の編集・許可の変化・削除、一覧の並びの入れ替わりでは数え直さない）', async () => {
+  const WORLD_C = '0123456789ABCDEF0123456789ABCDEF';
+  const fake = fakeWatch();
+  let seconds = 0;
+  const host = setup({ watch: fake.client, runImport: async () => stampedSnapshot(secondsTick(seconds)) });
+  const a = hostFiles(T0 + 60000);
+  const b = hostFiles(T0);
+  const c = hostFiles(T0 - 60000);
+  await host.register(WORLD_B, b);
+  await host.register(WORLD_C, c);
+  await host.register(WORLD_A, a);
+  assert.equal(host.store.state.linkedWorldId, WORLD_A);
+  // 今のワールドが替わった（B → A）ので数え直してから、保存を続けて見る
+  for (const next of [30, 60, 90]) {
+    seconds = next;
+    newSave(a);
+    host.advance(30000);
+    assert.equal(await host.store.refreshFromWatch(WORLD_A), 'imported');
+  }
+  assert.equal(playingOf(host), true);
+  const play = host.store.state.play;
+  // 別のワールドの登録を編集した（ファイルを足した。見張りの対象は送り直す）
+  const sentTargets = fake.updates.length;
+  await host.register(WORLD_B, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
+  assert.equal(host.store.state.linkedWorldId, WORLD_A);
+  assert.equal(fake.updates.length, sentTargets + 1);
+  assert.equal(host.store.state.play, play);
+  // 別のワールドの許可が外れた・戻った
+  b['Level.sav'].permission = 'prompt';
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'permission');
+  assert.deepEqual(fake.updates.at(-1).map((target) => target.worldId).sort(), [WORLD_A, WORLD_C].sort());
+  assert.equal(host.store.state.play, play);
+  b['Level.sav'].permission = 'granted';
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  assert.equal(fake.updates.at(-1).length, 3);
+  assert.equal(host.store.state.play, play);
+  // 一覧の並び（最後に遊んだ順）だけが入れ替わった: 同じ対象なので送り直さない
+  const before = fake.updates.length;
+  c['Level.sav'].time = T0 + 30000;
+  c['LocalData.sav'].time = T0 + 30500;
+  host.advance(20000);
+  assert.equal(await host.store.autoRefresh(), 'unchanged');
+  assert.deepEqual(host.store.state.auto.worlds.map((world) => world.id), [WORLD_A, WORLD_C, WORLD_B]);
+  assert.equal(fake.updates.length, before);
+  assert.equal(host.store.state.play, play);
+  // 別のワールドの登録を消した
+  await host.store.removeWorld(WORLD_B);
+  assert.equal(host.store.state.play, play);
+  assert.equal(playingOf(host), true);
+  // 今のワールドの見張りの対象が変わったら数え直す
+  await host.register(WORLD_A, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
+  assert.deepEqual(host.store.state.play, emptyPlay());
 });

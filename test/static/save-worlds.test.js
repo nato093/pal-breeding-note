@@ -40,12 +40,15 @@ test('セーブの一覧: 前にホストしたワールドに参加したら（
   // ホストで保存すると Level.sav と LocalData.sav はほぼ同時に書かれる
   write('7656/CCCC/Level.sav', 'x', new Date('2026-10-05T10:00:00Z'));
   write('7656/CCCC/LocalData.sav', 'x', new Date('2026-10-05T10:00:01Z'));
-  // 参加すると LocalData.sav だけが新しくなる
+  // 参加すると LocalData.sav だけが新しくなる（Level.sav は前にホストしたときのまま。数分以上の差）
   write('7656/DDDD/Level.sav', 'x', new Date('2026-10-05T09:00:00Z'));
-  write('7656/DDDD/LocalData.sav', 'x', new Date('2026-10-05T09:00:30Z'));
+  write('7656/DDDD/LocalData.sav', 'x', new Date('2026-10-05T09:05:00Z'));
   write('7656/EEEE/LocalData.sav', 'x', new Date('2026-10-05T08:00:00Z'));
+  // ホストの保存の途中（LocalData.sav が先に書かれ、Level.sav は約 30 秒前の保存のまま）はホストのまま
+  write('7656/FFFF/Level.sav', 'x', new Date('2026-10-05T07:00:00Z'));
+  write('7656/FFFF/LocalData.sav', 'x', new Date('2026-10-05T07:00:30Z'));
   const roles = Object.fromEntries(findWorlds(root).map((w) => [w.id, w.role]));
-  assert.deepEqual([roles.CCCC, roles.DDDD, roles.EEEE], ['host', 'guest', 'guest']);
+  assert.deepEqual([roles.CCCC, roles.DDDD, roles.EEEE, roles.FFFF], ['host', 'guest', 'guest', 'host']);
 });
 
 test('セーブの一覧: ワールドのフォルダを直接指定しても、外のファイルやリンク先は読まない', (t) => {
