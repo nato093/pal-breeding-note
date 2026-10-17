@@ -311,9 +311,13 @@ function decideOwnedUpload(current, incoming) {
     if (notWorse && ((samePerson && better) || incoming.force === true)) return { result: 'resent', write: true };
     return { result: 'same', write: false };
   }
-  // どちらかに識別がない（古い画面・列を足す前・古い版の GAS が書いた行）: 今の更新日時の比較（同じ時刻なら上書き）
-  return compareSaves({ updatedAt: incoming.saveUpdatedAt }, { updatedAt: current.saveUpdatedAt }) < 0
-    ? { result: 'stale', write: false } : { result: 'newer', write: true };
+  // どちらかに識別がない（古い画面・列を足す前・古い版の GAS が書いた行）: 今の更新日時の比較
+  const order = compareSaves({ updatedAt: incoming.saveUpdatedAt }, { updatedAt: current.saveUpdatedAt });
+  if (order < 0) return { result: 'stale', write: false };
+  // 今の行に識別があり、届いた方にない（古い画面）同じ時刻は書かない。同期を受け取った PC の古いタブ（プレイヤーの入れ替え後・登録が少ない）が、
+  // 同じセーブの完全な共有を劣った中身で上書きしうるため。今の行に識別がなければ、今どおり同じ時刻なら上書き
+  if (order === 0 && now && !next) return { result: 'same', write: false };
+  return { result: 'newer', write: true };
 }
 
 // ---------------------------------------------------------------------------

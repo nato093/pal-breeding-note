@@ -88,9 +88,13 @@ test('decideOwnedUpload: 結果の種類の表（docs/sync-fixes/README.md の 3
   // 登録の確定（force）は別の人でも、悪くならなければ
   assert.equal(decide(current(id('5')), incoming(id('5', { hash: 'd'.repeat(64) }), { uploadedBy: 'Bob', force: true })).result, 'resent');
   assert.equal(decide(current(id('5')), incoming(id('5', { fileCount: 5 }), { force: true })).result, 'same');
-  // 識別のない方がある: 更新日時（同じ時刻なら上書き）
-  assert.deepEqual(decide(current(null), incoming(id('5'))), { result: 'newer', write: true });
+  // 識別のない方がある: 更新日時で比べる。今の行に識別があり、届いた方にない（古い画面）同じ時刻は same（同期を受け取った PC の古いタブの
+  // 劣った中身で、同じセーブの完全な共有を上書きしない）。今の行に識別がなければ、今どおり同じ時刻なら上書き
+  assert.deepEqual(decide(current(id('5')), incoming(null)), { result: 'same', write: false });
+  assert.deepEqual(decide(current(id('5')), incoming(null, { uploadedBy: 'Bob' })), { result: 'same', write: false });
+  assert.deepEqual(decide(current(id('5')), incoming(null, { saveUpdatedAt: '2026-10-05T10:00:00.001Z' })), { result: 'newer', write: true });
   assert.deepEqual(decide(current(id('5')), incoming(null, { saveUpdatedAt: '2026-10-05T09:59:59.999Z' })), { result: 'stale', write: false });
+  assert.deepEqual(decide(current(null), incoming(id('5'))), { result: 'newer', write: true });
   assert.deepEqual(decide(current(null), incoming(null)), { result: 'newer', write: true });
 });
 

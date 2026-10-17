@@ -345,6 +345,15 @@ test('owned-gas の組み合わせ: 新しい GAS＋古い画面（今配信し�
   env.spreadsheet.getSheetByName('OwnedPals_test').deleteRows(4, 1);
   await assert.rejects(call('owned', { worldId: WORLD }), { code: 'PARTIAL' });
   assert.equal((await call('ownedDelete', { worldId: WORLD })).deleted, true);
+  // 新しい画面が識別つきで共有したセーブを、同じ更新日時で古い画面（同期を受け取った PC の古いタブ。プレイヤーの入れ替え後・登録が少ない）が
+  // 劣った中身で送っても上書きしない（same）。古い api.js は stored: false の応答を受け付ける（古い画面は 'stale' として 1 回読み直すだけで、
+  // 次に新しいセーブを読むまで送り直さない）
+  const host = await env.request('ownedUpload', uploadInput({ id: identity({ n: 7 }), rows: rowsOf('h', 2) }));
+  assert.equal(host.result, 'new');
+  const synced = await call('ownedUpload', uploadInput({ rows: rowsOf('s', 1), user: 'ゲスト' }));
+  assert.deepEqual([synced.stored, synced.result, synced.world.uploadedBy, synced.world.uploadedAt], [false, 'same', 'ホスト', host.world.uploadedAt]);
+  assert.deepEqual((await call('owned', { worldId: WORLD })).rows.map((r) => r[0]), ['h0', 'h1']);
+  assert.equal((await env.request('ownedWorlds')).worlds[0].saveStamp, stamp(7));
 });
 
 test('owned-gas の組み合わせ: 巻き戻した古い版（行数を足さずに全部を消して書き直す）が、圧縮の後に体数の増えたセーブを書いても共有が空にならない', { skip: skipOld }, () => {
