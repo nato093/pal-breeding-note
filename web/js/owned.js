@@ -23,7 +23,8 @@ const HOLD_CHANGED_DELAY = 1000;
 // 登録したファイルの読み・解凍・解析の失敗と一時的な消失（スナップショットの files.skipped）は、最初に見た時刻からこの段で読み直す。
 // 最後の段（ゲームの保存の間隔 30 秒をまたぐ）でも同じ形なら、壊れた・消えたとみなして今までどおり飛ばして採用する
 const HOLD_SKIPPED_STEPS = [1000, 3000, 10000, 30000];
-// 見張りから読んだとき（transient）の読めない失敗（保存の途中の置き換え）は、最初の失敗からこの段で読み直し、3 回目もだめなら今の扱い
+// 見張りから読んだとき（transient。見張りが動いている間の定期の確認も）の読めない失敗（保存の途中の置き換え）は、最初の失敗からこの段で
+// 読み直し、3 回目もだめなら今の扱い
 const HOLD_UNREADABLE_STEPS = [1000, 3000, 10000];
 // 見張りから読むときに、読めない失敗として待つ読み込みのエラー（handles.js の readFiles）
 const UNREADABLE_CODES = new Set(['NOT_READABLE', 'MISSING']);
@@ -1145,7 +1146,8 @@ export function createOwnedStore({
     }
   }
 
-  // transient は見張りから読んだとき（refreshFromWatch とその読み直し）。保存の途中のファイルの置き換えで読めなくても、エラーを出さずに読み直す。
+  // transient は見張りから読んだとき（refreshFromWatch とその読み直し。見張りが動いている間の定期の確認も）。保存の途中のファイルの置き換えで
+  // 読めなくても、エラーを出さずに読み直す。
   // watchWorldId は見張りが知らせた（読み直しを保留した）ワールド。読み直しを保留したら 'held'（前の手元のデータ・表示・共有は残す）
   async function readAuto({ auto, preview = null, epoch = linkEpoch, transient = false, watchWorldId = '' }) {
     if (!state.auto.enabled) return 'skipped';
@@ -1197,8 +1199,9 @@ export function createOwnedStore({
       state.role = 'guest';
       clearHold();
       blockUpload();
-      // 参加者のゲーム中の推定は LocalData.sav の更新日時で数える。参加者と判定するのは LocalData.sav が Level.sav より 10 秒以上新しいか
-      // Level.sav がないとき（save/source.js の judgeRole）なので、一覧の playedAt（2 つの更新日時の新しい方）は LocalData.sav の更新日時
+      // 参加者のゲーム中の推定は LocalData.sav の更新日時で数える。参加者と判定するのは LocalData.sav が Level.sav より 60 秒以上新しいか
+      // Level.sav がないとき（save/source.js の judgeRole。ホストの保存の途中の約 30 秒の差は参加と取り違えない）なので、一覧の playedAt
+      //（2 つの更新日時の新しい方）は LocalData.sav の更新日時
       state.play = trackPlay(state.play, { worldId: world.id, role: 'guest', value: Date.parse(world.playedAt), at: now() });
       return 'guest';
     }
@@ -1284,6 +1287,10 @@ export function createOwnedStore({
 
   // 今のワールド（連携しているワールド。なければ一覧の先頭＝最後に遊んだワールド）
   const currentWatchWorld = () => state.linkedWorldId || state.auto.worlds[0]?.id || '';
+  // 見張りが動いているか（Observer か Worker の 5 秒ごとの確認）。動いている間は、定期の確認（autoRefresh・pollAuto）が保存の途中の一時的な
+  // 失敗・消失に当たっても、見張りから読んだとき（transient）と同じに保留して読み直す（保存の書き終わりは見張りが知らせるので、定期の確認で
+  // 止めたり別のワールドに替えたりしない）。Worker を作れないブラウザ（'timer'）では、今までどおり定期の確認だけで決める
+  const watching = () => ['observer', 'poll'].includes(state.watch.mode);
 
   /**
    * 見張る対象。登録したワールドのうち、直近の list() で許可があった（status が 'permission' でない）もの。保存の途中などで一時的に読めない
@@ -1426,7 +1433,7 @@ export function createOwnedStore({
       await load();
       if (state.auto.enabled && !state.busy && now() - lastAuto >= AUTO_INTERVAL) {
         lastAuto = now();
-        return runAuto({ auto: true });
+        return runAuto({ auto: true, transient: watching() });
       }
       return fetchShared();
     },
@@ -1436,7 +1443,7 @@ export function createOwnedStore({
       await load();
       if (!state.auto.enabled || state.busy || now() - lastAuto < AUTO_INTERVAL) return 'skipped';
       lastAuto = now();
-      return runAuto({ auto: true, shared: false });
+      return runAuto({ auto: true, shared: false, transient: watching() });
     },
     // セーブのファイルの見張り（save/watch.js）が、一式を書き終えたワールドを知らせたときに読み直す（タブが裏でも。sync-fixes の save-watch）
     refreshFromWatch,

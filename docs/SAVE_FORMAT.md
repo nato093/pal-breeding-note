@@ -176,7 +176,7 @@
 
 - ブラウザ（Chrome・Edge）は `AppData` 配下のフォルダを File System Access API で開けない（フォルダのドラッグ＆ドロップも同じ制限。Chromium の blocklist で `DIR_LOCAL_APP_DATA` が `kBlockAllChildren`）。ただし、ドロップした**ファイル**はこの確認を受けず、`DataTransferItem.getAsFileSystemHandle()` のハンドルを IndexedDB に保存して後から読み直せる（Chrome 154 で確認。ゲームが保存し直した後も同じハンドルで最新を読める。「毎回のアクセスを許可」を選ぶと、開き直しても確認なしで読める）。自動の読み込みはこの仕組みを使う（`web/js/save/handles.js`）。
 - `Level.sav`・`LevelMeta.sav` にはワールド ID（フォルダ名）が入っていない（2026-10-05 に確認）。ファイルの登録では、貼ってもらったフォルダのパスから ID を取る。
-- ホストか参加かは `Level.sav` と `LocalData.sav` の更新日時で決める。ホストで保存すると 2 つはほぼ同時に書かれる（実測で `LocalData.sav` が後になるのは 1 秒ほど、先になるのは最大 18 秒）。参加すると `LocalData.sav` だけが書かれる。`LocalData.sav` が 10 秒以上新しければ参加（`Level.sav` は前にホストしたときの残り）。
+- ホストか参加かは `Level.sav` と `LocalData.sav` の更新日時で決める。ホストで保存すると `LocalData.sav` が先に、`Level.sav` がその少し後に書かれる（2026-10-17 の P0 の実測で中央値 0.79 秒・最大 2.74 秒。ゲームを終えたときの保存だけは `LocalData.sav` が最後）。参加すると `LocalData.sav` だけが書かれる。`LocalData.sav` が 60 秒以上新しければ参加（`Level.sav` は前にホストしたとき・同期で受け取ったときの残り）。保存の途中は `LocalData.sav` が前の保存の `Level.sav` より保存の間隔（約 30 秒）ほど新しくなるので、それより十分長くしてある（前は 10 秒で、保存の途中に読むと参加と取り違えた）。
 - `Level.sav` の `Timestamp` は PC のローカル時刻なので、セーブの更新日時（画面の表示・古さの判定）にはファイルの更新日時を使う。
 - **セーブの新旧と同じセーブの見分けは、`Timestamp` の生のティックで比べる**（2026-10-16。sync-fixes の owned-gas）。SaveSync の同期でファイルの更新日時が書き換わっても、中の `Timestamp` は変わらない。スナップショットの `world.savedAtTicks`（10 進の文字列。2^53 を超えるので数にしない）を、共有の `saveStamp`（`OwnedWorlds` の列 `saveKey` の中）として送り、`web/js/core/owned-shared.js` の `compareSaves` で桁をそろえて比べる（GAS の共有・手元と共有の選択・自動登録の記録で同じ関数）。片方にない（古いデータ）ときだけ、ファイルの更新日時で比べる。ホストの PC のローカル時刻なので、**仲間が全員同じタイムゾーン（日本時間）で遊ぶ前提**（別のタイムゾーンの人がホストすると、交代の前後の新旧を誤る）。
 - ゲームの更新で構造が変わったら、`npm run check:save -- "<ワールドのフォルダ>"` で読み込みを確かめる。

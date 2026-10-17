@@ -46,7 +46,10 @@ test('セーブのファイル: ドロップからハンドルを集め、フォ
 test('セーブのファイル: 必要なファイルが読めないときは、ホストか参加かを決めない', async () => {
   const files = hostFiles();
   assert.deepEqual(await inspectFiles('host', files).then((r) => [r.status, r.role]), ['ok', 'host']);
+  // 保存の途中（LocalData.sav が先に書かれ、Level.sav は前の保存のまま。約 30 秒の差）はホストのまま。参加すると数分以上の差になる
   files['LocalData.sav'].time = T0 + 30000;
+  assert.deepEqual(await inspectFiles('host', files).then((r) => [r.status, r.role]), ['ok', 'host']);
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
   assert.deepEqual(await inspectFiles('host', files).then((r) => [r.status, r.role]), ['ok', 'guest']);
   files['Players/00000000000000000000000000000001.sav'].gone = true;
   const optional = await inspectFiles('host', files);
