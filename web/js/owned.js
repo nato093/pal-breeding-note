@@ -962,8 +962,9 @@ export function createOwnedStore({
       // 全部の列で試して狭めたときだけ時刻を残す（覚えた幅で送ったときは、試し直す時刻を延ばさない）
       if (start === full && width < full) uploadWidthAt = now();
       uploadWidth = width;
-      if (commitLocal === local) commitLocal = null;
+      // 環境が替わって捨てる送信は、登録の確定の印を残す（新しい環境への送り直しも force で送る）
       if (changed()) return dropped('skipped');
+      if (commitLocal === local) commitLocal = null;
       const result = OWNED_RESULTS.includes(response.result) ? response.result : '';
       const published = { saveStamp: response.world.saveStamp ?? '', uploadedBy: response.world.uploadedBy ?? '', uploadedAt: response.world.uploadedAt ?? '' };
       // 自分の共有が載っているか（応答を失った後の再送・読み込み直しで、前の自分の送信が届いていた unchanged も）。送った人は ID で比べる
