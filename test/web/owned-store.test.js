@@ -924,7 +924,7 @@ test('所持パル（share-fetch）: 受け取った行の数が palCount と違
   }
   // それでも合わなければ、次の定期の読み直しに任せる（表示しているデータがあるので、案内には出ない）
   assert.equal(viewer.timers.length, 3);
-  assert.match(viewer.store.state.shared.error, /共有の書き込みと重なった/);
+  assert.match(viewer.store.state.shared.error, /共有の書き込みと重なりました/);
   viewer.advance(10000);
   assert.equal(await viewer.store.autoRefresh(), 'partial');
   assert.equal(viewer.timers.length, 3);
@@ -964,7 +964,7 @@ test('所持パル（share-fetch）: 受け取った行の数が palCount と違
   assert.deepEqual([fresh.store.state.owned, fresh.timers.length], [null, 3]);
   // 一覧は使う（どのワールドの共有かは出せる）
   assert.deepEqual([fresh.store.state.meta.worldId, fresh.store.state.meta.worldName], [WORLD_A, WORLD_A.slice(0, 4)]);
-  assert.match(fresh.store.state.shared.error, /共有の書き込みと重なった/);
+  assert.match(fresh.store.state.shared.error, /共有の書き込みと重なりました/);
   assert.equal((await sharedCache(fresh.persist))?.current ?? null, null);
 });
 
@@ -1593,8 +1593,9 @@ test('所持パル（share-upload）: 新しいセーブを読んだら前の結
   await other.register(WORLD_A, files);
   await settleUpload(other.store);
   assert.equal(other.store.state.upload.status, 'same');
-  assert.deepEqual(uploadNotice(other.store.state), { text: '同じセーブが共有済み（ホスト の PC から）', kind: 'info' });
-  assert.ok(ownedNotices(other.store.state).some((notice) => notice.text === '同じセーブが共有済み（ホスト の PC から）'));
+  assert.deepEqual(uploadNotice(other.store.state), { text: '同じセーブは ホスト の PC から共有済みです。', kind: 'info' });
+  // 対応は要らないので、所持パルの案内の帯には出さない（ヘッダーのセーブ連携のパネルだけ）
+  assert.equal(ownedNotices(other.store.state).some((notice) => /共有済み/.test(notice.text)), false);
   // 15 秒たたずに新しいセーブを読んだ（送るのは予約）: 前の結果は消え、案内も出ない
   next = stampedSnapshot(tickOf(9), 2);
   await readNewSave(other, files, { ms: 3000 });

@@ -173,7 +173,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
 
   // ドロップするファイル。2 つの組に分ける: 全員（LocalData.sav）と、ホストする PC（Level.sav・LevelMeta.sav・Players\ ・GlobalPalStorage.sav。
   // ホストは仲間内で交代するので、交代でホストする人も足す。host-rotation）。LocalData.sav だけで参加と判定したら、ホストの組を薄くして
-  // 「なくても参加として登録できます」（C-27・C-28）
+  // 「なくても参加者として登録できます」（C-27・C-28）
   function renderDraft() {
     draftList.replaceChildren();
     fileDrop.classList.toggle('disabled', !draft || saving);
@@ -199,7 +199,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const everyone = group('全員');
     item(everyone.list, 'LocalData.sav', has('LocalData.sav'), 'LocalData.sav');
     const guestOnly = Boolean(previewed && previewed.kind !== 'host');
-    const host = group(guestOnly ? 'ホストする PC（交代でホストする人も。なくても参加として登録できます）' : 'ホストする PC（交代でホストする人も）', guestOnly ? 'is-dim' : '');
+    const host = group(guestOnly ? 'ホストする PC（交代でホストする人も。なくても参加者として登録できます）' : 'ホストする PC（交代でホストする人も）', guestOnly ? 'is-dim' : '');
     for (const path of REQUIRED_FILES.host.filter((file) => file !== 'LocalData.sav')) item(host.list, path, has(path), path);
     const players = paths.filter((path) => path.startsWith('Players/')).length;
     // 次元ストレージの Players\<UID>_dps.sav は、使い始めたときにできる（登録の後にできた分は読まれない。dps-missing）ので、ここから足せると添える
@@ -560,7 +560,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   let renderedWorlds = '';
   // ワールドの行ごとの、設定の行き先（reveal）がフォーカスする部品（ワールドの ID → { details, toggle, registrants }）
   let worldParts = new Map();
-  // 読み込み中（busy）に押せないボタン。行を作り直さずに disabled だけを書き換える（60 秒ごとの読み直しで開いている select を閉じない）
+  // 読み込み中（busy）に押せないボタン。行を作り直さずに disabled だけを書き換える（10 秒ごとの読み直しで開いている select を閉じない）
   let busyButtons = [];
   const setBusy = (busy) => {
     // 押して処理している途中のボタン（runButton が aria-busy を付ける）は、押せないままにする

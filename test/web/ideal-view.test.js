@@ -3453,7 +3453,7 @@ test('理想個体画面（dps-missing）: 参加者は、共有のデータで�
   body.append(view.element);
   const slot = view.element.querySelector('.ideal-dps-hint');
   assert.equal(slot.hidden, false);
-  assert.equal(slot.textContent, 'パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。');
+  assert.equal(slot.textContent, 'ワールド全体で、パル次元ストレージの 27 体が出ていません。ホストの登録にあなたの Players\\00000000000000000000000000000002_dps.sav がないかもしれません。ホストに足してもらってください。');
   assert.equal(slot.querySelector('button'), null);
   view.destroy();
   // 自分が候補でなければ出さない
