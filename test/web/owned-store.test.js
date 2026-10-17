@@ -2667,6 +2667,8 @@ test('所持パル（最終レビュー）: 送っている間に環境が替わ
   await fireUpload(host2);
   assert.deepEqual(scopes2, ['test', 'prod']);
   assert.deepEqual([host2.store.state.upload.status, host2.store.state.upload.scope], ['done', 'prod']);
+  // 登録の確定から送った共有は、新しい環境への送り直しも force のまま（別の人の同じセーブがあっても resent で直せる）
+  assert.deepEqual(up2.sent.map((input) => input.world.force), [true, true]);
   // 送っている間にログアウトした: ログインしていない間は送らず、ログインしたら（scopeChanged）送る
   const up3 = uploadServer();
   const scopes3 = recordUploadScopes(up3);
