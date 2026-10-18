@@ -3096,3 +3096,32 @@ test('所持パル（server の T1b）: 同じワールド ID の協力プレイ
   }).catch((error) => error.message);
   assert.equal(lost, 'LevelMeta.sav もドロップしてください');
 });
+
+test('所持パル（server の T1b）: ownedOf（CSV に保存する用）は表示と同じ規則。共有の方が新しければ共有、共有を読めなければ手元。参加者と判定したワールドの手元の古いデータは返さない', async () => {
+  const up = uploadServer();
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(2), 2) });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  const count = async () => (await host.store.ownedOf(WORLD_A))?.owned.pals.length ?? null;
+  // 手元と共有が同じセーブなら手元
+  assert.equal(await count(), 2);
+  // 別の PC が新しいセーブを共有した
+  const other = setup({ server: up.as('ホスト2'), runImport: async () => stampedSnapshot(tickOf(5), 3) });
+  await other.register(WORLD_A, hostFiles(T0 + 60000));
+  await settleUpload(other.store);
+  await host.store.fetchShared({ force: true });
+  assert.equal(await count(), 3);
+  // 共有を読めない（ログアウトした）なら、ホストの手元のデータ
+  up.setScope('');
+  await host.store.scopeChanged();
+  assert.equal(await count(), 2);
+  // 参加者と判定したワールドでは、手元のデータ（前にホストしたときの残り）は返さない。共有があれば共有
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  host.advance(25000);
+  assert.equal(await host.store.autoRefresh(), 'guest');
+  assert.equal(await count(), null);
+  up.setScope('test');
+  await host.store.scopeChanged();
+  assert.equal(await count(), 3);
+});

@@ -436,6 +436,11 @@ export function createOwnedStore({
   const sameSharedContent = (a, b) => Boolean(a?.rows && b?.rows) && a.rows === b.rows && a.columns === b.columns
     && OWNED_WORLD_FIELDS.every((field) => a.world?.[field] === b.world?.[field]);
 
+  // 手元のデータを使うか: 手元と共有（sharedWorld）で、セーブの新しい方（同じなら手元）。参加者と判定したワールドでは、手元のデータ
+  //（前にホストしたときの残り）は使わない（表示〔recompute〕と CSV〔ownedOf〕で同じ規則）
+  const useLocalFor = (local, sharedWorld) => Boolean(local) && !(state.role === 'guest' && state.linkedWorldId === local.world.id)
+    && (!sharedWorld || compareSaves(localSave(local), sharedSave(sharedWorld)) >= 0);
+
   let normalizedFrom = null;
   function recompute() {
     const target = targetWorldId();
@@ -443,8 +448,7 @@ export function createOwnedStore({
     const current = state.shared.current;
     const shared = current?.world && current.world.worldId === target ? current : null;
     const sharedMeta = state.shared.worlds.find((world) => world.worldId === target) ?? shared?.world ?? null;
-    // 手元と共有で、セーブの新しい方を出す（同じなら手元）。参加している側では手元のデータ（前にホストしたときの残り）は出さない
-    const useLocal = local && state.role !== 'guest' && (!shared || compareSaves(localSave(local), sharedSave(shared.world)) >= 0);
+    const useLocal = useLocalFor(local, shared?.world);
     const source = useLocal ? local : shared;
     if (source !== normalizedFrom) {
       // 共有の時刻・共有した人などだけが変わったときは、所持パルを作り直さない（画面が作り直されない）
@@ -1619,21 +1623,24 @@ export function createOwnedStore({
       return fetchShared({ force: true });
     },
     /**
-     * ワールドの所持パル（CSV に保存する用）。この PC で読み込んだセーブがあればそれを、なければ共有されたものを使う。
+     * ワールドの所持パル（CSV に保存する用）。表示と同じ規則（useLocalFor）で、この PC で読み込んだセーブと共有されたもののうちセーブの新しい方。
+     * 共有を読めなければ、参加者と判定したワールドでない手元のデータ（参加者の手元の古いデータは返さない）。
      * @returns {Promise<{ owned: object, importedAt: string } | null>} 所持パルがなければ null
      */
     async ownedOf(worldId) {
       await load();
       const id = String(worldId ?? '').toUpperCase();
-      if (state.local?.world.id === id) {
-        return { owned: normalizeOwned(state.local.snapshot, { pals, passives }), importedAt: state.local.world.updatedAt || state.local.importedAt };
-      }
+      const local = state.local?.world.id === id ? state.local : null;
+      const fromLocal = () => ({ owned: normalizeOwned(local.snapshot, { pals, passives }), importedAt: local.world.updatedAt || local.importedAt });
+      const listed = state.shared.worlds.find((world) => world.worldId === id) ?? null;
       let shared = state.shared.current?.world?.worldId === id ? state.shared.current : null;
-      if (!shared && server && scope() && state.shared.worlds.some((world) => world.worldId === id)) {
+      if (useLocalFor(local, shared?.world ?? listed)) return fromLocal();
+      if (!shared && listed && server && scope()) {
         const response = await server.request('owned', { worldId: id });
         shared = response.world ? { world: response.world, columns: response.columns, rows: response.rows } : null;
       }
-      return shared ? { owned: ownedFromShared(shared, { pals, passives }), importedAt: shared.world.saveUpdatedAt ?? '' } : null;
+      if (shared) return { owned: ownedFromShared(shared, { pals, passives }), importedAt: shared.world.saveUpdatedAt ?? '' };
+      return useLocalFor(local, null) ? fromLocal() : null;
     },
     // スプレッドシートから、ワールドの所持パルを消す（指定がなければ表示しているワールド）
     async deleteShared(target = '') {
