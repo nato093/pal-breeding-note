@@ -8,6 +8,7 @@ import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
 import { normalizeOwned, ownedFromShared, sharedUpload } from '../../web/js/core/owned.js';
+import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
 import { parseHash } from '../../web/js/router.js';
 import { ownedView, ownedRowItem, rowSignature } from '../../web/js/views/owned.js';
 import { ownedDetail } from '../../web/js/views/owned-detail.js';
@@ -320,7 +321,7 @@ test('病気・空腹の印: 拠点・手持ちの行の名前の下に「病気
   assert.deepEqual(data.pals.map(badges), [['病気', '空腹'], ['空腹'], [], []]);
 });
 
-test('牧場のケーキ: 牧場ボードのカードに種類ごとの数（ゲームのアイコン）、空なら「ケーキ切れ」、分からない（共有）なら出さない', (t) => {
+test('牧場のケーキ: 牧場ボードのカードに種類ごとの数（ゲームのアイコン）、空なら「ケーキ切れ」、分からない（読む前・ケーキのない古い共有）なら出さない。共有のケーキ（c）は参加者の画面にも出る', (t) => {
   installDom(t);
   const farms = [
     { id: 'FA', baseId: 'B1', status: 'ok', parents: [], eggs: [], cakes: [{ itemId: 'Cake02', count: 51 }, { itemId: 'Cake03', count: 18 }] },
@@ -334,15 +335,25 @@ test('牧場のケーキ: 牧場ボードのカードに種類ごとの数（ゲ
   assert.deepEqual(cards.map(cakeText), ['キノコケーキ ×51野菜ケーキ ×18', 'ケーキ切れ', null]);
   assert.deepEqual(byClass(cards[0], 'cake-icon').map((node) => String(node.src).split('/').slice(-2).join('/')), ['item/cake-Cake02.png', 'item/cake-Cake03.png']);
   assert.ok(hasClass(cards[1].querySelector('.farm-cake-out'), 'is-warning'));
-  // 共有のデータ（ケーキは共有しない）では出さない
+  // 共有のデータ（参加者の画面。server の share-extras）でも同じ行とケーキ切れが出る
   const shared = ownedFromShared({ world: { worldName: 'World9', farms: sharedUpload(data).farms }, ...sharedUpload(data) }, { pals, passives });
-  assert.deepEqual(shared.farms.map((farm) => farm.cakes), [null, null, null]);
+  assert.deepEqual(shared.farms.map((farm) => farm.cakes), data.farms.map((farm) => farm.cakes));
+  const sharedBoard = farmBoard({ owned: { state: { owned: shared }, subscribe: () => () => {} }, store: { state: { index: buildIndex([], pals) }, subscribe: () => () => {} } });
+  assert.deepEqual(sharedBoard.element.querySelectorAll('.farm-card').map(cakeText), ['キノコケーキ ×51野菜ケーキ ×18', 'ケーキ切れ', null]);
+  sharedBoard.destroy();
+  // ケーキのない古い共有（c がない）では出さない
+  const oldFarms = sharedUpload(data).farms.map(({ c: _cakes, ...farm }) => farm);
+  const legacy = ownedFromShared({ world: { worldName: 'World9', farms: oldFarms }, rows: [] }, { pals, passives });
+  assert.deepEqual(legacy.farms.map((farm) => farm.cakes), [null, null, null]);
+  const legacyBoard = farmBoard({ owned: { state: { owned: legacy }, subscribe: () => () => {} }, store: { state: { index: buildIndex([], pals) }, subscribe: () => () => {} } });
+  assert.deepEqual(legacyBoard.element.querySelectorAll('.farm-card').map(cakeText), [null, null, null]);
+  legacyBoard.destroy();
   assert.equal(cakeLine(null), null);
   assert.equal(cakeLine([{ itemId: 'Cake09', count: 2 }]).textContent, 'Cake09 ×2');
   board.destroy();
 });
 
-test('個体の詳細: 魂の強化（0 でないものだけ）・病気と空腹の種類・SAN と入手の日時。共有・古いデータ（null）とタマゴでは魂の強化と状態の節を出さない', (t) => {
+test('個体の詳細: 魂の強化（0 でないものだけ）・病気と空腹の種類・SAN と入手の日時。共有のデータ（参加者）でも同じに出し、古いデータ（null）とタマゴでは魂の強化と状態の節を出さない', (t) => {
   installDom(t);
   const data = snapshot({ pals: [
     individual('a', 'Anubis', { ownedAt: '2026-10-15T12:52:16.570Z', soul: { hp: 10, attack: 0, defense: 0, craft: 20 }, condition: { sick: 'Cold', hunger: '', sanity: 82.5 } }),
@@ -370,4 +381,11 @@ test('個体の詳細: 魂の強化（0 でないものだけ）・病気と空�
   assert.deepEqual(byClass(detail('z').element, 'is-condition')[0].querySelectorAll('dd').map((node) => node.textContent), ['なし', '病気・空腹なし', '100']);
   // 古いスナップショット（魂の強化と状態がない）・入手時刻がない
   assert.deepEqual([byClass(detail('o').element, 'is-condition').length, byClass(detail('o').element, 'owned-detail-acquired').length], [0, 0]);
+  // 共有のデータ（参加者の画面。server の share-extras）: 同じ節と同じ文（SAN は整数で届く）。魂の強化と状態のない古い共有は節を出さない
+  const host = normalizeOwned(data, { pals, passives });
+  const shared = { state: { ready: true, owned: ownedFromShared({ world: { worldName: 'World9' }, ...sharedUpload(host) }, { pals, passives }) }, subscribe: () => () => {} };
+  const sharedSection = byClass(ownedDetail({ owned: shared }, 'a').element, 'is-condition')[0];
+  assert.deepEqual(sharedSection.querySelectorAll('dd').map((node) => node.textContent), ['HP +10 · 作業速度 +20', '病気', '83']);
+  const legacy = ownedFromShared({ world: { worldName: 'World9' }, columns: OWNED_FIELDS.slice(0, OWNED_FIELDS.indexOf('soul')), rows: sharedUpload(host).rows.map((row) => row.slice(0, OWNED_FIELDS.indexOf('soul'))) }, { pals, passives });
+  assert.equal(byClass(ownedDetail({ owned: { state: { ready: true, owned: legacy }, subscribe: () => () => {} } }, 'a').element, 'is-condition').length, 0);
 });

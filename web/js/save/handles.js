@@ -11,6 +11,22 @@ const NAMES = new Map(['Level.sav', 'LevelMeta.sav', 'LocalData.sav'].map((name)
 /** 登録に要るファイル（ワールドのフォルダからの相対パス）。Level.sav があればホスト、なければ参加だけ。 */
 export const REQUIRED_FILES = { host: ['Level.sav', 'LevelMeta.sav', 'LocalData.sav'], guest: ['LocalData.sav'] };
 
+/** 専用サーバーのセーブのフォルダの Steam ID（SaveGames\0\<ワールド ID>。協力プレイは 17 桁の SteamID64）。 */
+export const SERVER_SAVE_ID = '0';
+/** 専用サーバーのワールドか。パスの Steam ID（parseWorldPath・登録の記録の steamId）で見分け、中身では判定しない（server の identity） */
+export const isServerWorld = (steamId) => String(steamId ?? '') === SERVER_SAVE_ID;
+
+// サーバーのワールドの必須のファイル。サーバーは LocalData.sav を書かず（ServerSync が写した古いものがあるだけ）、GlobalPalStorage.sav は
+// 各自の PC にあるので、どちらも使わない（server の決定 10）
+const SERVER_REQUIRED = ['Level.sav', 'LevelMeta.sav'];
+const SERVER_UNUSED = new Set(['LocalData.sav', '../GlobalPalStorage.sav']);
+
+/** 登録に要るファイル。サーバーのワールドは kind によらず Level.sav・LevelMeta.sav。 */
+export const requiredFiles = (kind, steamId) => (isServerWorld(steamId) ? SERVER_REQUIRED : REQUIRED_FILES[kind]);
+/** そのワールドで使うファイルか（サーバーのワールドは LocalData.sav・GlobalPalStorage.sav を使わない）。 */
+export const usesFile = (steamId, path) => !(isServerWorld(steamId) && SERVER_UNUSED.has(path));
+const usableFiles = (steamId, files) => Object.fromEntries(Object.entries(files).filter(([path]) => usesFile(steamId, path)));
+
 /**
  * エクスプローラーのアドレス欄などから貼ったパスから、Steam ID とワールド ID を取り出す。
  * folder は貼ったパスのうちワールドのフォルダまで（ドロップするファイルの場所の案内に使う）。
@@ -113,9 +129,10 @@ async function signatureNow(files) {
 
 /**
  * ハンドルの読み取り（許可の確認・更新日時・役割）。登録済みのワールドにも、確定前の登録にも使う。
+ * steamId はワールドのフォルダの Steam ID（サーバーのワールドは必須のファイルが違い、役割はいつもホスト）。
  * @returns {Promise<{ status: 'ok'|'permission'|'missing'|'error', role: string, files: string[], missing: string[], infos: object, error: string }>}
  */
-export async function inspectFiles(kind, files) {
+export async function inspectFiles(kind, files, steamId = '') {
   const paths = Object.keys(files);
   for (const path of paths) {
     let state;
@@ -134,10 +151,12 @@ export async function inspectFiles(kind, files) {
       return { status: failure.code === 'NEEDS_PERMISSION' ? 'permission' : 'error', role: '', files: [], missing, infos: {}, error: failure.message };
     }
   }
-  const lost = REQUIRED_FILES[kind].filter((path) => !infos[path]);
+  const lost = requiredFiles(kind, steamId).filter((path) => !infos[path]);
   // 必要なファイルが読めないときは、ホストか参加かを決めない（古いファイルや登録漏れで取り違えないように）
   if (lost.length) return { status: 'missing', role: '', files: Object.keys(infos), missing, infos, error: `${lost.join('・')} が見つかりません` };
-  const role = kind === 'guest' ? 'guest' : judgeRole({ levelTime: infos['Level.sav'].lastModified, localTime: infos['LocalData.sav'].lastModified });
+  // サーバーの PC はサーバーのセーブを書くだけなので、いつもホスト（LocalData.sav の更新日時で参加と判定しない）
+  const role = isServerWorld(steamId) ? 'host' : kind === 'guest' ? 'guest'
+    : judgeRole({ levelTime: infos['Level.sav'].lastModified, localTime: infos['LocalData.sav'].lastModified });
   return { status: 'ok', role, files: Object.keys(infos), missing, infos, error: '' };
 }
 
@@ -172,7 +191,9 @@ export function createHandleSource({ persist, key }) {
 
   const serialize = () => ({
     version: DATA_VERSION,
-    worlds: [...records.values()].map(({ id, steamId, kind, files, name, hostName, revision, addedAt }) => ({ id, steamId, kind, files, name, hostName, revision, addedAt })),
+    worlds: [...records.values()].map(({ id, steamId, kind, files, name, nameSet, hostName, revision, addedAt }) => ({
+      id, steamId, kind, files, name, nameSet: nameSet === true, hostName, revision, addedAt,
+    })),
   });
 
   // 書けたら、メモリの登録はすべて保存済みになる
@@ -189,7 +210,10 @@ export function createHandleSource({ persist, key }) {
         if (saved?.version !== DATA_VERSION || !Array.isArray(saved.worlds)) return;
         for (const world of saved.worlds) {
           if (typeof world?.id !== 'string' || !world.files || typeof world.files !== 'object') continue;
-          records.set(world.id, { ...world, kind: world.kind === 'guest' ? 'guest' : 'host', revision: Number(world.revision) || 1, persisted: true });
+          // 前の版でサーバーのワールドに登録した LocalData.sav・GlobalPalStorage.sav は使わない
+          records.set(world.id, {
+            ...world, files: usableFiles(world.steamId, world.files), kind: world.kind === 'guest' ? 'guest' : 'host', revision: Number(world.revision) || 1, persisted: true,
+          });
         }
       })();
       return loading;
@@ -206,7 +230,7 @@ export function createHandleSource({ persist, key }) {
       await source.load();
       const worlds = [];
       for (const record of records.values()) {
-        const inspected = await inspectFiles(record.kind, record.files);
+        const inspected = await inspectFiles(record.kind, record.files, record.steamId);
         const level = inspected.infos['Level.sav']?.lastModified ?? 0;
         const local = inspected.infos['LocalData.sav']?.lastModified ?? 0;
         const files = fileSignature(inspected.infos);
@@ -230,7 +254,7 @@ export function createHandleSource({ persist, key }) {
     async read(world) {
       const record = records.get(world.id);
       if (!record) throw errorWithCode('このワールドは登録されていません', 'NOT_REGISTERED');
-      const result = await readFiles(record.files, world.files, REQUIRED_FILES[record.kind]);
+      const result = await readFiles(record.files, world.files, requiredFiles(record.kind, record.steamId));
       return {
         files: result.files, skipped: [...(world.missing ?? []).map((path) => ({ path, reason: 'ファイルが見つかりません' })), ...result.skipped],
         fileSignature: await signatureNow(record.files),
@@ -238,16 +262,19 @@ export function createHandleSource({ persist, key }) {
     },
 
     /**
-     * 登録を確定する（同じワールドがあれば、ファイルを足す・置き換える）。
+     * 登録を確定する（同じワールドがあれば、ファイルを足す・置き換える）。nameSet は name を明示した（常駐の設定など）か。
+     * 明示した名前は、セーブから覚えた名前で上書きしない（owned.js の worldNameOf でセーブの名前より先に使う）。
      * @returns {Promise<{ record: object, persisted: boolean }>}
      */
-    async commit({ worldId, steamId, files, name = '', hostName = '' }, now = Date.now) {
+    async commit({ worldId, steamId, files, name = '', nameSet = false, hostName = '' }, now = Date.now) {
       await source.load();
       const before = records.get(worldId);
-      const merged = { ...(before?.files ?? {}), ...files };
+      const steam = steamId || before?.steamId || '';
+      const merged = usableFiles(steam, { ...(before?.files ?? {}), ...files });
+      const explicit = nameSet && name ? name : before?.nameSet ? before.name : '';
       const record = {
-        id: worldId, steamId: steamId || before?.steamId || '', kind: kindOf(Object.keys(merged)), files: merged,
-        name: name || before?.name || '', hostName: hostName || before?.hostName || '',
+        id: worldId, steamId: steam, kind: kindOf(Object.keys(merged)), files: merged,
+        name: explicit || name || before?.name || '', nameSet: Boolean(explicit), hostName: hostName || before?.hostName || '',
         revision: (before?.revision ?? 0) + 1, addedAt: before?.addedAt ?? new Date(now()).toISOString(),
         // 前の版が保存済みなら、この保存に失敗しても保存済みとして扱う（削除に失敗したら知らせるため）
         persisted: before?.persisted ?? false,

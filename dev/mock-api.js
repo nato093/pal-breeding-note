@@ -167,9 +167,9 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
   if (as === 'viewer') seedViewerWorld();
   function seedViewerWorld() {
     const now = Date.now();
-    // Lv とプレイ中（save-extras。players の JSON の中）。Alice と Bob はプレイ中
+    // Lv とプレイ中（save-extras。players の JSON の中）。Alice と Bob はプレイ中。Alice には捕獲数（server の share-extras）
     const players = [
-      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice', level: 52, online: true },
+      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice', level: 52, online: true, captures: { SheepBall: 12, PinkCat: 3 } },
       { uid: '00000000-0000-0000-0000-00000000b0b0', name: 'Bob', level: 47, online: true },
       { uid: '00000000-0000-0000-0000-00000000ca01', name: 'Carol', level: 31, online: false },
     ];
@@ -197,26 +197,31 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
         holderUid: atBase ? '' : holder.uid, holder: atBase ? base.label : holder.name, baseId: atBase ? base.id : '', lastOwner: atBase ? holder.name : '', skillIds: '',
         // 入手した時刻（save-extras）。後の個体ほど新しい（最後の個体は共有の 6 分前）
         ownedAt: new Date(now - (6 + (26 - index) * 37) * 60 * 1000).toISOString(),
+        // 魂の強化と状態（server の share-extras）。拠点の個体は空腹か病気
+        soul: index === 7 ? '10|0|0|1' : '0|0|0|0', condition: atBase && index % 8 === 3 ? '|Starvation|62' : atBase ? 'Cold||88' : '||100',
       };
       return OWNED_FIELDS.map((field) => value[field] ?? '');
     });
     // 牧場の短い鍵（farm-data）: n はタマゴの数、eggs は中身（m: 1 は突然変異）
     const egg = (index) => ({ id: `viewer-${String(index).padStart(3, '0')}`, p: species[index % species.length] });
+    // c はケーキ（server の share-extras。[] はケーキ切れ）
     const farms = [
-      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'], n: 3, eggs: [egg(27), { ...egg(28), m: 1 }, egg(29)] },
-      { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'], n: 0, eggs: [] },
+      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'], n: 3, eggs: [egg(27), { ...egg(28), m: 1 }, egg(29)], c: [{ i: 'Cake02', n: 51 }] },
+      { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'], n: 0, eggs: [], c: [] },
       { id: 'farm-3', baseId: 'base-2', parents: [], n: 0, eggs: [] },
     ];
+    // 在庫（server の share-extras。world の中で受けて列 extras に入る）
+    const items = [{ id: 'PalGenderReverse', t: 4, p: [{ l: '拠点 1 の箱', n: 3 }, { l: 'Alice の所持品', n: 1 }] }, { id: 'PalPassiveSkillChange_Rare', t: 1 }];
     const checked = validateOwnedUpload({
-      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice', inGameDay: 123 }, saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(),
-      players, bases, farms, columns: OWNED_FIELDS, rows,
+      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice', inGameDay: 123, saveKind: 'coop', items },
+      saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(), players, bases, farms, columns: OWNED_FIELDS, rows,
     });
     if (!checked.ok) return;
     const input = checked.value;
     const world = {
       worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
       uploadedAt: new Date(now - 3 * 60 * 1000).toISOString(), uploadedBy: 'Alice', palCount: input.rows.length, players: input.players, bases: input.bases, farms: input.farms,
-      inGameDay: input.inGameDay, saveStamp: '',
+      inGameDay: input.inGameDay, saveStamp: '', ...(input.extras ?? {}),
     };
     ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: null });
   }
@@ -268,6 +273,8 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
         worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
         uploadedAt, uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases,
         farms: input.farms, inGameDay: input.inGameDay, saveStamp: input.identity ? input.identity.stamp : '',
+        // 追加の情報（server。GAS の列 extras）は、分かるときだけ world に広げる（validateOwnedUpload でセルに入るよう縮めてある）
+        ...(input.extras ?? {}),
       };
       ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: input.identity });
       return { stored: true, result: decision.result, world, cleanup: true, serverTime: uploadedAt };

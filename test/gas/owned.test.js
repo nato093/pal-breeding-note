@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGas, FakeSpreadsheet } from './harness.js';
+import { legacyGasFiles, LEGACY_V12_COMMIT } from './legacy.js';
 import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
+import { cleanSharedPlayers } from '../../web/js/core/boundary.js';
+import { ownPlayerUids } from '../../web/js/core/ideal-goals.js';
 
 const PROPS = { PASSCODE: 'AAAA-BBBB-CCCC-DDDD', TEST_PASSCODE: 'EEEE-FFFF-GGGG-HHHH' };
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -195,8 +198,8 @@ test('所持パル共有: 配合牧場のタマゴ（短い鍵 s・eggs・n）�
 
 test('所持パル共有: タマゴのアイテム ID（eggItemId 列）を残して返す。列のない古いシートでは書かずに空で返し、setup をやり直すと列を足す', () => {
   const eggAt = OWNED_FIELDS.indexOf('eggItemId');
-  // eggItemId の後に ownedAt（save-extras）
-  assert.equal(eggAt, OWNED_FIELDS.length - 2);
+  // eggItemId の後に ownedAt（save-extras）と soul・condition（server の share-extras）
+  assert.deepEqual(OWNED_FIELDS.slice(eggAt), ['eggItemId', 'ownedAt', 'soul', 'condition']);
   const env = fixture();
   env.call('ownedUpload', upload(WORLD_A, [row('e1', { egg: '1', eggItemId: 'PalEgg_Dark_03' })]));
   assert.equal(env.call('owned', { worldId: WORLD_A }).rows[0][eggAt], 'PalEgg_Dark_03');
@@ -216,9 +219,24 @@ test('所持パル共有: タマゴのアイテム ID（eggItemId 列）を残�
   assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[eggAt]]), [['e3', 'PalEgg_Fire_01']]);
 });
 
+test('所持パル共有: プレイヤーのキャラクターの InstanceId（players の JSON の instanceId）を GUID の形のときだけ小文字で残して返す（server の identity。列は増えない）', () => {
+  const env = fixture();
+  const IID = '11111111-2222-3333-4444-555555555555';
+  const players = [
+    { uid: '00000000-0000-0000-0000-000000000001', name: 'Dave', instanceId: IID.toUpperCase() },
+    { uid: '00000000-0000-0000-0000-000000000002', name: 'Frank', instanceId: 'not-a-guid' },
+  ];
+  const stored = env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { players }));
+  assert.equal(stored.stored, true);
+  const expected = [{ uid: players[0].uid, name: 'Dave', instanceId: IID }, { uid: players[1].uid, name: 'Frank' }];
+  assert.deepEqual(env.call('ownedWorlds').worlds[0].players, expected);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.players, expected);
+});
+
 test('所持パル共有: 入手時刻（ownedAt 列）とゲーム内の日数（ワールドの inGameDay 列）を残して返す。列のない古いシートでは書かずに読み、setup をやり直すと列を足す（save-extras）', () => {
   const ownedAt = OWNED_FIELDS.indexOf('ownedAt');
-  assert.equal(ownedAt, OWNED_FIELDS.length - 1);
+  // ownedAt の後に soul・condition（server の share-extras）
+  assert.deepEqual(OWNED_FIELDS.slice(ownedAt), ['ownedAt', 'soul', 'condition']);
   const time = '2026-10-15T12:52:16.570Z';
   const players = [{ uid: '00000000-0000-0000-0000-000000000001', name: 'Dave', level: 52, online: true }, { uid: '00000000-0000-0000-0000-000000000002', name: 'Frank', online: false }];
   const env = fixture();
@@ -702,4 +720,227 @@ test('owned-gas compactOwned: 指定した環境だけを今の世代にして s
   env.gas.resumeOwnedTest();
   assert.equal(env.props.store.OWNED_PAUSED_test, undefined);
   assert.equal(send(env, { rows: rowsOf('c', 2), id: identity({ n: 2 }), time: '2026-10-05T12:00:00.000Z' }).result, 'newer');
+});
+
+// ---------------------------------------------------------------------------
+// 共有のワールドの追加の情報（OwnedWorlds の列 extras。server）。値はダミー（H は協力プレイのホストの枠の決まった値）
+// ---------------------------------------------------------------------------
+
+const H = '00000000-0000-0000-0000-000000000001';
+const CLOCK = '638650000000000005';
+// 画面が world の中に入れて送る追加の情報（以前の持ち主の kind は送らない〔uid から分かる〕が、付いていても落とすだけ）
+const extrasWorld = (extra = {}) => ({
+  name: 'World9', hostName: '', saveKind: 'server', clock: CLOCK, formers: [{ uid: H, kind: 'host', pals: 66, farms: 2 }],
+  items: [{ id: 'PalGenderReverse', t: 3, p: [{ l: '拠点 1 の箱', n: 3 }] }], ...extra,
+});
+const EXTRAS = { saveKind: 'server', clock: CLOCK, formers: [{ uid: H, pals: 66, farms: 2 }], items: [{ id: 'PalGenderReverse', t: 3, p: [{ l: '拠点 1 の箱', n: 3 }] }] };
+const EXTRA_KEYS = ['saveKind', 'clock', 'formers', 'formersPartial', 'items'];
+const extraKeys = (world) => EXTRA_KEYS.filter((key) => key in world);
+
+test('所持パル共有（server）: 追加の情報（列 extras）は at（その世代の uploadedAt）つきの JSON で書き、world に広げて返す。応答・一覧・owned・ownedSince で同じ。分からない共有（古い画面）は空にする', () => {
+  const env = fixture();
+  const stored = env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { world: extrasWorld() }));
+  assert.equal(stored.stored, true);
+  assert.deepEqual(JSON.parse(worldCell(env, 'extras')), { at: stored.world.uploadedAt, ...EXTRAS });
+  const [listed] = env.call('ownedWorlds').worlds;
+  // 応答の world は読み直したときと同じ（鍵の順も）
+  assert.equal(JSON.stringify(listed), JSON.stringify(stored.world));
+  assert.deepEqual(Object.fromEntries(EXTRA_KEYS.filter((key) => key in listed).map((key) => [key, listed[key]])), EXTRAS);
+  assert.equal(JSON.stringify(env.call('owned', { worldId: WORLD_A }).world), JSON.stringify(listed));
+  assert.equal(JSON.stringify(env.call('ownedSince', { worldId: WORLD_A, uploadedAt: '' }).world), JSON.stringify(listed));
+  // 最上位の項目は増やさない（古い GAS が UNKNOWN_FIELD で断るため、world の中で受ける）
+  assert.equal(env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:30:00.000Z', { extras: EXTRAS })).errors[0].code, 'UNKNOWN_FIELD');
+  // 分かる項目が 1 つでもあれば、分からない項目は '' と null
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T11:00:00.000Z', { world: { name: 'World9', hostName: 'Dave', saveKind: 'coop', formers: [] } }));
+  const coop = env.call('ownedWorlds').worlds[0];
+  assert.deepEqual([coop.saveKind, coop.clock, coop.formers, coop.items, 'formersPartial' in coop], ['coop', '', [], null, false]);
+  // 追加の情報を送らない古い画面の共有: セルを空にして（前の世代の値を残さない）、world に項目を付けない
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T12:00:00.000Z'));
+  assert.equal(worldCell(env, 'extras'), '');
+  assert.deepEqual(extraKeys(env.call('ownedWorlds').worlds[0]), []);
+});
+
+test('所持パル共有（server）: extras 列のない古いシート（setup() の前）でも共有は止まらず、書かずに返さない。setup をやり直すと末尾に列を足す', () => {
+  const old = fixture();
+  const sheet = worldsSheet(old);
+  const at = sheet.data[0].indexOf('extras');
+  assert.equal(at, sheet.data[0].length - 1);
+  for (const line of sheet.data) line.splice(at, 1);
+  const stored = old.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { world: extrasWorld() }));
+  assert.equal(stored.stored, true);
+  assert.deepEqual([extraKeys(stored.world), extraKeys(old.call('ownedWorlds').worlds[0])], [[], []]);
+  old.gas.setup();
+  assert.equal(sheet.data[0][sheet.data[0].length - 1], 'extras');
+  old.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T11:00:00.000Z', { world: extrasWorld() }));
+  assert.equal(old.call('ownedWorlds').worlds[0].saveKind, 'server');
+});
+
+test('所持パル共有（server）: extras の at がその行の uploadedAt と違えば（巻き戻した古い GAS が後から行を書いた）使わない', () => {
+  const env = fixture();
+  const first = env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { world: extrasWorld() }));
+  // 古い版の GAS が uploadedAt だけを書き換えた（知らない列 extras は前の値のまま残る）
+  const sheet = worldsSheet(env);
+  sheet.data[1][sheet.data[0].indexOf('uploadedAt')] = '2026-10-05T10:30:00.000Z';
+  assert.equal(JSON.parse(worldCell(env, 'extras')).at, first.world.uploadedAt);
+  assert.deepEqual(extraKeys(env.call('ownedWorlds').worlds[0]), []);
+  // 形の壊れたセルも使わない
+  sheet.data[1][sheet.data[0].indexOf('extras')] = '{"at":';
+  assert.deepEqual(extraKeys(env.call('ownedWorlds').worlds[0]), []);
+});
+
+test('所持パル共有（server）: 古い版の GAS（版 10）が共有した後は、新しい版で読んでも前の世代の追加の情報を返さない', { skip: legacyGasFiles() ? false : 'Git の履歴に e984786 がない（浅い複製）' }, () => {
+  const env = fixture();
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { world: extrasWorld() }));
+  assert.equal(env.call('ownedWorlds').worlds[0].saveKind, 'server');
+  const previous = createGas({ files: legacyGasFiles(), spreadsheet: env.spreadsheet, props: env.props, cacheEntries: env.cache.entries });
+  // 古い版は soul・condition の列を知らない（画面は 29 列に狭めて送る）
+  const width = OWNED_FIELDS.indexOf('soul');
+  const stored = plain(previous.gas.handleRequest_(JSON.stringify({
+    action: 'ownedUpload', passcode: PROPS.TEST_PASSCODE,
+    ...upload(WORLD_A, [row('p2').slice(0, width)], '2026-10-05T11:00:00.000Z', { world: extrasWorld({ saveKind: 'coop' }), columns: OWNED_FIELDS.slice(0, width) }),
+  })));
+  assert.equal(stored.stored, true);
+  // 古い版は列 extras を知らないので前の値が残るが、at が今の世代と違うので使わない
+  assert.notEqual(worldCell(env, 'extras'), '');
+  const [world] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([world.uploadedAt, extraKeys(world)], [stored.world.uploadedAt, []]);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows.map((r) => r[0]), ['p2']);
+});
+
+test('所持パル共有（server）: 大きな追加の情報も、行を書き始める前に縮めてセルは 45,000 字以下（在庫の内訳を外す → 以前の持ち主を数の多い順に残して formersPartial）。個体の行は全部保存する', () => {
+  const env = fixture();
+  const place = { l: '拠点'.repeat(30), n: 1000000 };
+  const items = Array.from({ length: 200 }, (_, i) => ({ id: `PalPassiveSkillChange_${String(i).padStart(100, 'x')}`, t: 1000000, p: [place, place, place] }));
+  const formers = Array.from({ length: 1000 }, (_, i) => ({ uid: `u${String(i).padStart(39, '0')}`, pals: i % 100, farms: 0 }));
+  const rows = Array.from({ length: 50 }, (_, i) => row(`p${i}`));
+  const stored = env.call('ownedUpload', upload(WORLD_A, rows, '2026-10-05T10:00:00.000Z', { world: extrasWorld({ formers, items }) }));
+  assert.equal(stored.stored, true);
+  const cell = String(worldCell(env, 'extras'));
+  assert.ok(cell.length <= 45000, String(cell.length));
+  const [world] = env.call('ownedWorlds').worlds;
+  assert.equal(JSON.stringify(world), JSON.stringify(stored.world));
+  assert.deepEqual([world.items.length, world.items.some((item) => 'p' in item), world.formersPartial], [200, false, true]);
+  assert.ok(world.formers.length > 0 && world.formers.every((former) => former.pals >= 50), String(world.formers.length));
+  assert.equal(env.call('owned', { worldId: WORLD_A }).rows.length, 50);
+});
+
+// ---------------------------------------------------------------------------
+// ホストの画面だけだった情報の共有（server の share-extras）: OwnedPals の列 soul・condition、players の captures、farms の c
+//（在庫は列 extras の items。上の server のテスト）
+// ---------------------------------------------------------------------------
+
+const SOUL_AT = OWNED_FIELDS.indexOf('soul');
+
+test('所持パル共有（share-extras）: 魂の強化と状態（soul・condition 列）を残して返す。列のない古いシート（setup() の前）では書かずに空で返し、setup をやり直すと末尾に列を足す。版 12 の画面の 29 列も受ける', () => {
+  const env = fixture();
+  env.call('ownedUpload', upload(WORLD_A, [row('p1', { soul: '10|0|0|1', condition: 'Cold|Starvation|62' }), row('p2')]));
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], ...r.slice(SOUL_AT)]), [['p1', '10|0|0|1', 'Cold|Starvation|62'], ['p2', '', '']]);
+  // 列を足す前のシート（soul・condition の列がない）
+  const old = fixture();
+  const sheet = old.pals();
+  for (const field of ['soul', 'condition']) {
+    const at = sheet.data[0].indexOf(field);
+    for (const line of sheet.data) line.splice(at, 1);
+  }
+  assert.equal(old.call('ownedUpload', upload(WORLD_A, [row('p1', { soul: '10|0|0|1', condition: '||100' })])).stored, true);
+  assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows[0].slice(SOUL_AT), ['', '']);
+  // soul・condition を知らない版 12 の画面（ownedAt まで。開いたままのページ）からの共有も受け付ける
+  const legacy = old.call('ownedUpload', upload(WORLD_A, [row('p2').slice(0, SOUL_AT)], '2026-10-05T11:00:00.000Z', { columns: OWNED_FIELDS.slice(0, SOUL_AT) }));
+  assert.equal(legacy.stored, true);
+  old.gas.setup();
+  assert.deepEqual(sheet.data[0].slice(-2), ['soul', 'condition']);
+  old.call('ownedUpload', upload(WORLD_A, [row('p3', { soul: '0|0|0|0', condition: '||88' })], '2026-10-05T12:00:00.000Z'));
+  assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], ...r.slice(SOUL_AT)]), [['p3', '0|0|0|0', '||88']]);
+});
+
+test('所持パル共有（share-extras）: players の捕獲数（captures）と farms のケーキ（c）を残して返す（列は増えない）。大きな捕獲数もセル（45,000 字）に入るよう後ろの人から外し、全部の行を保存する', () => {
+  const env = fixture();
+  const players = [
+    { uid: H, name: 'Dave', captures: { SheepBall: 12 } },
+    { uid: '00000000-0000-0000-0000-000000000002', name: 'Frank', captures: {} },
+  ];
+  const farms = [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 0, c: [{ i: 'Cake02', n: 51 }] }, { id: 'F2', baseId: 'b1', parents: [], n: 0, c: [] }];
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { players, farms }));
+  const [world] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([world.players, world.farms], [players, farms]);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.players, players);
+  // 大きな捕獲数（1 人 250 種・40 人。そのままでは 5 万字を超えて書けない）: 後ろの人から捕獲数を外す（instanceId などは残す）
+  const captures = Object.fromEntries(Array.from({ length: 250 }, (_, i) => [`Pal_${String(i).padStart(10, '0')}`, 10000 + i]));
+  const crowd = Array.from({ length: 40 }, (_, i) => ({
+    uid: `${String(i).padStart(8, '0')}-0000-0000-0000-000000000000`, name: `P${i}`, instanceId: `${String(i).padStart(8, '0')}-1111-2222-3333-444444444444`, captures,
+  }));
+  const rows = Array.from({ length: 50 }, (_, i) => row(`q${i}`));
+  const stored = env.call('ownedUpload', upload(WORLD_A, rows, '2026-10-05T11:00:00.000Z', { players: crowd }));
+  assert.equal(stored.stored, true);
+  const cell = String(worldCell(env, 'players'));
+  assert.ok(cell.length <= 45000, String(cell.length));
+  const back = env.call('ownedWorlds').worlds[0].players;
+  assert.equal(back.length, 40);
+  assert.ok(back.every((player) => player.instanceId));
+  assert.deepEqual([Boolean(back[0].captures), Boolean(back[39].captures)], [true, false]);
+  assert.deepEqual(stored.world.players, back);
+  assert.equal(env.call('owned', { worldId: WORLD_A }).rows.length, 50);
+});
+
+const oldV12Files = legacyGasFiles(LEGACY_V12_COMMIT);
+const skipV12 = oldV12Files ? false : `Git の履歴に ${LEGACY_V12_COMMIT} がない（浅い複製）`;
+
+test('所持パル共有（share-extras）: 版 12 の GAS は 31 列を断り、29 列に狭めた共有は受けて新しい鍵（captures・c・items）を捨てる。版 13 → 12 → 13 と巻き戻しても古い値を返さない', { skip: skipV12 }, () => {
+  const env = fixture();
+  const players = [{ uid: H, name: 'Dave', captures: { SheepBall: 12 } }];
+  const farms = [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 0, c: [{ i: 'Cake02', n: 51 }] }];
+  const world = extrasWorld({ saveKind: 'coop' });
+  // 版 13（今）の共有: 全部が残る
+  env.call('ownedUpload', upload(WORLD_A, [row('p1', { soul: '1|0|0|0', condition: '||90' })], '2026-10-05T10:00:00.000Z', { players, farms, world }));
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows[0].slice(SOUL_AT), ['1|0|0|0', '||90']);
+  // 同じシートを読む版 12（巻き戻した本番）
+  const previous = createGas({ files: oldV12Files, spreadsheet: env.spreadsheet, props: env.props, cacheEntries: env.cache.entries });
+  const oldCall = (action, fields = {}) => plain(previous.gas.handleRequest_(JSON.stringify({ action, passcode: PROPS.TEST_PASSCODE, ...fields })));
+  // 31 列は列の幅で断る（画面は 29 列に狭めて送り直す。web/js/owned.js の uploadLocal）
+  const wide = oldCall('ownedUpload', upload(WORLD_A, [row('p2')], '2026-10-05T11:00:00.000Z', { players, farms, world }));
+  assert.deepEqual([wide.code, wide.errors[0]], ['VALIDATION', { field: 'columns', code: 'INVALID_COLUMNS' }]);
+  const narrow = oldCall('ownedUpload', upload(WORLD_A, [row('p2').slice(0, SOUL_AT)], '2026-10-05T11:00:00.000Z', { players, farms, world, columns: OWNED_FIELDS.slice(0, SOUL_AT) }));
+  assert.equal(narrow.stored, true);
+  // 版 12 は新しい鍵を捨てる（players・farms は書き直す）。新しい世代の行の soul・condition は空
+  assert.deepEqual([narrow.world.players, narrow.world.farms], [[{ uid: H, name: 'Dave' }], [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 0 }]]);
+  // 版 13 に戻しても、版 12 が書いた世代では捕獲数・ケーキ・在庫・魂の強化と状態は分からない（列 extras は at が合わない）
+  const [back] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([back.players, back.farms, extraKeys(back)], [[{ uid: H, name: 'Dave' }], [{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 0 }], []]);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], ...r.slice(SOUL_AT)]), [['p2', '', '']]);
+  // 版 13 の次の共有から戻る
+  env.call('ownedUpload', upload(WORLD_A, [row('p3', { soul: '2|0|0|0', condition: '||80' })], '2026-10-05T12:00:00.000Z', { players, farms, world }));
+  const [again] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([again.players, again.farms, again.items], [players, farms, world.items]);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows[0].slice(SOUL_AT), ['2|0|0|0', '||80']);
+});
+
+test('所持パル共有（server の identity）: 版 12 の GAS は players の instanceId を捨てる。版 13 → 12 → 13 と巻き戻しても、画面は選んだ自分を前に引けた UID で引き、同じ名前の別の人にしない', { skip: skipV12 }, () => {
+  const IID_SELF = '11111111-2222-3333-4444-555555555555';
+  const IID_OTHER = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+  const U = 'abcdef01-0000-0000-0000-000000000000';
+  const B = 'bbbbbbbb-0000-0000-0000-000000000000';
+  // サーバーのワールド（H はいない）。ログイン中の Bob のキャラクターはゲーム内の名前が GameBob。別の人のゲーム内の名前が Bob
+  const players = [{ uid: U, name: 'GameBob', instanceId: IID_SELF }, { uid: B, name: 'Bob', instanceId: IID_OTHER }];
+  const env = fixture();
+  const previous = createGas({ files: oldV12Files, spreadsheet: env.spreadsheet, props: env.props, cacheEntries: env.cache.entries });
+  const oldCall = (action, fields = {}) => plain(previous.gas.handleRequest_(JSON.stringify({ action, passcode: PROPS.TEST_PASSCODE, ...fields })));
+  // 画面と同じく、応答のプレイヤーを整えてから自分を決める（selfLastUid は self-player.js がサーバーの共有で覚えた U）
+  const identity = { userId: 'Bob', users: ['Bob'], self: `i:${IID_SELF}`, selfLastUid: U };
+  const mine = (world, extra = {}) => [...ownPlayerUids(cleanSharedPlayers(world.players), { ...identity, ...extra })];
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { players }));
+  const [first] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([first.players, mine(first)], [players, [U]]);
+  // 版 12（巻き戻した GAS）が書いた世代には instanceId がない（版 12 を読む画面も、版 13 に戻した後も）
+  const narrow = oldCall('ownedUpload', upload(WORLD_A, [row('p2').slice(0, SOUL_AT)], '2026-10-05T11:00:00.000Z', { players, columns: OWNED_FIELDS.slice(0, SOUL_AT) }));
+  assert.equal(narrow.stored, true);
+  for (const world of [narrow.world, oldCall('ownedWorlds').worlds[0], env.call('ownedWorlds').worlds[0], env.call('owned', { worldId: WORLD_A }).world]) {
+    assert.deepEqual(world.players, players.map(({ uid, name }) => ({ uid, name })));
+    assert.deepEqual(mine(world), [U]);
+    // 前に引けた UID を覚えていなければ見分けられない（同じ名前の B にしない）
+    assert.deepEqual(mine(world, { selfLastUid: '' }), []);
+  }
+  // 版 13 の次の共有から instanceId が戻る
+  env.call('ownedUpload', upload(WORLD_A, [row('p3')], '2026-10-05T12:00:00.000Z', { players }));
+  const [again] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([again.players, mine(again)], [players, [U]]);
 });

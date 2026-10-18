@@ -118,7 +118,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
       } catch { ok = false; }
     }
   }
-  // このワールドでの自分（self-player.js。ワールドごとに UID の文字列 1 つ）。移し先に値があっても、改名した本人の設定で上書きする
+  // このワールドでの自分（self-player.js。ワールドごとにプレイヤーの鍵〔と覚えた UID〕の文字列 1 つ）。移し先に値があっても、改名した本人の設定で上書きする
   const selfFrom = `${namespace}.ideals.self.${env}.${oldKey}.`;
   const selfTo = `${namespace}.ideals.self.${env}.${newKey}.`;
   if (selfFrom !== selfTo) {

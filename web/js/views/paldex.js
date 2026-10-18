@@ -1,5 +1,5 @@
 // 図鑑（`#/pal`。パル ID なし。paldex）: 有効な全パルを図鑑順の格子に並べ、仲間が子として登録した件数（登録のない種は絵を影に）・
-// 所持の点・目標の星・自分の捕獲数（ホストの画面だけ）を重ねる。マスはパルのタイル（a.pal-tile）なので、押すと右のドロワーでパル詳細
+// 所持の点・目標の星・自分の捕獲数（このワールドでの自分が分かるときだけ）を重ねる。マスはパルのタイル（a.pal-tile）なので、押すと右のドロワーでパル詳細
 //（app.js の root の click → ui/drawer.js の handlePalLink。Ctrl・中クリックは全画面）。
 // 記録・所持パル・目標・自分の更新では、マスを作り直さずに印の変わったマスだけを直す（syncList の update）。集計は更新ごとに 1 回で、
 // 記録の索引・所持パルのデータごとに覚える。配合表・遺伝の仕組みは読まない（INV-2。影で示すのは「子としての登録がない」ことだけ）
@@ -53,7 +53,7 @@ function ownedTotals(list) {
 /**
  * 図鑑の印の集計（データの更新ごとに 1 回。マスはこれを引くだけ）。
  * children は子としての登録の件数（記録がまだ読めていなければ null）、owned は種族ごとの所持数（ownedCounts。所持パルのデータが
- * なければ null）、goals は目標の種族、captures は自分の捕獲数（ownCaptures。自分が分からない・参加者・古いデータでは null）
+ * なければ null）、goals は目標の種族、captures は自分の捕獲数（ownCaptures。自分が分からない・捕獲数のない古いデータでは null）
  * @param {{ index?: object | null, ownedData?: object | null, goals?: { palId: string }[], selfUids?: Set<string> }} input
  */
 export function paldexMarks({ index = null, ownedData = null, goals = [], selfUids = new Set() } = {}) {
@@ -151,7 +151,7 @@ function paldexLegend() {
   const star = el('span', 'paldex-goal');
   star.append(icon('star', { className: 'paldex-star' }));
   item(star, '目標');
-  const capture = item(el('span', 'paldex-capture', '捕獲 12'), '自分が捕まえた数（ホストの画面）');
+  const capture = item(el('span', 'paldex-capture', '捕獲 12'), '自分が捕まえた数');
   return {
     element: legend,
     update(marks) {

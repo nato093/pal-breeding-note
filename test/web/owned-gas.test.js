@@ -3,10 +3,13 @@
 // - 開発用 API（dev/mock-api.js）が GAS と同じ結果を返すこと
 // - API の受信 → 保存（IndexedDB のキャッシュ）→ 復元 → compareSaves の往復
 // - 古い GAS（本番の版 10。e984786）＋新しい画面、新しい GAS＋古い画面（今配信している api.js）、新しい版に戻した後の古い版の行
+// - server の share-extras: 捕獲数・在庫・ケーキ・魂の強化と状態の往復と、版 12（c1a29e7）の GAS・画面との組み合わせ
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createGas, FakeSpreadsheet } from '../gas/harness.js';
-import { legacyGasFiles, legacyApi } from '../gas/legacy.js';
+import { legacyGasFiles, legacyApi, LEGACY_V12_COMMIT } from '../gas/legacy.js';
+import { ownedContentText, itemStock } from '../../web/js/core/owned.js';
 import { createApi, buildRequest, errorMessage, ApiError } from '../../web/js/api.js';
 import { createOwnedStore } from '../../web/js/owned.js';
 import { safeStorage } from '../../web/js/store.js';
@@ -27,6 +30,12 @@ const uploadInput = ({ rows = rowsOf('p', 2), time = '2026-10-05T10:00:00.000Z',
   userId: user, worldId: WORLD, world: { name: 'World9', hostName: 'Alice', ...(id ?? {}) }, saveUpdatedAt: time,
   players: [{ uid: ALICE, name: 'Alice' }], bases: [], columns: OWNED_FIELDS, rows,
 });
+// 版 12 までの GAS・画面の列（soul・condition〔server の share-extras〕を足す前の 29 列）で送る形。古い GAS は 31 列を INVALID_COLUMNS で断る
+const OLD_WIDTH = OWNED_FIELDS.indexOf('soul');
+const legacyInput = (options) => {
+  const input = uploadInput(options);
+  return { ...input, columns: input.columns.slice(0, OLD_WIDTH), rows: input.rows.map((cells) => cells.slice(0, OLD_WIDTH)) };
+};
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const page = (n, extra = {}) => ({ pageId: `page-${String(n).padStart(4, '0')}`, device: `device-${n}`.padEnd(8, '0'), user: `仲間${n}`, role: 'guest', playing: false, canShare: false, ...extra });
 
@@ -169,6 +178,27 @@ const hostSnapshot = (savedAtTicks) => ({
   stats: {}, files: { used: ['Level.sav', 'LevelMeta.sav', 'Players/00000000000000000000000000000001.sav'], skipped: [] },
 });
 
+// ホストの画面だけだった情報（server の share-extras）を持つセーブ: 捕獲数・在庫・牧場のケーキ・魂の強化と状態
+const extrasSnapshot = (savedAtTicks) => {
+  const base = hostSnapshot(savedAtTicks);
+  return {
+    ...base,
+    players: [{ ...base.players[0], captures: [{ id: 'SheepBall', count: 12 }] }],
+    pals: [{ ...base.pals[0], soul: { hp: 10, attack: 0, defense: 0, craft: 0 }, condition: { sick: 'Cold', hunger: '', sanity: 61.6 } }],
+    breedFarms: [{ id: 'F1', baseId: '', status: 'ok', parents: [], eggs: [], cakes: [{ itemId: 'Cake02', count: 51 }] }],
+    items: [{ itemId: 'PalGenderReverse', count: 3, where: 'guild', id: 'g1', object: '' }],
+  };
+};
+const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
+// 共有を受けた参加者の画面の 5 つ（捕獲数・在庫・ケーキ・魂の強化・状態）
+const extrasOf = (data) => [
+  data.players[0]?.captures ?? null, itemStock(data, 'PalGenderReverse'), data.farms?.[0]?.cakes ?? null, data.pals[0]?.soul ?? null, data.pals[0]?.condition ?? null,
+];
+const SHARED_EXTRAS = [
+  { SheepBall: 12 }, { total: 3, places: [{ label: 'ギルド保管庫', count: 3 }] }, [{ itemId: 'Cake02', count: 51 }],
+  { hp: 10, attack: 0, defense: 0, craft: 0 }, { sick: 'Cold', hunger: '', sanity: 62 },
+];
+
 function makeStore({ server, persist = memoryPersist(), storage = memoryStorage(), snapshot }) {
   const store = createOwnedStore({
     persist, settings: safeStorage(storage), namespace: 'pal-note.test', server,
@@ -294,6 +324,43 @@ test('share-upload の往復: 古い GAS に合わせて列を狭めた共有を
   assert.equal(await store.uploadLocal({ force: true }), 'unchanged');
 });
 
+test('share-extras の往復: ホストの画面が捕獲数・在庫・ケーキ・魂の強化と状態を送り（在庫は world の中で中身の印に入る・形の版 10）、GAS（harness）と開発用 API を通って参加者の画面に同じ値が出る', async () => {
+  const env = gas();
+  const mock = createDevelopmentApi();
+  const mockApi = createApi({ transport: (request) => mock(request) });
+  const backends = {
+    gas: (action, input) => env.api.request(action, PROPS.TEST_PASSCODE, input),
+    mock: (action, input) => mockApi.request(action, 'local', input),
+  };
+  for (const [name, call] of Object.entries(backends)) {
+    const sent = [];
+    const server = {
+      scope: () => 'test', userId: () => 'ホスト',
+      request: (action, input = {}) => {
+        if (action === 'ownedUpload') sent.push(input);
+        return call(action, input);
+      },
+    };
+    const host = makeStore({ server, snapshot: extrasSnapshot(stamp(50)) });
+    await host.register(hostFiles(T0));
+    await settleUpload(host.store);
+    assert.equal(host.store.state.upload.result, 'new', name);
+    const [input] = sent;
+    // 在庫は world の中（最上位の項目は増やさない）。列は 31、形の版は OWNED_FORMAT
+    assert.deepEqual([input.world.items, 'items' in input, input.columns.length, input.world.format], [
+      [{ id: 'PalGenderReverse', t: 3, p: [{ l: 'ギルド保管庫', n: 3 }] }], false, OWNED_FIELDS.length, OWNED_FORMAT,
+    ], name);
+    assert.deepEqual([input.players[0].captures, input.farms[0].c, input.rows[0].slice(-2)], [{ SheepBall: 12 }, [{ i: 'Cake02', n: 51 }], ['10|0|0|0', 'Cold||62']], name);
+    // 中身の印は在庫も入れた送る中身の SHA-256
+    assert.equal(input.world.contentHash, sha256(ownedContentText(input)), name);
+    // 参加者の画面（LocalData.sav だけ）
+    const guest = makeStore({ server, snapshot: hostSnapshot(stamp(50)) });
+    assert.equal((await guest.register({ 'LocalData.sav': fakeHandle('LocalData.sav') })).result, 'guest', name);
+    assert.equal(guest.store.state.meta.source, 'shared', name);
+    assert.deepEqual(extrasOf(guest.store.state.owned), SHARED_EXTRAS, name);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 版の組み合わせ（古い版は Git の履歴から取り出す。浅い複製では skip）
 // ---------------------------------------------------------------------------
@@ -303,10 +370,10 @@ const skipOld = oldGasFiles ? false : 'Git の履歴に e984786 がない（浅�
 
 test('owned-gas の組み合わせ: 古い GAS（版 10）＋新しい画面。world の中の識別は捨てられ、ownedSince・presence は BAD_ACTION', { skip: skipOld }, async () => {
   const env = gas({ files: oldGasFiles });
-  const stored = await env.request('ownedUpload', uploadInput({ id: identity({ n: 5, force: true }) }));
+  const stored = await env.request('ownedUpload', legacyInput({ id: identity({ n: 5, force: true }) }));
   assert.equal(stored.stored, true);
   assert.deepEqual(['result' in stored, 'cleanup' in stored, 'saveStamp' in stored.world], [false, false, false]);
-  const again = await env.request('ownedUpload', uploadInput({ id: identity({ n: 5 }), rows: rowsOf('q', 1) }));
+  const again = await env.request('ownedUpload', legacyInput({ id: identity({ n: 5 }), rows: rowsOf('q', 1) }));
   assert.equal(again.stored, true, '古い GAS は同じ時刻なら上書きする');
   assert.deepEqual((await env.request('owned', { worldId: WORLD })).rows.map((r) => r[0]), ['q0']);
   await assert.rejects(env.request('ownedSince', { worldId: WORLD, uploadedAt: again.world.uploadedAt }), { code: 'BAD_ACTION' });
@@ -325,17 +392,67 @@ test('owned-gas の組み合わせ: 古い GAS（版 10）＋新しい画面。w
   assert.deepEqual([guest.store.state.meta.source, guest.store.state.owned.pals.length], ['shared', 1]);
 });
 
+const v12GasFiles = legacyGasFiles(LEGACY_V12_COMMIT);
+const skipV12 = v12GasFiles ? false : `Git の履歴に ${LEGACY_V12_COMMIT} がない（浅い複製）`;
+
+test('share-extras の組み合わせ: 版 12 の GAS＋新しい画面。31 列を断られたら 29 列（形の版 8）に狭めて送り、共有は止まらない（5 つは届かないだけ）', { skip: skipV12 }, async () => {
+  const env = gas({ files: v12GasFiles });
+  const sent = [];
+  const server = {
+    scope: () => 'test', userId: () => 'ホスト',
+    request: (action, input = {}) => {
+      if (action === 'ownedUpload') sent.push(input);
+      return env.request(action, input);
+    },
+  };
+  const host = makeStore({ server, snapshot: extrasSnapshot(stamp(60)) });
+  await host.register(hostFiles(T0));
+  await settleUpload(host.store);
+  assert.deepEqual([host.store.state.upload.status, host.store.state.upload.result], ['done', 'new']);
+  // 末尾の列を 1 つずつ外して送り直し、外した列の数だけ形の版を下げる。中身の印は狭めた後の中身
+  assert.deepEqual(sent.map((input) => [input.columns.length, input.world.format]), [[31, 10], [30, 9], [29, 8]]);
+  assert.equal(sent.at(-1).world.contentHash, sha256(ownedContentText(sent.at(-1))));
+  // 版 12 は新しい鍵（captures・c・world の items）を捨てる。参加者（新しい画面）には今と同じく出ない
+  const guest = makeStore({ server, snapshot: hostSnapshot(stamp(60)) });
+  assert.equal((await guest.register({ 'LocalData.sav': fakeHandle('LocalData.sav') })).result, 'guest');
+  assert.deepEqual(extrasOf(guest.store.state.owned), [null, null, null, null, null]);
+  assert.equal(guest.store.state.owned.pals.length, 1);
+});
+
+test('share-extras の組み合わせ: 新しい GAS＋版 12 の画面（api.js）。新しい列と鍵のある応答も古い検査を通って新しい鍵は捨てられ、古い画面の 29 列の共有も受ける', { skip: skipV12 }, async () => {
+  const old = await legacyApi(LEGACY_V12_COMMIT);
+  if (!old) return;
+  const env = gas();
+  const server = { scope: () => 'test', userId: () => 'ホスト', request: (action, input = {}) => env.request(action, input) };
+  const host = makeStore({ server, snapshot: extrasSnapshot(stamp(70)) });
+  await host.register(hostFiles(T0));
+  await settleUpload(host.store);
+  const api = old.createApi({ transport: (request) => plain(env.gas.handleRequest_(JSON.stringify(request))) });
+  const call = (action, input) => api.request(action, PROPS.TEST_PASSCODE, input);
+  const [listed] = (await call('ownedWorlds')).worlds;
+  assert.deepEqual([listed.players, listed.farms[0].c, 'items' in listed], [[{ uid: ALICE, name: 'Alice', level: 50 }], undefined, false]);
+  const owned = await call('owned', { worldId: WORLD });
+  assert.deepEqual([owned.columns.length, owned.rows[0].length, owned.rows[0].slice(-2)], [OWNED_FIELDS.length, OWNED_FIELDS.length, ['10|0|0|0', 'Cold||62']]);
+  assert.equal((await call('ownedSince', { worldId: WORLD, uploadedAt: '' })).changed, true);
+  // 開いたままの版 12 の画面が新しいセーブを共有する（29 列・新しい鍵なし）。その世代だけ、参加者の画面で 5 つが分からない
+  const stored = await call('ownedUpload', legacyInput({ rows: rowsOf('old', 1), time: new Date(T0 + 2 * 60 * 60 * 1000).toISOString() }));
+  assert.equal(stored.stored, true);
+  const guest = makeStore({ server, snapshot: hostSnapshot(stamp(70)) });
+  assert.equal((await guest.register({ 'LocalData.sav': fakeHandle('LocalData.sav') })).result, 'guest');
+  assert.deepEqual([guest.store.state.owned.pals.map((pal) => pal.id), extrasOf(guest.store.state.owned)], [['old0'], [null, null, null, null, null]]);
+});
+
 test('owned-gas の組み合わせ: 新しい GAS＋古い画面（今配信している api.js）。新しい応答の項目は古い検査を通り、読めるのは今の世代だけ', { skip: skipOld }, async () => {
   const old = await legacyApi();
   if (!old) return;
   const env = gas();
   const api = old.createApi({ transport: (request) => plain(env.gas.handleRequest_(JSON.stringify(request))) });
   const call = (action, input) => api.request(action, PROPS.TEST_PASSCODE, input);
-  // 古い画面は識別を送らない（更新日時で比べる）
-  const first = await call('ownedUpload', uploadInput({ rows: rowsOf('a', 2) }));
-  const second = await call('ownedUpload', uploadInput({ rows: rowsOf('b', 3), time: '2026-10-05T11:00:00.000Z' }));
+  // 古い画面は識別を送らない（更新日時で比べる）。列は soul・condition を足す前の 29 列
+  const first = await call('ownedUpload', legacyInput({ rows: rowsOf('a', 2) }));
+  const second = await call('ownedUpload', legacyInput({ rows: rowsOf('b', 3), time: '2026-10-05T11:00:00.000Z' }));
   assert.deepEqual([first.stored, second.stored, second.result], [true, true, 'newer']);
-  const stale = await call('ownedUpload', uploadInput({ rows: rowsOf('c', 1), time: '2026-10-05T09:00:00.000Z' }));
+  const stale = await call('ownedUpload', legacyInput({ rows: rowsOf('c', 1), time: '2026-10-05T09:00:00.000Z' }));
   assert.deepEqual([stale.stored, stale.reason], [false, 'STALE']);
   // 2 世代がシートにあっても、古い画面の読み込みには今の世代だけが届く
   const owned = await call('owned', { worldId: WORLD });
@@ -350,7 +467,7 @@ test('owned-gas の組み合わせ: 新しい GAS＋古い画面（今配信し�
   // 次に新しいセーブを読むまで送り直さない）
   const host = await env.request('ownedUpload', uploadInput({ id: identity({ n: 7 }), rows: rowsOf('h', 2) }));
   assert.equal(host.result, 'new');
-  const synced = await call('ownedUpload', uploadInput({ rows: rowsOf('s', 1), user: 'ゲスト' }));
+  const synced = await call('ownedUpload', legacyInput({ rows: rowsOf('s', 1), user: 'ゲスト' }));
   assert.deepEqual([synced.stored, synced.result, synced.world.uploadedBy, synced.world.uploadedAt], [false, 'same', 'ホスト', host.world.uploadedAt]);
   assert.deepEqual((await call('owned', { worldId: WORLD })).rows.map((r) => r[0]), ['h0', 'h1']);
   assert.equal((await env.request('ownedWorlds')).worlds[0].saveStamp, stamp(7));
@@ -364,7 +481,7 @@ test('owned-gas の組み合わせ: 巻き戻した古い版（行数を足さ�
     const oldCall = (action, fields = {}) => plain(previous.gas.handleRequest_(JSON.stringify({ action, passcode: PROPS.TEST_PASSCODE, ...fields })));
     sizes.forEach((size, i) => next.raw('ownedUpload', uploadInput({ id: identity({ n: i + 1 }), rows: rowsOf(`g${i}-`, size), time: `2026-10-05T1${i}:00:00.000Z` })));
     next.gas.compactOwned('test');
-    const stored = oldCall('ownedUpload', uploadInput({ rows: rowsOf('grown', grown), time: '2026-10-05T20:00:00.000Z' }));
+    const stored = oldCall('ownedUpload', legacyInput({ rows: rowsOf('grown', grown), time: '2026-10-05T20:00:00.000Z' }));
     assert.equal(stored.stored, true, `${sizes} → ${grown}: ${JSON.stringify(stored)}`);
     assert.equal(oldCall('owned', { worldId: WORLD }).rows.length, grown);
   }
@@ -388,7 +505,7 @@ test('owned-gas の組み合わせ: 巻き戻し（古い版）の間の書き�
   //（新しい版の世代の時刻は同じミリ秒なら 1 ミリ秒ずつ進めるので、古い版の時刻がそれと重ならないよう少し待つ）
   const until = Date.now() + 5;
   while (Date.now() < until);
-  const during = oldCall('ownedUpload', uploadInput({ rows: rowsOf('c', 2), time: '2026-10-05T11:00:00.000Z' }));
+  const during = oldCall('ownedUpload', legacyInput({ rows: rowsOf('c', 2), time: '2026-10-05T11:00:00.000Z' }));
   assert.equal(during.stored, true);
   // 新しい版に戻す
   next.gas.resumeOwned('test');

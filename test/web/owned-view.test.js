@@ -2702,6 +2702,8 @@ test('所持パル画面: 2,000 行を超えて見えている範囲だけ描く
 // ---------------------------------------------------------------------------
 const SELF_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const selfKeyOf = (userId) => `pal-note.ideals.self.test.${userId}.${SELF_WORLD}`;
+// 選択肢の値と保存する値はプレイヤーの鍵（server の identity。InstanceId のないプレイヤーは 'u:<uid>'）
+const keyOf = (uid) => `u:${uid}`;
 // 参加している人の画面（登録したワールドはなく、ホストが共有した所持パルを見ている）。プレイヤーは Alice・Bob・Bob（同じ名前）
 function guestOwned(players = [{ uid: P1, name: 'Alice' }, { uid: P2, name: 'Bob' }, { uid: P3, name: 'Bob' }]) {
   const owned = fakeOwned(null);
@@ -2721,7 +2723,7 @@ function hostOwned() {
   Object.assign(owned.state, { linkedWorldId: SELF_WORLD, meta: { ...owned.state.meta, worldId: SELF_WORLD } });
   return owned;
 }
-// ログインした store（購読つき）・この端末の保存・このワールドでの自分・理想個体の登録（app.js と同じく identity に selfUid を渡す）
+// ログインした store（購読つき）・この端末の保存・このワールドでの自分・理想個体の登録（app.js と同じく identity に self・selfLastUid を渡す）
 function selfApp(owned, { userId = '仲間', users = ['仲間', 'Alice'], autoRegister = null } = {}) {
   const app = context(owned);
   const listeners = new Set();
@@ -2734,7 +2736,10 @@ function selfApp(owned, { userId = '仲間', users = ['仲間', 'Alice'], autoRe
   app.autoRegister = autoRegister;
   app.ideals = createIdealStore({
     store: app.store, owned, storage,
-    identity: (worldId) => ({ userId: app.store.state.userId, users: app.store.state.users, mapping: autoRegister?.mapping(worldId) ?? {}, selfUid: app.self.get(worldId) }),
+    identity: (worldId) => ({
+      userId: app.store.state.userId, users: app.store.state.users, mapping: autoRegister?.mapping(worldId) ?? {}, self: app.self.get(worldId),
+      selfLastUid: app.self.lastUid(worldId),
+    }),
   });
   app.replacements = [];
   app.replace = (hash) => app.replacements.push(hash);
@@ -2762,11 +2767,11 @@ test('設定画面（このワールドでの自分）: 参加している人（
   assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'Alice', 'Bob（ABCD1234）', 'Bob（1A2B3C4D）']);
   assert.equal(select.value, '');
   assert.equal(app.ideals.mine(), null);
-  select.value = P2;
+  select.value = keyOf(P2);
   select.dispatch('change');
-  assert.equal(values.get(selfKeyOf('仲間')), P2);
+  assert.equal(values.get(selfKeyOf('仲間')), keyOf(P2));
   assert.deepEqual([...app.ideals.selfUids()], [P2]);
-  assert.equal(select.value, P2);
+  assert.equal(select.value, keyOf(P2));
   // 「未設定」に戻すと消す
   select.value = '';
   select.dispatch('change');
@@ -2810,9 +2815,10 @@ test('設定画面（このワールドでの自分）: 別のタブで変えた
   owned.emit();
   app.store.emit();
   assert.deepEqual([...select.children], options);
+  // 前の版の値（プレフィックスのない UID）も、そのプレイヤーの選択肢に合わせる
   values.set(selfKeyOf('仲間'), P3);
   app.self.reload(selfKeyOf('仲間'));
-  assert.equal(select.value, P3);
+  assert.equal(select.value, keyOf(P3));
   assert.deepEqual([...select.children], options);
   card.destroy();
 });
@@ -3071,7 +3077,7 @@ test('設定画面（このワールドでの自分）: ID の変更中は選べ
   app.store.emit();
   assert.equal(select.disabled, true);
   assert.equal(select.title, 'ID の変更が終わってから選んでください');
-  select.value = P2;
+  select.value = keyOf(P2);
   select.dispatch('change');
   assert.equal(values.has(selfKeyOf('仲間')), false);
   assert.equal(select.value, '');
@@ -3079,10 +3085,65 @@ test('設定画面（このワールドでの自分）: ID の変更中は選べ
   app.store.emit();
   assert.equal(select.disabled, false);
   assert.equal(select.title, '');
-  select.value = P2;
+  select.value = keyOf(P2);
   select.dispatch('change');
-  assert.equal(values.get(selfKeyOf('仲間')), P2);
+  assert.equal(values.get(selfKeyOf('仲間')), keyOf(P2));
   card.destroy();
+});
+
+test('設定画面（このワールドでの自分）: InstanceId のあるプレイヤーは選択肢の値がキャラクターの鍵（i:）で、前の版の値（UID）もその選択肢に合わせる（server の identity）', (t) => {
+  installDom(t);
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  const IID_BOB = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+  const owned = guestOwned([{ uid: P1, name: 'Alice', instanceId: IID_ALICE }, { uid: P2, name: 'Bob', instanceId: IID_BOB }, { uid: P3, name: 'Carol' }]);
+  const { app, values } = selfApp(owned);
+  // 前の版の画面が UID のまま保存していた
+  values.set(selfKeyOf('仲間'), P2);
+  app.self.reload(selfKeyOf('仲間'));
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const select = selfSelectOf(card.element);
+  assert.deepEqual(select.children.map((node) => node.value), ['', `i:${IID_ALICE}`, `i:${IID_BOB}`, keyOf(P3)]);
+  assert.equal(select.value, `i:${IID_BOB}`);
+  assert.deepEqual([...app.ideals.selfUids()], [P2]);
+  select.value = `i:${IID_ALICE}`;
+  select.dispatch('change');
+  assert.equal(values.get(selfKeyOf('仲間')), `i:${IID_ALICE}`);
+  assert.deepEqual([...app.ideals.selfUids()], [P1]);
+  // 選んだプレイヤーの UID（H 以外）を覚える（InstanceId のない共有で引くため。self-player.js）
+  select.value = `i:${IID_BOB}`;
+  select.dispatch('change');
+  assert.equal(values.get(selfKeyOf('仲間')), `i:${IID_BOB}|${P2}`);
+  card.destroy();
+});
+
+test('設定画面（このワールドでの自分）: 保存した i: を InstanceId のない共有（版 12 の GAS・古い画面）で見分けられなければ、そう出して自動の規則も使わない。覚えた UID で引ければその人を選ぶ（server の identity）', async (t) => {
+  installDom(t);
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  // ログイン中の Alice と同じ名前のプレイヤー（P1）がいる共有。InstanceId はない
+  const owned = guestOwned();
+  const { app, values } = selfApp(owned, { userId: 'Alice', users: ['Alice', '仲間'] });
+  const key = app.self.key(SELF_WORLD);
+  values.set(key, `i:${IID_ALICE}`);
+  app.self.reload(key);
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const select = selfSelectOf(card.element);
+  assert.equal(select.children[0].textContent, '選んだ自分（この共有では見分けられません）');
+  assert.equal(select.value, '');
+  assert.deepEqual([...app.ideals.selfUids()], []);
+  assert.equal(app.ideals.mine(), null);
+  card.destroy();
+  // 前の版の通知・ブックマーク（open=auto）は、自分が決まっていないので自分の選択へ
+  let view = await openSettings(app, `#/settings?world=${SELF_WORLD}&open=auto`);
+  assert.equal(document.activeElement, selfSelectOf(view.element));
+  closeSettings(view);
+  // 覚えた UID（P2）があれば、その人を選び、自動の名前も出す
+  values.set(key, `i:${IID_ALICE}|${P2}`);
+  app.self.reload(key);
+  view = await openSettings(app, `#/settings?world=${SELF_WORLD}`);
+  const again = selfSelectOf(view.element);
+  assert.deepEqual([again.children[0].textContent, again.value], ['自動（Alice）', keyOf(P2)]);
+  assert.deepEqual([...app.ideals.selfUids()], [P2]);
+  closeSettings(view);
 });
 
 test('設定画面（このワールドでの自分）: 表示するワールドが替わった直後に、まだ前のワールドの選択肢で選んでも保存せず、離れたら今のワールドの選択肢に作り直す', async (t) => {
@@ -3101,7 +3162,7 @@ test('設定画面（このワールドでの自分）: 表示するワールド
   owned.emit();
   assert.deepEqual(select.children.map((node) => node.textContent), before);
   // 前のワールドの Bob を選んでも、どちらのワールドのキーにも保存しない
-  select.value = P2;
+  select.value = keyOf(P2);
   await select.dispatch('change');
   assert.equal(values.has(selfKeyOf('仲間')), false);
   assert.equal(values.has(`pal-note.ideals.self.test.仲間.${OTHER}`), false);
@@ -3111,9 +3172,9 @@ test('設定画面（このワールドでの自分）: 表示するワールド
   assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'Carol']);
   assert.equal(select.value, '');
   // 作り直した後は、今のワールドに保存する
-  select.value = P3;
+  select.value = keyOf(P3);
   await select.dispatch('change');
-  assert.equal(values.get(`pal-note.ideals.self.test.仲間.${OTHER}`), P3);
+  assert.equal(values.get(`pal-note.ideals.self.test.仲間.${OTHER}`), keyOf(P3));
   card.destroy();
 });
 
@@ -3214,7 +3275,7 @@ test('所持パル画面（配合牧場の帯）: 牧場の情報があれば「
   again.element.querySelector('.farm-band-open').dispatch('click');
   assert.deepEqual(opened, [{ kind: 'farms', id: '' }]);
   again.destroy();
-  // ケーキ切れの牧場（cakes が []。ホストの画面だけ）があれば、閉じた 1 行に「· ケーキ切れ n」（警告の色。分からない null は数えない）
+  // ケーキ切れの牧場（cakes が []。ケーキの分かる牧場だけ）があれば、閉じた 1 行に「· ケーキ切れ n」（警告の色。分からない null は数えない）
   owned.state.owned.farms = [
     { id: 'F1', baseId: '', parents: ['a'], status: 'ok', eggs: [], eggCount: 2, cakes: [] },
     { id: 'F2', baseId: '', parents: [], status: 'ok', eggs: [], eggCount: 0, cakes: null },
