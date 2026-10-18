@@ -1135,7 +1135,7 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     if (!cur) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0, instanceId: p.instanceId || '' });
     else if (!cur.instanceId) cur.instanceId = p.instanceId || '';
   }
-  // 捕獲数（paldex。ホストの画面だけ・共有しない）。読めたプレイヤーだけに付ける（古いセーブ・読めなかったプレイヤーには項目がない）
+  // 捕獲数（paldex。共有の players の captures で参加者にも届く）。読めたプレイヤーだけに付ける（古いセーブ・読めなかったプレイヤーには項目がない）
   for (const p of playerSaves) {
     if (p.uid && Array.isArray(p.captures)) playerMap.get(p.uid).captures = p.captures.map(({ id, count }) => ({ id, count }));
   }
@@ -1275,12 +1275,12 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     const eggs = f.eggContainerIds.flatMap((id) => (eggsByContainer.get(id) || [])
       // itemId はタマゴのアイテム（突然変異タマゴは PalEgg_MutationPal_*）
       .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw, itemId: egg.staticId })));
-    // ケーキ（牧場の入れ物のケーキの種類と個数。[] はケーキ切れ、null は入れ物が読めない。ホストの画面だけ・共有しない。save-extras）
+    // ケーキ（牧場の入れ物のケーキの種類と個数。[] はケーキ切れ、null は入れ物が読めない。共有の farms の c。save-extras）
     const cakes = Array.isArray(f.cakes) ? f.cakes.map((cake) => ({ itemId: cake.itemId, count: cake.count })) : null;
     return { id: f.id, baseId: f.baseCampId, status, parents, eggs, cakes };
   });
 
-  // アイテムの在庫（implants。ホストの画面だけ・共有しない）: 数えた入れ物のうち、ギルド保管庫・プレイヤーの所持品と、拠点の中のマップオブジェクト
+  // アイテムの在庫（implants。共有の列 extras の items で参加者にも届く）: 数えた入れ物のうち、ギルド保管庫・プレイヤーの所持品と、拠点の中のマップオブジェクト
   //（baseCampId のある拠点の箱・配合牧場・ほかの設備）の入れ物だけを、アイテムと場所ごとに合わせる。拠点の外の入れ物（ワールドの宝箱
   // TreasureBox_* など。baseCampId が空）と持ち主の分からない入れ物は数えない（数えると実セーブでパルリバーサーが 3 個から 88 個に化けた）
   const stock = new Map();

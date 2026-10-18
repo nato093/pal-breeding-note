@@ -3238,7 +3238,7 @@ test('所持パル画面（配合牧場の帯）: 牧場の情報があれば「
   again.element.querySelector('.farm-band-open').dispatch('click');
   assert.deepEqual(opened, [{ kind: 'farms', id: '' }]);
   again.destroy();
-  // ケーキ切れの牧場（cakes が []。ホストの画面だけ）があれば、閉じた 1 行に「· ケーキ切れ n」（警告の色。分からない null は数えない）
+  // ケーキ切れの牧場（cakes が []。ケーキの分かる牧場だけ）があれば、閉じた 1 行に「· ケーキ切れ n」（警告の色。分からない null は数えない）
   owned.state.owned.farms = [
     { id: 'F1', baseId: '', parents: ['a'], status: 'ok', eggs: [], eggCount: 2, cakes: [] },
     { id: 'F2', baseId: '', parents: [], status: 'ok', eggs: [], eggCount: 0, cakes: null },

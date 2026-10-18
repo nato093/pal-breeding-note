@@ -1098,7 +1098,7 @@ export function ownedView(context, route) {
       return;
     }
     const eggs = data.farmsCounted === false ? null : farms.reduce((sum, farm) => sum + farm.eggCount, 0);
-    // ケーキ切れの牧場の数（ホストの画面だけ。閉じたままでも気づけるように警告の色で。フェーズ 4 の終わりのレビュー）
+    // ケーキ切れの牧場の数（ケーキの分かる牧場だけ。閉じたままでも気づけるように警告の色で。フェーズ 4 の終わりのレビュー）
     const out = farms.filter(cakesOut).length;
     const text = `配合牧場（${farms.length} か所${eggs === null ? '' : ` · タマゴ ${eggs} 個`}`;
     if (farmToggleText.textContent !== `${text}${out ? ` · ケーキ切れ ${out}` : ''}）`) {
