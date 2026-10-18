@@ -1465,7 +1465,8 @@ test('画面: 前の版の「このワールドでの自分」（UID）を、共
   const selfKey = (world) => `pal-note.ideals.self.test.架空データ.${world}`;
   const { values } = await boot(t, { initial: { ...signedIn, [selfKey(WORLD_A)]: PLAYER, [selfKey(WORLD_B)]: HOST, 'pal-note.owned.bridge': JSON.stringify({ viewWorldId: WORLD_A }) }, api: development, hash: '#/settings' });
   for (let i = 0; i < 50 && values.get(selfKey(WORLD_A)) === PLAYER; i++) await flush();
-  assert.equal(values.get(selfKey(WORLD_A)), `i:${IID_ALICE}`);
+  // 移す前の UID は、InstanceId のない共有で引くために '|' の後ろに覚える（self-player.js）
+  assert.equal(values.get(selfKey(WORLD_A)), `i:${IID_ALICE}|${PLAYER}`);
   const selfSelect = () => find((node) => node.tagName === 'select' && node.getAttribute('aria-label') === 'このワールドでの自分');
   for (let i = 0; i < 50 && selfSelect()?.value !== `i:${IID_ALICE}`; i++) await flush();
   assert.equal(selfSelect().value, `i:${IID_ALICE}`);
@@ -1476,6 +1477,27 @@ test('画面: 前の版の「このワールドでの自分」（UID）を、共
   for (let i = 0; i < 50 && selfSelect()?.value !== `i:${IID_HOST}`; i++) await flush();
   assert.equal(selfSelect().value, `i:${IID_HOST}`);
   assert.equal(values.get(selfKey(WORLD_B)), HOST);
+});
+
+test('画面: 保存した「このワールドでの自分」がキャラクターの鍵（i:）で共有に InstanceId がない（版 12 の GAS・古い画面）ときは、覚えた UID で自分を決め、同じ名前の別の人にしない（server の identity）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  // 共有のプレイヤーに InstanceId がない。ログインしている「架空データ」と同じ名前の別の人がいる（モコロンは持っていない）
+  await shareWorld(development, WORLD_A, {}, [{ uid: PLAYER, name: 'アリス' }, { uid: '00000000000000000000000000000002', name: '架空データ' }]);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', order: 'next', worlds: {} }];
+  const key = `pal-note.ideals.self.test.架空データ.${WORLD_A}`;
+  const { values, events } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals), [key]: `i:${IID_ALICE}` }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const status = () => byClass('ideal-goal-status').textContent;
+  // 覚えた UID がなければ見分けられない（同じ名前の「架空データ」を自分にしない）
+  assert.equal(status(), '未確認');
+  // 覚えた UID（アリス）があれば、アリスを自分にする
+  values.set(key, `i:${IID_ALICE}|${PLAYER}`);
+  events.get('storage')({ key });
+  assert.match(status(), /^完成済み: アリス/);
+  // InstanceId のない共有では書き直さない
+  assert.equal(values.get(key), `i:${IID_ALICE}|${PLAYER}`);
 });
 
 test('画面: 設定を開いたまま設定の行き先のリンク（ヘッダーのセーブ連携の「設定を開く」）を押しても、履歴を増やさずにその場で行き先へ移る', async (t) => {

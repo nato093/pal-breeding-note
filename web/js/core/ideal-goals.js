@@ -1,6 +1,6 @@
 // 登録した理想個体（目標）の形と、完成品の判定。遺伝の仕組み（core/ideal.js）は使わない。
 import { sanitizeText } from './validate.js';
-import { ownedWorldId, HOST_UID, hostIsPlayer, formerLabel, playerUidOfKey } from './owned-shared.js';
+import { ownedWorldId, HOST_UID, hostIsPlayer, formerLabel, playerUidOfKey, legacyPlayerKey, playerGuid } from './owned-shared.js';
 import { userIdKey } from './user.js';
 
 export const GOAL_MODES = Object.freeze(['include', 'only']);
@@ -101,9 +101,24 @@ export function goalKey(goal) {
 }
 
 /**
+ * 設定の「このワールドでの自分」（self。プレイヤーの鍵 'i:'・'u:' か前の版の UID）を、その回のプレイヤーの uid に引く。引けなければ ''。
+ * 'i:' を引けず、どのプレイヤーにも InstanceId がない（版 12 の GAS・古い画面が送った共有）ときは、キャラクターがいなくなったのか
+ * InstanceId が届かなかっただけなのか分からない。そのときは、そのキャラクターで前に引けた UID（lastUid。H 以外。self-player.js が覚える）で引き、
+ * 引けなければ null（同じ名前などで別の人に切り替えない）
+ * @returns {string|null}
+ */
+export function selfPlayerUid(players, self, lastUid = '') {
+  const list = Array.isArray(players) ? players : [];
+  const uid = playerUidOfKey(list, self);
+  if (uid || !legacyPlayerKey(self).startsWith('i:') || list.some((player) => playerGuid(player?.instanceId))) return uid;
+  const last = legacyPlayerKey(lastUid);
+  return (last.startsWith('u:') && last !== `u:${HOST_UID}` ? playerUidOfKey(list, last) : '') || null;
+}
+
+/**
  * 自分（ログイン中の ID）にあたるセーブのプレイヤー。決め方は次の順:
  * 1. 設定の「このワールドでの自分」（self。プレイヤーの鍵 'i:'・'u:' か前の版の UID〔selfUid でも受ける〕。その回のプレイヤーに引けるときだけ。
- *    引ければその 1 人だけ）
+ *    引ければその 1 人だけ。InstanceId のない共有では selfLastUid でも引く〔selfPlayerUid〕。それでも見分けられなければ空）
  * 2. 設定の「登録者の対応」（配合牧場の自動登録。プレイヤーの UID → ノートの ID）で自分の ID を選んだプレイヤー
  * 3. 対応を選んでいないプレイヤーのうち、ノートの ID と同じ名前のプレイヤー
  * 2・3 は配合牧場の自動登録の core/auto-breeding.js の mappedUser と同じ規則（そちらは自動登録の外から読まないので、ここに置く）。
@@ -111,17 +126,20 @@ export function goalKey(goal) {
  * 足す（1 人も決まらないときに足すと、所持者の「自分」が出ないのに自分の個体だけがある、になる）。
  * ログインしていなければ（userId が空）空。
  * @param {{ uid: string, name: string, instanceId?: string }[]} players
- * @param {{ userId: string, users?: string[], mapping?: Record<string, string>, self?: string, selfUid?: string }} identity mapping はプレイヤーの UID → ID
+ * @param {{ userId: string, users?: string[], mapping?: Record<string, string>, self?: string, selfUid?: string, selfLastUid?: string }} identity
+ *   mapping はプレイヤーの UID → ID
  * @returns {Set<string>} プレイヤーの UID（以前の持ち主の UID を含む）
  */
-export function ownPlayerUids(players, { userId, users = [], mapping = {}, self = '', selfUid = '' }) {
+export function ownPlayerUids(players, { userId, users = [], mapping = {}, self = '', selfUid = '', selfLastUid = '' }) {
   const me = userId ? userIdKey(userId) : '';
   const known = new Set(users.map(userIdKey));
   const mine = new Set();
   if (!me) return mine;
   const mappedTo = (chosen) => (known.has(userIdKey(chosen)) ? userIdKey(chosen) : '');
-  // このワールドでの自分。別のワールドの値・プレイヤーが消えたときは、ここで決めずに 2・3 の規則に戻る
-  const chosenSelf = playerUidOfKey(players, self || selfUid);
+  // このワールドでの自分。別のワールドの値・プレイヤーが消えたときは、ここで決めずに 2・3 の規則に戻る。InstanceId のない共有で
+  // 見分けられないときは、別の人を自分にしない
+  const chosenSelf = selfPlayerUid(players, self || selfUid, selfLastUid);
+  if (chosenSelf === null) return mine;
   if (chosenSelf) mine.add(chosenSelf);
   else {
     for (const player of players) {

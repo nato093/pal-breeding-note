@@ -11,7 +11,7 @@ import {
 } from '../../web/js/core/owned-shared.js';
 import { normalizeOwned, sharedUpload, sharedExtras, ownedFromShared, shortUid as ownedShortUid } from '../../web/js/core/owned.js';
 import { cleanSharedPlayers } from '../../web/js/core/boundary.js';
-import { ownPlayerUids, palsOfPlayers } from '../../web/js/core/ideal-goals.js';
+import { ownPlayerUids, palsOfPlayers, selfPlayerUid } from '../../web/js/core/ideal-goals.js';
 import { resolveRegistrant } from '../../web/js/core/auto-breeding.js';
 
 const H = HOST_UID;
@@ -205,6 +205,51 @@ test('このワールドでの自分: self は鍵（i:・u:・前の版の UID�
   // 引けない値（サーバーの u:H）は今の規則（対応・同じ名前）に戻る
   assert.deepEqual(own(server, { self: `u:${H}` }), []);
   assert.deepEqual([...ownPlayerUids(server, { userId: 'Bob', users, self: `u:${H}` })], [B]);
+});
+
+test('このワールドでの自分: InstanceId のない共有（版 12 の GAS・古い画面）では、保存した i: を前に引けた UID（H 以外）で引き、引けなければ別の人に切り替えない', () => {
+  const users = ['Alice', 'Bob', 'Carol'];
+  // ログイン中の Bob が選んだ自分は、ゲーム内の名前が GameBob のキャラクター（IID_A）。別の人（B）のゲーム内の名前が Bob
+  const old = [{ uid: U, name: 'GameBob' }, { uid: B, name: 'Bob' }];
+  const own = (players, identity) => [...ownPlayerUids(players, { userId: 'Bob', users, self: `i:${IID_A}`, ...identity })];
+  assert.equal(selfPlayerUid(old, `i:${IID_A}`, U.toUpperCase()), U);
+  assert.deepEqual(own(old, { selfLastUid: U }), [U]);
+  // 前に引けた UID がない・H・その回にいない UID なら見分けられない（null）。同じ名前の B・対応の H に切り替えない
+  for (const lastUid of ['', H, X, 'a b']) {
+    assert.equal(selfPlayerUid(old, `i:${IID_A}`, lastUid), null, lastUid);
+    assert.deepEqual(own(old, { selfLastUid: lastUid, mapping: { [H]: 'Bob' } }), [], lastUid);
+  }
+  // プレイヤーのいない一覧も見分けられない
+  assert.equal(selfPlayerUid([], `i:${IID_A}`, U), null);
+  // u: と前の版の UID は今までどおり UID で引く（lastUid は使わない）
+  assert.equal(selfPlayerUid(old, `u:${U}`, B), U);
+  assert.equal(selfPlayerUid(old, `u:${X}`, U), '');
+  assert.deepEqual(own(old, { self: `u:${X}`, selfLastUid: U }), [B]);
+  // InstanceId のある一覧で引けない（キャラクターを作り直した・いなくなった）ときは、今の規則（対応・同じ名前）に戻る
+  const recreated = [{ uid: U, name: 'GameBob', instanceId: IID_B }, { uid: B, name: 'Bob', instanceId: '99999999-0000-0000-0000-000000000000' }];
+  assert.equal(selfPlayerUid(recreated, `i:${IID_A}`, U), '');
+  assert.deepEqual(own(recreated, { selfLastUid: U }), [B]);
+  // 一部のプレイヤー（ギルドだけの人）にだけ InstanceId がなくても、InstanceId のある一覧として扱う
+  assert.equal(selfPlayerUid([{ uid: U, name: 'GameBob' }, { uid: B, name: 'Bob', instanceId: IID_B }], `i:${IID_A}`, U), '');
+});
+
+test('このワールドでの自分: 13 → 12 → 13 の巻き戻しと、協力プレイ（H）とサーバー（U）の往復を重ねても、選んだキャラクターから別の人に替わらない', () => {
+  const users = ['Alice', 'Bob'];
+  const own = (players, lastUid) => [...ownPlayerUids(players, { userId: 'Bob', users, self: `i:${IID_A}`, selfLastUid: lastUid })];
+  const strip = (players) => players.map(({ uid, name }) => ({ uid, name }));
+  // 協力プレイ（この人がホスト＝H）・サーバー（作成者の UID＝U）・協力プレイで仲間がホスト（この人は U に戻る）
+  const coopHost = [{ uid: H, name: 'GameBob', instanceId: IID_A }, { uid: B, name: 'Bob', instanceId: IID_B }];
+  const server = [{ uid: U, name: 'GameBob', instanceId: IID_A }, { uid: B, name: 'Bob', instanceId: IID_B }];
+  const coopGuest = [{ uid: H, name: 'Bob', instanceId: IID_B }, { uid: U, name: 'GameBob', instanceId: IID_A }];
+  // サーバーで U を覚えた後（self-player.js の migrate）。版 13 → 12（InstanceId なし）→ 13
+  for (const [players, expected] of [
+    [coopHost, [H]], [server, [U]], [strip(server), [U]], [server, [U]],
+    [coopGuest, [U]], [strip(coopGuest), [U]],
+    // 古い画面の協力プレイのホストの共有で、この人が H のときは見分けられない（H は覚えない）。同じ名前の B にはしない
+    [strip(coopHost), []], [coopHost, [H]],
+  ]) assert.deepEqual(own(players, U), expected, JSON.stringify(players));
+  // U をまだ覚えていない（協力プレイのホストでしか読んでいない）ときの版 12 の共有も、B にはしない
+  assert.deepEqual(own(strip(server), ''), []);
 });
 
 test('このワールドでの自分: 自分が決まったときだけ、プレイヤーにいない UID のうち対応で自分の ID を選んだもの（以前のホストなど）を足す', () => {

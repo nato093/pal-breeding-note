@@ -9,8 +9,8 @@ import { buildHash } from '../router.js';
 import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
 import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES } from '../save/handles.js';
 import { mappedUser } from '../core/auto-breeding.js';
-import { ownPlayerUids } from '../core/ideal-goals.js';
-import { ownedWorldId, playerKeyOf, playerUidOfKey } from '../core/owned-shared.js';
+import { ownPlayerUids, selfPlayerUid } from '../core/ideal-goals.js';
+import { ownedWorldId, playerKeyOf } from '../core/owned-shared.js';
 import { syncOptions } from './shared.js';
 
 function option(value, label) {
@@ -505,7 +505,9 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       renderSelf();
       return;
     }
-    if (!context.self.set(selfWorld, selfSelect.value) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）', { kind: 'error' });
+    // 選んだプレイヤーの UID も渡す（i: のとき、InstanceId のない共有で引くために覚える。self-player.js）
+    const chosen = (owned.state.owned?.players ?? []).find((player) => playerKeyOf(player) === selfSelect.value);
+    if (!context.self.set(selfWorld, selfSelect.value, { uid: chosen?.uid ?? '' }) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）', { kind: 'error' });
   });
   // 出すのは、ログイン中で、表示しているワールド（ホストでも参加者でも。参加者は共有から来たプレイヤー）にプレイヤーがいるときだけ
   function renderSelf() {
@@ -530,16 +532,18 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const auto = ownPlayerUids(players, { userId, users, mapping: autoRegister && state.meta?.worldId ? autoRegister.mapping(state.meta.worldId) : {} });
     const label = playerLabels(players);
     const autoNames = players.filter((player) => auto.has(player.uid)).map(label);
-    selfAuto = autoNames.length > 0;
     // 選択肢の値はプレイヤーの鍵（キャラクターの InstanceId の i:、なければ u:。server の identity）。保存した値（前の版の UID も）は
-    // その回のプレイヤーに引いてから選ぶ
+    // その回のプレイヤーに引いてから選ぶ。InstanceId のない共有で、選んだ自分を見分けられない（null）ときは自動の規則も使わない（ownPlayerUids）
     const saved = context.self.get(worldId);
-    const savedUid = playerUidOfKey(players, saved);
+    const savedUid = selfPlayerUid(players, saved, context.self.lastUid(worldId));
+    selfAuto = savedUid !== null && autoNames.length > 0;
     const value = savedUid ? playerKeyOf(players.find((player) => player.uid === savedUid)) : '';
-    const signature = JSON.stringify([worldId, players.map((player) => [player.uid, player.name, playerKeyOf(player)]), saved, autoNames, users]);
+    const signature = JSON.stringify([worldId, players.map((player) => [player.uid, player.name, playerKeyOf(player)]), saved, savedUid, autoNames, users]);
     if (signature === renderedSelf) return;
     renderedSelf = signature;
-    const choices = [['', selfAuto ? `自動（${autoNames.join('・')}）` : '未設定（自分の個体を判定しません）'],
+    const first = savedUid === null ? '選んだ自分（この共有では見分けられません）'
+      : selfAuto ? `自動（${autoNames.join('・')}）` : '未設定（自分の個体を判定しません）';
+    const choices = [['', first],
       ...players.map((player) => [playerKeyOf(player), label(player)])];
     // 選んでいる途中（フォーカス中）は作り直さず、離れてから作り直す（views/shared.js の syncOptions）
     syncOptions(selfSelect, choices, () => {
@@ -550,7 +554,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // このワールドでの自分が決まっていない（選んでいない〔選んだプレイヤーがいない〕・登録者の対応も同じ名前もない）
   const selfUnknown = () => {
     if (selfRow.hidden || selfAuto) return false;
-    return !playerUidOfKey(owned.state.owned?.players ?? [], context.self.get(selfWorld));
+    return !selfPlayerUid(owned.state.owned?.players ?? [], context.self.get(selfWorld), context.self.lastUid(selfWorld));
   };
 
   const cardTitle = el('h2', '', 'セーブ連携');

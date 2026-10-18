@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createGas, FakeSpreadsheet } from './harness.js';
 import { legacyGasFiles, LEGACY_V12_COMMIT } from './legacy.js';
 import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
+import { cleanSharedPlayers } from '../../web/js/core/boundary.js';
+import { ownPlayerUids } from '../../web/js/core/ideal-goals.js';
 
 const PROPS = { PASSCODE: 'AAAA-BBBB-CCCC-DDDD', TEST_PASSCODE: 'EEEE-FFFF-GGGG-HHHH' };
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -910,4 +912,35 @@ test('所持パル共有（share-extras）: 版 12 の GAS は 31 列を断り�
   const [again] = env.call('ownedWorlds').worlds;
   assert.deepEqual([again.players, again.farms, again.items], [players, farms, world.items]);
   assert.deepEqual(env.call('owned', { worldId: WORLD_A }).rows[0].slice(SOUL_AT), ['2|0|0|0', '||80']);
+});
+
+test('所持パル共有（server の identity）: 版 12 の GAS は players の instanceId を捨てる。版 13 → 12 → 13 と巻き戻しても、画面は選んだ自分を前に引けた UID で引き、同じ名前の別の人にしない', { skip: skipV12 }, () => {
+  const IID_SELF = '11111111-2222-3333-4444-555555555555';
+  const IID_OTHER = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+  const U = 'abcdef01-0000-0000-0000-000000000000';
+  const B = 'bbbbbbbb-0000-0000-0000-000000000000';
+  // サーバーのワールド（H はいない）。ログイン中の Bob のキャラクターはゲーム内の名前が GameBob。別の人のゲーム内の名前が Bob
+  const players = [{ uid: U, name: 'GameBob', instanceId: IID_SELF }, { uid: B, name: 'Bob', instanceId: IID_OTHER }];
+  const env = fixture();
+  const previous = createGas({ files: oldV12Files, spreadsheet: env.spreadsheet, props: env.props, cacheEntries: env.cache.entries });
+  const oldCall = (action, fields = {}) => plain(previous.gas.handleRequest_(JSON.stringify({ action, passcode: PROPS.TEST_PASSCODE, ...fields })));
+  // 画面と同じく、応答のプレイヤーを整えてから自分を決める（selfLastUid は self-player.js がサーバーの共有で覚えた U）
+  const identity = { userId: 'Bob', users: ['Bob'], self: `i:${IID_SELF}`, selfLastUid: U };
+  const mine = (world, extra = {}) => [...ownPlayerUids(cleanSharedPlayers(world.players), { ...identity, ...extra })];
+  env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { players }));
+  const [first] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([first.players, mine(first)], [players, [U]]);
+  // 版 12（巻き戻した GAS）が書いた世代には instanceId がない（版 12 を読む画面も、版 13 に戻した後も）
+  const narrow = oldCall('ownedUpload', upload(WORLD_A, [row('p2').slice(0, SOUL_AT)], '2026-10-05T11:00:00.000Z', { players, columns: OWNED_FIELDS.slice(0, SOUL_AT) }));
+  assert.equal(narrow.stored, true);
+  for (const world of [narrow.world, oldCall('ownedWorlds').worlds[0], env.call('ownedWorlds').worlds[0], env.call('owned', { worldId: WORLD_A }).world]) {
+    assert.deepEqual(world.players, players.map(({ uid, name }) => ({ uid, name })));
+    assert.deepEqual(mine(world), [U]);
+    // 前に引けた UID を覚えていなければ見分けられない（同じ名前の B にしない）
+    assert.deepEqual(mine(world, { selfLastUid: '' }), []);
+  }
+  // 版 13 の次の共有から instanceId が戻る
+  env.call('ownedUpload', upload(WORLD_A, [row('p3')], '2026-10-05T12:00:00.000Z', { players }));
+  const [again] = env.call('ownedWorlds').worlds;
+  assert.deepEqual([again.players, mine(again)], [players, [U]]);
 });

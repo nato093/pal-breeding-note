@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSelfStore, selfKey, SELF_PREFIX } from '../../web/js/self-player.js';
+import { ownPlayerUids } from '../../web/js/core/ideal-goals.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const OTHER_WORLD = 'FEDCBA9876543210FEDCBA9876543210';
@@ -212,11 +213,11 @@ test('このワールドでの自分（server の identity）: migrate は u: �
   const { self, storage, calls, store } = setup();
   const players = [{ uid: UID_A, name: 'Alice', instanceId: IID_A }, { uid: UID_U, name: 'Bob', instanceId: IID_B }, { uid: UID_B, name: 'Carol' }];
   const stored = () => storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`);
-  // H 以外は共有のデータからでも移す（前の版の値〔UID〕も）
+  // H 以外は共有のデータからでも移す（前の版の値〔UID〕も）。移す前の UID は、InstanceId のない共有で引くために '|' の後ろに覚える
   storage.map.set(`pal-note.ideals.self.test.taro.${WORLD}`, UID_U);
   assert.equal(self.migrate(WORLD, players), true);
-  assert.equal(stored(), `i:${IID_B}`);
-  assert.equal(self.get(WORLD), `i:${IID_B}`);
+  assert.equal(stored(), `i:${IID_B}|${UID_U}`);
+  assert.deepEqual([self.get(WORLD), self.lastUid(WORLD)], [`i:${IID_B}`, UID_U]);
   assert.deepEqual(calls, ['changed']);
   // もう i: なら何もしない（知らせない）
   assert.equal(self.migrate(WORLD, players, { hostLocal: true }), false);
@@ -226,7 +227,8 @@ test('このワールドでの自分（server の identity）: migrate は u: �
   assert.equal(self.migrate(WORLD, players), false);
   assert.equal(stored(), KEY_A);
   assert.equal(self.migrate(WORLD, players, { hostLocal: true }), true);
-  assert.equal(stored(), `i:${IID_A}`);
+  // H は人ごとに決まった UID ではないので覚えない
+  assert.deepEqual([stored(), self.lastUid(WORLD)], [`i:${IID_A}`, '']);
   // InstanceId のないプレイヤー・プレイヤーにいない UID は移さない（値はそのまま）
   assert.equal(self.set(WORLD, UID_B), true);
   assert.equal(self.migrate(WORLD, players, { hostLocal: true }), false);
@@ -261,4 +263,109 @@ test('このワールドでの自分（server の identity）: 書けない端�
   failing = false;
   assert.equal(self.migrate(WORLD, players), false);
   assert.equal(calls.length, 2);
+});
+
+test('このワールドでの自分（server の identity）: i: には選んだプレイヤーの UID（H 以外）を lastUid に覚え、u: と空では覚えない', () => {
+  const { self, storage } = setup();
+  const stored = () => storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`);
+  assert.equal(self.set(WORLD, `i:${IID_B}`, { uid: UID_U.toUpperCase() }), true);
+  assert.equal(stored(), `i:${IID_B}|${UID_U}`);
+  assert.deepEqual([self.get(WORLD), self.lastUid(WORLD)], [`i:${IID_B}`, UID_U]);
+  // 選び直すと前の UID は残さない（H・形の合わない UID は覚えない）
+  assert.equal(self.set(WORLD, `i:${IID_A}`, { uid: UID_A }), true);
+  assert.deepEqual([stored(), self.lastUid(WORLD)], [`i:${IID_A}`, '']);
+  assert.equal(self.set(WORLD, `i:${IID_A}`, { uid: 'a b' }), true);
+  assert.equal(stored(), `i:${IID_A}`);
+  assert.equal(self.set(WORLD, `u:${UID_U}`, { uid: UID_U }), true);
+  assert.deepEqual([stored(), self.lastUid(WORLD)], [`u:${UID_U}`, '']);
+  assert.equal(self.set(WORLD, ''), true);
+  assert.deepEqual([stored(), self.get(WORLD), self.lastUid(WORLD)], [undefined, '', '']);
+  // 別のタブが書いた値も読む。u: の後ろ・H・形の合わない後ろは読まない
+  const read = (value) => {
+    storage.map.set(`pal-note.ideals.self.test.taro.${OTHER_WORLD}`, value);
+    self.reload(`pal-note.ideals.self.test.taro.${OTHER_WORLD}`);
+    return [self.get(OTHER_WORLD), self.lastUid(OTHER_WORLD)];
+  };
+  assert.deepEqual(read(`I:${IID_B.toUpperCase()}|${UID_U.toUpperCase()}`), [`i:${IID_B}`, UID_U]);
+  assert.deepEqual(read(`u:${UID_B}|${UID_U}`), [KEY_B, '']);
+  assert.deepEqual(read(`i:${IID_B}|${UID_A}`), [`i:${IID_B}`, '']);
+  assert.deepEqual(read(`i:${IID_B}|a b`), [`i:${IID_B}`, '']);
+  assert.deepEqual(read(`i:bad|${UID_U}`), ['', '']);
+  // 書けない端末では手元にだけ残す（lastUid も）
+  const none = setup({ storage: null });
+  assert.equal(none.self.set(WORLD, `i:${IID_B}`, { uid: UID_U }), false);
+  assert.deepEqual([none.self.get(WORLD), none.self.lastUid(WORLD)], [`i:${IID_B}`, UID_U]);
+});
+
+test('このワールドでの自分（server の identity）: migrate は i: の値で、引けたプレイヤーの UID（H 以外）を lastUid に覚える（自分は変わらないので知らせない）', () => {
+  const { self, storage, calls } = setup();
+  const stored = () => storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`);
+  assert.equal(self.set(WORLD, `i:${IID_A}`), true);
+  calls.length = 0;
+  // 協力プレイ（このキャラクターは H）では覚えない
+  assert.equal(self.migrate(WORLD, [{ uid: UID_A, name: 'Alice', instanceId: IID_A }], { hostLocal: true }), false);
+  assert.equal(stored(), `i:${IID_A}`);
+  // サーバー（同じキャラクターが U）で覚える。もう一度は書かない
+  const server = [{ uid: UID_U, name: 'Alice', instanceId: IID_A }, { uid: UID_B, name: 'Bob', instanceId: IID_B }];
+  assert.equal(self.migrate(WORLD, server), true);
+  assert.deepEqual([stored(), self.lastUid(WORLD)], [`i:${IID_A}|${UID_U}`, UID_U]);
+  assert.equal(self.migrate(WORLD, server), false);
+  // InstanceId のない共有・いないキャラクターでは何もしない（覚えた UID は消さない）
+  assert.equal(self.migrate(WORLD, [{ uid: UID_U, name: 'Alice' }]), false);
+  assert.equal(self.migrate(WORLD, [{ uid: UID_B, name: 'Bob', instanceId: IID_B }]), false);
+  assert.equal(stored(), `i:${IID_A}|${UID_U}`);
+  assert.deepEqual(calls, []);
+});
+
+test('このワールドでの自分（server の identity）: migrateShown は表示している所持パルで migrate し、H を移すのは手元のホストのデータ（source local・role host）のときだけ', () => {
+  const { self, storage, calls } = setup();
+  const stored = () => storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`);
+  const players = [{ uid: UID_A, name: 'Alice', instanceId: IID_A }, { uid: UID_U, name: 'Bob', instanceId: IID_B }];
+  const shown = (source, role, extra = {}) => ({ role, meta: { worldId: WORLD.toLowerCase(), source }, owned: { players }, ...extra });
+  storage.map.set(`pal-note.ideals.self.test.taro.${WORLD}`, UID_A);
+  // この PC がホストの判定のまま、別の PC の新しい共有を表示している・参加者・閲覧者では移さない
+  assert.equal(self.migrateShown(shown('shared', 'host')), false);
+  assert.equal(self.migrateShown(shown('local', 'guest')), false);
+  assert.equal(self.migrateShown(shown('shared', '')), false);
+  assert.equal(stored(), UID_A);
+  // ワールド・プレイヤーが分からなければ何もしない
+  assert.equal(self.migrateShown(shown('local', 'host', { meta: null })), false);
+  assert.equal(self.migrateShown(shown('local', 'host', { owned: null })), false);
+  assert.equal(self.migrateShown(null), false);
+  assert.deepEqual(calls, []);
+  // 手元のホストのデータなら H も移す
+  assert.equal(self.migrateShown(shown('local', 'host')), true);
+  assert.equal(stored(), `i:${IID_A}`);
+  assert.deepEqual(calls, ['changed']);
+  // H 以外は共有を表示していても移す
+  storage.map.set(`pal-note.ideals.self.test.taro.${WORLD}`, UID_U);
+  self.reload(`pal-note.ideals.self.test.taro.${WORLD}`);
+  assert.equal(self.migrateShown(shown('shared', '')), true);
+  assert.equal(stored(), `i:${IID_B}|${UID_U}`);
+});
+
+test('このワールドでの自分（server の identity）: 前の版の値から、協力プレイ（H）→ サーバー（U）→ 版 12 の共有（InstanceId なし）→ 版 13 → 協力プレイと往復しても、選んだキャラクターのまま（app.js と同じ流れ）', () => {
+  const { self, storage } = setup({ state: { userId: 'Bob' } });
+  const strip = (players) => players.map(({ uid, name }) => ({ uid, name }));
+  // ログイン中の Bob のキャラクターはゲーム内の名前が GameBob（IID_A）。別の人（UID_B）のゲーム内の名前が Bob
+  const coopHost = [{ uid: UID_A, name: 'GameBob', instanceId: IID_A }, { uid: UID_B, name: 'Bob', instanceId: IID_B }];
+  const server = [{ uid: UID_U, name: 'GameBob', instanceId: IID_A }, { uid: UID_B, name: 'Bob', instanceId: IID_B }];
+  // 表示が替わるたびに app.js と同じく migrateShown を呼び、ideals と同じ identity で自分を決める
+  const show = (players, source = 'shared', role = '') => {
+    self.migrateShown({ role, meta: { worldId: WORLD, source }, owned: { players } });
+    return [...ownPlayerUids(players, { userId: 'Bob', users: ['Bob'], self: self.get(WORLD), selfLastUid: self.lastUid(WORLD) })];
+  };
+  // 前の版で、協力プレイのホストのときに自分（H）を選んでいた
+  storage.map.set(`pal-note.ideals.self.test.bob.${WORLD}`, UID_A);
+  assert.deepEqual(show(coopHost, 'local', 'host'), [UID_A]);
+  assert.equal(self.get(WORLD), `i:${IID_A}`);
+  assert.deepEqual(show(server), [UID_U]);
+  assert.equal(self.lastUid(WORLD), UID_U);
+  // 版 12 に巻き戻した GAS の共有（InstanceId なし）→ 版 13 に戻す
+  assert.deepEqual(show(strip(server)), [UID_U]);
+  assert.deepEqual(show(server), [UID_U]);
+  // 協力プレイに戻し、古い画面のホストが共有した（この人が H。H は覚えていないので見分けられない。同じ名前の別の人にはしない）
+  assert.deepEqual(show(strip(coopHost)), []);
+  assert.deepEqual(show(coopHost, 'local', 'host'), [UID_A]);
+  assert.deepEqual([self.get(WORLD), self.lastUid(WORLD)], [`i:${IID_A}`, UID_U]);
 });
