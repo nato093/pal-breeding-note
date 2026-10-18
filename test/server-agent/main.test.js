@@ -184,6 +184,26 @@ test('常駐の入口: --once --force-host（test だけ）はサーバーが止
   assert.match(plain.out, /once-skipped/);
 });
 
+test('常駐の入口: --once は、読めない・共有の通信の失敗なら 1、止めた状態など再起動しても直らない失敗なら 2 で終わる（0 にしない）', async (t) => {
+  const site = serverWorld(t, { players: [U1, U2] });
+  const gas = await gasOf();
+  // 共有が通信の失敗（createApi の送り直しの後も）
+  gas.control.fail.ownedUpload = 'CONNECTION';
+  const failed = await run(site, ['--once', '--force-host'], { gas });
+  assert.equal(failed.code, 1);
+  assert.match(failed.out, /once-failed code="CONNECTION"/);
+  gas.control.fail.ownedUpload = '';
+  // セーブを読めない
+  const unreadable = await run(site, ['--once', '--force-host'], { gas, deps: { runImport: async () => { throw new Error('読めません（テスト）'); } } });
+  assert.equal(unreadable.code, 1);
+  assert.match(unreadable.out, /once-failed reason="セーブを読めませんでした"/);
+  // 通れば 0
+  assert.equal((await run(site, ['--once', '--force-host'], { gas })).code, 0);
+  // presence の通信の失敗も 1
+  gas.control.fail.presence = 'CONNECTION';
+  assert.equal((await run(site, ['--once'], { gas })).code, 1);
+});
+
 test('常駐の入口: 応答の env が設定と違えば、何も書かずに終了コード 2（KV を作らず、ロックも残さない）', async (t) => {
   const site = serverWorld(t);
   const gas = await gasOf();
@@ -209,7 +229,9 @@ test('常駐の入口: state.json が壊れていたら（止めた状態など�
   assert.equal(fs.readFileSync(path.join(envDir(site), 'state.json'), 'utf8'), broken);
   // 動かすと共有しない。止めた状態は新しい state.json に残る
   const gas = await gasOf();
-  await run(site, ['--once', '--force-host'], { gas });
+  const once = await run(site, ['--once', '--force-host'], { gas });
+  assert.equal(once.code, 2);
+  assert.match(once.out, /once-failed code="LINEAGE_BLOCKED"/);
   assert.deepEqual(gas.writes('ownedUpload'), []);
   assert.match(fs.readFileSync(path.join(envDir(site), 'state.json'), 'utf8'), /unreadable/);
   assert.ok(fs.readdirSync(envDir(site)).some((name) => name.startsWith('state.json.broken-')));

@@ -281,12 +281,19 @@ export function createAgent({
   // owned.js の予約（読み直し・送り直し・行の数の読み直し）。止まっている間に来た予約は、次に動いたときまで預かる（owned.js の予約の印を
   // 残したまま捨てると、動いた後の予約が通らないため）
   const parked = new Set();
+  // 置いている予約（預かっている分を含む。止めるときに全部消す）
+  const scheduled = new Set();
   const schedule = (fn, ms) => {
     const handle = { fn, timer: null };
+    scheduled.add(handle);
     handle.timer = setTimer(() => {
       handle.timer = null;
-      if (attached) fn();
-      else parked.add(handle);
+      if (!attached) {
+        parked.add(handle);
+        return;
+      }
+      scheduled.delete(handle);
+      fn();
     }, ms);
     return handle;
   };
@@ -295,6 +302,7 @@ export function createAgent({
     if (handle.timer !== null) clearTimer(handle.timer);
     handle.timer = null;
     parked.delete(handle);
+    scheduled.delete(handle);
   };
   const gate = watchGate(watch);
   const owned = createOwnedStore({
@@ -465,6 +473,7 @@ export function createAgent({
     // 止まっている間に預かった予約を、動いたいま実行する
     for (const handle of [...parked]) {
       parked.delete(handle);
+      scheduled.delete(handle);
       handle.fn();
     }
     reading = owned.refreshAuto({ auto: true, enable: true }).catch(() => 'error').finally(() => { reading = null; });
@@ -715,7 +724,7 @@ export function createAgent({
       loops.clear();
       attached = false;
       gate.close();
-      for (const handle of parked) cancel(handle);
+      for (const handle of [...scheduled]) cancel(handle);
       const end = now() + SHUTDOWN_WAIT_MS;
       while (owned.state.upload.status === 'sending' && now() < end) await sleep(200);
       const saved = (await storage.flush?.()) !== false;
@@ -760,24 +769,44 @@ export function createAgent({
     }
   }
 
+  // --once の読み込みと共有の結果。0 送れた・1 想定外（読めない・通信の失敗・判定待ち）・2 再起動しても直らない（止めた状態・上限・形の誤りなど）
+  function onceUploadCode() {
+    if (sentLatest()) return 0;
+    if (owned.state.local?.world.id !== worldId || !isFresh(localStamp())) {
+      log.warn('once-failed', { reason: 'セーブを読めませんでした' });
+      return 1;
+    }
+    log.warn('once-failed', { code: lastUploadError || 'UNKNOWN', reason: '共有できませんでした' });
+    return lastUploadError && !RETRY_CODES.has(lastUploadError) ? 2 : 1;
+  }
+
   /**
    * 1 回だけ動かす（--once）。ログインし、サーバーが動いていれば（forceHost・dryRun なら止まっていても）今のセーブを読んで送り、presence を
-   * 1 回送って終わる。終了コードを返す
+   * 1 回送って終わる。終了コードを返す（読めない・送れない・待ちきれないときは 0 にしない。onceUploadCode）
    */
-  async function runOnce({ dryRun = false } = {}) {
+  async function runOnce({ dryRun = false, timeoutMs = 120_000 } = {}) {
     const result = await login();
     if (result !== 'ok') return result === 'network' ? 1 : 2;
     lastServer = await monitor.check();
+    let code = 0;
+    const settled = async () => {
+      if (await settle({ timeoutMs })) return true;
+      log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '読み込み・共有が終わるのを待ちきれませんでした' });
+      return false;
+    };
     if (forceHost || dryRun || lastServer.active) {
-      if (!(await attach())) return 2;
-      await settle();
+      if (!(await attach())) {
+        await close();
+        return 2;
+      }
+      code = (await settled()) ? onceUploadCode() : 1;
     } else {
       log.info('once-skipped', { reason: 'サーバーが動いていないため読みません', state: lastServer.state });
     }
-    await sendPresence({ force: true });
-    await settle();
+    if ((await sendPresence({ force: true })) === 'error') code ||= 1;
+    if (!(await settled())) code ||= 1;
     const saved = await close();
-    return envMismatch || !saved ? 2 : 0;
+    return envMismatch || !saved ? 2 : code;
   }
 
   return {

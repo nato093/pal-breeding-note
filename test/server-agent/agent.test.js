@@ -499,6 +499,18 @@ test('常駐: stop.request で、KV を書き出して 0 で終わる', async (t
   assert.ok(fs.existsSync(pc.kvFile));
 });
 
+test('常駐: --once は、読み込み・共有が落ち着くのを待ちきれなければ 1 で終わる', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  pc.current = snapshotOf({ seconds: 0, minutes: 100, day: 10 });
+  // 解析が終わらない
+  pc.importGate = new Promise(() => {});
+  assert.equal(await pc.agent.runOnce({ timeoutMs: 200 }), 1);
+  assert.match(pc.log.text(), /once-timeout/);
+});
+
 test('常駐: 止めるときに状態のファイル（state.json）を保存できなければ、ログに出して終了コード 2 にする（正常な終了にしない）', async (t) => {
   const clock = virtualClock();
   const gas = await gasOf({ now: clock.now });
