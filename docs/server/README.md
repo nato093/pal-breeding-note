@@ -250,13 +250,17 @@
   - `server-state.mjs`: 対象のインスタンスのサーバーが動いているかを見る（下の「サーバーが動いているか」）。
   - `watch-client.mjs`: `createSaveWatcher` を Observer なしで使う（5 秒ごとの確認）。
   - `kv-storage.mjs`: localStorage の形をファイルに書く。パスワードとキャッシュは書かない。
-  - `agent.mjs`（組み立て）・`log.mjs`（ID・パス・IP を伏せる）。
+  - `agent.mjs`（組み立て）・`log.mjs`（ID・パス・IP・秘密を伏せる。値は JSON の文字列にする・切る前に伏せる）。
+  - `gas-client.mjs`: GAS との通信（常駐・`--once`・`--signup`・`--check --online`・`--dry-run` の読み取りで共通）。送る 1 回ごと（`createApi` の自動の再送を含む）に、止める条件（常駐の停止・最後の送信の期限・attach の世代）と応答の env を確かめる（Codex の再レビュー）。
+    - env は形の検証と再送より前に比べ、失敗の応答でも env があれば比べる。GAS は版 13 から認証の後の失敗にも env を付ける（画面は失敗の env を読まない）。
+    - env を確かめられていない間（起動の直後・env のない失敗の応答〔認証の前・版 12 以前の GAS〕の後）の書き込みは、先に読み取り（`ownedWorlds`）で確かめてから送る。
 - **サーバーが動いているかは、対象のインスタンスに結び付けて決める**（Codex の指摘。イメージ名だけだと、別のインスタンスの PalServer を取り違える）。
   - 第一に、ServerSync のローカル API の `GET /instances/<ID>` の `status.state` を見る（読み取りの GET だけ）。
     - この応答には起動の計画が入り、管理者パスワードなどの秘密を含みうる（Codex の指摘）。`status.state` だけを取り出したら、応答の残りはすぐ捨てる。ログ・例外の文・キャッシュに残さない。
     - 秘密が出ないかのテストでは、GAS の共通パスワードに加えて、管理者パスワード・ServerPassword のダミー値も調べる。
   - 取れなければ、PalServer の実行ファイルのパスが対象のインスタンスのフォルダの下か（`Get-CimInstance Win32_Process` の ExecutablePath）で見る。
   - どちらでも決められないときは、共有と自動登録をしない。複数のインスタンスが候補なら、更新日時では選ばず、設定の `instance` を求める。
+  - ServerSync が動いていると言うときも、この PC で対象のフォルダの PalServer が動いているかを実行ファイルのパスで確かめる（30 秒で確かめ直す）。確かめられなければ決められない扱い（Codex の再レビュー）。
 - 動き:
   - 起動したら「サーバー」でログインする。
   - 対象のサーバーが動いている間（＋60 秒）は、セーブを読んで共有・自動登録する。Players に増えたファイルは、10 秒ごとの見直しで足す。
@@ -281,6 +285,8 @@
     - `createAutoRegister` に `paused(worldId, stamp)` を足し、候補を取り込む所と送る直前の 2 か所で確かめる。共有のエラーだけでは、前に登録を許した候補が送られるため。
     - 画面のページは `paused` を渡さないので、今の動きは変わらない。
   - **止めた状態は残す**: 一度でも古い系統と判定したら、止めた状態を KV に残す。明示の受け入れまで、再起動しても、後で値が公開の値を追い越しても解除しない。
+    - 判定は、公開の値を読み始めたときと状態を書き換える直前とで、attach の世代・受け入れの回が同じときだけ状態に残す（最後の送信の期限の後・次の attach の後・受け入れの後に、前に始めた判定で止めたり解除したりしない。Codex の再レビュー）。
+    - KV の状態が壊れている・形が違う（3 項目と値の形）なら止めた状態にする。壊れた `state.json` は写しを残し、止めた状態を書き出すまで元を残す（書く前に終わっても、次の起動でまた止まる）。
   - **受け入れ**: `--accept-world` で行う（動いている常駐には、要求のファイルで伝える）。
     - そのときのセーブの値と、**受け入れたときに GAS から読んだ公開の世代の `uploadedAt`**（GAS のサーバーの時計で作る。`gas/Owned.js:162`）を「受け入れの基準」として KV に残す。(a) の比べる相手は、`uploadedAt` がそれより後の世代だけにする。PC の時計は使わない（Codex の指摘。PC の時計がずれると、直後にまた止まったり、後の公開を見落としたりするため）。
     - 公開の世代がない・読めないときは受け入れない（読めるまで待つ）。
@@ -348,7 +354,7 @@
 |---|---|
 | 解析・core | `web/js/save/palworld.js`・`handles.js`・`web/js/core/owned.js`・`owned-shared.js`（GAS に写る）・`boundary.js`・`ideal-goals.js`・`auto-breeding.js` |
 | 画面 | `web/js/owned.js`・`auto-register.js`・`self-player.js`・`player-map.js`（新）・`api.js`・`app.js`・`views/owned-settings.js`・`ui/owned-status.js`・`views/paldex.js`・`views/pal-detail.js`・`ui/farm-board.js`・`release-notes.js` |
-| GAS | `gas/PlayerMap.js`（新）・`Owned.js`・`Sheets.js`・`Setup.js`・`Actions.js`・`Service.js`（rename）・`Presence.js`・`Shared.js`（生成） |
+| GAS | `gas/PlayerMap.js`（新）・`Owned.js`・`Sheets.js`・`Setup.js`・`Actions.js`・`Service.js`（rename）・`Presence.js`・`Main.js`（認証の後の失敗に env）・`Shared.js`（生成） |
 | 常駐・道具 | `tools/server-agent/*`（新）・`scripts/server-settings.mjs`（新）・`package.json`（`agent`・`agent:check`） |
 | 開発用 | `dev/mock-api.js`・`scripts/api-check.mjs` |
 | テスト | `test/core/*`・`test/web/*`・`test/gas/player-map.test.js`（新）・`test/server-agent/*`（新）・`test/server-settings.test.js`（新） |
