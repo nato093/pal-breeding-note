@@ -9,7 +9,9 @@
 // 終了コード: 0 正常・1 想定外（通信の失敗を含む）・2 設定や環境の誤り（再起動しても直らない）・3 二重起動
 // 動いている常駐を止めるには <データ>\<env>\stop.request を置く（2 秒以内に KV を書き出して 0 で終わる）。
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { createApi } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
@@ -29,43 +31,34 @@ import { createLineageGuard } from './lineage-guard.mjs';
 export const EXIT = Object.freeze({ OK: 0, UNEXPECTED: 1, CONFIG: 2, RUNNING: 3 });
 const NAMESPACE = 'pal-note';
 
-/** pid のプロセスが生きているか（ほかのユーザーのプロセスで EPERM なら生きている） */
-export function isAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
+/**
+ * 二重起動の防止に使う名前（データの場所の env のフォルダごと）。Windows は名前付きパイプ、ほか（CI の Linux）は抽象名前空間の UNIX ソケット。
+ * どちらもファイルを作らず、持っているプロセスが落ちれば OS が外す
+ */
+export function lockPathOf(envDir, platform = process.platform) {
+  const name = `pal-note-agent-${createHash('sha256').update(path.resolve(envDir).toLowerCase()).digest('hex').slice(0, 24)}`;
+  return platform === 'win32' ? `\\\\.\\pipe\\${name}` : `\0${name}`;
 }
 
 /**
- * 二重起動の防止（<データ>\<env>\agent.lock に pid）。ほかの生きているプロセスが持っていれば { ok: false, pid }。
- * 前に落ちた常駐の残り（pid が生きていない）は取り直す
- * @returns {{ ok: true, release: () => void } | { ok: false, pid: number|null }}
+ * 二重起動の防止。lockPath（lockPathOf）を待ち受け、待ち受けられればこのプロセスが持つ。同じ名前は OS が 1 つにしか許さないので、同時に
+ * 起動しても 1 つだけが取れる（ファイルと pid の確かめの間の競合・pid の使い回し・落ちた常駐の残りがない）。ほかのプロセスが持っていれば
+ * { ok: false }。つながってきたものはすぐ切る（何も受け取らない）
+ * @returns {Promise<{ ok: true, release: () => Promise<void> } | { ok: false }>}
  */
-export function acquireLock(file, { pid = process.pid, alive = isAlive, fs: fileSystem = fs } = {}) {
-  fileSystem.mkdirSync(path.dirname(file), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      fileSystem.writeFileSync(file, String(pid), { flag: 'wx' });
-      return {
-        ok: true,
-        release() {
-          try {
-            if (fileSystem.readFileSync(file, 'utf8').trim() === String(pid)) fileSystem.unlinkSync(file);
-          } catch { /* 消えていればよい */ }
-        },
-      };
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-    }
-    let owner = NaN;
-    try { owner = Number(fileSystem.readFileSync(file, 'utf8').trim()); } catch { /* 消えた: 取り直す */ }
-    if (Number.isSafeInteger(owner) && owner > 0 && owner !== pid && alive(owner)) return { ok: false, pid: owner };
-    try { fileSystem.unlinkSync(file); } catch { /* 消えていればよい */ }
-  }
-  return { ok: false, pid: null };
+export function acquireLock(lockPath, { createServer = net.createServer } = {}) {
+  return new Promise((resolve, reject) => {
+    const server = createServer((socket) => socket.destroy());
+    server.once('error', (error) => {
+      if (error?.code === 'EADDRINUSE') resolve({ ok: false });
+      else reject(error);
+    });
+    server.listen(lockPath, () => {
+      // 待ち受けだけでプロセスを残さない
+      server.unref();
+      resolve({ ok: true, release: () => new Promise((done) => server.close(() => done())) });
+    });
+  });
 }
 
 // 引数の組み合わせの誤り（なければ ''）
@@ -90,7 +83,7 @@ const placeOf = (dir) => `${path.parse(dir).root}…`;
 
 /**
  * @param {{ argv?: string[], env?: object, stdout?: { write: Function }, stderr?: { write: Function }, deps?: object }} options
- *   deps（テスト）: transport（GAS の代わり）・createMonitor（サーバーの稼働）・runImport（解析）・watch（見張り）・alive（pid）・pid
+ *   deps（テスト）: transport（GAS の代わり）・createMonitor（サーバーの稼働）・runImport（解析）・watch（見張り）
  * @returns {Promise<number>} 終了コード
  */
 export async function main({ argv = process.argv.slice(2), env = process.env, stdout = process.stdout, stderr = process.stderr, deps = {} } = {}) {
@@ -165,8 +158,7 @@ async function run(config, log, deps) {
     return code;
   }
 
-  const lockFile = path.join(config.envDir, 'agent.lock');
-  const lock = acquireLock(lockFile, { ...(deps.pid ? { pid: deps.pid } : {}), ...(deps.alive ? { alive: deps.alive } : {}) });
+  const lock = await acquireLock(lockPathOf(config.envDir));
   if (!lock.ok) {
     if (flags.acceptWorld) {
       fs.mkdirSync(config.envDir, { recursive: true });
@@ -174,7 +166,7 @@ async function run(config, log, deps) {
       log.info('accept-requested', { message: '動いている常駐に受け入れを伝えました（結果は常駐のログに出ます）' });
       return EXIT.OK;
     }
-    log.error('already-running', { pid: lock.pid ?? '', message: 'この環境の常駐はすでに動いています' });
+    log.error('already-running', { message: 'この環境の常駐はすでに動いています' });
     return EXIT.RUNNING;
   }
   try {
@@ -183,7 +175,7 @@ async function run(config, log, deps) {
     if (flags.once) return await agent.runOnce();
     return await daemon(agent, log);
   } finally {
-    lock.release();
+    await lock.release();
   }
 }
 

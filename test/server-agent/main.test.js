@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { acquireLock, main } from '../../tools/server-agent/main.mjs';
+import { spawn } from 'node:child_process';
+import { acquireLock, lockPathOf, main } from '../../tools/server-agent/main.mjs';
 import { W, INSTANCE, PASS, U1, U2, snapshotOf, serverWorld, gasOf } from '../helpers/server-agent.js';
 
 // 世界の名前・プレイヤーの名前（出力に出ないことを確かめる）
@@ -56,32 +57,67 @@ test('常駐の入口: 引数の誤り・組み合わせの誤り・ID とパス
   assert.ok(!fs.existsSync(path.join(envDir(site), 'agent.lock')));
 });
 
-test('常駐の入口: 二重起動の防止（agent.lock に pid。生きていれば終了コード 3、落ちた常駐の残りは取り直す）', async (t) => {
-  const site = serverWorld(t);
-  const file = path.join(envDir(site), 'agent.lock');
-  const first = acquireLock(file, { pid: 101, alive: () => true });
-  assert.equal(first.ok, true);
-  assert.equal(fs.readFileSync(file, 'utf8'), '101');
-  assert.deepEqual(acquireLock(file, { pid: 202, alive: (pid) => pid === 101 }), { ok: false, pid: 101 });
-  // 101 が落ちた（生きていない）: 202 が取り直す。101 の release は 202 の印を消さない
-  const second = acquireLock(file, { pid: 202, alive: () => false });
-  assert.equal(second.ok, true);
-  first.release();
-  assert.equal(fs.readFileSync(file, 'utf8'), '202');
-  second.release();
-  assert.equal(fs.existsSync(file), false);
+// 別のプロセスでロックを取る（取れたら 'held'、取れなければ 'busy' を 1 行出し、kill されるまで待つ）
+function holdInChild(lockPath) {
+  const script = `
+    import { acquireLock } from ${JSON.stringify(new URL('../../tools/server-agent/main.mjs', import.meta.url).href)};
+    const lock = await acquireLock(${JSON.stringify(lockPath)});
+    console.log(lock.ok ? 'held' : 'busy');
+    setInterval(() => {}, 1000);
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const first = new Promise((resolve) => child.stdout.once('data', (data) => resolve(String(data).trim())));
+  const kill = () => new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) return resolve();
+    child.once('exit', resolve);
+    child.kill();
+  });
+  return { first, kill };
+}
 
-  // 動いている常駐がある: --once は 3。--accept-world は要求のファイルで伝えて 0
-  fs.mkdirSync(envDir(site), { recursive: true });
-  fs.writeFileSync(file, '424242');
+test('常駐の入口: 二重起動の防止は OS が排他を保証する名前（Windows は名前付きパイプ）。同時に取っても 1 つだけ、落ちたプロセスの分は OS が外す', async (t) => {
+  const site = serverWorld(t);
+  const lockPath = lockPathOf(envDir(site));
+  // 同じプロセスの中で同時に取っても 1 つだけ
+  const results = await Promise.all(Array.from({ length: 5 }, () => acquireLock(lockPath)));
+  assert.equal(results.filter((result) => result.ok).length, 1);
+  await results.find((result) => result.ok).release();
+  // 別のプロセスどうしで同時に取っても 1 つだけ
+  const children = Array.from({ length: 4 }, () => holdInChild(lockPath));
+  t.after(() => Promise.all(children.map((child) => child.kill())));
+  const firsts = await Promise.all(children.map((child) => child.first));
+  assert.deepEqual(firsts.filter((value) => value === 'held').length, 1, firsts.join(','));
+  assert.equal((await acquireLock(lockPath)).ok, false);
+  // 持っているプロセスが落ちたら（kill）、OS が外す（ロックのファイルの残り・pid の使い回しで止まらない）
+  await Promise.all(children.map((child) => child.kill()));
+  const after = await acquireLock(lockPath);
+  assert.equal(after.ok, true);
+  await after.release();
+  // データの場所が違えば別の名前。Windows は名前付きパイプ、ほかは抽象名前空間（ファイルを作らない）
+  assert.notEqual(lockPathOf(path.join(site.root, 'other')), lockPath);
+  assert.match(lockPathOf('D:\\data\\test', 'win32'), /^\\\\\.\\pipe\\pal-note-agent-[0-9a-f]{24}$/);
+  assert.match(lockPathOf('/data/test', 'linux'), /^\0pal-note-agent-[0-9a-f]{24}$/);
+  assert.equal(fs.existsSync(path.join(envDir(site), 'agent.lock')), false);
+});
+
+test('常駐の入口: 動いている常駐がいれば --once は 3、--accept-world は要求のファイルで伝えて 0。前の版の agent.lock（pid の使い回し）では止まらない', async (t) => {
+  const site = serverWorld(t);
   const gas = await gasOf();
-  const busy = await run(site, ['--once'], { gas, deps: { alive: (pid) => pid === 424242 } });
+  const held = await acquireLock(lockPathOf(envDir(site)));
+  assert.equal(held.ok, true);
+  const busy = await run(site, ['--once'], { gas });
   assert.equal(busy.code, 3);
   assert.deepEqual(gas.control.calls, []);
-  const accept = await run(site, ['--accept-world'], { gas, deps: { alive: (pid) => pid === 424242 } });
+  const accept = await run(site, ['--accept-world'], { gas });
   assert.equal(accept.code, 0);
   assert.ok(fs.existsSync(path.join(envDir(site), 'accept.request')));
-  assert.equal(fs.readFileSync(file, 'utf8'), '424242');
+  await held.release();
+  fs.rmSync(path.join(envDir(site), 'accept.request'));
+  // 前の版が残した agent.lock が、いま生きている別のプロセス（pid の使い回し）を指していても止まらない
+  fs.writeFileSync(path.join(envDir(site), 'agent.lock'), String(process.ppid));
+  const once = await run(site, ['--once'], { gas });
+  assert.equal(once.code, 0);
+  assert.ok(gas.control.calls.includes('login'));
 });
 
 test('常駐の入口: --check はネットにつながず、発見と解析の要約だけを出す（名前・ID・パスは出さない。何も書かない）', async (t) => {
