@@ -3,11 +3,13 @@
 import { el, button, link, runButton, statusChip, setChipTone, setDisabled, downloadBlob, dateStamp } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
-import { dateTime, worldName, roleLabel, permissionNotice, grantWithReport, refreshNow, HOST_SUMMARY, guestAutoText } from '../ui/owned-status.js';
+import {
+  dateTime, worldName, roleLabel, permissionNotice, grantWithReport, refreshNow, HOST_SUMMARY, guestAutoText, SERVER_AUTO_TEXT,
+} from '../ui/owned-status.js';
 import { palIcon, palsById } from '../ui/pal-icon.js';
 import { buildHash } from '../router.js';
 import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
-import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES } from '../save/handles.js';
+import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES, isServerWorld } from '../save/handles.js';
 import { mappedUser } from '../core/auto-breeding.js';
 import { ownPlayerUids, selfPlayerUid } from '../core/ideal-goals.js';
 import { ownedWorldId, playerKeyOf, HOST_UID, formerLabel } from '../core/owned-shared.js';
@@ -84,11 +86,17 @@ function dropZone(text, onDrop) {
   return zone;
 }
 
-// 交代でホストする人にも足してもらうファイル（ホストの組のうち LocalData.sav 以外の必須と Players。sync-fixes の host-rotation）
+// 協力プレイで交代でホストする人にも足してもらうファイル（ホストの組のうち LocalData.sav 以外の必須と Players。sync-fixes の host-rotation。
+// サーバーのワールドはサーバーの PC の常駐プログラムが読むので、「協力プレイで」と付けて区別する。server の participant-ui）
 const ROTATION_FILES = `${REQUIRED_FILES.host.filter((p) => p !== 'LocalData.sav').join('・')}・Players のファイル`;
+// 専用サーバーのセーブ（…\SaveGames\0\<ワールド ID>）は、ブラウザでは登録しない（サーバーの PC の常駐プログラムだけが読む。決定 16）。
+// 貼ったパスの判定の 1 行と、ドロップを受けないときのトースト
+const SERVER_PATH_TEXT = '専用サーバーのセーブは、サーバーの PC の常駐プログラムが読み込みます（ブラウザでは登録しません）';
+// この変更の前にブラウザで登録したサーバーのセーブ（steamId '0'）の行の 1 行（共有と自動登録が常駐と重なる）
+const SERVER_RECORD_TEXT = '専用サーバーのセーブの登録です。共有と自動登録がサーバーの PC の常駐プログラムと重なるため、この登録は削除してください。';
 
 function previewText(previewed) {
-  if (previewed.kind !== 'host') return `参加者として登録します（交代でホストするなら ${ROTATION_FILES}も足すと、ホストしたときに共有と自動登録が動きます）`;
+  if (previewed.kind !== 'host') return `参加者として登録します（協力プレイで交代でホストするなら ${ROTATION_FILES}も足すと、ホストしたときに共有と自動登録が動きます）`;
   const name = `${worldName({ worldName: previewed.name, hostName: previewed.hostName, worldId: previewed.worldId })} · ${previewed.palCount} 体`;
   return previewed.role === 'guest' ? `${name}（LocalData.sav の方が新しいため、いまは参加者と判定します）` : name;
 }
@@ -110,6 +118,8 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   let draft = null;
   let previewed = null;
   let checking = 0;
+  // ① に貼ったパスが専用サーバーのセーブ（登録しない。draft は作らない）
+  let serverPath = false;
   // 保存の途中は、ドロップ・パスの変更・もう一度の保存を受け付けない（二重に登録しない）
   let saving = false;
   const pathInput = el('input', 'owned-path');
@@ -174,8 +184,8 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   }, 'button primary');
 
   // ドロップするファイル。2 つの組に分ける: 全員（LocalData.sav）と、ホストする PC（Level.sav・LevelMeta.sav・Players\ ・GlobalPalStorage.sav。
-  // ホストは仲間内で交代するので、交代でホストする人も足す。host-rotation）。LocalData.sav だけで参加と判定したら、ホストの組を薄くして
-  // 「なくても参加者として登録できます」（C-27・C-28）
+  // 協力プレイではホストは仲間内で交代するので、交代でホストする人も足す。host-rotation）。LocalData.sav だけで参加と判定したら、ホストの組を
+  // 薄くして「なくても参加者として登録できます」（C-27・C-28）
   function renderDraft() {
     draftList.replaceChildren();
     fileDrop.classList.toggle('disabled', !draft || saving);
@@ -201,7 +211,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const everyone = group('全員');
     item(everyone.list, 'LocalData.sav', has('LocalData.sav'), 'LocalData.sav');
     const guestOnly = Boolean(previewed && previewed.kind !== 'host');
-    const host = group(guestOnly ? 'ホストする PC（交代でホストする人も。なくても参加者として登録できます）' : 'ホストする PC（交代でホストする人も）', guestOnly ? 'is-dim' : '');
+    const host = group(guestOnly ? 'ホストする PC（協力プレイで交代でホストする人も。なくても参加者として登録できます）' : 'ホストする PC（協力プレイで交代でホストする人も）', guestOnly ? 'is-dim' : '');
     for (const path of REQUIRED_FILES.host.filter((file) => file !== 'LocalData.sav')) item(host.list, path, has(path), path);
     const players = paths.filter((path) => path.startsWith('Players/')).length;
     // 次元ストレージの Players\<UID>_dps.sav は、使い始めたときにできる（登録の後にできた分は読まれない。dps-missing）ので、ここから足せると添える
@@ -217,8 +227,9 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const value = pathInput.value.trim();
     const shortSteam = (id) => (id.length > 10 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id);
     const [text, state] = !value ? ['', '']
-      : draft ? [`✓ Steam ${shortSteam(draft.steamId)} ／ ワールド ${draft.worldId.slice(0, 4)}…${known ? '（登録済みのワールドです。ファイルを足します）' : ''}`, 'ok']
-        : ['…\\SaveGames\\<数字>\\<32 桁の英数字> まで含めて貼ってください', 'todo'];
+      : serverPath ? [SERVER_PATH_TEXT, 'todo']
+        : draft ? [`✓ Steam ${shortSteam(draft.steamId)} ／ ワールド ${draft.worldId.slice(0, 4)}…${known ? '（登録済みのワールドです。ファイルを足します）' : ''}`, 'ok']
+          : ['…\\SaveGames\\<数字>\\<32 桁の英数字> まで含めて貼ってください', 'todo'];
     if (pathStatus.textContent !== text) pathStatus.textContent = text;
     pathStatus.className = `owned-path-status${state ? ` ${state}` : ''}`;
   }
@@ -252,7 +263,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     if (target && draft !== target) { toast('パスを変えたため、さっきドロップしたファイルは使いません。もう一度ドロップしてください'); return; }
     if (!dropped.supported) { toast('このブラウザでは、ファイルを登録できません', { kind: 'error' }); return; }
     if (saving) { toast('保存しています。終わってからドロップしてください'); return; }
-    if (!draft) { toast('先に ① にワールドのフォルダのパスを貼ってください'); return; }
+    if (!draft) { toast(serverPath ? SERVER_PATH_TEXT : '先に ① にワールドのフォルダのパスを貼ってください'); return; }
     if (dropped.failed) toast('フォルダは登録できません。フォルダを開いて、中のファイルを選んでドロップしてください', { kind: 'error' });
     if (dropped.duplicates.length) toast(`同じ名前のファイルが 2 つ以上あります（${dropped.duplicates.join('、')}）。1 つずつドロップしてください`);
     if (dropped.ignored.length) toast(`対象外のファイルは登録しません（${dropped.ignored.join('、')}）`);
@@ -268,14 +279,19 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     check();
   }
   pathInput.addEventListener('input', () => {
-    setTarget(parseWorldPath(pathInput.value));
+    const target = parseWorldPath(pathInput.value);
+    // 専用サーバーのセーブは登録しない（判定の文を出し、ドロップと保存を受けない）
+    serverPath = Boolean(target) && isServerWorld(target.steamId);
+    setTarget(serverPath ? null : target);
     // 読み取れないパスのままの書き換え（同じ null のまま）でも判定の文を合わせる
     renderPathStatus();
   });
-  // 編集: 登録したワールドのパスを入れておく（足したいファイルをドロップするだけでよい）
+  // 編集: 登録したワールドのパスを入れておく（足したいファイルをドロップするだけでよい）。前に登録した専用サーバーのセーブは、ファイルを
+  // 足せない（判定の文を出す。行の案内で削除を勧める）
   if (world) {
     pathInput.value = world.steamId ? `${SAVE_ROOT}\\${world.steamId}\\${world.id}` : '';
-    draft = { worldId: world.id, steamId: world.steamId ?? '', folder: pathInput.value, files: new Map() };
+    serverPath = isServerWorld(world.steamId);
+    if (!serverPath) draft = { worldId: world.id, steamId: world.steamId ?? '', folder: pathInput.value, files: new Map() };
   }
 
   if (supported) modal.body.append(pathField, dropField, result);
@@ -328,11 +344,12 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const panel = el('div', 'owned-breeding');
     panel.append(el('p', 'owned-step-title', '配合牧場からの自動登録'));
     if (world.kind === 'guest') {
-      // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06）。交代でホストするなら、ホストの組のファイルを足しておく
-      //（足しておけば、ホストしたときにこの PC の画面が共有と自動登録を行う。host-rotation）
+      // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06。最後の共有がサーバーのセーブなら、サーバーの PC の常駐
+      // プログラムが登録する。server の participant-ui）。協力プレイで交代でホストするなら、ホストの組のファイルを足しておく（足しておけば、
+      // ホストしたときにこの PC の画面が共有と自動登録を行う。host-rotation）
       panel.append(
-        el('p', 'owned-help muted owned-role-note', guestAutoText()),
-        el('p', 'owned-help muted owned-rotation-note', `交代でホストするなら、［編集］で ${ROTATION_FILES}を足してください（ホストしたときに共有と自動登録が動きます）。`),
+        el('p', 'owned-help muted owned-role-note', view.server ? SERVER_AUTO_TEXT : guestAutoText()),
+        el('p', 'owned-help muted owned-rotation-note', `協力プレイで交代でホストするなら、［編集］で ${ROTATION_FILES}を足してください（ホストしたときに共有と自動登録が動きます）。`),
       );
       return panel;
     }
@@ -633,11 +650,15 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // 行に描く内容と、その署名（署名に busy は入れない。読み込みのたびに一覧を 2 回作り直していた。busy はボタンの disabled だけで表す）
   function registeredViews(state) {
     const sharedAt = new Map((state.shared.worlds ?? []).map((world) => [world.worldId, world.uploadedAt ?? '']));
+    const sharedKind = new Map((state.shared.worlds ?? []).map((world) => [world.worldId, world.saveKind ?? '']));
     const views = state.auto.worlds.map((world) => ({
       label: registeredLabel(world),
       enabled: autoRegister ? autoRegister.enabled(world.id) : false,
       // 共有した時刻（共有した所持パルの削除を出すか）
       sharedAt: sharedAt.get(world.id) ?? '',
+      // 最後の共有がサーバーのセーブか（参加のワールドの行の文。往復で切り替わったら描き直す）と、前にブラウザで登録したサーバーのセーブか
+      server: sharedKind.get(world.id) === 'server',
+      serverRecord: isServerWorld(world.steamId),
     }));
     // 参加のチップは kind と role で決まる
     return { views, signature: JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind, w.role]), views, Boolean(autoRegister)]) };
@@ -685,6 +706,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         // 共有した所持パルの削除があるときだけ「所持パル」の欄を出す
         if (views[index].sharedAt && world.kind !== 'guest') details.append(ownedPanel(world, views[index]));
         item.append(details, actions);
+        // 前にブラウザで登録した専用サーバーのセーブ（決定 16 の前の登録）は、閉じたままでも見える 1 行で削除を勧める（動きは変えない）
+        if (views[index].serverRecord) item.append(el('p', 'owned-help owned-server-note', SERVER_RECORD_TEXT));
         registered.append(item);
       });
     }
