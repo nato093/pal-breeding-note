@@ -166,7 +166,10 @@ export function playerGuid(value) {
  */
 export function playerMapKey(value) {
   const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (text.startsWith('i:')) return playerGuid(text.slice(2)) ? text : '';
+  if (text.startsWith('i:')) {
+    const id = playerGuid(text.slice(2));
+    return id ? `i:${id}` : '';
+  }
   if (text.startsWith('u:')) return PLAYER_KEY_UID.test(text.slice(2)) ? text : '';
   return '';
 }
