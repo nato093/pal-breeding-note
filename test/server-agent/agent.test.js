@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createKvStorage } from '../../tools/server-agent/kv-storage.mjs';
 import { createAgent, withUploadLimit, uploadChars, GAS_MAX_UPLOAD_CHARS } from '../../tools/server-agent/agent.mjs';
+import { createGasClient } from '../../tools/server-agent/gas-client.mjs';
 import {
   W, PASS, U1, U2, T0, SHEEP, registered, snapshotOf, serverWorld, gasOf, memoryLog, instanceOf, clockAt,
 } from '../helpers/server-agent.js';
@@ -71,7 +72,8 @@ function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 's
   pc.kv = createKvStorage({ file: kvFile, setTimer: clock.setTimer, clearTimer: clock.clearTimer, ...(kvFs ? { fs: kvFs } : {}) });
   pc.agent = createAgent({
     config: { env, userId: 'サーバー', passcode: PASS, apiUrl: 'local', envDir: path.dirname(kvFile), worldName: '', autoRegister: true },
-    world: { worldId: W, worldDir: site.worldDir }, storage: pc.kv, log: pc.log.logger, monitor: server, api: gas.api,
+    world: { worldId: W, worldDir: site.worldDir }, storage: pc.kv, log: pc.log.logger, monitor: server,
+    client: createGasClient({ expected: env, transport: gas.transport }),
     // current が null の間は、保存の途中で読めなかったことにする。importGate（Promise）を置くと、解析がそれを待つ（読み込みの途中に別の処理を動かす）
     runImport: async (files) => {
       pc.reads.push(files.map((file) => file.path).sort());
@@ -820,6 +822,94 @@ test('常駐（結合）: 最後の送信の期限が過ぎた後に、待って
   assert.equal(gas.writes('ownedUpload').length, uploads);
   assert.equal((await gas.published()).clock, clockAt(100));
   await pc.agent.close();
+});
+
+test('常駐（結合）: 最後の送信の期限が過ぎた後は、createApi の自動の再送（BUSY・TIMEOUT など）でも共有を送らない', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  // 猶予の間の保存の共有が、GAS の応答を待ったまま、サーバーが止まる
+  pc.server.state = 'grace';
+  let release;
+  gas.control.gates.ownedUpload = new Promise((resolve) => { release = resolve; });
+  const uploads = () => gas.control.calls.filter((action) => action === 'ownedUpload').length;
+  const first = uploads();
+  await clock.advance(30_000);
+  pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 101, day: 10 });
+  site.save(clock.now());
+  pc.watch.settle();
+  for (let i = 0; i < 200 && uploads() === first; i++) await realTurns(1);
+  assert.equal(uploads(), first + 1);
+  pc.server.state = 'stopped';
+  let finished = false;
+  pc.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(pc.agent.attached(), false);
+  assert.match(pc.log.text(), /detached lastUpload="timeout"/);
+  // 期限の後に、待っていた送信が BUSY で返った: createApi は再送するが、送る直前に止める
+  const sent = uploads();
+  gas.control.fail.ownedUpload = 'BUSY';
+  release();
+  gas.control.gates.ownedUpload = null;
+  await realTurns();
+  await pc.agent.settle();
+  assert.equal(uploads(), sent, '期限の後の再送を GAS に送らない');
+  gas.control.fail.ownedUpload = '';
+  assert.equal((await gas.published()).clock, clockAt(100));
+  await pc.agent.close();
+});
+
+test('常駐（結合）: 失敗の応答でも env が設定と違えば、それ以後は何も送らずに終了コード 2 で止まる', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  // 共有の失敗の応答（版 13 の GAS は認証の後の失敗にも env を付ける）が prod
+  gas.control.fail.ownedUpload = { code: 'INVALID_COLUMNS', env: 'prod' };
+  await pc.save({ minutes: 101 });
+  assert.match(pc.log.text(), /env-mismatch expected="test" got="prod"/);
+  assert.equal(pc.agent.store.state.passcode, '');
+  const calls = gas.control.calls.length;
+  assert.equal(await pc.agent.sendPresence({ force: true }), 'skipped');
+  // 止めるときは、送っている途中だった共有の結果を少し待つ（仮の時計）
+  await clock.advance(1_000);
+  assert.equal(await pc.agent.start(), 2);
+  assert.equal(gas.control.calls.length, calls);
+  assert.ok(!pc.log.text().includes(PASS));
+});
+
+test('常駐（結合）: env のない失敗の応答（古い GAS）の後の書き込みは、先に読み取りで env を確かめてから送る。違えば送らずに止まる', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  assert.equal(await pc.agent.sendPresence({ force: true }), 'sent');
+  // env を確かめた後の書き込みはそのまま送る
+  let before = gas.control.calls.length;
+  assert.equal(await pc.agent.sendPresence({ force: true }), 'sent');
+  assert.deepEqual(gas.control.calls.slice(before), ['presence']);
+  // 古い GAS の失敗（env がない）: どの環境の応答か分からないので、次の書き込みの前に読み取りで確かめる
+  gas.control.fail.ownedUpload = 'INVALID_COLUMNS';
+  await pc.save({ minutes: 101 });
+  assert.equal(pc.agent.owned.state.upload.status, 'error');
+  before = gas.control.calls.length;
+  assert.equal(await pc.agent.sendPresence({ force: true }), 'sent');
+  assert.deepEqual(gas.control.calls.slice(before), ['ownedWorlds', 'presence']);
+  // また env のない失敗の後に、GAS の環境が替わっていた: 確かめの読み取りで分かり、書き込みは送らない
+  await pc.agent.owned.uploadLocal({ force: true });
+  gas.control.env = 'prod';
+  const presences = gas.writes('presence').length;
+  before = gas.control.calls.length;
+  assert.equal(await pc.agent.sendPresence({ force: true }), 'error');
+  assert.deepEqual(gas.control.calls.slice(before), ['ownedWorlds']);
+  assert.equal(gas.writes('presence').length, presences);
+  assert.match(pc.log.text(), /env-mismatch expected="test" got="prod"/);
+  await clock.advance(1_000);
+  assert.equal(await pc.agent.start(), 2);
 });
 
 test('常駐: 送る本文の文字数を測る（GAS の body.length と同じ）。上限を超えるワールドは理由をログに出して送らない', async (t) => {

@@ -6,11 +6,14 @@
 //   登録は残すが、止まっている間は読まない（予約は動いたときまで預かる）
 // - presence は常駐が自分で送る（owned.js の reportPresence も、ownedSince に載せる presence も使わない）。止まっている間も送る（playing false）
 // - 認証の失敗は 30 分ごと、通信の失敗は 15 秒〜5 分の段でログインし直す。応答の env が設定と違えば、何も書かずに終了コード 2
+//   （応答の env は gas-client.mjs が、失敗の応答を含めて送る 1 回ごとに確かめる）
+// - 共有は、実際に送る 1 回ごと（createApi の自動の再送を含む）に、始めたときと同じ attach の間で、動いているか最後の送信の期限の前かを確かめる
 // - <データ>\<env>\stop.request・accept.request を 2 秒ごとに見る（動いている常駐に、止める・古い系統を受け入れるを伝える）
 // 新しいロジック（同一性・共有の中身・自動登録の判定）は持たない。web/js の core とストアの直しを使う。
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { ApiError, buildRequest } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { createOwnedStore } from '../../web/js/owned.js';
@@ -24,7 +27,8 @@ import { memoryPersist } from './kv-storage.mjs';
 import { fileHandle, fileHandles } from './fs-handles.mjs';
 import { listWorldFiles } from './discover.mjs';
 import { createLocalWatchClient } from './watch-client.mjs';
-import { createLineageGuard, lineageOfSnapshot, LINEAGE_PENDING } from './lineage-guard.mjs';
+import { createLineageGuard, lineageError, lineageOfSnapshot, LINEAGE_BLOCKED, LINEAGE_PENDING } from './lineage-guard.mjs';
+import { ENV_MISMATCH } from './gas-client.mjs';
 
 /** GAS が受ける共有の本文の上限（gas/Main.js の MAX_UPLOAD_CHARS。test/server-agent/agent.test.js で照らす）。上限は変えない */
 export const GAS_MAX_UPLOAD_CHARS = 4 * 1024 * 1024;
@@ -39,8 +43,6 @@ export const LOGIN_RETRY_STEPS = Object.freeze([15_000, 30_000, 60_000, 120_000,
 export const AGENT_STOPPED = 'AGENT_STOPPED';
 /** 今の attach より前（前に動いていた間）に読んだセーブの共有を求められたときの code（同じく再試行の段に入らない。読み直したセーブを送る） */
 export const AGENT_STALE = 'AGENT_STALE';
-/** 応答の env が設定と違うと分かった後の通信の code（それ以後は GAS に何も送らない） */
-export const ENV_MISMATCH = 'ENV_MISMATCH';
 // presence を見直す間隔と、間隔より少し早く来た回も送る幅（owned.js の PRESENCE_SLACK と同じ）
 const PRESENCE_CHECK_MS = 10_000;
 const PRESENCE_SLACK_MS = 5_000;
@@ -89,25 +91,6 @@ export function withUploadLimit(api, { limit = GAS_MAX_UPLOAD_CHARS, onMeasure =
         if (refused) throw new ApiError('TOO_LARGE');
       }
       return api.request(action, passcode, input);
-    },
-  };
-}
-
-/**
- * api（createApi の形）を包み、すべての応答の env を expected と比べる。違えば onMismatch(got) を 1 回だけ呼び、その応答を捨てて ENV_MISMATCH に
- * する。それ以後の通信は送らずに ENV_MISMATCH にする（ログインの後に応答の環境が替わっても、違う環境に書き続けない）
- */
-export function withEnvCheck(api, { expected, onMismatch = () => {} }) {
-  let mismatch = false;
-  return {
-    async request(action, passcode, input) {
-      if (mismatch) throw new ApiError(ENV_MISMATCH);
-      const response = await api.request(action, passcode, input);
-      if (mismatch) throw new ApiError(ENV_MISMATCH);
-      if (response?.env === expected) return response;
-      mismatch = true;
-      onMismatch(typeof response?.env === 'string' ? response.env : '');
-      throw new ApiError(ENV_MISMATCH);
     },
   };
 }
@@ -161,7 +144,9 @@ function watchGate(factory) {
  * @param {{ getItem, setItem, removeItem, flush?: () => Promise<void> }} options.storage KV（kv-storage.mjs）
  * @param {{ debug, info, warn, error }} options.log 常駐のログ（log.mjs。ID・パス・IP は伏せる。プレイヤー名と GAS の応答の中身は渡さない）
  * @param {{ check: () => Promise<object> }} options.monitor サーバーの稼働（server-state.mjs の createServerMonitor）
- * @param {{ request: Function }} options.api GAS（web/js/api.js の createApi。テストは開発用 API の transport）
+ * @param {object} options.client GAS との通信（gas-client.mjs の createGasClient。テストは開発用 API の transport）。送る 1 回ごとの確かめ（setGate）と
+ *   応答の env の違い（onMismatch）に使う
+ * @param {{ request: Function }} [options.api] 送る api（既定は client.api。--dry-run は書き込みを記録だけにした api〔dry-run.mjs〕）
  * @param {Function} [options.runImport] セーブの解析（既定は readWorldFiles をこのスレッドで）
  * @param {Function} [options.watch] セーブの見張り（既定は watch-client.mjs。createOwnedStore の watch の形）
  * @param {Function} [options.listFiles] ワールドのファイルの一覧（discover.mjs の listWorldFiles）
@@ -169,7 +154,7 @@ function watchGate(factory) {
  * @param {number} [options.uploadLimit] 共有の本文の上限（テストで小さくする）
  */
 export function createAgent({
-  config, world, storage, log, monitor, api,
+  config, world, storage, log, monitor, client, api = client.api,
   runImport = (files, onProgress) => readWorldFiles(files, { onProgress }),
   watch = createLocalWatchClient, listFiles = listWorldFiles, fs = fsPromises,
   now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout,
@@ -181,21 +166,18 @@ export function createAgent({
 
   // ---- GAS ----
 
-  // 応答の env が設定と違えば（ログインでも、その後のどの応答でも）、それ以後は何も送らずに終了コード 2 で止める
+  // 応答の env が設定と違えば（ログインでも、その後のどの応答でも。失敗の応答も）、それ以後は何も送らずに終了コード 2 で止める（gas-client.mjs）
   let envMismatch = false;
-  const checkedApi = withEnvCheck(api, {
-    expected: config.env,
-    onMismatch: (got) => {
-      envMismatch = true;
-      log.error('env-mismatch', { expected: config.env, got, reason: '応答の環境が設定と違うため、それ以後は何も書かずに止めます' });
-      requestStop(2);
-      // パスワードをメモリからも外す（止めた後なので、ログインし直しの予約はしない）
-      store.logout();
-    },
+  client.onMismatch((got) => {
+    envMismatch = true;
+    log.error('env-mismatch', { expected: config.env, got, reason: '応答の環境が設定と違うため、それ以後は何も書かずに止めます' });
+    requestStop(2);
+    // パスワードをメモリからも外す（止めた後なので、ログインし直しの予約はしない）
+    store.logout();
   });
   let tooLargeLoggedAt = -Infinity;
   const measured = { chars: 0, rows: 0, refused: false };
-  const limitedApi = withUploadLimit(checkedApi, {
+  const limitedApi = withUploadLimit(api, {
     limit: uploadLimit,
     onMeasure: (result) => {
       Object.assign(measured, result);
@@ -218,9 +200,16 @@ export function createAgent({
   const loggedIn = () => Boolean(scope());
   const call = (action, input) => store.call(action, input);
 
-  // 読んでいる（attached）か、止まった直後の最後の送信の間（finalWindow）だけ共有する
+  // 読んでいる（attached）か、止まった直後の最後の送信の間（finalWindow。期限 finalDeadline まで）だけ共有する
   let attached = false;
   let finalWindow = false;
+  let finalDeadline = 0;
+  // attach の世代。attach したとき・最後の送信の間が終わったときに進める。共有の送信と古い系統の判定は、始めたときの世代のままのときだけ続ける
+  //（最後の送信の期限の後・次の attach の後に、前の間に始めた送信の再送・判定の結果を使わないため）
+  let generation = 0;
+  const sendWindow = () => !stopped && (attached || (finalWindow && now() < finalDeadline));
+  // 共有の送信を始めたときの世代（AsyncLocalStorage で、createApi の自動の再送を含む送る 1 回ごとの確かめ〔sendRefusal〕まで運ぶ）
+  const uploadTicket = new AsyncLocalStorage();
   // 今の attach の間（止まった直後の最後の送信を含む）に読んだセーブの保存時刻。attach のたびに空にする。ここにないセーブ（前に動いていた間に
   // 読んだ手元のデータ）は、古い系統の判定にも共有にも自動登録にも使わない（A→B→A の引き継ぎで、B の続きを受け取る前の古いデータで止めたり
   // 送ったりしないため。止まっている間と同じ扱い）
@@ -232,15 +221,31 @@ export function createAgent({
     freshStamps.add(stamp);
     while (freshStamps.size > FRESH_MAX) freshStamps.delete(freshStamps.values().next().value);
   };
+  const refusalOf = (code, message) => Object.assign(new Error(message), { code });
   // 共有を断る理由（送ってよければ null）。古い系統の判定の前と、送る直前（判定を待つ間に止まった・最後の送信の期限が過ぎた・次の attach に
-  // 替わった送信を送らないため）の 2 か所で確かめる
+  // 替わった送信を送らないため）と、実際に送る 1 回ごと（sendRefusal）で確かめる
   function uploadRefusal(input) {
-    if (!attached && !finalWindow) return Object.assign(new Error('サーバーが止まっているため共有しません'), { code: AGENT_STOPPED });
+    if (!sendWindow()) return refusalOf(AGENT_STOPPED, 'サーバーが止まっているため共有しません');
     if (!isFresh(ownedSaveStamp(input?.world?.saveStamp))) {
-      return Object.assign(new Error('サーバーが動く前に読んだセーブのため共有しません（読み直してから送ります）'), { code: AGENT_STALE });
+      return refusalOf(AGENT_STALE, 'サーバーが動く前に読んだセーブのため共有しません（読み直してから送ります）');
     }
     return null;
   }
+  // 実際に送る 1 回ごと（createApi の自動の再送を含む。gas-client.mjs の gate）の確かめ。止めた後は何も送らない。共有は、始めたときと同じ
+  // attach の世代で、動いているか最後の送信の期限の前で、今の attach の間に読んだ判定済みのセーブのときだけ送る
+  function sendRefusal(request) {
+    if (stopped) return refusalOf(AGENT_STOPPED, '常駐を止めたため送りません');
+    if (request?.action !== 'ownedUpload') return null;
+    if (uploadTicket.getStore()?.generation !== generation) {
+      return refusalOf(AGENT_STALE, '前に動いていた間に始めた共有のため送りません（読み直してから送ります）');
+    }
+    const refusal = uploadRefusal(request);
+    if (refusal) return refusal;
+    const stamp = ownedSaveStamp(request.world?.saveStamp);
+    if (guard.paused(worldId, stamp)) return lineageError(guard.status(worldId, stamp).state === 'blocked' ? LINEAGE_BLOCKED : LINEAGE_PENDING);
+    return null;
+  }
+  client.setGate(sendRefusal);
 
   // owned.js が ownedSince に載せる presence は外す（presence は常駐が自分で送る）
   const base = {
@@ -276,7 +281,7 @@ export function createAgent({
         throw refusal;
       }
       try {
-        const response = await guard.server.request(action, input);
+        const response = await uploadTicket.run({ generation }, () => guard.server.request(action, input));
         lastUploadError = '';
         return response;
       } catch (error) {
@@ -478,6 +483,7 @@ export function createAgent({
     await source.commit({ worldId, steamId: SERVER_SAVE_ID, files: fileHandles(files), name: config.worldName, nameSet: Boolean(config.worldName) });
     // 前に動いていた間に読んだセーブは使わない（読み直したものから使う）
     freshStamps.clear();
+    generation++;
     attached = true;
     log.info('attached', { worldId, files: Object.keys(files).length });
     gate.open();
@@ -536,15 +542,17 @@ export function createAgent({
 
   async function detach(reason) {
     if (!attached) return;
-    attached = false;
+    finalDeadline = now() + FINAL_SEND_MS;
     finalWindow = true;
+    attached = false;
     gate.close();
     log.info('detaching', { reason });
     try {
-      const result = await finalSend(now() + FINAL_SEND_MS);
+      const result = await finalSend(finalDeadline);
       log.info('detached', { lastUpload: result });
     } finally {
       finalWindow = false;
+      generation++;
     }
   }
 

@@ -13,7 +13,6 @@ import net from 'node:net';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { createApi } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { readFiles } from '../../web/js/save/handles.js';
 import { readWorldFiles } from '../../web/js/save/import.js';
@@ -26,6 +25,7 @@ import { createServerMonitor } from './server-state.mjs';
 import { fileHandles } from './fs-handles.mjs';
 import { createAgent } from './agent.mjs';
 import { createDryRunApi } from './dry-run.mjs';
+import { createGasClient, ENV_MISMATCH } from './gas-client.mjs';
 import { blockUnreadable, createLineageGuard } from './lineage-guard.mjs';
 
 export const EXIT = Object.freeze({ OK: 0, UNEXPECTED: 1, CONFIG: 2, RUNNING: 3 });
@@ -124,8 +124,9 @@ async function run(config, log, deps) {
     log.error('config-error', { message: '常駐の ID（--user か PAL_AGENT_USER_ID）とパスワード（PAL_AGENT_PASSCODE）が要ります' });
     return EXIT.CONFIG;
   }
-  const makeApi = () => createApi({ url: config.apiUrl, transport: deps.transport });
-  if (flags.signup) return signup(config, log, makeApi());
+  // GAS との通信は、どの動かし方でも応答の env を送る 1 回ごとに確かめる（gas-client.mjs。書き込みは env を確かめてから送る）
+  const makeClient = () => createGasClient({ expected: config.env, url: config.apiUrl, transport: deps.transport ?? null });
+  if (flags.signup) return signup(config, log, makeClient());
 
   const world = await discoverWorld({
     worldDir: config.worldDir, serverRoot: config.serverRoot, instance: config.instance, localAppData: config.localAppData,
@@ -154,17 +155,18 @@ async function run(config, log, deps) {
   };
 
   if (flags.check && !flags.online) return check(config, world, { log, monitor, runImport, kv: openKv(true) });
-  if (flags.check) return checkOnline(config, world, { log, api: makeApi(), kv: openKv(true) });
+  if (flags.check) return checkOnline(config, world, { log, client: makeClient(), kv: openKv(true) });
 
-  const agentOf = ({ api, kv, forceHost = false }) => createAgent({
-    config, world, storage: kv, log, monitor, api, runImport, namespace: NAMESPACE, forceHost,
+  const agentOf = ({ client, api = client.api, kv, forceHost = false }) => createAgent({
+    config, world, storage: kv, log, monitor, client, api, runImport, namespace: NAMESPACE, forceHost,
     ...(deps.watch ? { watch: deps.watch } : {}),
   });
 
   if (flags.dryRun) {
     // KV は読むだけ（牧場の記録・古い系統の値を進めない）。二重起動の防止もしない（何も書かない）
-    const dry = createDryRunApi({ api: makeApi(), env: config.env });
-    const agent = agentOf({ api: dry, kv: openKv(true), forceHost: flags.forceHost });
+    const client = makeClient();
+    const dry = createDryRunApi({ api: client.api, env: config.env });
+    const agent = agentOf({ client, api: dry, kv: openKv(true), forceHost: flags.forceHost });
     const code = await agent.runOnce({ dryRun: true });
     printDryRun(log, dry.summary(), agent.measured());
     return code;
@@ -182,7 +184,7 @@ async function run(config, log, deps) {
     return EXIT.RUNNING;
   }
   try {
-    const agent = agentOf({ api: makeApi(), kv: openKv(false), forceHost: flags.forceHost });
+    const agent = agentOf({ client: makeClient(), kv: openKv(false), forceHost: flags.forceHost });
     if (flags.acceptWorld) return await acceptWorld(agent, log);
     if (flags.once) return await agent.runOnce();
     return await daemon(agent, log);
@@ -222,18 +224,18 @@ async function acceptWorld(agent, log) {
   return outcome.ok ? EXIT.OK : outcome.retry ? EXIT.UNEXPECTED : EXIT.CONFIG;
 }
 
-// --signup: 先に読み取りで応答の環境を確かめてから ID を作る（別の環境のパスワードで作らない）
-async function signup(config, log, api) {
+// --signup: 先に読み取りで応答の環境を確かめてから ID を作る（別の環境のパスワードで作らない。gas-client.mjs が書き込みの前に確かめ、
+// 登録の応答の env も確かめる）
+async function signup(config, log, client) {
   try {
-    const probe = await api.request('ownedWorlds', config.passcode);
-    if (probe.env !== config.env) {
-      log.error('env-mismatch', { expected: config.env, got: probe.env, reason: '応答の環境が設定と違うため、ID を作りません' });
-      return EXIT.CONFIG;
-    }
-    const response = await api.request('signup', config.passcode, { userId: config.userId });
+    const response = await client.api.request('signup', config.passcode, { userId: config.userId });
     log.info('signed-up', { env: response.env, message: '常駐の ID を作りました' });
     return EXIT.OK;
   } catch (error) {
+    if (error?.code === ENV_MISMATCH) {
+      log.error('env-mismatch', { expected: config.env, got: client.mismatch() ?? '', reason: '応答の環境が設定と違うため、ID を作りません' });
+      return EXIT.CONFIG;
+    }
     if (error?.code === 'USER_EXISTS') {
       log.info('signup-exists', { message: 'この ID はすでにあります（そのまま使えます）' });
       return EXIT.OK;
@@ -278,30 +280,31 @@ async function check(config, world, { log, monitor, runImport, kv }) {
   return EXIT.OK;
 }
 
-// --check --online: ログインと ownedWorlds の読み取りだけ（書かない。presence も送らない）
-async function checkOnline(config, world, { log, api, kv }) {
+// --check --online: ログインと ownedWorlds の読み取りだけ（書かない。presence も送らない）。どちらの応答も env を確かめる（gas-client.mjs）
+async function checkOnline(config, world, { log, client, kv }) {
   const memory = new Map();
   const store = createStore({
-    api, namespace: NAMESPACE,
+    api: client.api, namespace: NAMESPACE,
     storage: safeStorage({ getItem: (key) => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, String(value)), removeItem: (key) => memory.delete(key) }),
   });
+  const mismatch = () => {
+    store.logout();
+    log.error('env-mismatch', { expected: config.env, got: client.mismatch() ?? '', reason: '応答の環境が設定と違います' });
+    return EXIT.CONFIG;
+  };
   try {
     await store.login(config.userId, config.passcode);
   } catch (error) {
+    if (error?.code === ENV_MISMATCH) return mismatch();
     log.error('login-failed', { code: error?.code || 'ERROR' });
     return ['TIMEOUT', 'CONNECTION', 'BUSY', 'INTERNAL', 'RESPONSE'].includes(error?.code) ? EXIT.UNEXPECTED : EXIT.CONFIG;
-  }
-  if (store.state.env !== config.env) {
-    const got = store.state.env;
-    store.logout();
-    log.error('env-mismatch', { expected: config.env, got, reason: '応答の環境が設定と違います' });
-    return EXIT.CONFIG;
   }
   log.info('check-login', { env: store.state.env, records: store.state.records.length });
   let response;
   try {
     response = await store.call('ownedWorlds');
   } catch (error) {
+    if (error?.code === ENV_MISMATCH) return mismatch();
     log.error('check-failed', { code: error?.code || 'ERROR' });
     return EXIT.UNEXPECTED;
   }

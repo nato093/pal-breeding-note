@@ -270,3 +270,24 @@ test('常駐の入口: --signup は先に応答の環境を確かめてから ID
   assert.equal((await run(site, ['--signup'], { gas, env: { PAL_AGENT_USER_ID: '常駐3' } })).code, 2);
   assert.deepEqual(gas.control.calls, ['ownedWorlds']);
 });
+
+test('常駐の入口: --signup の登録の応答と --check --online の一覧の応答の env も確かめ、違えば 2（どの動かし方でも同じ確かめ）', async (t) => {
+  const site = serverWorld(t);
+  const gas = await gasOf();
+  gas.control.envs.signup = 'prod';
+  const signedUp = await run(site, ['--signup'], { gas, env: { PAL_AGENT_USER_ID: '常駐4' } });
+  assert.equal(signedUp.code, 2);
+  assert.match(signedUp.out, /env-mismatch expected="test" got="prod"/);
+  gas.control.envs = { ownedWorlds: 'prod' };
+  gas.control.calls.length = 0;
+  const checked = await run(site, ['--check', '--online'], { gas });
+  assert.equal(checked.code, 2);
+  assert.deepEqual(gas.control.calls, ['login', 'ownedWorlds']);
+  assert.match(checked.out, /env-mismatch expected="test" got="prod"/);
+  assert.doesNotMatch(checked.out, /check-published/);
+  // 失敗の応答の env が違っても 2
+  gas.control.envs = {};
+  gas.control.fail.ownedWorlds = { code: 'INTERNAL', env: 'prod' };
+  assert.equal((await run(site, ['--check', '--online'], { gas })).code, 2);
+  for (const result of [signedUp, checked]) assert.ok(!result.out.includes(PASS));
+});

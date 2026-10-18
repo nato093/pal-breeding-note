@@ -87,12 +87,13 @@ export function serverWorld(t, { players = [U1], worldId = W } = {}) {
 }
 
 /**
- * GAS の代わり（開発用 API。時計は now）。control.calls は届いた操作の名前、control.requests は書き込みの中身、control.fail は操作ごとの失敗の code、
- * control.env を入れると応答の env をそれにする（環境の違い）。「サーバー」と「仲間」の ID を作っておく
+ * GAS の代わり（開発用 API。時計は now）。control.calls は届いた操作の名前、control.requests は書き込みの中身、control.fail は操作ごとの失敗
+ *（code の文字列なら env のない失敗〔認証の前の失敗・古い GAS の失敗〕、オブジェクトならその項目の失敗の応答）、control.env を入れると応答の
+ * env をそれにする（環境の違い。control.envs は操作ごと）。「サーバー」と「仲間」の ID を作っておく
  */
 export async function gasOf({ now = Date.now } = {}) {
   const development = createDevelopmentApi({ now });
-  const control = { calls: [], requests: [], fail: {}, env: '', gates: {}, sincePresence: 0 };
+  const control = { calls: [], requests: [], fail: {}, env: '', envs: {}, gates: {}, sincePresence: 0 };
   const transport = async (request) => {
     control.calls.push(request.action);
     // owned.js が ownedSince に載せる presence（常駐は外して送る）
@@ -100,9 +101,10 @@ export async function gasOf({ now = Date.now } = {}) {
     if (WRITE_ACTIONS.has(request.action)) control.requests.push({ action: request.action, chars: JSON.stringify(request).length, request: structuredClone(request) });
     await control.gates[request.action];
     const code = control.fail[request.action];
-    if (code) return { ok: false, code };
+    if (code) return typeof code === 'object' ? { ok: false, ...code } : { ok: false, code };
     const response = await development(request);
-    return control.env && response?.ok ? { ...response, env: control.env } : response;
+    const env = control.envs[request.action] || control.env;
+    return env && typeof response?.env === 'string' ? { ...response, env } : response;
   };
   const api = createApi({ transport });
   await api.request('signup', PASS, { userId: 'サーバー' });

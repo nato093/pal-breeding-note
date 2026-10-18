@@ -28,7 +28,8 @@ export const ACCEPT_ERRORS = Object.freeze({
 // 解除した stamp を残す数（ワールドごと。同じ時に判定した古いセーブの分）
 const VERIFIED_MAX = 8;
 
-const lineageError = (code) => Object.assign(new Error(MESSAGES[code]), { code });
+/** 共有を止めた・待っている理由のエラー（code は LINEAGE_BLOCKED・LINEAGE_PENDING） */
+export const lineageError = (code) => Object.assign(new Error(MESSAGES[code]), { code });
 
 /** 比べる値（stamp: Level.sav の保存時刻、clock: RealDateTimeTicks の 10 進の文字列、inGameDay: 1 以上の整数）。分からない項目は '' か 0 */
 export function lineageValues(value) {

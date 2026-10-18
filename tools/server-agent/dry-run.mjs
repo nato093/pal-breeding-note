@@ -5,11 +5,10 @@
 // 要約には人の名前・ID と配合表の子を入れない（数・親の種族・presence の値だけ）。
 import { buildRequest, validateResponse } from '../../web/js/api.js';
 import { validateOwnedUpload } from '../../web/js/core/owned-shared.js';
+import { WRITE_ACTIONS } from './gas-client.mjs';
 
-/** GAS に送らずに記録する操作 */
-export const DRY_RUN_WRITES = Object.freeze(new Set([
-  'ownedUpload', 'ownedDelete', 'presence', 'create', 'update', 'delete', 'merge', 'restore', 'rename', 'signup', 'playerMapSet',
-]));
+/** GAS に送らずに記録する操作（GAS に書く操作。gas-client.mjs） */
+export const DRY_RUN_WRITES = WRITE_ACTIONS;
 
 // 記録する要約（人の名前・ID は入れない）
 function summaryOf(action, request, chars) {
