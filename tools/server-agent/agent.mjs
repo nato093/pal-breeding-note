@@ -704,7 +704,10 @@ export function createAgent({
     run();
   }
 
-  /** 見張り・予約・ループを止め、送っている途中の共有を少し待ち、KV を書き出す */
+  /**
+   * 見張り・予約・ループを止め、送っている途中の共有を少し待ち、KV を書き出す
+   * @returns {Promise<boolean>} KV を全部書けたか（false なら、止めた状態・受け入れの基準・候補の記録の変更を失う）
+   */
   function close() {
     closing ??= (async () => {
       stopped = true;
@@ -715,15 +718,19 @@ export function createAgent({
       for (const handle of parked) cancel(handle);
       const end = now() + SHUTDOWN_WAIT_MS;
       while (owned.state.upload.status === 'sending' && now() < end) await sleep(200);
-      await storage.flush?.();
+      const saved = (await storage.flush?.()) !== false;
+      if (!saved) log.error('kv-unsaved', { reason: '常駐の状態（state.json）を保存できませんでした。データのフォルダに書けるか確かめてください' });
+      return saved;
     })();
     return closing;
   }
 
+  // 止める。KV を書けなければ、正常な終了（0）にしない（2。run-agent.ps1 は起動し直さない。止める求めに従ったまま、ログに理由を残す）
   function requestStop(code = 0) {
     if (stopped) return;
     stopCode = code;
-    close().then(() => {
+    close().then((saved) => {
+      if (!saved && stopCode === 0) stopCode = 2;
       log.info('stopped', { code: stopCode });
       resolveDone(stopCode);
     });
@@ -769,8 +776,8 @@ export function createAgent({
     }
     await sendPresence({ force: true });
     await settle();
-    await close();
-    return envMismatch ? 2 : 0;
+    const saved = await close();
+    return envMismatch || !saved ? 2 : 0;
   }
 
   return {

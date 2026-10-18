@@ -196,6 +196,25 @@ test('常駐の入口: 応答の env が設定と違えば、何も書かずに�
   assert.equal(fs.existsSync(path.join(envDir(site), 'agent.lock')), false);
 });
 
+test('常駐の入口: state.json が壊れていたら（止めた状態などを失った）、このワールドを止めた状態にしてから始める（受け入れで戻る）', async (t) => {
+  const site = serverWorld(t, { players: [U1, U2] });
+  fs.mkdirSync(envDir(site), { recursive: true });
+  const broken = '{ "pal-note.agent.lineage.test.';
+  fs.writeFileSync(path.join(envDir(site), 'state.json'), broken);
+  // --check（何も書かない）でも止めた状態と出す
+  const check = await run(site, ['--check']);
+  assert.equal(check.code, 0);
+  assert.match(check.out, /lineage-unreadable/);
+  assert.match(check.out, /check-lineage blocked=true accepted=false/);
+  assert.equal(fs.readFileSync(path.join(envDir(site), 'state.json'), 'utf8'), broken);
+  // 動かすと共有しない。止めた状態は新しい state.json に残る
+  const gas = await gasOf();
+  await run(site, ['--once', '--force-host'], { gas });
+  assert.deepEqual(gas.writes('ownedUpload'), []);
+  assert.match(fs.readFileSync(path.join(envDir(site), 'state.json'), 'utf8'), /unreadable/);
+  assert.ok(fs.readdirSync(envDir(site)).some((name) => name.startsWith('state.json.broken-')));
+});
+
 test('常駐の入口: --signup は先に応答の環境を確かめてから ID を作る（すでにあれば 0、環境が違えば作らずに 2）', async (t) => {
   const site = serverWorld(t);
   const gas = await gasOf();

@@ -6,7 +6,7 @@
 //   --once [--force-host]   1 回だけ読んで送る（--force-host は test 環境だけ。サーバーが止まっていても今のセーブを読む）
 //   --accept-world          古い系統の受け入れ（動いている常駐があれば <データ>\<env>\accept.request で伝える）
 //   --signup                常駐の ID を作る（先に応答の環境を確かめる）
-// 終了コード: 0 正常・1 想定外（通信の失敗を含む）・2 設定や環境の誤り（再起動しても直らない）・3 二重起動
+// 終了コード: 0 正常・1 想定外（通信の失敗を含む）・2 設定や環境の誤り（再起動しても直らない。状態のファイルを保存できなかったときも）・3 二重起動
 // 動いている常駐を止めるには <データ>\<env>\stop.request を置く（2 秒以内に KV を書き出して 0 で終わる）。
 import fs from 'node:fs';
 import net from 'node:net';
@@ -26,7 +26,7 @@ import { createServerMonitor } from './server-state.mjs';
 import { fileHandles } from './fs-handles.mjs';
 import { createAgent } from './agent.mjs';
 import { createDryRunApi } from './dry-run.mjs';
-import { createLineageGuard } from './lineage-guard.mjs';
+import { blockUnreadable, createLineageGuard } from './lineage-guard.mjs';
 
 export const EXIT = Object.freeze({ OK: 0, UNEXPECTED: 1, CONFIG: 2, RUNNING: 3 });
 const NAMESPACE = 'pal-note';
@@ -137,9 +137,16 @@ async function run(config, log, deps) {
   const monitor = (deps.createMonitor ?? createServerMonitor)({ instanceId: world.instanceId, serverDir: world.serverDir });
   const runImport = deps.runImport ?? ((files, onProgress) => readWorldFiles(files, { onProgress }));
   const kvFile = path.join(config.envDir, 'state.json');
-  const openKv = (readOnly) => createKvStorage({
-    file: kvFile, namespace: NAMESPACE, fs: readOnly ? readOnlyFs : fs, onError: (code) => log.warn('kv-error', { code }),
-  });
+  const openKv = (readOnly) => {
+    const kv = createKvStorage({
+      file: kvFile, namespace: NAMESPACE, fs: readOnly ? readOnlyFs : fs, onError: (code) => log.warn('kv-error', { code }),
+    });
+    // 壊れていた state.json から空で始めた: 止めた状態・受け入れの基準・前に送った値を失ったので、このワールドを止めた状態にする（受け入れで戻る）
+    if (kv.brokenState() && blockUnreadable(safeStorage(kv), { namespace: NAMESPACE, env: config.env, worldId: world.worldId })) {
+      log.warn('lineage-unreadable', { reason: '状態のファイルが壊れていたため、共有と自動登録を止めます（受け入れるときは --accept-world）' });
+    }
+    return kv;
+  };
 
   if (flags.check && !flags.online) return check(config, world, { log, monitor, runImport, kv: openKv(true) });
   if (flags.check) return checkOnline(config, world, { log, api: makeApi(), kv: openKv(true) });
@@ -203,7 +210,9 @@ async function acceptWorld(agent, log) {
     return result === 'network' ? EXIT.UNEXPECTED : EXIT.CONFIG;
   }
   const outcome = await agent.acceptWorld();
-  await agent.close();
+  // 受け入れを state.json に書けなければ、受け入れたことにならない（close が kv-unsaved をログに出す）
+  const saved = await agent.close();
+  if (outcome.ok && !saved) return EXIT.CONFIG;
   if (outcome.ok) log.info('accept-done', { message: '受け入れました。次に動いたときから共有と自動登録を続けます' });
   return outcome.ok ? EXIT.OK : outcome.retry ? EXIT.UNEXPECTED : EXIT.CONFIG;
 }

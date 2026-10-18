@@ -98,6 +98,8 @@ test('常駐の KV: 壊れた JSON は退けて空から始める', async (t) =>
   const kv = createKvStorage({ file, onError: (code) => errors.push(code), now: () => Date.parse('2026-10-18T05:00:00Z') });
   assert.deepEqual(errors, ['BROKEN_STATE']);
   assert.equal(kv.getItem('pal-note.userId'), null);
+  assert.equal(kv.brokenState(), true, '壊れていたことを返す（常駐は古い系統の守りを止めた状態にする）');
+  assert.equal(createKvStorage({ file: tempFile(t) }).brokenState(), false);
   assert.equal(kv.brokenFile(), `${file}.broken-2026-10-18T05-00-00-000Z`);
   assert.equal(fs.readFileSync(kv.brokenFile(), 'utf8'), '{ "pal-note.userId": ');
   kv.setItem('pal-note.userId', 'サーバー');
@@ -162,6 +164,25 @@ test('常駐の KV: rename の EPERM・EBUSY は 100ms おきに 3 回までや�
   await third.flush();
   assert.equal(other.counts.rename, 1);
   assert.equal(errors.at(-1), 'ENOSPC');
+});
+
+test('常駐の KV: rename が失敗し続けると flush は false を返す（保存できていないことを呼び出し元に返す）。そのまま起動し直すと前の state.json から始まる', async (t) => {
+  const file = tempFile(t);
+  const first = createKvStorage({ file, delayMs: 10_000 });
+  first.setItem('pal-note.agent.lineage.test.W', '{"blocked":null}');
+  assert.equal(await first.flush(), true);
+  const errors = [];
+  const stuck = countingFs({ renameFailures: Array(20).fill('EPERM') });
+  const kv = createKvStorage({ file, fs: stuck, delayMs: 10_000, onError: (code) => errors.push(code) });
+  kv.setItem('pal-note.agent.lineage.test.W', '{"blocked":{"against":"published"}}');
+  assert.equal(await kv.flush(), false);
+  assert.equal(await kv.flush(), false);
+  assert.equal(kv.pending(), true);
+  assert.deepEqual(errors, ['EPERM', 'EPERM']);
+  // 保存できなかった変更は、起動し直すと失われる（だから呼び出し元は正常な終了にしない）
+  assert.equal(createKvStorage({ file }).getItem('pal-note.agent.lineage.test.W'), '{"blocked":null}');
+  // 何も変えていなければ true
+  assert.equal(await createKvStorage({ file }).flush(), true);
 });
 
 test('常駐の KV: 書いている間の変更は、終わった後にまとめて書く', async (t) => {

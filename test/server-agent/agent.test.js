@@ -66,9 +66,9 @@ function fakeWatch() {
 }
 
 // 1 台の常駐（KV は kvFile。同じ kvFile で作り直すと再起動）
-function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 'state.json'), server = fakeServer(), current, uploadLimit, env = 'test' }) {
+function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 'state.json'), server = fakeServer(), current, uploadLimit, env = 'test', kvFs }) {
   const pc = { current, reads: [], watch: fakeWatch(), server, log: memoryLog(), clock, site, kvFile };
-  pc.kv = createKvStorage({ file: kvFile, setTimer: clock.setTimer, clearTimer: clock.clearTimer });
+  pc.kv = createKvStorage({ file: kvFile, setTimer: clock.setTimer, clearTimer: clock.clearTimer, ...(kvFs ? { fs: kvFs } : {}) });
   pc.agent = createAgent({
     config: { env, userId: 'サーバー', passcode: PASS, apiUrl: 'local', envDir: path.dirname(kvFile), worldName: '', autoRegister: true },
     world: { worldId: W, worldDir: site.worldDir }, storage: pc.kv, log: pc.log.logger, monitor: server, api: gas.api,
@@ -497,6 +497,27 @@ test('常駐: stop.request で、KV を書き出して 0 で終わる', async (t
   assert.equal(fs.existsSync(path.join(path.dirname(pc.kvFile), 'stop.request')), false);
   assert.match(pc.log.text(), /stop-requested/);
   assert.ok(fs.existsSync(pc.kvFile));
+});
+
+test('常駐: 止めるときに状態のファイル（state.json）を保存できなければ、ログに出して終了コード 2 にする（正常な終了にしない）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  // rename がいつも失敗する（やり直さない失敗）
+  const kvFs = {
+    readFileSync: fs.readFileSync, renameSync: fs.renameSync,
+    promises: { mkdir: fs.promises.mkdir, writeFile: fs.promises.writeFile, rename: async () => { throw Object.assign(new Error('EIO（テスト）'), { code: 'EIO' }); } },
+  };
+  const pc = agentOf({ gas, clock, site, server: fakeServer('stopped'), kvFs });
+  const done = pc.agent.start();
+  await clock.advance(10_000);
+  assert.equal(pc.kv.pending(), true);
+  fs.mkdirSync(path.dirname(pc.kvFile), { recursive: true });
+  fs.writeFileSync(path.join(path.dirname(pc.kvFile), 'stop.request'), '');
+  await clock.advance(2_000);
+  assert.equal(await done, 2);
+  assert.match(pc.log.text(), /kv-unsaved/);
+  assert.match(pc.log.text(), /stopped code=2/);
 });
 
 test('常駐（2 台）: A が止まって B が建てる引き継ぎ。共有は新しい方・自動登録は重ならない・全員の InstanceId は同じ・古いワールドの A は止める', async (t) => {

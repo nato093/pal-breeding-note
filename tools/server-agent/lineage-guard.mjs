@@ -77,6 +77,21 @@ const larger = (a, b) => ({
   inGameDay: Math.max(a.inGameDay, b.inGameDay),
 });
 
+/** KV に残す状態のキー（環境・ワールドごと） */
+export const lineageStateKey = (namespace, env, worldId) => `${namespace}.agent.lineage.${env}.${worldId}`;
+
+/**
+ * 状態のファイル（state.json）が壊れていて空から始めたとき（kv-storage の brokenState）に、そのワールドを止めた状態（against: 'unreadable'）に
+ * する。前の止めた状態・受け入れの基準・前に送った値を失ったまま、古い系統を送らないため（受け入れで戻る）
+ * @param {{ set: (key: string, value: string) => void }} storage KV（safeStorage の形）
+ */
+export function blockUnreadable(storage, { namespace = 'pal-note', env, worldId }) {
+  const id = ownedWorldId(worldId);
+  if (!env || !id) return false;
+  storage.set(lineageStateKey(namespace, env, id), JSON.stringify({ blocked: { against: 'unreadable', save: kept(null), other: kept(null) }, baseline: null, sent: null }));
+  return true;
+}
+
 // GAS のサーバーの時刻（uploadedAt）が base より後か。読めなければ後とみなす（比べる側に倒す）
 const laterThan = (at, base) => {
   const time = Date.parse(at ?? '');
@@ -101,7 +116,7 @@ const laterThan = (at, base) => {
  */
 export function createLineageGuard({ server, storage, namespace = 'pal-note', onAccept = null, log = null }) {
   const scope = () => server.scope?.() || '';
-  const stateKey = (env, worldId) => `${namespace}.agent.lineage.${env}.${worldId}`;
+  const stateKey = (env, worldId) => lineageStateKey(namespace, env, worldId);
   // 解除した stamp（env|worldId → stamp の Set）・読んでいる途中の判定（env|worldId|stamp → Promise）
   const verified = new Map();
   const inflight = new Map();

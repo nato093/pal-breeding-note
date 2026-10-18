@@ -37,6 +37,7 @@ export function createKvStorage({
   let writing = null;
   let failed = false;
   let broken = '';
+  let brokenFound = false;
 
   // 読み込み（同期。ストアを組み立てる前に済ませる）。壊れた JSON は退けて空から始める
   // 読めない（ENOENT 以外）ときは空から始めない（古い系統の守りの止めた状態などを上書きで失うため）。やり直しても読めなければ例外にする
@@ -61,6 +62,7 @@ export function createKvStorage({
         if (typeof value === 'string' && !volatileKey(key, namespace)) memory.set(key, value);
       }
     } else {
+      brokenFound = true;
       broken = `${file}.broken-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`;
       try { fileSystem.renameSync(file, broken); } catch { broken = ''; }
       onError('BROKEN_STATE');
@@ -135,16 +137,22 @@ export function createKvStorage({
       memory.delete(name);
       if (!volatileKey(name, namespace)) schedule();
     },
-    /** 予約中の書き込みを今すぐ済ませる（終わるときに呼ぶ）。書けなければ dirty のまま */
+    /**
+     * 予約中の書き込みを今すぐ済ませる（終わるときに呼ぶ）。書けなければ dirty のまま
+     * @returns {Promise<boolean>} 全部を書けたか（false なら、このまま終わると書けていない変更を失う）
+     */
     async flush() {
       if (writing) await writing;
       if (timer) { clearTimer(timer); timer = null; }
       if (dirty) await run();
+      return !dirty;
     },
     /** 予約中の書き込みがあるか（終わるときの確認とテスト） */
     pending: () => dirty || Boolean(timer) || Boolean(writing),
     /** 壊れていた state.json を退けた先（なければ ''） */
     brokenFile: () => broken,
+    /** 起動のときに state.json が壊れていて、空から始めたか（退けられなかったときも true） */
+    brokenState: () => brokenFound,
   };
   return storage;
 }
