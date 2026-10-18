@@ -512,3 +512,85 @@ test('ページを開いている PC（server の participant-ui）: 常駐は�
   // 印のないページ（ふつうのページ・古い GAS が捨てた印）は今までどおり
   assert.deepEqual(lines([residentPage(60000, true, { resident: undefined })]), ['● サーバー · 1 分前 · ホスト中 · 共有できる']);
 });
+
+// 最後の共有がサーバーのセーブ（共有はサーバーの PC の常駐プログラムが ID「サーバー」で送る。サーバーのセーブにはホスト名がない）
+const serverMeta = (extra = {}) => ({ ...guestPlaying().meta, saveKind: 'server', hostName: '', uploadedBy: 'サーバー', ...extra });
+const SERVER_AUTO = 'この PC では読み込みません。配合牧場の自動登録は、サーバーの PC の常駐プログラムが行います（プレイヤーの対応であなたが選ばれているとき）';
+const SERVER_STALE = (ago) => `サーバーは稼働中ですが、最後の共有は ${ago}です。サーバーの PC の常駐プログラムを確かめてください。`;
+const SERVER_LAG_HELP = `サーバーで遊んでいるなら、サーバーの PC で常駐プログラムが動いているか確かめてください。協力プレイに戻したなら、${LAG_HELP}`;
+
+test('役割の 1 行（server の participant-ui）: 最後の共有がサーバーのセーブなら、参加者・閲覧者ともサーバーの PC の常駐プログラムの文。古い共有は info で、常駐の応答ではサーバー稼働中なのに古いときだけ警告', async () => {
+  const { roleSummary, ownedNotices, SERVER_AUTO_TEXT, isServerSave } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  assert.equal(SERVER_AUTO_TEXT, `${SERVER_AUTO}。`);
+  assert.deepEqual([isServerSave({ saveKind: 'server' }), isServerSave({ saveKind: 'coop' }), isServerSave({}), isServerSave(null)], [true, false, false, false]);
+  // ゲーム中でない参加者（共有が止まっている案内は出ない）
+  const state = (minutes, overrides = {}) => guestPlaying({ play: null, meta: serverMeta({ sharedAt: msAgo(minutes * 60000) }), ...overrides });
+  const fresh = roleSummary(state(3), { userId: 'Bob', now });
+  assert.deepEqual([fresh.kind, fresh.text], ['info', `${SERVER_AUTO} · 最後の共有 3 分前`]);
+  // 送った人（常駐の ID）は名指ししない。ホストの画面とも言わない
+  assert.doesNotMatch(fresh.text, /サーバー の|PC から|ホストの画面/);
+  // サーバーは遊ぶときだけ動かすので、古い共有でも警告にしない（常駐の応答がない・サーバー停止中・常駐の応答が 3 分より前）
+  for (const pages of [undefined, pagesOf([residentPage(60000, false)]), pagesOf([residentPage(4 * 60000, true)]), pagesOf(null)]) {
+    const old = roleSummary(state(120, { pages }), { userId: 'Bob', now });
+    assert.deepEqual([old.kind, old.text], ['info', `${SERVER_AUTO} · 最後の共有 2 時間前`], JSON.stringify(pages));
+  }
+  // 常駐の応答ではサーバー稼働中なのに、共有が 10 分より古い: 警告（2 台の常駐のどれかが稼働中でも）
+  const running = pagesOf([residentPage(60000, true)]);
+  assert.deepEqual(roleSummary(state(120, { pages: running }), { userId: 'Bob', now }), { text: SERVER_STALE('2 時間前'), kind: 'warning', hint: '' });
+  const twoAgents = pagesOf([residentPage(30000, false), residentPage(60000, true, { device: 'server-pc-0002' })]);
+  assert.equal(roleSummary(state(11, { pages: twoAgents }), { userId: 'Bob', now }).kind, 'warning');
+  assert.equal(roleSummary(state(10, { pages: running }), { userId: 'Bob', now }).kind, 'info');
+  // 共有が止まっている案内（参加者がゲーム中）が出るときは、そちらに任せて info
+  const lagging = guestPlaying({ meta: serverMeta({ sharedAt: msAgo(120 * 60000) }), pages: running });
+  const lagged = roleSummary(lagging, { userId: 'Bob', now });
+  assert.deepEqual([lagged.kind, lagged.text], ['info', `${SERVER_AUTO} · 最後の共有 2 時間前`]);
+  // 閲覧者（未連携で共有を見ている人）
+  const viewer = (minutes, pages) => ({ ...state(minutes, { pages }), role: '' });
+  assert.deepEqual(roleSummary(viewer(120), { now }), { text: 'サーバーの PC の常駐プログラムが共有した所持パルを表示しています · 最後の共有 2 時間前', kind: 'info', hint: '' });
+  assert.deepEqual(roleSummary(viewer(120, running), { now }), { text: SERVER_STALE('2 時間前'), kind: 'warning', hint: '' });
+  // 名前が合わないときの 2 行目は今までどおり
+  const players = [{ uid: 'u1', name: 'Alice' }];
+  assert.match(roleSummary(state(3, { owned: { players, pals: [] } }), { userId: 'Bob', now, mappingMode: 'gas' }).hint, /どの PC からでも選べます/);
+  // 協力プレイの共有（saveKind が coop・なし）は今までの文
+  const coop = guestPlaying({ play: null, meta: { ...guestPlaying().meta, saveKind: 'coop', sharedAt: msAgo(3 * 60000) } });
+  assert.equal(roleSummary(coop, { userId: 'Bob', now }).text, roleSummary({ ...coop, meta: { ...coop.meta, saveKind: undefined } }, { userId: 'Bob', now }).text);
+  assert.match(roleSummary(coop, { userId: 'Bob', now }).text, /Alice の画面が行います/);
+  // 所持パルの案内も同じ文
+  assert.deepEqual(ownedNotices(state(120, { pages: running }), { userId: 'Bob', now }).map((notice) => [notice.kind, notice.text]), [['warning', SERVER_STALE('2 時間前')]]);
+});
+
+test('共有が止まっている案内（server の participant-ui）: 最後の共有がサーバーのセーブなら、サーバーの PC の常駐プログラムを確かめる案内と、協力プレイに戻した場合の案内', async () => {
+  const { shareLagNotice } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const notice = shareLagNotice(guestPlaying({ meta: serverMeta() }), { now });
+  assert.deepEqual(notice, { text: `ゲーム中のようですが、共有は 12 分前のセーブのままです。${SERVER_LAG_HELP}`, kind: 'warning', action: 'editWorld' });
+  // ページを開いているほかの PC に常駐があれば「サーバー（常駐・サーバー稼働中）」と添える
+  const pages = pagesOf([residentPage(60000, true), pageOf('Bob', SELF_DEVICE, 30000, { role: 'guest', playing: true })]);
+  assert.equal(shareLagNotice(guestPlaying({ meta: serverMeta(), pages }), { now }).text,
+    `ゲーム中のようですが、共有は 12 分前のセーブのままです。${SERVER_LAG_HELP}3 分以内に応答があったほかの PC: サーバー（常駐・サーバー稼働中）。`);
+  // 協力プレイの共有は今までの案内
+  assert.equal(shareLagNotice(guestPlaying({ meta: { ...guestPlaying().meta, saveKind: 'coop' } }), { now }).text, `ゲーム中のようですが、共有は 12 分前のセーブのままです。${LAG_HELP}`);
+});
+
+test('プレイ中の時点・ワールド名・役割の名前（server の participant-ui）: サーバーのワールドは「サーバーのセーブ」「「名前」（サーバー）」「サーバーの PC の常駐プログラムが共有した所持パル」', async () => {
+  const { presenceItems, presenceOf, worldName, roleLabel } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const owned = { players: [{ uid: 'u1', name: 'Alice', online: true, level: 50 }], pals: [], world: { inGameDay: 680 } };
+  const server = guestPlaying({ meta: serverMeta(), owned });
+  assert.equal(presenceOf(server, { now }).label, 'サーバーのセーブ');
+  assert.match(presenceItems(server, { now }).find(([term]) => term === 'プレイ中')[1], /^Alice（サーバーのセーブ \d{2}:\d{2} の時点）$/);
+  // 協力プレイの共有は「ホストのセーブ」、この PC で読んだセーブは「セーブ」のまま
+  assert.equal(presenceOf(guestPlaying({ owned }), { now }).label, 'ホストのセーブ');
+  assert.equal(presenceOf(guestPlaying({ owned, meta: { ...serverMeta(), source: 'local' } }), { now }).label, 'セーブ');
+  // ワールド名（ヘッダーの説明・パネルの表示中・使うワールドの選択肢）
+  assert.equal(worldName(serverMeta()), '「テスト」（サーバー）');
+  assert.equal(worldName({ worldId: 'ABCDEF0123456789ABCDEF0123456789', worldName: '', hostName: 'Host', saveKind: 'server' }), 'ワールド ABCDEF01（サーバー）');
+  assert.equal(worldName({ ...guestPlaying().meta, saveKind: 'coop' }), '「テスト」（ホスト Host）');
+  assert.equal(worldName(guestPlaying().meta), '「テスト」（ホスト Host）');
+  // 設定の役割のチップの説明
+  assert.equal(roleLabel(server), '参加者（サーバーの PC の常駐プログラムが共有した所持パルを表示します）');
+  assert.equal(roleLabel(guestPlaying()), '参加者（ホストが共有した所持パルを表示します）');
+  assert.equal(roleLabel({ ...server, role: 'host' }), 'ホスト（この PC にワールドのセーブがあります）');
+  assert.equal(roleLabel({ ...server, role: '' }), '');
+});

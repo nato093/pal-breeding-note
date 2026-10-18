@@ -54,6 +54,16 @@ export function guestAutoText(host = '') {
   return `この PC では読み込みません。配合牧場の自動登録は${host ? ' ' : ''}${subject}の画面が行います（${subject}が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。`;
 }
 
+// ---- サーバーのワールド（server の participant-ui） ----
+/**
+ * 表示しているデータがサーバー（Palworld の専用サーバー）のセーブか（owned.js の meta.saveKind。共有のデータなら共有された値）。
+ * サーバーと協力プレイを往復するので、最後の共有で決める。協力プレイ・古い共有（saveKind なし）は今までの文
+ */
+export const isServerSave = (meta) => meta?.saveKind === 'server';
+// サーバーのワールドの参加者の 1 行（設定の参加のワールドの行と、参加者の 1 行）。サーバーで遊んでいる間は、サーバーの PC の常駐プログラムが
+// 共有と配合牧場の自動登録を行う（ホストの画面は要らない）
+export const SERVER_AUTO_TEXT = 'この PC では読み込みません。配合牧場の自動登録は、サーバーの PC の常駐プログラムが行います（プレイヤーの対応であなたが選ばれているとき）。';
+
 /**
  * 役割ごとの 1 行。ホスト・参加者（role 'guest'）・未連携で共有を見ている人。共有を見ていない未連携の人は null
  *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
@@ -62,7 +72,8 @@ export function guestAutoText(host = '') {
  * 参加者の文は、最後に共有した人を今のホストと決めつけない（ホストは仲間内で交代する。sync-fixes の host-rotation）: 新しい共有を別の人が
  * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える。
  * 古い共有は警告の短い文にするが、共有が止まっている案内（shareLagNotice）が出るときは古さをそちらに任せ、info の形にする（同じ内容の
- * 警告を 2 つ並べない）
+ * 警告を 2 つ並べない）。
+ * 最後の共有がサーバーのセーブなら、サーバーの PC の常駐プログラムの文（serverSummary）
  * @returns {null | { text: string, kind: 'info' | 'warning', hint: string }}
  */
 export function roleSummary(state, { userId = '', now = Date.now, mapping = {}, mappingMode = 'legacy' } = {}) {
@@ -75,6 +86,7 @@ export function roleSummary(state, { userId = '', now = Date.now, mapping = {}, 
   const ago = shared ? timeAgo(sharedAt, now()) : '';
   const stale = shared && Number.isFinite(Date.parse(sharedAt)) && now() - Date.parse(sharedAt) > SHARED_STALE_MS;
   const hint = shared ? nameMismatch(state.owned?.players ?? [], userId, { mapping, mappingMode }) : '';
+  if (shared && isServerSave(meta)) return serverSummary(state, { ago, stale, hint, now });
   if (state.role === 'guest') {
     if (!shared) return { text: guestAutoText(host), kind: 'info', hint: '' };
     // 共有した PC（送った人は ID で比べる。分からなければ添えない）
@@ -90,6 +102,17 @@ export function roleSummary(state, { userId = '', now = Date.now, mapping = {}, 
   }
   if (!shared) return null;
   return { text: `${host ? `${host} が` : 'ホストが'}共有した所持パルを表示しています · 最後の共有 ${ago}`, kind: stale ? 'warning' : 'info', hint };
+}
+
+// サーバーのワールドの共有を見ている参加者・閲覧者の 1 行。共有はサーバーの PC の常駐プログラムが送る（送った人は常駐の ID なので名指し
+// しない）。サーバーは遊ぶときだけ動かす（決定 4）ので、古い共有はふつうのこととして info。警告は、常駐の応答ではサーバーが稼働中なのに
+// 共有が古いときだけ（共有が止まっている案内〔shareLagNotice〕が出るときはそちらに任せる）
+function serverSummary(state, { ago, stale, hint, now }) {
+  if (stale && serverRunning(state, { now }) && !shareLagNotice(state, { now })) {
+    return { text: `サーバーは稼働中ですが、最後の共有は ${ago}です。サーバーの PC の常駐プログラムを確かめてください。`, kind: 'warning', hint };
+  }
+  const lead = state.role === 'guest' ? SERVER_AUTO_TEXT.replace(/。$/, '') : 'サーバーの PC の常駐プログラムが共有した所持パルを表示しています';
+  return { text: `${lead} · 最後の共有 ${ago}`, kind: 'info', hint };
 }
 
 // ---- ゲーム中の推定と、共有が止まっていることの案内（sync-fixes の host-rotation） ----
@@ -115,6 +138,11 @@ export function playSummary(state, { now = Date.now } = {}) {
   return state?.role === 'guest' && playing ? '参加中（推定）' : '';
 }
 
+// 共有が止まっている案内の直し方。協力プレイは今のホストの PC のページ。サーバーのワールド（最後の共有がサーバーのセーブ）は、まずサーバーの
+// PC の常駐プログラムを確かめ、協力プレイに戻した場合（往復する。決定 5）の直し方も添える
+const COOP_LAG_HELP = '今のホストの PC でこのページが開いているか確かめてください。あなたがホストなら、このワールドの編集で Level.sav・LevelMeta.sav・Players のファイルを足してください。';
+const SERVER_LAG_HELP = `サーバーで遊んでいるなら、サーバーの PC で常駐プログラムが動いているか確かめてください。協力プレイに戻したなら、${COOP_LAG_HELP}`;
+
 /**
  * 参加者がゲーム中なのに、共有が止まっている（共有のセーブが SHARE_LAG_MS より古い・このワールドの共有がない）ときの案内。所持パルの案内
  *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」、共有がなければ「共有されていません」）に同じ文で出す。ヘッダーには
@@ -130,7 +158,7 @@ export function shareLagNotice(state, { now = Date.now } = {}) {
   if (shared.error || shared.fetchedWorldId !== state.linkedWorldId || !Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
   const meta = state.meta ?? {};
   // ページを開いているほかの PC の短い一覧を添える（分からなければ添えない。page-presence）
-  const help = `今のホストの PC でこのページが開いているか確かめてください。あなたがホストなら、このワールドの編集で Level.sav・LevelMeta.sav・Players のファイルを足してください。${openPagesBrief(state, { now: () => time })}`;
+  const help = `${isServerSave(meta) ? SERVER_LAG_HELP : COOP_LAG_HELP}${openPagesBrief(state, { now: () => time })}`;
   if (meta.source !== 'shared') return { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${help}`, kind: 'warning', action: 'editWorld' };
   const saved = Date.parse(meta.saveUpdatedAt ?? '');
   if (Number.isFinite(saved) && time - saved < SHARE_LAG_MS) return null;
@@ -291,8 +319,8 @@ const LEVELS_SHOWN = 8;
  * 表示中のデータのプレイ中・日数・Lv。データがなければ null。
  * @returns {null | { day: number | null, known: boolean, online: object[], levels: object[], at: string, label: string, fresh: boolean }}
  *   known はプレイ中が分かるプレイヤーがいるか（古いデータ・古い共有では false）、at は添える時刻（プレイ中はその保存の時点の状態なので、
- *   共有でも共有した時刻ではなくホストのセーブの時刻。Codex のレビュー）、label は「セーブ」「ホストのセーブ」、fresh はその保存が新しい
- *  （いまもプレイ中とみなせる）か
+ *   共有でも共有した時刻ではなくホストのセーブの時刻。Codex のレビュー）、label は「セーブ」「ホストのセーブ」（最後の共有がサーバーのセーブ
+ *   なら「サーバーのセーブ」）、fresh はその保存が新しい（いまもプレイ中とみなせる）か
  */
 export function presenceOf(state, { now = Date.now } = {}) {
   const owned = state?.owned;
@@ -309,7 +337,7 @@ export function presenceOf(state, { now = Date.now } = {}) {
     online: players.filter((player) => player.online === true),
     levels: players.filter((player) => Number.isInteger(player.level) && player.level > 0),
     at: meta.saveUpdatedAt || '',
-    label: shared ? 'ホストのセーブ' : 'セーブ',
+    label: !shared ? 'セーブ' : isServerSave(meta) ? 'サーバーのセーブ' : 'ホストのセーブ',
     fresh,
   };
 }
@@ -324,8 +352,8 @@ export function onlineUids(state, { now = Date.now } = {}) {
 export const onlineKey = (state, options) => [...onlineUids(state, options)].sort().join(',');
 
 /**
- * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（セーブ 03:07 の時点）」。参加者は「ホストのセーブ」。
- * 分からなければ出さない）・
+ * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（セーブ 03:07 の時点）」。参加者は「ホストのセーブ」、
+ * サーバーのワールドは「サーバーのセーブ」。分からなければ出さない）・
  * Lv（「Alice 52 · Bob 47」。分かる人だけ）
  */
 export function presenceItems(state, { now = Date.now } = {}) {
@@ -351,15 +379,21 @@ export function dateTime(value) {
     ? new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(time) : '不明';
 }
 
+/**
+ * ワールドの呼び名（「「名前」（ホスト Alice）」。名前がなければ「ワールド 頭 8 字」）。サーバーのワールド（isServerSave。サーバーのセーブには
+ * ホスト名がない）は「（サーバー）」を添える
+ */
 export function worldName(meta) {
   if (!meta) return '';
   const name = meta.worldName || meta.name ? `「${meta.worldName || meta.name}」` : `ワールド ${String(meta.worldId ?? meta.id ?? '').slice(0, 8)}`;
-  return `${name}${meta.hostName ? `（ホスト ${meta.hostName}）` : ''}`;
+  return `${name}${isServerSave(meta) ? '（サーバー）' : meta.hostName ? `（ホスト ${meta.hostName}）` : ''}`;
 }
 
 export function roleLabel(state) {
-  return state.role === 'host' ? 'ホスト（この PC にワールドのセーブがあります）'
-    : state.role === 'guest' ? '参加者（ホストが共有した所持パルを表示します）' : '';
+  if (state.role === 'host') return 'ホスト（この PC にワールドのセーブがあります）';
+  if (state.role !== 'guest') return '';
+  return state.meta?.source === 'shared' && isServerSave(state.meta)
+    ? '参加者（サーバーの PC の常駐プログラムが共有した所持パルを表示します）' : '参加者（ホストが共有した所持パルを表示します）';
 }
 
 /**

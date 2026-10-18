@@ -130,7 +130,9 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     if (FARM_EGG_CAP > 0 && farm.eggCount >= FARM_EGG_CAP - 2) head.append(statusChip(`もうすぐいっぱい（${farm.eggCount}/${FARM_EGG_CAP}）`, 'warning', 'farm-eggs-full'));
     box.append(head);
     if (!farm.eggs) {
-      if (farm.eggCount) box.append(el('p', 'farm-eggs-note', '中身はホストの画面で見られます'));
+      // 共有のセルの上限で中身を省いた牧場（core/owned-shared.js の fitOwnedFarms）。サーバーのワールドには見られる画面がないので、
+      // どこで見られるかは言わない（server の participant-ui）
+      if (farm.eggCount) box.append(el('p', 'farm-eggs-note', '中身は共有に入りきらないため省いています'));
       return box;
     }
     if (!farm.eggs.length) return box;
