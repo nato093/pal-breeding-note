@@ -30,6 +30,8 @@ import { blockUnreadable, createLineageGuard } from './lineage-guard.mjs';
 
 export const EXIT = Object.freeze({ OK: 0, UNEXPECTED: 1, CONFIG: 2, RUNNING: 3 });
 const NAMESPACE = 'pal-note';
+// パスワードを入れる環境変数（config.mjs が読む）
+const SECRET_ENV_KEYS = ['PAL_AGENT_PASSCODE', 'PAL_TEST_PASSCODE'];
 
 /**
  * 二重起動の防止に使う名前（データの場所の env のフォルダごと）。Windows は名前付きパイプ、ほか（CI の Linux）は抽象名前空間の UNIX ソケット。
@@ -93,6 +95,9 @@ export async function main({ argv = process.argv.slice(2), env = process.env, st
   } catch (error) {
     stderr.write(`[error] ${error instanceof ConfigError ? error.message : '設定を読めませんでした'}\n`);
     return error instanceof ConfigError ? EXIT.CONFIG : EXIT.UNEXPECTED;
+  } finally {
+    // パスワードは設定に読んだら環境変数から消す（この後に起動する PowerShell などの子に受け継がせない。run-agent.ps1 は子の node にだけ渡す）
+    for (const key of SECRET_ENV_KEYS) delete env[key];
   }
   const { flags } = config;
   // 確かめるだけの動かし方（--check・--dry-run・--signup）はログのファイルに書かない（標準出力だけ）

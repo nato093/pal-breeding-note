@@ -588,9 +588,9 @@ test('常駐（2 台）: A が止まって B が建てる引き継ぎ。共有�
   assert.equal(a.agent.guard.status(W).state, 'blocked');
   assert.deepEqual([(await gas.published()).uploadedAt, (await gas.published()).clock], [afterHandoff.uploadedAt, clockAt(104)]);
   assert.equal(gas.writes('create').length, 1);
-  // 受け入れ（accept.request）: 今のセーブを基準にし、牧場の記録だけから始める
+  // 受け入れ（accept.request。書いた時刻が入る）: 今のセーブを基準にし、牧場の記録だけから始める
   fs.mkdirSync(path.dirname(a.kvFile), { recursive: true });
-  fs.writeFileSync(path.join(path.dirname(a.kvFile), 'accept.request'), '');
+  fs.writeFileSync(path.join(path.dirname(a.kvFile), 'accept.request'), new Date(clock.now()).toISOString());
   await a.agent.checkRequests();
   await a.agent.settle();
   assert.equal(fs.existsSync(path.join(path.dirname(a.kvFile), 'accept.request')), false);
@@ -640,6 +640,36 @@ test('常駐（結合）: 動いている常駐の受け入れは、読み込ん
   await pc.agent.settle();
   assert.notEqual(pc.agent.guard.status(W).state, 'blocked');
   assert.equal((await gas.published()).clock, clockAt(151));
+  await pc.agent.close();
+});
+
+test('常駐: 古い（10 分より前に書いた）・時刻の読めない accept.request は受け入れずに捨てる（前の起動の残り・試し直しの間に残ったもの）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  await clock.advance(60_000);
+  const other = agentOf({ gas, clock, site: serverWorld(t) });
+  await other.start({ minutes: 200 });
+  await other.agent.close();
+  await pc.save({ minutes: 150 });
+  assert.equal(pc.agent.guard.status(W).state, 'blocked');
+  const request = path.join(path.dirname(pc.kvFile), 'accept.request');
+  fs.mkdirSync(path.dirname(request), { recursive: true });
+  for (const written of [new Date(clock.now() - 11 * 60_000).toISOString(), '', 'not a time']) {
+    fs.writeFileSync(request, written);
+    await pc.agent.checkRequests();
+    await pc.agent.settle();
+    assert.equal(fs.existsSync(request), false, `捨てる: ${written}`);
+    assert.equal(pc.agent.guard.status(W).state, 'blocked', `受け入れない: ${written}`);
+  }
+  assert.equal(pc.log.text().match(/accept-expired/g).length, 3);
+  // 新しい要求は受け入れる
+  fs.writeFileSync(request, new Date(clock.now() - 60_000).toISOString());
+  await pc.agent.checkRequests();
+  await pc.agent.settle();
+  assert.notEqual(pc.agent.guard.status(W).state, 'blocked');
   await pc.agent.close();
 });
 

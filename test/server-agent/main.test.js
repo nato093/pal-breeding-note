@@ -120,6 +120,24 @@ test('常駐の入口: 動いている常駐がいれば --once は 3、--accept
   assert.ok(gas.control.calls.includes('login'));
 });
 
+test('常駐の入口: パスワードは設定に読んだら環境変数から消す（この後に起動する PowerShell などの子に受け継がせない）', async (t) => {
+  const site = serverWorld(t);
+  const env = {
+    LOCALAPPDATA: site.local, PAL_AGENT_DATA_DIR: site.dataDir, PAL_AGENT_USER_ID: 'サーバー', PAL_AGENT_PASSCODE: PASS, PAL_TEST_PASSCODE: 'dummy-test-pass-0002',
+  };
+  const stdout = output();
+  const seen = [];
+  // サーバーの稼働を見る時点（PowerShell を起動しうる所）で、環境変数にパスワードが残っていない
+  const createMonitor = () => ({ check: async () => {
+    seen.push([env.PAL_AGENT_PASSCODE, env.PAL_TEST_PASSCODE]);
+    return { state: 'stopped', active: false, source: 'serversync', pid: null, serverState: 'Stopped', stoppedFor: null, reasons: [] };
+  } });
+  const code = await main({ argv: ['--check'], env, stdout: stdout.stream, stderr: output().stream, deps: { createMonitor, runImport: async () => snapshotOf({ seconds: 0, minutes: 1, day: 1 }) } });
+  assert.equal(code, 0);
+  assert.deepEqual(seen, [[undefined, undefined]]);
+  assert.equal('PAL_AGENT_PASSCODE' in env, false);
+});
+
 test('常駐の入口: --check はネットにつながず、発見と解析の要約だけを出す（名前・ID・パスは出さない。何も書かない）', async (t) => {
   const site = serverWorld(t, { players: [U1, U2] });
   const gas = await gasOf();

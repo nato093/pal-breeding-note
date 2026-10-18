@@ -50,6 +50,9 @@ const UNSUPPORTED_RETRY_MS = 60 * 60_000;
 const LINEAGE_RECHECK_MS = 30_000;
 // 受け入れの要求で、公開の値を読めない・セーブを読めないときに試し直す間隔
 const ACCEPT_RETRY_MS = 30_000;
+// 受け入れの要求（accept.request に書いた時刻）を使う長さ。これより古い・時刻の読めない要求は捨てる（前の起動の残り・試し直しの間に残った
+// 要求で、意図しない時点のセーブを受け入れないため）
+export const ACCEPT_REQUEST_MAX_AGE_MS = 10 * 60_000;
 // 止めるときに、送っている途中の共有を待つ長さ
 const SHUTDOWN_WAIT_MS = 15_000;
 // 上限を超えたことをログに出し直す間隔（30 秒ごとの保存のたびには出さない）
@@ -687,6 +690,12 @@ export function createAgent({
       return;
     }
     if (now() < acceptRetryAt || !(await exists(requestFile('accept.request')))) return;
+    const written = Date.parse(String(await fs.readFile(requestFile('accept.request'), 'utf8').catch(() => '')).trim());
+    if (!Number.isFinite(written) || Math.abs(now() - written) > ACCEPT_REQUEST_MAX_AGE_MS) {
+      await fs.unlink(requestFile('accept.request')).catch(() => {});
+      log.warn('accept-expired', { reason: '受け入れの要求が古いか、書いた時刻が読めないため捨てました（受け入れるなら、もう一度 --accept-world を実行してください）' });
+      return;
+    }
     const outcome = await acceptWorld();
     if (outcome.retry) acceptRetryAt = now() + ACCEPT_RETRY_MS;
     else await fs.unlink(requestFile('accept.request')).catch(() => {});
