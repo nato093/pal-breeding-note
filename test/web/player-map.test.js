@@ -143,6 +143,37 @@ test('対応のストア: 古い GAS（BAD_ACTION）は接続先と環境ごと�
   assert.deepEqual(t.maps.entries('test', WORLD), { [KEY_A]: 'Alice' });
 });
 
+test('対応のストア: 読めなかったときも maxAge の間は読み直さない（描くたび・判定のたびに送らない）。maxAge 0 は読みに行く', async () => {
+  const t = await setup();
+  t.control.fail = 'SHEET_HEADER';
+  assert.equal(await t.maps.ensure('test', WORLD, { maxAge: 15_000 }), false);
+  t.clock.now += 14_000;
+  assert.equal(await t.maps.ensure('test', WORLD, { maxAge: 15_000 }), false);
+  assert.equal(t.calls.length, 1);
+  // 別のワールドは別に数える
+  assert.equal(await t.maps.ensure('test', OTHER_WORLD, { maxAge: 15_000 }), false);
+  assert.equal(t.calls.length, 2);
+  t.clock.now += 2_000;
+  t.control.fail = null;
+  assert.equal(await t.maps.ensure('test', WORLD, { maxAge: 15_000 }), true);
+  assert.equal(t.calls.length, 3);
+  t.control.fail = 'INTERNAL';
+  t.clock.now += 1;
+  assert.equal(await t.maps.ensure('test', WORLD), false);
+  assert.equal(await t.maps.ensure('test', WORLD), false);
+  assert.equal(t.calls.length, 5);
+});
+
+test('対応のストア: 応答の環境・ワールドが違えば写しにしない', async () => {
+  const t = await setup();
+  await t.otherPc([{ key: KEY_A, userId: 'Alice' }]);
+  for (const patch of [{ env: 'prod' }, { worldId: OTHER_WORLD }]) {
+    const maps = t.make({ request: async (action, input) => ({ ...(await t.api.request(action, PASS, { userId: 'Alice', ...input })), ...patch }) });
+    assert.equal(await maps.ensure('test', WORLD), false, JSON.stringify(patch));
+    assert.equal(maps.entries('test', WORLD), null);
+  }
+});
+
 test('対応のストア: 読めない（通信の失敗・SHEET_HEADER）ときは写しのままで、例外にしない', async () => {
   const t = await setup();
   await t.otherPc([{ key: KEY_A, userId: 'Alice' }]);
@@ -252,6 +283,73 @@ test('対応のストア: 送っている間に届いた読み直しにも、送
   releaseRead();
   assert.equal(await reading, false);
   assert.deepEqual(t.maps.entries('test', WORLD), { [KEY_A]: 'Alice', [KEY_U]: 'Bob', [KEY_B]: 'Bob' });
+});
+
+test('対応のストア（Codex のレビュー）: 同じワールドの書き込みは 1 つずつ順に送る。先の書き込みの応答が遅れても、後の対応を写しから消さない', async () => {
+  const t = await setup();
+  await t.maps.ensure('test', WORLD);
+  // 先の書き込みは GAS に書けた後、応答だけが遅れる
+  let release;
+  const late = new Promise((resolve) => { release = resolve; });
+  const sent = [];
+  const maps = t.make({
+    request: async (action, input) => {
+      const response = await t.api.request(action, PASS, { userId: 'Alice', ...input });
+      if (action !== 'playerMapSet') return response;
+      sent.push(input.entries[0].key);
+      if (sent.length === 1) await late;
+      return response;
+    },
+  });
+  const first = maps.set('test', WORLD, [{ key: KEY_A, userId: 'Alice' }]);
+  const second = maps.set('test', WORLD, [{ key: KEY_B, userId: 'Bob' }]);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, [KEY_A]);
+  assert.deepEqual(maps.entries('test', WORLD), { [KEY_A]: 'Alice', [KEY_B]: 'Bob' });
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(sent, [KEY_A, KEY_B]);
+  assert.deepEqual(maps.entries('test', WORLD), { [KEY_A]: 'Alice', [KEY_B]: 'Bob' });
+  // 先の書き込みが失敗しても、後の書き込みは送る
+  const failing = t.make({
+    request: async (action, input) => {
+      if (action === 'playerMapSet' && input.entries[0].key === KEY_A) throw new ApiError('BUSY');
+      return t.api.request(action, PASS, { userId: 'Alice', ...input });
+    },
+  });
+  const a = failing.set('test', WORLD, [{ key: KEY_A, userId: 'Bob' }]);
+  const b = failing.set('test', WORLD, [{ key: KEY_U, userId: 'Bob' }]);
+  await assert.rejects(a, { code: 'BUSY' });
+  await b;
+  assert.deepEqual(failing.entries('test', WORLD), { [KEY_A]: 'Alice', [KEY_B]: 'Bob', [KEY_U]: 'Bob' });
+});
+
+test('対応のストア（Codex のレビュー）: 送っている間は saving が真で、confirmed の entries は送る前の写し（判定に使う）。settled で書き終わるまで待てる', async () => {
+  const t = await setup();
+  await t.otherPc([{ key: KEY_A, userId: 'Alice' }]);
+  await t.maps.ensure('test', WORLD);
+  assert.equal(t.maps.saving('test', WORLD), false);
+  const release = t.hold(['playerMapSet']);
+  const writing = t.maps.set('test', WORLD, [{ key: KEY_B, userId: 'Bob' }]);
+  assert.equal(t.maps.saving('test', WORLD.toLowerCase()), true);
+  assert.equal(t.maps.saving('test', OTHER_WORLD), false);
+  assert.deepEqual(t.maps.entries('test', WORLD), { [KEY_A]: 'Alice', [KEY_B]: 'Bob' });
+  assert.deepEqual(t.maps.entries('test', WORLD, { confirmed: true }), { [KEY_A]: 'Alice' });
+  let settled = false;
+  const waiting = t.maps.settled('test', WORLD).then(() => { settled = true; });
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  release();
+  await writing;
+  await waiting;
+  assert.equal(t.maps.saving('test', WORLD), false);
+  assert.deepEqual(t.maps.entries('test', WORLD, { confirmed: true }), { [KEY_A]: 'Alice', [KEY_B]: 'Bob' });
+  // 失敗しても settled は例外にしない。まだ読めていないワールドの confirmed は null
+  t.control.fail = 'BUSY';
+  await assert.rejects(t.maps.set('test', WORLD, [{ key: KEY_U, userId: 'Bob' }]), { code: 'BUSY' });
+  await t.maps.settled('test', WORLD);
+  assert.deepEqual(t.maps.entries('test', WORLD, { confirmed: true }), { [KEY_A]: 'Alice', [KEY_B]: 'Bob' });
+  assert.equal(t.maps.entries('test', OTHER_WORLD, { confirmed: true }), null);
 });
 
 test('対応のストア: 中身が変わったときだけ知らせ、外した購読には知らせない', async () => {

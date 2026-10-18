@@ -33,9 +33,9 @@ function parseCopy(text) {
  * request(action, input): GAS の操作（画面は store.call。書いた人の ID は request が入れる）。scope(): ログイン中の環境（なければ ''）。
  * endpoint(): 接続先（BAD_ACTION を接続先と環境ごとに覚える）。storage: { get, set, trySet? }（safeStorage と同じ形。常駐はファイル）。
  * 写しのキーは '<namespace>.autoBreeding.playerMap.<env>.<ワールド ID〔大文字〕>'。保存できない端末でも、開いている間はメモリの写しで動く
- * @returns {{ entries(env, worldId): Record<string, string> | null, ensure(env, worldId, options?): Promise<boolean>,
- *   set(env, worldId, list, options?): Promise<{ changed: number, skipped: number }>, subscribe(listener): () => void,
- *   reload(storageKey): boolean, prefix: string }}
+ * @returns {{ entries(env, worldId, options?): Record<string, string> | null, ensure(env, worldId, options?): Promise<boolean>,
+ *   set(env, worldId, list, options?): Promise<{ changed: number, skipped: number }>, saving(env, worldId): boolean,
+ *   settled(env, worldId): Promise<void>, subscribe(listener): () => void, reload(storageKey): boolean, prefix: string }}
  */
 export function createPlayerMapStore({ request, scope = () => '', endpoint = () => '', storage = null, namespace = 'pal-note', now = Date.now }) {
   const prefix = `${namespace}.autoBreeding.playerMap.`;
@@ -45,11 +45,15 @@ export function createPlayerMapStore({ request, scope = () => '', endpoint = () 
   const unsupported = new Map();
   // この端末に書けなかった写し（保存先の方が新しければ保存先を使う）
   const memory = new Map();
-  // 送っている途中の対応（写しのキー → 鍵 → { userId, onlyMissing, token }）。読み直しの写しにも重ねる
+  // 送っている途中の対応（写しのキー → 鍵 → { userId, onlyMissing, token }）。読み直しの写しにも重ねる（表示用。判定は confirmed で重ねない）
   const overlays = new Map();
+  // 送っている途中の書き込み（写しのキー → 終わりを待つ Promise。失敗しても resolve）。同じワールドの書き込みは 1 つずつ順に送る
+  const queues = new Map();
   // 読みに行っている途中（同じワールドを同時に読みに行かない）と、写しを書いた回数（読む間に書いたら、その読みは古いので使わない）
   const reading = new Map();
   const versions = new Map();
+  // 読めなかった時刻（写しのキー → 時刻）。maxAge の間は読み直さない（GAS の障害・setup() の前の SHEET_HEADER で、描くたび・判定のたびに送らない）
+  const failedAt = new Map();
   // このタブが最後に見た中身（写しのキー → JSON）。別のタブが写しを書き換えたときに、変わったかを比べる
   const seen = new Map();
 
@@ -93,15 +97,21 @@ export function createPlayerMapStore({ request, scope = () => '', endpoint = () 
   }
   const markUnsupported = (env) => unsupported.set(capability(env), now() + PLAYER_MAP_RETRY_MS);
 
-  /** そのワールドの対応（鍵 → ノートの ID。'' は外した印）。古い GAS と分かっている間・まだ一度も読めていなければ null */
-  function entries(env, worldId) {
+  /**
+   * そのワールドの対応（鍵 → ノートの ID。'' は外した印）。古い GAS と分かっている間・まだ一度も読めていなければ null。
+   * confirmed: 送っている途中の対応を重ねない（GAS に書けたと分かっている対応だけ。自動登録の判定に使う。Codex のレビュー）
+   */
+  function entries(env, worldId, { confirmed = false } = {}) {
     const id = ownedWorldId(worldId);
-    return env && id ? current(copyKey(env, id), env) : null;
+    if (!env || !id) return null;
+    if (!confirmed) return current(copyKey(env, id), env);
+    const copy = supported(env) ? readCopy(copyKey(env, id)) : null;
+    return copy ? { ...copy.entries } : null;
   }
 
   /**
    * 写しが maxAge より古ければ GAS から読む（同じワールドを同時に読みに行かない）。失敗しても例外にせず写しのまま（BAD_ACTION なら
-   * 1 時間覚える）。ログイン中の環境でなければ読まない。読めたら true
+   * 1 時間覚える。ほかの失敗も maxAge の間は読み直さない）。ログイン中の環境でなければ読まない。読めたら true
    */
   function ensure(env, worldId, { maxAge = 0 } = {}) {
     const id = ownedWorldId(worldId);
@@ -109,15 +119,18 @@ export function createPlayerMapStore({ request, scope = () => '', endpoint = () 
     const key = copyKey(env, id);
     const copy = readCopy(key);
     if (copy && now() - copy.fetchedAt < maxAge) return Promise.resolve(false);
+    if (failedAt.has(key) && now() - failedAt.get(key) < maxAge) return Promise.resolve(false);
     if (reading.has(key)) return reading.get(key);
     const version = versions.get(key) ?? 0;
     const task = (async () => {
       try {
         const response = await request('playerMap', { worldId: id });
+        failedAt.delete(key);
         if (response?.worldId !== id || (response.env && response.env !== env) || (versions.get(key) ?? 0) !== version) return false;
         change(key, env, () => writeCopy(key, entriesObject(response.entries)));
         return true;
       } catch (error) {
+        failedAt.set(key, now());
         if (error?.code === 'BAD_ACTION') change(key, env, () => markUnsupported(env));
         return false;
       }
@@ -129,6 +142,8 @@ export function createPlayerMapStore({ request, scope = () => '', endpoint = () 
   /**
    * 対応を書く（list: [{ key, userId, playerName? }]。userId の '' は外す）。PLAYER_MAP_SET_MAX 件ずつ送る。先に写しへ重ねて知らせ、
    * 送れたら応答（書いた後の全部）で写しを置き換え、失敗したら重ねた分を戻して投げる（BAD_ACTION なら 1 時間覚える）。
+   * 同じワールドの書き込みは、前の書き込みが終わってから送る（同時に送ると応答が前後し、先に送った書き込みの応答〔後の書き込みを含まない
+   * 全部〕で写しを巻き戻すため。Codex のレビュー）。
    * onlyMissing: すでにある鍵（外した印を含む）は書かない（前の版の対応を一度だけ上げる移行）
    */
   async function set(env, worldId, list, { onlyMissing = false } = {}) {
@@ -154,28 +169,53 @@ export function createPlayerMapStore({ request, scope = () => '', endpoint = () 
       if (!overlay.size && overlays.get(key) === overlay) overlays.delete(key);
     };
     change(key, env, () => { for (const item of items) overlay.set(item.key, { userId: item.userId, onlyMissing, token }); });
-    let changed = 0;
-    let skipped = 0;
-    for (let start = 0; start < items.length; start += PLAYER_MAP_SET_MAX) {
-      const chunk = items.slice(start, start + PLAYER_MAP_SET_MAX);
-      let response;
-      try {
-        response = await request('playerMapSet', { worldId: id, entries: chunk, ...(onlyMissing ? { onlyMissing: true } : {}) });
-      } catch (error) {
+    const send = async () => {
+      let changed = 0;
+      let skipped = 0;
+      for (let first = 0; first < items.length; first += PLAYER_MAP_SET_MAX) {
+        const chunk = items.slice(first, first + PLAYER_MAP_SET_MAX);
+        // 待っている間に古い GAS と分かったら送らない
+        if (!supported(env)) {
+          change(key, env, () => release(items.slice(first)));
+          throw new ApiError('BAD_ACTION');
+        }
+        let response;
+        try {
+          response = await request('playerMapSet', { worldId: id, entries: chunk, ...(onlyMissing ? { onlyMissing: true } : {}) });
+        } catch (error) {
+          change(key, env, () => {
+            release(items.slice(first));
+            if (error?.code === 'BAD_ACTION') markUnsupported(env);
+          });
+          throw error;
+        }
         change(key, env, () => {
-          release(items.slice(start));
-          if (error?.code === 'BAD_ACTION') markUnsupported(env);
+          if (response?.worldId === id && (!response.env || response.env === env)) writeCopy(key, entriesObject(response.entries));
+          release(chunk);
         });
-        throw error;
+        changed += response?.changed ?? 0;
+        skipped += response?.skipped ?? 0;
       }
-      change(key, env, () => {
-        if (response?.worldId === id && (!response.env || response.env === env)) writeCopy(key, entriesObject(response.entries));
-        release(chunk);
-      });
-      changed += response?.changed ?? 0;
-      skipped += response?.skipped ?? 0;
-    }
-    return { changed, skipped };
+      return { changed, skipped };
+    };
+    const task = (queues.get(key) ?? Promise.resolve()).then(send);
+    const tail = task.then(() => {}, () => {});
+    queues.set(key, tail);
+    tail.then(() => { if (queues.get(key) === tail) queues.delete(key); });
+    return task;
+  }
+
+  /** そのワールドの書き込み（set）を送っている途中か（先に重ねた対応が、まだ GAS に書けたと分かっていない） */
+  function saving(env, worldId) {
+    const id = ownedWorldId(worldId);
+    return Boolean(env && id) && queues.has(copyKey(env, id));
+  }
+  /** そのワールドの書き込みが全部終わるまで待つ（失敗しても例外にしない） */
+  async function settled(env, worldId) {
+    const id = ownedWorldId(worldId);
+    if (!env || !id) return;
+    const key = copyKey(env, id);
+    while (queues.has(key)) await queues.get(key);
   }
 
   return {
@@ -183,6 +223,8 @@ export function createPlayerMapStore({ request, scope = () => '', endpoint = () 
     entries,
     ensure,
     set,
+    saving,
+    settled,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
