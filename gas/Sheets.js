@@ -2,9 +2,10 @@
  * シート操作の共通部品。列は位置ではなくヘッダー名で対応付ける。
  */
 
+// playerMap はプレイヤーの対応（server の mapping。gas/PlayerMap.js）
 var SHEET_NAMES_ = {
-  prod: { data: 'Breedings', log: 'Log', users: 'Users', ownedPals: 'OwnedPals', ownedWorlds: 'OwnedWorlds' },
-  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test', ownedPals: 'OwnedPals_test', ownedWorlds: 'OwnedWorlds_test' }
+  prod: { data: 'Breedings', log: 'Log', users: 'Users', ownedPals: 'OwnedPals', ownedWorlds: 'OwnedWorlds', playerMap: 'PlayerMap' },
+  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test', ownedPals: 'OwnedPals_test', ownedWorlds: 'OwnedWorlds_test', playerMap: 'PlayerMap_test' }
 };
 
 var USER_HEADERS_ = ['userId', 'createdAt'];
