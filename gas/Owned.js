@@ -42,6 +42,12 @@ function ownedIdentityCell_(table, cell, uploadedAt) {
   return parseOwnedSaveKey(cell('saveKey'), uploadedAt);
 }
 
+// 追加の情報（後から足した列 extras。server）。列がない・空・JSON でない・at がその行の uploadedAt と違えば null（world に項目を付けない）
+function ownedExtrasCell_(table, cell, uploadedAt) {
+  if (!Object.prototype.hasOwnProperty.call(table.index, 'extras')) return null;
+  return parseOwnedExtras(cell('extras'), uploadedAt);
+}
+
 function readOwnedWorlds_(env) {
   var table = readTable_(sheetFor_(env, 'ownedWorlds'), OWNED_WORLD_HEADERS_);
   var worlds = [];
@@ -50,22 +56,21 @@ function readOwnedWorlds_(env) {
     var worldId = ownedWorldId(cell('worldId'));
     if (!worldId) return;
     var identity = ownedIdentityCell_(table, cell, cell('uploadedAt'));
-    worlds.push({
-      rowNumber: index + 2,
-      identity: identity,
-      world: {
-        worldId: worldId, worldName: cell('worldName'), hostName: cell('hostName'),
-        saveUpdatedAt: cell('saveUpdatedAt'), uploadedAt: cell('uploadedAt'), uploadedBy: cell('uploadedBy'),
-        palCount: Number(cell('palCount')) || 0,
-        players: ownedJson_(cell('players'), []), bases: ownedJson_(cell('bases'), []),
-        // farms 列は後から足した列。列がない（setup() を実行し直す前）・牧場を送らない古い画面から共有されたときは null（情報がない）
-        farms: ownedFarmsCell_(table, cell),
-        // inGameDay 列も後から足した列（save-extras）。列がない・送らない古い画面から共有されたときは null
-        inGameDay: ownedDayCell_(table, cell),
-        // セーブの中の保存時刻（生のティック。owned-gas）。識別がなければ ''
-        saveStamp: identity ? identity.stamp : ''
-      }
-    });
+    var world = {
+      worldId: worldId, worldName: cell('worldName'), hostName: cell('hostName'),
+      saveUpdatedAt: cell('saveUpdatedAt'), uploadedAt: cell('uploadedAt'), uploadedBy: cell('uploadedBy'),
+      palCount: Number(cell('palCount')) || 0,
+      players: ownedJson_(cell('players'), []), bases: ownedJson_(cell('bases'), []),
+      // farms 列は後から足した列。列がない（setup() を実行し直す前）・牧場を送らない古い画面から共有されたときは null（情報がない）
+      farms: ownedFarmsCell_(table, cell),
+      // inGameDay 列も後から足した列（save-extras）。列がない・送らない古い画面から共有されたときは null
+      inGameDay: ownedDayCell_(table, cell),
+      // セーブの中の保存時刻（生のティック。owned-gas）。識別がなければ ''
+      saveStamp: identity ? identity.stamp : ''
+    };
+    // 追加の情報（saveKind・clock・formers・items）は、読めたときだけ world に広げる
+    var extras = ownedExtrasCell_(table, cell, world.uploadedAt);
+    worlds.push({ rowNumber: index + 2, identity: identity, world: extras ? Object.assign(world, extras) : world });
   });
   return { table: table, worlds: worlds };
 }
@@ -315,6 +320,8 @@ function actionOwnedUpload_(req, env) {
       inGameDay: Object.prototype.hasOwnProperty.call(current.table.index, 'inGameDay') ? input.inGameDay : null,
       saveStamp: hasKey && input.identity ? input.identity.stamp : ''
     };
+    // 追加の情報（server）も、列がなければ書かないので返さない（validateOwnedUpload でセルに入るよう縮めてある）
+    if (Object.prototype.hasOwnProperty.call(current.table.index, 'extras') && input.extras) Object.assign(world, input.extras);
     var worldSheet = sheetFor_(env, 'ownedWorlds');
     var worldRow = existing ? existing.rowNumber : worldSheet.getLastRow() + 1;
     // 削除（deleteRows）のたびにシートの行数も減るので、新しいワールドの行が入らなければ足す
@@ -327,7 +334,9 @@ function actionOwnedUpload_(req, env) {
       farms: quoteForSheet(JSON.stringify(world.farms)),
       inGameDay: world.inGameDay === null ? '' : String(world.inGameDay),
       // 識別のない共有では空にする（前の識別を残さない。空どうしは同じセーブとみなさない）
-      saveKey: ownedSaveKey(serverTime, input.identity)
+      saveKey: ownedSaveKey(serverTime, input.identity),
+      // 分からない共有（古い画面）では空にする（前の値を残さない）
+      extras: quoteForSheet(ownedExtrasText(serverTime, input.extras))
     });
     SpreadsheetApp.flush();
 

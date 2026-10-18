@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compareSaves, ownedSaveStamp, ownedUploadIdentity, ownedSaveKey, parseOwnedSaveKey, decideOwnedUpload, cleanPresenceInput, validateOwnedUpload, OWNED_FIELDS,
+  HOST_UID, OWNED_EXTRAS_MAX_CHARS, OWNED_FORMERS_MAX, OWNED_ITEMS_MAX, ownedSaveKind, cleanOwnedItems, cleanOwnedExtras, ownedExtrasText, parseOwnedExtras,
+  fitOwnedExtras,
 } from '../../web/js/core/owned-shared.js';
 import { ticksText } from '../../web/js/save/palworld.js';
 
@@ -113,4 +115,127 @@ test('共有の形の版（OWNED_FORMAT。share-upload）: 狭めて送るとき
   assert.ok(Number.isInteger(OWNED_FORMAT) && OWNED_FORMAT > OWNED_ADDED_FIELDS.length);
   const identity = (format) => ownedUploadIdentity({ saveStamp: '638650000000000001', contentHash: 'a'.repeat(64), format, fileCount: 3, missingCount: 0 });
   for (let removed = 0; removed <= OWNED_ADDED_FIELDS.length; removed++) assert.equal(identity(OWNED_FORMAT - removed).format, OWNED_FORMAT - removed);
+});
+
+// ---------------------------------------------------------------------------
+// 共有のワールドの追加の情報（OwnedWorlds の列 extras。server）。値はダミー（H は協力プレイのホストの枠の決まった値）
+// ---------------------------------------------------------------------------
+
+const H = HOST_UID;
+const X = '12345678-0000-0000-0000-000000000000';
+const AT = '2026-10-18T10:00:00.000Z';
+
+test('cleanOwnedExtras（server）: セーブの種類・通算の時間・以前の持ち主・在庫を検査して決まった形（鍵の順も）にし、知らない鍵は落とす。分かることがなければ null', () => {
+  const clean = cleanOwnedExtras({
+    saveKind: 'server', clock: '00638650000000000005', formers: [{ uid: H, kind: 'host', pals: 66, farms: 2 }, { uid: X, pals: 1, farms: 0, name: 'x' }],
+    items: [{ id: 'PalGenderReverse', t: 3, p: [{ l: '拠点 1 の箱', n: 3 }] }], name: 'World9', at: AT,
+  });
+  assert.deepEqual(clean, {
+    saveKind: 'server', clock: '638650000000000005', formers: [{ uid: H, pals: 66, farms: 2 }, { uid: X, pals: 1, farms: 0 }],
+    items: [{ id: 'PalGenderReverse', t: 3, p: [{ l: '拠点 1 の箱', n: 3 }] }],
+  });
+  // GAS の応答と読み直した world を同じ JSON にするため、鍵の順も決まる
+  assert.deepEqual(Object.keys(clean), ['saveKind', 'clock', 'formers', 'items']);
+  assert.deepEqual(cleanOwnedExtras(clean), clean);
+  // 古い画面・古い GAS の共有（分かることがない）は null
+  for (const empty of [null, undefined, 'x', [], {}, { name: 'W' }, { saveKind: 'cloud', clock: '0', formers: 'x', items: {} }]) {
+    assert.equal(cleanOwnedExtras(empty), null, JSON.stringify(empty));
+  }
+  // 1 つでも分かれば、分からない項目は '' と null
+  assert.deepEqual(cleanOwnedExtras({ saveKind: 'coop' }), { saveKind: 'coop', clock: '', formers: null, items: null });
+  assert.deepEqual(cleanOwnedExtras({ formers: [] }), { saveKind: '', clock: '', formers: [], items: null });
+  assert.equal(cleanOwnedExtras({ clock: 638650000000000 }).clock, '638650000000000');
+  assert.deepEqual(['server', 'coop', 'Server', '', null].map(ownedSaveKind), ['server', 'coop', '', '', '']);
+  // 以前の持ち主: uid は英数字とハイフン 40 字まで（大文字小文字はそのまま）、数は 0〜20000 の整数。同じ uid の後は捨てる
+  const formers = cleanOwnedExtras({ formers: [
+    { uid: X.toUpperCase(), pals: 1, farms: 0 }, { uid: X.toUpperCase(), pals: 9, farms: 9 }, { uid: 'a b', pals: 1, farms: 1 }, { uid: 'a'.repeat(41), pals: 1, farms: 1 },
+    { uid: 'u1', pals: -1, farms: 0 }, { uid: 'u2', pals: 1.5, farms: 0 }, { uid: 'u3', pals: '1', farms: 0 }, { uid: 'u4', pals: 20001, farms: 0 }, { uid: 'u5', pals: 0 }, null, 'u6',
+  ] }).formers;
+  assert.deepEqual(formers, [{ uid: X.toUpperCase(), pals: 1, farms: 0 }]);
+  // formersPartial は true のときだけ（以前の持ち主が分からなければ付けない）。数の上限を超えたら切って付ける
+  assert.equal(cleanOwnedExtras({ formers: [], formersPartial: true }).formersPartial, true);
+  assert.equal('formersPartial' in cleanOwnedExtras({ formers: [], formersPartial: 'yes' }), false);
+  assert.equal('formersPartial' in cleanOwnedExtras({ saveKind: 'coop', formersPartial: true }), false);
+  const many = cleanOwnedExtras({ formers: Array.from({ length: OWNED_FORMERS_MAX + 5 }, (_, i) => ({ uid: `u${i}`, pals: 1, farms: 0 })) });
+  assert.deepEqual([many.formers.length, many.formersPartial], [OWNED_FORMERS_MAX, true]);
+  assert.deepEqual(Object.keys(many), ['saveKind', 'clock', 'formers', 'formersPartial', 'items']);
+});
+
+test('cleanOwnedItems（server・在庫の形）: 配列でなければ null。ID の形・合計（1〜1,000,000 の整数）を検査し、大文字小文字をそろえて同じ ID は先勝ち、200 種まで。場所の内訳は 3 か所まで', () => {
+  assert.deepEqual([cleanOwnedItems(null), cleanOwnedItems({}), cleanOwnedItems('x')], [null, null, null]);
+  assert.deepEqual(cleanOwnedItems([]), []);
+  const items = cleanOwnedItems([
+    { id: 'PalPassiveSkillChange_Rare', t: 5, p: [{ l: '拠点 1 の箱', n: 3 }, { l: 'ギルド保管庫', n: 2 }] },
+    { id: 'palpassiveskillchange_rare', t: 9 },
+    { id: 'PalGenderReverse', t: 2, p: [{ l: ' A ', n: 1 }, { l: '', n: 1 }, { l: 'B', n: 0 }, null, { l: 'C', n: 1 }, { l: 'D', n: 1 }, { l: 'E', n: 1 }] },
+    { id: 'PalEgg_Fire_01', t: 1 }, { id: 'PalGenderReverse2', t: 1 }, { id: 'PalPassiveSkillChange_X', t: 0 },
+    { id: 'PalPassiveSkillChange_Y', t: 1000001 }, { id: 'PalPassiveSkillChange_Z', t: '3' },
+    { id: 'PalPassiveSkillChange_W', t: 1, p: 'x', extra: 1 }, null, 'PalGenderReverse',
+  ]);
+  assert.deepEqual(items, [
+    { id: 'PalPassiveSkillChange_Rare', t: 5, p: [{ l: '拠点 1 の箱', n: 3 }, { l: 'ギルド保管庫', n: 2 }] },
+    { id: 'PalGenderReverse', t: 2, p: [{ l: 'A', n: 1 }, { l: 'C', n: 1 }, { l: 'D', n: 1 }] },
+    { id: 'PalPassiveSkillChange_W', t: 1 },
+  ]);
+  assert.equal(cleanOwnedItems([{ id: 'PalGenderReverse', t: 1, p: [{ l: 'l'.repeat(70), n: 1 }] }])[0].p[0].l.length, 60);
+  assert.equal(cleanOwnedItems(Array.from({ length: OWNED_ITEMS_MAX + 50 }, (_, i) => ({ id: `PalPassiveSkillChange_${i}`, t: 1 }))).length, OWNED_ITEMS_MAX);
+});
+
+test('列 extras の値（server）: at（その行の uploadedAt）つきの JSON。at が違う（巻き戻した古い GAS が後から行を書いた）・JSON でない・分からないなら読まない', () => {
+  const extras = cleanOwnedExtras({ saveKind: 'server', clock: '5', formers: [{ uid: H, pals: 1, farms: 0 }] });
+  const text = ownedExtrasText(AT, extras);
+  assert.deepEqual(JSON.parse(text), { at: AT, ...extras });
+  assert.deepEqual(parseOwnedExtras(text, AT), extras);
+  assert.equal(parseOwnedExtras(text, '2026-10-18T10:00:00.001Z'), null);
+  assert.equal(parseOwnedExtras(text, ''), null);
+  for (const broken of ['', 'x', '[]', 'null', '{"saveKind":"server"}', JSON.stringify({ at: AT })]) assert.equal(parseOwnedExtras(broken, AT), null, broken);
+  assert.equal(ownedExtrasText(AT, null), '');
+  // 読むときも検査する（シートを手で直した値など）
+  assert.deepEqual(parseOwnedExtras(JSON.stringify({ at: AT, saveKind: 'cloud', clock: 'x', formers: [{ uid: H, pals: 1, farms: 0 }, { uid: '' }], extra: 1 }), AT), {
+    saveKind: '', clock: '', formers: [{ uid: H, pals: 1, farms: 0 }], items: null,
+  });
+});
+
+test('fitOwnedExtras（server）: セル（at を含む JSON）を 45,000 字以下に。入らなければ在庫の場所の内訳を外し、まだ入らなければ以前の持ち主を数の多い順に残して formersPartial', () => {
+  const cell = (extras) => ownedExtrasText(new Date().toISOString(), extras).length;
+  assert.equal(fitOwnedExtras(null), null);
+  const small = cleanOwnedExtras({ saveKind: 'coop', formers: [{ uid: H, pals: 1, farms: 0 }] });
+  assert.equal(fitOwnedExtras(small), small);
+  // 在庫の最大（200 種・いちばん長い ID・内訳 3 か所）は内訳を外せば入る。以前の持ち主はそのまま
+  const place = { l: '拠点'.repeat(30), n: 1000000 };
+  const items = Array.from({ length: OWNED_ITEMS_MAX }, (_, i) => ({ id: `PalPassiveSkillChange_${String(i).padStart(100, 'x')}`, t: 1000000, p: [place, place, place] }));
+  const formers = Array.from({ length: 20 }, (_, i) => ({ uid: `${String(i).padStart(8, '0')}-0000-0000-0000-000000000000`, pals: i, farms: 0 }));
+  const full = cleanOwnedExtras({ saveKind: 'server', clock: '638650000000000005', formers, items });
+  assert.ok(cell(full) > OWNED_EXTRAS_MAX_CHARS);
+  const bare = fitOwnedExtras(full);
+  assert.ok(cell(bare) <= OWNED_EXTRAS_MAX_CHARS, String(cell(bare)));
+  assert.deepEqual([bare.formers, 'formersPartial' in bare, bare.items.length], [full.formers, false, OWNED_ITEMS_MAX]);
+  assert.ok(bare.items.every((item) => !('p' in item) && item.t === 1000000));
+  assert.deepEqual(cleanOwnedExtras(bare), bare);
+  // 以前の持ち主も多い（1,000 件）: 数（拠点の個体と牧場の和）の多い順に残し、並びは元のまま。formersPartial を付ける
+  const crowd = Array.from({ length: OWNED_FORMERS_MAX }, (_, i) => ({ uid: `${String(i).padStart(8, '0')}-0000-0000-0000-00000000000${i % 10}`, pals: (i * 7) % 50, farms: i % 3 }));
+  const fitted = fitOwnedExtras(cleanOwnedExtras({ saveKind: 'server', clock: '638650000000000005', formers: crowd, items }));
+  assert.ok(cell(fitted) <= OWNED_EXTRAS_MAX_CHARS, String(cell(fitted)));
+  assert.equal(fitted.formersPartial, true);
+  assert.ok(fitted.formers.length > 0 && fitted.formers.length < crowd.length, String(fitted.formers.length));
+  const total = (former) => former.pals + former.farms;
+  const kept = new Set(fitted.formers.map((former) => former.uid));
+  const dropped = crowd.filter((former) => !kept.has(former.uid));
+  assert.ok(Math.min(...fitted.formers.map(total)) >= Math.max(...dropped.map(total)));
+  assert.deepEqual(fitted.formers, crowd.filter((former) => kept.has(former.uid)));
+  assert.deepEqual(Object.keys(fitted), ['saveKind', 'clock', 'formers', 'formersPartial', 'items']);
+  assert.deepEqual(cleanOwnedExtras(fitted), fitted);
+});
+
+test('validateOwnedUpload（server）: 追加の情報は world の中で受けて extras に整え（セルに入るよう縮める）、分かることがなければ null', () => {
+  const upload = (world) => validateOwnedUpload({ worldId: 'A'.repeat(32), saveUpdatedAt: AT, world: { name: 'W', ...world }, columns: OWNED_FIELDS, rows: [] });
+  assert.equal(upload({}).value.extras, null);
+  assert.equal(upload({ saveKind: 'cloud', formers: 'x' }).value.extras, null);
+  assert.deepEqual(upload({ saveKind: 'server', clock: '5', formers: [{ uid: H, kind: 'host', pals: 3, farms: 2 }] }).value.extras, {
+    saveKind: 'server', clock: '5', formers: [{ uid: H, pals: 3, farms: 2 }], items: null,
+  });
+  const crowd = Array.from({ length: OWNED_FORMERS_MAX }, (_, i) => ({ uid: `u${String(i).padStart(39, '0')}`, pals: 20000, farms: 20000 }));
+  const fitted = upload({ saveKind: 'server', formers: crowd }).value.extras;
+  assert.ok(ownedExtrasText(AT, fitted).length <= OWNED_EXTRAS_MAX_CHARS);
+  assert.equal(fitted.formersPartial, true);
 });

@@ -268,6 +268,8 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
         worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
         uploadedAt, uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases,
         farms: input.farms, inGameDay: input.inGameDay, saveStamp: input.identity ? input.identity.stamp : '',
+        // 追加の情報（server。GAS の列 extras）は、分かるときだけ world に広げる（validateOwnedUpload でセルに入るよう縮めてある）
+        ...(input.extras ?? {}),
       };
       ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: input.identity });
       return { stored: true, result: decision.result, world, cleanup: true, serverTime: uploadedAt };

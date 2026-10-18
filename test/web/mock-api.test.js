@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import pals from '../../web/data/pals.js';
 import { createDevelopmentApi, VIEWER_WORLD_ID } from '../../dev/mock-api.js';
 import { createApi } from '../../web/js/api.js';
+import { OWNED_FIELDS, OWNED_FORMERS_MAX, OWNED_EXTRAS_MAX_CHARS, ownedExtrasText } from '../../web/js/core/owned-shared.js';
 
 const ids = pals.filter((pal) => pal.active).slice(0, 5).map((pal) => pal.id);
 const input = (overrides = {}) => ({ id: crypto.randomUUID(), parent1Id: ids[0], parent2Id: ids[1], childId: ids[2],
@@ -316,4 +317,31 @@ test('モック（page-presence）: ページを開いている PC はページ�
   assert.equal((await api(ownedRequest('ownedSince', { uploadedAt: '' }))).presence.length, 2);
   // presence の操作で形が違えば VALIDATION
   assert.equal((await api(ownedRequest('presence', { presence: page('alice-page-0003', { role: 'admin' }) }))).code, 'VALIDATION');
+});
+
+test('モック（server）: 共有のワールドの追加の情報（world の中の saveKind・clock・formers・items）を GAS と同じ関数で整えて world に広げて返す。分からない共有では付けない', async () => {
+  const api = createDevelopmentApi();
+  const worldId = 'ABCDEF0123456789ABCDEF0123456789';
+  const H = '00000000-0000-0000-0000-000000000001';
+  const ownedRequest = (action, extra = {}) => ({ action, passcode: 'ローカル動作確認', ...extra });
+  const send = (world, saveUpdatedAt) => api(ownedRequest('ownedUpload', {
+    userId: 'サーバー', worldId, world: { name: 'World9', hostName: '', ...world }, saveUpdatedAt, players: [], bases: [], columns: OWNED_FIELDS,
+    rows: [OWNED_FIELDS.map((field) => (field === 'instanceId' ? 'p1' : ''))],
+  }));
+  const extras = { saveKind: 'server', clock: '638650000000000005', formers: [{ uid: H, pals: 66, farms: 2 }], items: [{ id: 'PalGenderReverse', t: 3 }] };
+  const stored = await send({ ...extras, formers: [{ uid: H, kind: 'host', pals: 66, farms: 2 }, { uid: '', pals: 1, farms: 0 }] }, '2026-10-18T10:00:00.000Z');
+  assert.equal(stored.stored, true);
+  const pick = (world) => Object.fromEntries(['saveKind', 'clock', 'formers', 'formersPartial', 'items'].filter((key) => key in world).map((key) => [key, world[key]]));
+  assert.deepEqual(pick(stored.world), extras);
+  assert.deepEqual(pick((await api(ownedRequest('ownedWorlds'))).worlds[0]), extras);
+  assert.deepEqual(pick((await api(ownedRequest('owned', { worldId }))).world), extras);
+  assert.deepEqual(pick((await api(ownedRequest('ownedSince', { worldId, uploadedAt: '' }))).world), extras);
+  // セルに入るよう縮める（GAS と同じ fitOwnedExtras）
+  const formers = Array.from({ length: OWNED_FORMERS_MAX }, (_, i) => ({ uid: `u${String(i).padStart(39, '0')}`, pals: 20000, farms: 20000 }));
+  const big = await send({ saveKind: 'server', formers }, '2026-10-18T10:01:00.000Z');
+  assert.equal(big.world.formersPartial, true);
+  assert.ok(ownedExtrasText(big.world.uploadedAt, pick(big.world)).length <= OWNED_EXTRAS_MAX_CHARS);
+  // 追加の情報を送らない古い画面の共有では付けない（前の値も残さない）
+  const old = await send({}, '2026-10-18T10:02:00.000Z');
+  assert.deepEqual([pick(old.world), pick((await api(ownedRequest('ownedWorlds'))).worlds[0])], [{}, {}]);
 });

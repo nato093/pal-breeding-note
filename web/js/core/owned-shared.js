@@ -339,6 +339,143 @@ export function decideOwnedUpload(current, incoming) {
 }
 
 // ---------------------------------------------------------------------------
+// 共有のワールドの追加の情報（OwnedWorlds の列 extras。server。docs/server/README.md の「テーマ間の取り決め」）
+// ---------------------------------------------------------------------------
+
+// 列 extras は 1 つの JSON（{ at: uploadedAt, saveKind, clock, formers, formersPartial?, items }）。画面は同じ鍵で world の中に入れて送り
+//（GAS の最上位の項目は増やさない。古い GAS は捨てるだけ）、GAS は読んだ値を world に広げて返す。
+// - saveKind: セーブの種類。'server'（専用サーバー）・'coop'（協力プレイ）、分からなければ ''
+// - clock: ワールドが動いた通算の時間（Level.sav の RealDateTimeTicks。10 進の文字列）。分からなければ ''
+// - formers: ワールドにいない UID（以前の持ち主）ごとの { uid, pals: 拠点・観賞用ケージの個体の数, farms: 親を預けた牧場の数 }（数は 0〜
+//   OWNED_MAX_ROWS の整数）。分からなければ null。formersPartial: true は、セルに入らない・数の上限を超えたので一部だけ
+// - items: アイテムの在庫 [{ id, t: 合計, p?: [{ l: 場所の呼び名, n: 数 }]（多い順に 3 か所まで） }]。[] は持っていない、null は分からない
+// セルは全体（at を含む JSON）で OWNED_EXTRAS_MAX_CHARS 字以下にする（fitOwnedExtras。Sheets の 1 セルは 5 万字まで）
+export const OWNED_EXTRAS_MAX_CHARS = 45000;
+export const OWNED_FORMERS_MAX = 1000;
+export const OWNED_ITEMS_MAX = 200;
+const OWNED_ITEM_PLACES_MAX = 3;
+const OWNED_ITEM_COUNT_MAX = 1000000;
+// 在庫に数えるアイテム（web/js/core/owned.js の STOCK_ITEM と同じ）
+const OWNED_ITEM_ID = /^(?:PalPassiveSkillChange_[A-Za-z0-9_]{1,100}|PalGenderReverse)$/i;
+// 以前の持ち主の UID（共有のプレイヤーの uid と同じ 40 字まで。大文字小文字は変えない〔共有の lastOwner の文字と同じ UID で作るため〕）
+const OWNED_FORMER_UID = /^[0-9A-Za-z-]{1,40}$/;
+// 字数を測るときの at（GAS が書く uploadedAt と同じ ISO の 24 字）
+const OWNED_EXTRAS_AT_SAMPLE = '2000-01-01T00:00:00.000Z';
+
+/** セーブの種類（'server'・'coop'）。違えば ''（分からない） */
+export const ownedSaveKind = (value) => (value === 'server' || value === 'coop' ? value : '');
+
+const itemCount = (value) => (Number.isInteger(value) && value > 0 && value <= OWNED_ITEM_COUNT_MAX ? value : 0);
+
+/**
+ * アイテムの在庫（items）を検査して整える。配列でなければ null（分からない）。ID の形が違う・合計が 1〜1,000,000 の整数でない項目と、
+ * 大文字小文字をそろえて同じ ID の後の項目は捨て、OWNED_ITEMS_MAX 種まで。場所の内訳（p）は配列のときだけ、形の合う 3 か所まで
+ */
+export function cleanOwnedItems(value) {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set();
+  const items = [];
+  for (const item of value) {
+    if (items.length >= OWNED_ITEMS_MAX) break;
+    if (!item || typeof item !== 'object') continue;
+    const id = typeof item.id === 'string' && OWNED_ITEM_ID.test(item.id) ? item.id : '';
+    const total = itemCount(item.t);
+    if (!id || !total || seen.has(id.toLowerCase())) continue;
+    seen.add(id.toLowerCase());
+    const clean = { id, t: total };
+    if (Array.isArray(item.p)) {
+      clean.p = [];
+      for (const place of item.p) {
+        if (clean.p.length >= OWNED_ITEM_PLACES_MAX) break;
+        const label = place && typeof place === 'object' ? ownedText(place.l, 60) : '';
+        const count = place && typeof place === 'object' ? itemCount(place.n) : 0;
+        if (label && count) clean.p.push({ l: label, n: count });
+      }
+    }
+    items.push(clean);
+  }
+  return items;
+}
+
+// 以前の持ち主の一覧を検査して整える（形の合わない項目と、同じ uid の後の項目は捨てる）。数で切るかは呼ぶ側が元の長さで決める
+function cleanOwnedFormers(value) {
+  const seen = new Set();
+  const formers = [];
+  for (const former of value.slice(0, OWNED_FORMERS_MAX)) {
+    if (!former || typeof former !== 'object') continue;
+    const uid = typeof former.uid === 'string' && OWNED_FORMER_UID.test(former.uid) ? former.uid : '';
+    const pals = countIn(former.pals, OWNED_MAX_ROWS);
+    const farms = countIn(former.farms, OWNED_MAX_ROWS);
+    if (!uid || pals === null || farms === null || seen.has(uid)) continue;
+    seen.add(uid);
+    formers.push({ uid, pals, farms });
+  }
+  return formers;
+}
+
+// 追加の情報の決まった形（鍵の順も決める。GAS の応答と読み直したときの world を同じ JSON にするため）
+const extrasOf = (saveKind, clock, formers, formersPartial, items) => ({
+  saveKind, clock, formers, ...(formers && formersPartial ? { formersPartial: true } : {}), items,
+});
+
+/**
+ * 追加の情報（画面が送る world・GAS のセルの JSON）を検査して整える。知らない鍵は落とす。分かることが 1 つもなければ null
+ *（古い画面・古い GAS の共有）。分かることがあれば { saveKind, clock, formers, formersPartial?, items }（分からない項目は '' か null）
+ */
+export function cleanOwnedExtras(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const saveKind = ownedSaveKind(value.saveKind);
+  const clock = ownedSaveStamp(value.clock);
+  const formers = Array.isArray(value.formers) ? cleanOwnedFormers(value.formers) : null;
+  const items = cleanOwnedItems(value.items);
+  if (!saveKind && !clock && !formers && !items) return null;
+  const partial = Boolean(formers) && (value.formersPartial === true || value.formers.length > OWNED_FORMERS_MAX);
+  return extrasOf(saveKind, clock, formers, partial, items);
+}
+
+/** OwnedWorlds の列 extras の値（{ at: uploadedAt, ...extras } の JSON）。extras がなければ ''（分からない） */
+export function ownedExtrasText(uploadedAt, extras) {
+  return extras ? JSON.stringify({ at: uploadedAt, ...extras }) : '';
+}
+
+/**
+ * 列 extras を読む。JSON でない・at がその行の uploadedAt と違う（巻き戻した古い GAS は知らない列を書き換えずに残すので、その間に共有された行の
+ * 前の値）なら null（使わない）
+ */
+export function parseOwnedExtras(text, uploadedAt) {
+  if (!uploadedAt) return null;
+  let value;
+  try { value = JSON.parse(String(text ?? '')); } catch { return null; }
+  return value && typeof value === 'object' && value.at === uploadedAt ? cleanOwnedExtras(value) : null;
+}
+
+/**
+ * 追加の情報（cleanOwnedExtras の形）を、列 extras のセル（at を含む JSON）が OWNED_EXTRAS_MAX_CHARS 字以下になるよう縮める（入らないときだけ）。
+ * (1) そのまま入れば、そのまま (2) 入らなければ、全部の在庫の場所の内訳（p）を外して合計だけにする
+ * (3) まだ入らなければ、以前の持ち主を数（拠点の個体と牧場の和）の多い順に入る分だけ残し（並びは元のまま）、formersPartial を付ける。
+ * 在庫は 200 種で、内訳を外せば 1 種 150 字ほど（3 万字ほど）なので、(3) で必ず入る
+ */
+export function fitOwnedExtras(extras) {
+  if (!extras) return null;
+  const size = (value) => ownedExtrasText(OWNED_EXTRAS_AT_SAMPLE, value).length;
+  if (size(extras) <= OWNED_EXTRAS_MAX_CHARS) return extras;
+  const items = Array.isArray(extras.items) ? extras.items.map(({ p: _places, ...item }) => item) : extras.items;
+  const bare = extrasOf(extras.saveKind, extras.clock, extras.formers, extras.formersPartial, items);
+  if (size(bare) <= OWNED_EXTRAS_MAX_CHARS || !bare.formers) return bare;
+  const ranked = bare.formers.map((former, index) => ({ former, index }))
+    .sort((a, b) => (b.former.pals + b.former.farms) - (a.former.pals + a.former.farms) || a.index - b.index);
+  const kept = new Set();
+  let length = size(extrasOf(bare.saveKind, bare.clock, [], true, items));
+  for (const { former, index } of ranked) {
+    const add = JSON.stringify(former).length + (kept.size ? 1 : 0);
+    if (length + add > OWNED_EXTRAS_MAX_CHARS) break;
+    kept.add(index);
+    length += add;
+  }
+  return extrasOf(bare.saveKind, bare.clock, bare.formers.filter((_, index) => kept.has(index)), true, items);
+}
+
+// ---------------------------------------------------------------------------
 // ページを開いている PC（presence。sync-fixes の owned-gas・page-presence）
 // ---------------------------------------------------------------------------
 
@@ -414,6 +551,9 @@ export function validateOwnedUpload(input) {
       // 断らずに今の更新日時で比べる。force は登録の確定のときだけ true
       identity: ownedUploadIdentity(world),
       force: world.force === true,
+      // 追加の情報（server。列 extras）も world の中で受ける。セルに入るよう縮める（GAS は行を書き始める前に、ここで確かめた値を書く）。
+      // 分かることがなければ null
+      extras: fitOwnedExtras(cleanOwnedExtras(world)),
       rows: cleanRows,
     },
   };
