@@ -1628,7 +1628,7 @@ export function createOwnedStore({
     },
     /**
      * ワールドの所持パル（CSV に保存する用）。表示と同じ規則（useLocalFor）で、この PC で読み込んだセーブと共有されたもののうちセーブの新しい方。
-     * 共有を読めなければ、参加者と判定したワールドでない手元のデータ（参加者の手元の古いデータは返さない）。
+     * 共有を読めなければ（ログアウト・通信の失敗・時間切れ）、参加者と判定したワールドでない手元のデータ（参加者の手元の古いデータは返さない）。
      * @returns {Promise<{ owned: object, importedAt: string } | null>} 所持パルがなければ null
      */
     async ownedOf(worldId) {
@@ -1640,8 +1640,13 @@ export function createOwnedStore({
       let shared = state.shared.current?.world?.worldId === id ? state.shared.current : null;
       if (useLocalFor(local, shared?.world ?? listed)) return fromLocal();
       if (!shared && listed && server && scope()) {
-        const response = await server.request('owned', { worldId: id });
-        shared = response.world ? { world: response.world, columns: response.columns, rows: response.rows } : null;
+        try {
+          const response = await server.request('owned', { worldId: id });
+          shared = response.world ? { world: response.world, columns: response.columns, rows: response.rows } : null;
+        } catch {
+          // 一覧にだけ新しい共有があり、中身を読めなかった。読めないときと同じく手元のデータに戻る
+          shared = null;
+        }
       }
       if (shared) return { owned: ownedFromShared(shared, { pals, passives }), importedAt: shared.world.saveUpdatedAt ?? '' };
       return useLocalFor(local, null) ? fromLocal() : null;

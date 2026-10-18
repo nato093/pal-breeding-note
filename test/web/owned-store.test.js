@@ -3126,6 +3126,46 @@ test('所持パル（server の T1b）: ownedOf（CSV に保存する用）は�
   assert.equal(await count(), 3);
 });
 
+test('所持パル（server の T1b）: ownedOf は一覧にだけ新しい共有があって中身を読めない（通信の失敗・時間切れ）とき、ホストなら手元のデータ、参加者と判定したワールドなら null', async () => {
+  const up = uploadServer();
+  // 中身（owned・ownedSince）だけを失敗させる（一覧は読める）
+  let failing = '';
+  const server = {
+    ...up.server,
+    async request(action, input) {
+      if (failing && (action === 'owned' || action === 'ownedSince')) throw Object.assign(new Error(failing), { code: failing });
+      return up.server.request(action, input);
+    },
+  };
+  const host = setup({ server, runImport: async () => stampedSnapshot(tickOf(2), 2) });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  // 別の PC が新しいセーブを共有した
+  const other = setup({ server: up.as('ホスト2'), runImport: async () => stampedSnapshot(tickOf(5), 3) });
+  await other.register(WORLD_A, hostFiles(T0 + 60000));
+  await settleUpload(other.store);
+  // 開き直したページ: 一覧（キャッシュ）にだけ新しい共有があり、中身はまだ持っていない
+  const { worlds } = await up.server.request('ownedWorlds');
+  await host.persist.set('pal-note.test.owned.shared.test', { worlds, current: null, fetchedAt: new Date(T0).toISOString() });
+  const page = host.make();
+  const count = async () => (await page.ownedOf(WORLD_A))?.owned.pals.length ?? null;
+  assert.equal(await count(), 3);
+  // 通信の失敗・時間切れでは、ホストの手元のデータ
+  for (const code of ['CONNECTION', 'TIMEOUT']) {
+    failing = code;
+    assert.equal(await count(), 2, code);
+  }
+  // 参加者と判定したワールドでは、手元のデータ（前にホストしたときの残り）は返さない
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  host.advance(25000);
+  assert.equal(await page.autoRefresh(), 'guest');
+  assert.equal(page.state.shared.current, null);
+  assert.equal(await count(), null);
+  failing = '';
+  assert.equal(await count(), 3);
+});
+
 // ---- 共有のワールドの追加の情報（server。OwnedWorlds の列 extras） ----
 
 test('所持パル（server）: 共有の中身の比べ方（OWNED_WORLD_FIELDS）は ownedFromShared が読むワールドの項目と同じ（追加の情報を含む）。ownedSince で入れ替える時刻・共有した人などは入れない', () => {
