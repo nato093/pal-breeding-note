@@ -566,30 +566,39 @@ export function createAutoRegister({
   async function run(ctx) {
     const table = await getTable();
     if (!same(ctx, current())) return;
-    // プレイヤーの対応（GAS）を、写しが 60 秒より古ければ読み、前の版の対応を一度だけ上げる（この PC がホストとして読んだ手元のデータなので、
-    // H の対応もこのスナップショットの H のキャラクターに移す）
-    if (playerMaps) {
-      await syncPlayerMap(ctx.env, ctx.worldId, ctx.snapshot.players ?? [], { hostLocal: true, maxAge: MAPPING_RUN_AGE });
-      if (!same(ctx, current())) return;
-    }
     const started = generation;
     const { pending: units, anomalies } = absorb(ctx, table);
     // 登録するのは、登録してよい候補だけ（配合のキーごとに証拠をまとめる）
     const pending = readyCandidates(units);
     // 異常なタマゴは記録したので、次からは「前に見たタマゴ」になる。登録の途中でセーブが変わっても失わないよう、すぐ知らせる
     if (anomalies.length) saveNotices(ctx, anomalies.map((m) => anomalyNotice(ctx, m)));
+    // この PC がホストとして遊んでいるか（同期で受け取った仲間のホストのセーブの H は、この PC の人ではない。反証のレビュー）
+    const playing = hostPlaying(ctx.worldId);
+    // プレイヤーの対応（GAS）を、写しが 60 秒より古ければ読み、前の版の対応を一度だけ上げる（H の対応は、遊んでいるときだけこのスナップショットの
+    // H のキャラクターに移す）。牧場の記録は通信を待たずに済ませておく（GAS が遅い・失敗しても記録は止めない。反証のレビュー）
+    if (playerMaps) {
+      await syncPlayerMap(ctx.env, ctx.worldId, ctx.snapshot.players ?? [], { hostLocal: playing, maxAge: MAPPING_RUN_AGE });
+      if (!same(ctx, current())) {
+        changed();
+        return;
+      }
+    }
     const players = ctx.snapshot.players ?? [];
+    // 判定には GAS に書けたと分かっている対応だけを使う（送っている途中の対応は表示だけ。Codex のレビュー）
+    const options = { confirmed: true, playing };
     const notices = [];
     let registered = 0;
     // トーストの「見る」の行き先（1 件ならその組、2 件以上なら更新日の新しい順の配合を探す。成功の通知と同じ）
     let lastRecord = null;
     for (const candidate of pending) {
       if (failedAt.get(candidate.key) === ctx.importedAt) continue;
+      // プレイヤーの対応を送っている間は、書けたかが決まるまで待つ（書けなければ、その対応では登録しない。Codex のレビュー）
+      if (playerMaps?.saving(ctx.env, ctx.worldId)) await playerMaps.settled(ctx.env, ctx.worldId);
       // 1 件ごとに、始めたときと同じ ID・環境・セーブ・設定のままかを確かめる。
       // ほかの操作の送信待ちがある間は、確定していない登録で判定しないよう、送り終わってから続ける
       if (!same(ctx, current()) || generation !== started || store.state.syncing) break;
       // 対応は、その回のセーブのプレイヤーで鍵から引く（docs/server/README.md の「テーマ間の取り決め」）
-      const mapping = mappingFor(ctx.env, ctx.worldId, players);
+      const mapping = mappingFor(ctx.env, ctx.worldId, players, options);
       const who = resolveRegistrant(candidate, { players, mapping, users: store.state.users, currentUserId: store.state.userId });
       // 登録者が決まらない・登録済みと食い違う候補は残し、対応づけや登録が変わったら次の判定で登録する
       if (who.unmapped) {
@@ -638,7 +647,7 @@ export function createAutoRegister({
       }
     }
     // 対応づけが済んだプレイヤーの「未設定」の通知は消す（プレイヤーにいない UID〔以前のホストなど〕も、対応を決めたら消す）
-    const mapping = mappingFor(ctx.env, ctx.worldId, players);
+    const mapping = mappingFor(ctx.env, ctx.worldId, players, options);
     const uids = new Set([...players.map((p) => p.uid), ...Object.keys(mapping)]);
     const resolved = new Set([...uids].filter((uid) => mappedUser(players.find((p) => p.uid === uid) ?? { uid, name: '' }, { mapping, users: store.state.users }))
       .map((uid) => unmappedId(ctx, uid)));
@@ -692,14 +701,26 @@ export function createAutoRegister({
     if (sameWorld(o.meta?.worldId, worldId) && Array.isArray(o.owned?.players)) return o.owned.players;
     return sameWorld(o.local?.world.id, worldId) ? o.local.snapshot?.players ?? [] : [];
   }
-  // GAS の対応で動いているか（古い GAS・まだ読めていなければ前の版の対応）
-  const sharedEntries = (env, worldId) => (playerMaps && env && worldId ? playerMaps.entries(env, worldId) : null);
+  // GAS の対応で動いているか（古い GAS・まだ読めていなければ前の版の対応）。confirmed は送っている途中の対応を重ねない（判定用）
+  const sharedEntries = (env, worldId, { confirmed = false } = {}) => (playerMaps && env && worldId ? playerMaps.entries(env, worldId, { confirmed }) : null);
+  // この PC がホストとしてそのワールドを遊んでいるか（手元のセーブの保存が続けて見えている。core/playing.js）。同期で受け取った仲間のホストの
+  // セーブ（ゲームをしていない PC でも役割は host）の H は仲間のキャラクターなので、前の版の H の対応（この PC がホストしたときの人）を当てない
+  function hostPlaying(worldId) {
+    const o = owned.state;
+    const id = o.local?.world.id ?? '';
+    return o.role === 'host' && sameWorld(id, worldId) && isPlaying(o.play, { worldId: id, role: 'host' }, now());
+  }
 
-  // 前の版の対応を GAS へ上げ終えたか（印は上げた対応の JSON。ファイルの読み込み・ID の変更で前の対応が変われば、もう一度上げる）
+  // 前の版の対応を GAS へ上げた印（上げた対応の JSON。ファイルの読み込み・ID の変更で前の対応が変われば、もう一度上げる）。
+  // 'all'（全部上げた）・'host'（H だけ残した。H はこの PC がホストとして遊んでいるときに上げる）・''（まだ）
   const migratedMemory = new Map();
-  function migrated(env, worldId, legacy) {
-    const mark = JSON.stringify(legacy);
-    return storage.get(migratedKey(env, worldId)) === mark || migratedMemory.get(migratedKey(env, worldId)) === mark;
+  const withoutHost = (legacy) => Object.fromEntries(Object.entries(legacy).filter(([uid]) => uid !== HOST_UID));
+  function migration(env, worldId, legacy) {
+    if (!Object.keys(legacy).length) return 'all';
+    const key = migratedKey(env, worldId);
+    const marks = [storage.get(key), migratedMemory.get(key)];
+    if (marks.includes(JSON.stringify(legacy))) return 'all';
+    return Object.hasOwn(legacy, HOST_UID) && marks.includes(JSON.stringify(withoutHost(legacy))) ? 'host' : '';
   }
 
   /**
@@ -708,19 +729,26 @@ export function createAutoRegister({
    * - GAS の対応: プレイヤーごとに 'i:<InstanceId>'、なければ（H でないときだけ）'u:<uid>'。値 '' は外した印（同じ名前の規則に戻る）。
    *   'u:H' は H がプレイヤーにいないとき（サーバーのワールドの以前のホスト）だけ効く（協力プレイのホストを以前のホストと取り違えない）。
    *   プレイヤーにいない 'u:' の鍵（以前の持ち主）も uid で返す。前の版の対応を上げ終えるまでは、GAS に鍵のないプレイヤー（H を除く）に
-   *   前の版の対応を使う（上げ終えるまでの間に「未設定」にならないように）
+   *   前の版の対応を使う（上げ終えるまでの間に「未設定」にならないように）。H は、playing（判定で、この PC がホストとして遊んでいる）の
+   *   ときだけ、上げ終えるまで前の版の H を使う（前の版と同じ動き）
    * - 古い GAS・まだ読めていない: 前の版の対応。H の対応は H がプレイヤーにいるワールドだけ（サーバーのワールドの H は以前のホストで、
    *   この PC の人ではない）
+   * confirmed: 送っている途中の対応を重ねない（判定用）
    */
-  function mappingFor(env, worldId, players) {
+  function mappingFor(env, worldId, players, { confirmed = false, playing = false } = {}) {
     const list = (Array.isArray(players) ? players : []).filter((player) => isObject(player) && typeof player.uid === 'string' && player.uid);
     const legacy = env && worldId ? legacyMappingOf(env, worldId) : {};
-    const shared = sharedEntries(env, worldId);
+    const shared = sharedEntries(env, worldId, { confirmed });
     if (!shared) {
       if (!hostIsPlayer(list)) delete legacy[HOST_UID];
       return legacy;
     }
-    const migrating = Object.keys(legacy).length > 0 && !migrated(env, worldId, legacy);
+    const state = migration(env, worldId, legacy);
+    // 上げ終えるまでの前の版の対応: H 以外はまだ上げていないとき、H は判定で遊んでいて H をまだ上げていないとき
+    const fallback = (uid) => {
+      if (uid === HOST_UID) return playing && state !== 'all' ? legacy[uid] : undefined;
+      return state === '' ? legacy[uid] : undefined;
+    };
     const pick = (key) => (key && Object.hasOwn(shared, key) ? shared[key] : undefined);
     const out = {};
     const present = new Set();
@@ -728,8 +756,7 @@ export function createAutoRegister({
       present.add(player.uid.toLowerCase());
       const instanceId = playerGuid(player.instanceId);
       const host = player.uid === HOST_UID;
-      const chosen = pick(instanceId ? `i:${instanceId}` : '') ?? (host ? undefined : pick(playerMapKey(`u:${player.uid}`)))
-        ?? (migrating && !host ? legacy[player.uid] : undefined);
+      const chosen = pick(instanceId ? `i:${instanceId}` : '') ?? (host ? undefined : pick(playerMapKey(`u:${player.uid}`))) ?? fallback(player.uid);
       if (chosen) out[player.uid] = chosen;
     }
     for (const [key, userId] of Object.entries(shared)) {
@@ -738,29 +765,33 @@ export function createAutoRegister({
     return out;
   }
 
-  // 前の版の対応（uid → ID）を GAS の鍵にする。ノートにない ID は捨てる。H は hostLocal（この PC がホストとして読んだ手元のデータ）で、その
-  // データの H に InstanceId があるときだけ 'i:'（協力プレイの H はその PC がホストしていたときの本人）。ほかの H は捨てる（以前のホストは
-  // 未設定から選ぶ）。H 以外は InstanceId があれば 'i:'、なければ 'u:'（H 以外の UID は人ごとに変わらない）
+  // 前の版の対応（uid → ID）を GAS の鍵にする。ノートにない ID は捨てる。H は hostLocal（この PC がホストとして遊んでいる手元のデータ）で、
+  // そのデータの H に InstanceId があるときだけ 'i:'（協力プレイの H はその PC がホストしていたときの本人）。上げられない H は hostLeft で
+  // 返す（印から外し、ホストとして遊んでいるときに上げる）。H 以外は InstanceId があれば 'i:'、なければ 'u:'（H 以外の UID は人ごとに変わらない）
   function migrationEntries(legacy, players, { hostLocal }) {
     const users = store.state.users ?? [];
     const list = (Array.isArray(players) ? players : []).filter((player) => isObject(player) && typeof player.uid === 'string');
     const entries = [];
+    let hostLeft = false;
     for (const [uid, userId] of Object.entries(legacy)) {
       const user = users.find((item) => userIdKey(item) === userIdKey(userId));
+      if (!user) continue;
       const player = list.find((item) => item.uid === uid);
       const instanceId = playerGuid(player?.instanceId);
       const key = uid !== HOST_UID ? (player ? playerKeyOf(player) : playerMapKey(`u:${uid}`))
         : hostLocal && instanceId ? `i:${instanceId}` : '';
-      if (user && key) entries.push({ key, userId: user, playerName: text(player?.name, 50) });
+      if (key) entries.push({ key, userId: user, playerName: text(player?.name, 50) });
+      else if (uid === HOST_UID) hostLeft = true;
     }
-    return entries;
+    return { entries, hostLeft };
   }
 
   /**
    * GAS の対応の写しを maxAge より古ければ読み（player-map.js の ensure）、前の版の対応がまだ上がっていなければ一度だけ onlyMissing で上げる
-   *（GAS にある鍵〔外した印を含む〕は上書きしない）。上げられたら印を書く。古い GAS・読めない・ノートの一覧がまだないときは何もしない
-   *（印を書かず、次の機会にやり直す）。失敗しても例外にしない。送れなかったら MAPPING_RUN_AGE の間は送り直さない（先に反映した分を
-   * 戻した知らせで判定し直し、また送る、を繰り返さないため）
+   *（GAS にある鍵〔外した印を含む〕は上書きしない）。上げられたら印を書く。H を上げられない（hostLocal でない）ときは、H を除いた印にして
+   * H だけ残し、hostLocal のときに H だけを上げる（最初の移行が共有の表示のときでも、後でホストとして遊べば上がる。反証のレビュー）。
+   * 古い GAS・読めない・ノートの一覧がまだないときは何もしない（印を書かず、次の機会にやり直す）。失敗しても例外にしない。送れなかったら
+   * MAPPING_RUN_AGE の間は送り直さない（先に反映した分を戻した知らせで判定し直し、また送る、を繰り返さないため）
    */
   const migrations = new Map();
   const migrationRetry = new Map();
@@ -769,14 +800,15 @@ export function createAutoRegister({
     await playerMaps.ensure(env, worldId, { maxAge });
     if (!sharedEntries(env, worldId)) return;
     const legacy = legacyMappingOf(env, worldId);
-    if (!Object.keys(legacy).length || migrated(env, worldId, legacy) || !store.state.users?.length) return;
+    const state = migration(env, worldId, legacy);
+    if (state === 'all' || (state === 'host' && !hostLocal) || !store.state.users?.length) return;
     const key = migratedKey(env, worldId);
     if (!migrations.has(key)) {
       if (migrationRetry.get(key) > now()) return;
       const task = (async () => {
-        const entries = migrationEntries(legacy, players, { hostLocal });
+        const { entries, hostLeft } = migrationEntries(state === 'host' ? { [HOST_UID]: legacy[HOST_UID] } : legacy, players, { hostLocal });
         if (entries.length) await playerMaps.set(env, worldId, entries, { onlyMissing: true });
-        const mark = JSON.stringify(legacy);
+        const mark = JSON.stringify(hostLeft ? withoutHost(legacy) : legacy);
         migratedMemory.set(key, mark);
         storage.set(key, mark);
       })().catch(() => { migrationRetry.set(key, now() + MAPPING_RUN_AGE); }).finally(() => migrations.delete(key));
@@ -827,13 +859,13 @@ export function createAutoRegister({
     },
     /**
      * GAS の対応を、写しが maxAge より古ければ読み直す（設定の欄は 15 秒、app.js の 10 秒ごとのタイマーは表のタブで 5 分）。前の版の対応が
-     * まだ上がっていなければ上げる（H は、この PC がホストとして読んだ手元のデータを表示しているときだけ）。失敗しても例外にしない
+     * まだ上がっていなければ上げる（H は、この PC がホストとして遊んでいる手元のデータを表示しているときだけ）。失敗しても例外にしない
      */
     refreshMapping(worldId = linkedWorld(), maxAge = 0) {
       const s = store.state;
       if (!playerMaps || !s.passcode || !s.env || !worldId) return Promise.resolve();
       const o = owned.state;
-      const hostLocal = sameWorld(o.meta?.worldId, worldId) && o.meta?.source === 'local' && o.role === 'host';
+      const hostLocal = sameWorld(o.meta?.worldId, worldId) && o.meta?.source === 'local' && hostPlaying(worldId);
       return syncPlayerMap(s.env, worldId, playersOf(worldId), { hostLocal, maxAge });
     },
     /**
