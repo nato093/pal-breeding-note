@@ -3,7 +3,7 @@
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
 import {
   OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay,
-  HOST_UID, hostIsPlayer, playerGuid, shortUid, formerLabel,
+  HOST_UID, hostIsPlayer, playerGuid, shortUid, formerLabel, cleanOwnedExtras, fitOwnedExtras,
 } from './owned-shared.js';
 import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
@@ -579,8 +579,10 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     // アイテムの在庫（インプラント・パルリバーサー。itemStock で引く。implants）。在庫を読む前のスナップショットは null
     items: stockOf(snapshot?.items, { baseLabel, players }),
     // ワールドにいない UID（以前の持ち主）ごとの { uid, kind: 'host'（H。「以前のホスト」）| 'unknown', pals: 拠点・観賞用ケージの個体の数,
-    // farms: 親を預けた牧場の数 }。H を先、残りは UID の順（server の identity。プレイヤーの対応の行に出す）
+    // farms: 親を預けた牧場の数 }。H を先、残りは UID の順（server の identity。プレイヤーの対応の行に出す）。formersPartial は一部だけか
+    //（共有でセルに入らず切ったとき。手元のセーブはいつも全部）
     formers: [...formers.values()].sort((a, b) => Number(b.kind === 'host') - Number(a.kind === 'host') || compareText(a.uid, b.uid)),
+    formersPartial: false,
     stats: snapshot?.stats ?? {},
   };
 }
@@ -1153,6 +1155,16 @@ export function sharedUpload(owned) {
   };
 }
 
+/**
+ * 共有の world に入れる追加の情報（server。GAS は OwnedWorlds の列 extras に 1 つの JSON で残す。owned-shared.js の cleanOwnedExtras）:
+ * セーブの種類（saveKind。手元のデータの登録から決まるので呼ぶ側が渡す）・ワールドが動いた通算の時間（clock）・以前の持ち主（formers）。
+ * GAS と同じ関数でセルに入るよう縮めてから返し（送る中身と GAS が残す中身をそろえる）、分からない項目（'' と null）は送らない
+ */
+export function sharedExtras(owned, saveKind) {
+  const extras = fitOwnedExtras(cleanOwnedExtras({ saveKind, clock: owned.world?.clock, formers: owned.formers }));
+  return Object.fromEntries(Object.entries(extras ?? {}).filter(([, value]) => value !== '' && value !== null));
+}
+
 // 鍵の名前の順に並べ直した写し（配列の中の順は変えない）
 const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys)
   : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);
@@ -1169,12 +1181,14 @@ const sortedRowTexts = (rows) => rows.map((row) => JSON.stringify(Array.isArray(
 
 /**
  * 共有の中身の印（world.contentHash。送る側が UTF-8 の SHA-256 にする。web/js/owned.js）の元にする文字列（sync-fixes の share-upload）。
- * upload は送る形 { worldId, world: { name, hostName, inGameDay? }, players, bases, farms?, columns, rows }（古い GAS に合わせて列を
+ * upload は送る形 { worldId, world: { name, hostName, inGameDay?, items? }, players, bases, farms?, columns, rows }（古い GAS に合わせて列を
  * 狭めたときは狭めた後の形）。次の順の配列を JSON にする:
- *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns, rows]
+ *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns,
+ *    world.items（在庫。配列のときだけ。ないときは要素ごと入れない）, rows]
  * - 入れないもの: world の識別の項目（saveStamp・contentHash・format・fileCount・missingCount・force）、saveUpdatedAt（セーブのファイルの
- *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる
- * - 並びによらない: 行は行の JSON の順（先頭のセルが個体 ID なので、ほぼ個体 ID の順）、players・bases・farms は要素の JSON の順に
+ *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる。
+ *   world の追加の情報（server）のうち saveKind・clock・formers も入れない（同じセーブなら同じ値で、所持パルの中身ではない）
+ * - 並びによらない: 行は行の JSON の順（先頭のセルが個体 ID なので、ほぼ個体 ID の順）、players・bases・farms・items は要素の JSON の順に
  *   並べ直し、object の鍵は名前の順にする（個体の並びは登録したファイルの順〔_dps.sav など〕で変わり、PC ごとに登録の順が違うことが
  *   ある）。列の並びは中身なので変えない
  * - 列の名前と行のセルは文字列にする（シートには文字列で残る。null・undefined は ''）
@@ -1189,6 +1203,8 @@ export function ownedContentText(upload) {
     sortedList(Array.isArray(source.bases) ? source.bases : []),
     Array.isArray(source.farms) ? sortedList(source.farms) : null,
     Array.isArray(source.columns) ? source.columns.map(cellText) : [],
+    // 在庫のない形（在庫を送らない画面）は前と同じ文字列にする
+    ...(Array.isArray(world.items) ? [sortedList(world.items)] : []),
   ]);
   // 行は最後の要素。並べた行の JSON をつないで、配列ごとの JSON と同じ文字列にする
   const rows = Array.isArray(source.rows) ? sortedRowTexts(source.rows) : [];
@@ -1284,9 +1300,15 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   }
   const farmData = sharedFarms(world.farms, palsById);
   attachFarms(entries, farmData.farms);
+  // 追加の情報（server。GAS の列 extras を world に広げたもの）。列のない GAS・古いホストの画面の共有では分からない（null）
+  const extras = cleanOwnedExtras(world);
   return {
-    // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）
-    world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay) },
+    // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）。
+    // saveKind（セーブの種類）と clock（ワールドが動いた通算の時間）は追加の情報（分からなければ ''）
+    world: {
+      name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay),
+      saveKind: extras?.saveKind ?? '', clock: extras?.clock ?? '',
+    },
     // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）。
     // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある。
     // キャラクターの InstanceId（server の identity）は、分かるプレイヤーにだけある（古い共有・古い GAS では付かない）
@@ -1298,10 +1320,13 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
     ...farmData,
-    // アイテムの在庫は共有しない（ホストの画面だけ。implants）
+    // アイテムの在庫は画面用の形に戻さない（ホストの画面だけ。implants。共有の world.items は形と検査だけある）
     items: null,
-    // ワールドにいない UID（以前の持ち主）は共有の行からは分からない（null）
-    formers: null,
+    // ワールドにいない UID（以前の持ち主。共有には uid と数だけ）。古い共有では分からない（null）。formersPartial はセルに入らず一部だけのとき
+    formers: extras?.formers
+      ? extras.formers.map((former) => ({ uid: former.uid, kind: former.uid === HOST_UID ? 'host' : 'unknown', pals: former.pals, farms: former.farms }))
+      : null,
+    formersPartial: extras?.formersPartial === true,
     stats: {},
   };
 }

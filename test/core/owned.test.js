@@ -1036,3 +1036,17 @@ test('共有の中身の印の元（ownedContentText。share-upload）: 決ま�
   const bare = JSON.parse(ownedContentText({ worldId: 'W', world: { name: 'N', hostName: '' }, players: [], bases: [], columns: [], rows: [] }));
   assert.deepEqual(bare, ['W', 'N', '', null, [], [], null, [], []]);
 });
+
+test('共有の中身の印の元（server）: world の追加の情報のうち在庫（items）だけを、配列のときに列の後・行の前に入れる（並びによらない）。セーブの種類・通算の時間・以前の持ち主は入れない', () => {
+  const base = { worldId: 'W', world: { name: 'N', hostName: '' }, players: [], bases: [], columns: ['instanceId'], rows: [['p1']] };
+  const text = ownedContentText(base);
+  const extras = { saveKind: 'server', clock: '638650000000000005', formers: [{ uid: 'u9', pals: 1, farms: 0 }], formersPartial: true, items: null };
+  assert.equal(ownedContentText({ ...base, world: { ...base.world, ...extras } }), text);
+  const items = [{ id: 'PalPassiveSkillChange_Rare', t: 5, p: [{ l: '拠点 1 の箱', n: 5 }] }, { id: 'PalGenderReverse', t: 2 }];
+  const stocked = ownedContentText({ ...base, world: { ...base.world, items } });
+  assert.deepEqual(JSON.parse(stocked), ['W', 'N', '', null, [], [], null, ['instanceId'], [items[1], { id: 'PalPassiveSkillChange_Rare', p: [{ l: '拠点 1 の箱', n: 5 }], t: 5 }], [['p1']]]);
+  assert.equal(ownedContentText({ ...base, world: { ...base.world, ...extras, items: [...items].reverse() } }), stocked);
+  // 在庫が違えば違う（持っていない [] も、分からない形とは違う）
+  assert.notEqual(ownedContentText({ ...base, world: { ...base.world, items: [{ ...items[0], t: 4 }, items[1]] } }), stocked);
+  assert.notEqual(ownedContentText({ ...base, world: { ...base.world, items: [] } }), text);
+});

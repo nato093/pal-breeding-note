@@ -11,6 +11,7 @@
 import { sanitizeText } from './validate.js';
 import {
   OWNED_MAX_ROWS, OWNED_DPS_GAP_MAX, OWNED_PRESENCE_MAX, OWNED_PRESENCE_ROLES, cleanOwnedFarms, ownedWorldId, ownedSaveStamp, playerGuid,
+  cleanOwnedExtras,
 } from './owned-shared.js';
 
 export const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -196,7 +197,10 @@ function cleanWorld(value) {
   // セーブの中の保存時刻（生のティック。owned-gas。新旧の比べ方 compareSaves に使う）。識別を知らない古い GAS の応答・前のキャッシュには
   // 項目がないので付けない（今と同じ形のまま）。新しい GAS は識別がなければ '' を返す（前の値を残さないよう、'' も写す）
   if (typeof value.saveStamp === 'string') world.saveStamp = ownedSaveStamp(value.saveStamp);
-  return world;
+  // 追加の情報（saveKind・clock・formers・items。GAS が列 extras から広げたもの。server）。分かることがなければ付けない（列のない GAS・古い GAS の
+  // 応答・前のキャッシュは今と同じ形のまま）。分かることがあれば GAS と同じ決まった形（分からない項目は '' か null）
+  const extras = cleanOwnedExtras(value);
+  return extras ? Object.assign(world, extras) : world;
 }
 
 const PRESENCE_DEVICE = /^[A-Za-z0-9_-]{8,64}$/;

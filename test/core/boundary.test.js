@@ -172,6 +172,22 @@ test('所持パルの共有（owned-gas）: セーブの中の保存時刻（sav
   assert.equal(cleanPresenceList({}), null);
 });
 
+test('所持パルの共有（server）: GAS が列 extras から広げた追加の情報は、分かることがあれば GAS と同じ決まった形で写し、なければ付けない（API の応答とキャッシュの復元で同じ）', () => {
+  const H = '00000000-0000-0000-0000-000000000001';
+  const extras = { saveKind: 'server', clock: '638650000000000005', formers: [{ uid: H, pals: 3, farms: 2 }], items: null };
+  const [world] = cleanOwnedWorlds([sharedWorld(extras)]);
+  assert.deepEqual(world, sharedWorld(extras));
+  assert.deepEqual(cleanOwnedPayload({ world: sharedWorld(extras), columns: OWNED_FIELDS, rows: [] }).world, sharedWorld(extras));
+  // 形の違う値は整える（知らない鍵は落とし、分からない項目は '' と null）
+  const [broken] = cleanOwnedWorlds([sharedWorld({ saveKind: 'cloud', clock: 'x', formers: [{ uid: H, pals: '3', farms: 2 }, { uid: H, pals: 1, farms: 0, kind: 'host' }], formersPartial: 1 })]);
+  assert.deepEqual([broken.saveKind, broken.clock, broken.formers, 'formersPartial' in broken, broken.items], ['', '', [{ uid: H, pals: 1, farms: 0 }], false, null]);
+  // 列のない GAS・古い GAS の応答・前のキャッシュ（分かることがない）は今と同じ形
+  for (const value of [{}, { saveKind: '', formers: null, items: 'x' }]) {
+    const [plain] = cleanOwnedWorlds([sharedWorld(value)]);
+    assert.deepEqual(['saveKind', 'clock', 'formers', 'formersPartial', 'items'].filter((key) => key in plain), [], JSON.stringify(value));
+  }
+});
+
 test('所持パルの共有（dps-missing）:プレイヤーのパル次元ストレージの読み漏れの数（dpsGap）は 1〜上限の整数だけ写す。API の応答とキャッシュの復元で同じ', () => {
   const players = [
     { uid: 'u1', name: 'Alice', dpsGap: 27 }, { uid: 'u2', name: 'Bob', dpsGap: 0 }, { uid: 'u3', name: 'Carol', dpsGap: '27' },

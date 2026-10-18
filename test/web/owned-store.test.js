@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createOwnedStore, idbPersist } from '../../web/js/owned.js';
-import { ownedContentText } from '../../web/js/core/owned.js';
+import { createOwnedStore, idbPersist, OWNED_WORLD_FIELDS } from '../../web/js/owned.js';
+import { ownedContentText, ownedFromShared } from '../../web/js/core/owned.js';
 import { safeStorage } from '../../web/js/store.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { fakeHandle, hostFiles, asDropped, memoryPersist, settleUpload, T0 } from '../helpers/file-handles.js';
@@ -1401,9 +1401,9 @@ test('所持パル（share-upload）: 送る world に識別（saveStamp・conte
   assert.deepEqual(Object.keys(input).sort(), ['bases', 'columns', 'players', 'rows', 'saveUpdatedAt', 'userId', 'world', 'worldId']);
   const { contentHash, ...identity } = input.world;
   // GlobalPalStorage.sav も読めたファイルに数え、読めなかったファイルは同じパスを 1 つに数える。登録の確定から送ったので force。
-  // セーブの種類（saveKind）も world の中（server の identity）
+  // 追加の情報（セーブの種類・以前の持ち主。server）も world の中。分からない通算の時間（clock）は送らない
   assert.deepEqual(identity, {
-    name: 'テスト', hostName: 'Alice', saveKind: 'coop', saveStamp: tickOf(7), format: OWNED_FORMAT, fileCount: 4, missingCount: 1, force: true,
+    name: 'テスト', hostName: 'Alice', saveKind: 'coop', formers: [], saveStamp: tickOf(7), format: OWNED_FORMAT, fileCount: 4, missingCount: 1, force: true,
   });
   // 中身の印は、送った中身（識別・送った人・セーブのファイルの更新日時を除く）の SHA-256
   assert.match(contentHash, /^[0-9a-f]{64}$/);
@@ -3124,4 +3124,47 @@ test('所持パル（server の T1b）: ownedOf（CSV に保存する用）は�
   up.setScope('test');
   await host.store.scopeChanged();
   assert.equal(await count(), 3);
+});
+
+// ---- 共有のワールドの追加の情報（server。OwnedWorlds の列 extras） ----
+
+test('所持パル（server）: 共有の中身の比べ方（OWNED_WORLD_FIELDS）は ownedFromShared が読むワールドの項目と同じ（追加の情報を含む）。ownedSince で入れ替える時刻・共有した人などは入れない', () => {
+  const read = new Set();
+  const world = new Proxy({
+    worldId: WORLD_A, worldName: 'テスト', hostName: '', inGameDay: 3, players: [], bases: [], farms: [], saveStamp: '5', uploadedAt: '2026-10-18T10:00:00.000Z',
+    saveKind: 'server', clock: '638650000000000005', formers: [{ uid: '00000000-0000-0000-0000-000000000001', pals: 1, farms: 0 }], formersPartial: true, items: [],
+  }, {
+    get(target, key, receiver) {
+      if (typeof key === 'string') read.add(key);
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  ownedFromShared({ world, columns: OWNED_FIELDS, rows: [] }, { pals, passives: [] });
+  assert.deepEqual([...read].sort(), [...OWNED_WORLD_FIELDS].sort());
+  for (const field of ['uploadedAt', 'uploadedBy', 'saveUpdatedAt', 'palCount', 'saveStamp']) assert.equal(OWNED_WORLD_FIELDS.includes(field), false, field);
+});
+
+test('所持パル（server）: サーバーの PC の共有のセーブの種類・通算の時間・以前の持ち主を、参加者の画面が共有から受け取る。追加の情報のない古い共有では分からない', async () => {
+  const H = '00000000-0000-0000-0000-000000000001';
+  const up = uploadServer();
+  // 拠点の個体の預けた人に、ワールドにいない旧ホスト（H）が残るサーバーのセーブ
+  const base = { instanceId: 'b1', characterId: 'SheepBall', passives: [], talent: {}, location: { kind: 'base', baseId: 'base-1' }, lastOwnerUid: H };
+  const saved = serverSnapshot(tickOf(2));
+  const host = setup({ server: up.as('サーバー'), runImport: async () => ({ ...saved, world: { ...saved.world, clock: tickOf(9) }, pals: [...saved.pals, base] }) });
+  await registerServer(host.store, hostFiles());
+  await settleUpload(host.store);
+  assert.equal(host.store.state.upload.status, 'done');
+  const sent = up.sent.at(-1).world;
+  assert.deepEqual([sent.saveKind, sent.clock, sent.formers, 'items' in sent], ['server', tickOf(9), [{ uid: H, pals: 1, farms: 0 }], false]);
+  const viewer = setup({ server: up.server });
+  await viewer.store.fetchShared({ force: true });
+  const { meta, owned, shared } = viewer.store.state;
+  assert.deepEqual([meta.source, meta.saveKind, owned.world.saveKind, owned.world.clock], ['shared', 'server', 'server', tickOf(9)]);
+  assert.deepEqual([owned.formers, owned.formersPartial], [[{ uid: H, kind: 'host', pals: 1, farms: 0 }], false]);
+  assert.equal(shared.worlds[0].saveKind, 'server');
+  // 追加の情報を送らない古い画面の共有に替わると、分からない
+  await publish(up, { prefix: 'old' });
+  await viewer.store.fetchShared({ force: true });
+  const after = viewer.store.state;
+  assert.deepEqual([after.meta.saveKind, after.owned.world.saveKind, after.owned.world.clock, after.owned.formers], ['', '', '', null]);
 });

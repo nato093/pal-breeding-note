@@ -4,8 +4,8 @@
 // 同じワールドのデータが手元と共有の両方にあるときは、セーブの新しい方を出す。
 import pals from '../data/pals.js';
 import passives from '../data/passives.js';
-import { normalizeOwned, ownedFromShared, sharedUpload, ownedContentText } from './core/owned.js';
-import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS, OWNED_FORMAT, OWNED_RESULTS, compareSaves, ownedSaveStamp } from './core/owned-shared.js';
+import { normalizeOwned, ownedFromShared, sharedUpload, sharedExtras, ownedContentText } from './core/owned.js';
+import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS, OWNED_FORMAT, OWNED_RESULTS, compareSaves, ownedSaveStamp, ownedSaveKind } from './core/owned-shared.js';
 import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
 import { userIdKey } from './core/user.js';
 import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, requiredFiles, usesFile, isServerWorld } from './save/handles.js';
@@ -53,8 +53,11 @@ const PARTIAL_DELAY = 5000;
 const PARTIAL_RETRIES = 3;
 // ownedSince の「変わっていない」応答で入れ替えるワールドの項目（所持パルの変換〔core/owned.js の ownedFromShared〕は読まない項目）
 const SINCE_FIELDS = ['uploadedAt', 'uploadedBy', 'saveUpdatedAt', 'palCount', 'saveStamp'];
-// ownedFromShared が読むワールドの項目。共有のデータがこれ以外（SINCE_FIELDS など）だけ違うときは、所持パルを作り直さない
-const OWNED_WORLD_FIELDS = ['worldName', 'hostName', 'inGameDay', 'players', 'bases', 'farms'];
+// ownedFromShared が読むワールドの項目（追加の情報〔server。列 extras〕は cleanOwnedExtras が読む項目の全部）。共有のデータがこれ以外
+//（SINCE_FIELDS など）だけ違うときは、所持パルを作り直さない（test/web/owned-store.test.js で ownedFromShared が読む項目と照らす）
+export const OWNED_WORLD_FIELDS = Object.freeze([
+  'worldName', 'hostName', 'inGameDay', 'players', 'bases', 'farms', 'saveKind', 'clock', 'formers', 'formersPartial', 'items',
+]);
 // 応答で受け取った生の行の数（重複・壊れた行を除く前。api.js が receivedRows に入れる。入っていなければ rows の数）
 const receivedRows = (response) => (Number.isInteger(response.receivedRows) ? response.receivedRows : response.rows.length);
 // 読み込みの途中にワールド・保存先が替わった（応答を捨てる）
@@ -74,7 +77,7 @@ const columnsRejected = (error) => error?.code === 'VALIDATION'
 // 共有の送信の結果（state.upload）の空の形
 const emptyUpload = () => ({ status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', savedAt: '', scope: '', userId: '', published: null });
 // セーブの種類（server の identity）。'server'（専用サーバー）・'coop'（協力プレイ）。分からなければ ''
-const saveKindOf = (value) => (value === 'server' || value === 'coop' ? value : '');
+const saveKindOf = ownedSaveKind;
 
 /**
  * 共有の中身の印（world.contentHash）。core/owned.js の ownedContentText を UTF-8 にした SHA-256 の 16 進（64 字）。
@@ -955,8 +958,9 @@ export function createOwnedStore({
     try {
       const owned = normalizeOwned(local.snapshot, { pals, passives });
       const payload = sharedUpload(owned);
-      // ゲーム内の日数（save-extras）・セーブの識別（owned-gas）・セーブの種類（server の identity）は、GAS の最上位の項目を増やさないよう
-      // world の中に入れる（古い GAS は捨てるだけ）。名前は送る時点の前の共有の名前まで見て決める（サーバーのセーブには名前がない）
+      // ゲーム内の日数（save-extras）・セーブの識別（owned-gas）・追加の情報（セーブの種類・通算の時間・以前の持ち主。server）は、GAS の
+      // 最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）。名前は送る時点の前の共有の名前まで見て決める（サーバーの
+      // セーブには名前がない）
       const saveKind = saveKindOf(local.world.saveKind);
       let name = worldNameOf(local.world.id, local.snapshot?.world?.name);
       if (!name && !state.shared.worlds.some((item) => item.worldId === local.world.id)) {
@@ -971,7 +975,7 @@ export function createOwnedStore({
         name,
         hostName: saveKind === 'server' ? '' : local.world.hostName || owned.world?.hostName || '',
         ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
-        saveKind,
+        ...sharedExtras(owned, saveKind),
       };
       const head = { userId, worldId: local.world.id, saveUpdatedAt: savedAt };
       const counts = { fileCount: fileCountOf(local.snapshot), missingCount: missingCountOf(local.snapshot) };

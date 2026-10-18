@@ -9,7 +9,7 @@ import {
   HOST_UID, playerGuid, playerMapKey, playerKeyOf, legacyPlayerKey, playerUidOfKey, hostIsPlayer, formerLabel, shortUid,
   cleanOwnedPlayer, validateOwnedUpload,
 } from '../../web/js/core/owned-shared.js';
-import { normalizeOwned, sharedUpload, ownedFromShared, shortUid as ownedShortUid } from '../../web/js/core/owned.js';
+import { normalizeOwned, sharedUpload, sharedExtras, ownedFromShared, shortUid as ownedShortUid } from '../../web/js/core/owned.js';
 import { cleanSharedPlayers } from '../../web/js/core/boundary.js';
 import { ownPlayerUids, palsOfPlayers } from '../../web/js/core/ideal-goals.js';
 import { resolveRegistrant } from '../../web/js/core/auto-breeding.js';
@@ -166,6 +166,29 @@ test('プレイヤーの InstanceId: normalizeOwned → sharedUpload → validat
   assert.equal(shared.pals.find((item) => item.id === 'h1').lastOwner, '以前のホスト');
   // InstanceId を知らない古い共有は今までどおり（鍵ごと付かない）
   assert.equal('instanceId' in ownedFromShared({ world: { players: [{ uid: U, name: 'Alice' }] }, rows: [] }, { pals, passives }).players[0], false);
+});
+
+test('共有のワールドの追加の情報: 以前の持ち主・通算の時間・セーブの種類は normalizeOwned → sharedExtras → validateOwnedUpload → GAS が広げた world → ownedFromShared で往復する', () => {
+  const CLOCK = '638650000000000005';
+  const owned = normalizeOwned({ ...serverSnapshot, world: { ...serverSnapshot.world, clock: CLOCK } }, { pals, passives });
+  assert.equal(owned.formersPartial, false);
+  // 送るのは分かる項目だけ（在庫はまだ送らない）。以前の持ち主は uid と数だけ（kind は uid から分かる）
+  const extras = sharedExtras(owned, 'server');
+  assert.deepEqual(extras, { saveKind: 'server', clock: CLOCK, formers: [{ uid: H, pals: 3, farms: 2 }, { uid: X, pals: 1, farms: 1 }] });
+  const upload = sharedUpload(owned);
+  const checked = validateOwnedUpload({ worldId: WORLD, saveUpdatedAt: '2026-10-18T00:00:00.000Z', world: { name: 'テスト', ...extras }, ...upload });
+  assert.deepEqual(checked.value.extras, { ...extras, items: null });
+  const shared = ownedFromShared({
+    world: { worldName: 'テスト', players: checked.value.players, ...checked.value.extras }, columns: upload.columns, rows: checked.value.rows,
+  }, { pals, passives });
+  assert.deepEqual([shared.formers, shared.formersPartial, shared.world.saveKind, shared.world.clock], [owned.formers, false, 'server', CLOCK]);
+  // 切った共有は一部だけ（formersPartial）
+  assert.equal(ownedFromShared({ world: { formers: [], formersPartial: true }, rows: [] }, { pals, passives }).formersPartial, true);
+  // 協力プレイ（通算の時間が分からない古いスナップショット）は clock を送らない
+  assert.deepEqual(sharedExtras(normalizeOwned(coopSnapshot, { pals, passives }), 'coop'), { saveKind: 'coop', formers: [{ uid: U, pals: 1, farms: 0 }] });
+  // 追加の情報のない古い共有では分からない
+  const old = ownedFromShared({ world: { worldName: 'テスト' }, rows: [] }, { pals, passives });
+  assert.deepEqual([old.formers, old.formersPartial, old.world.saveKind, old.world.clock], [null, false, '', '']);
 });
 
 test('このワールドでの自分: self は鍵（i:・u:・前の版の UID）で受け、その回のプレイヤーに引く。往復で UID が変わっても同じキャラクター', () => {
