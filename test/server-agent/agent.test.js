@@ -352,6 +352,20 @@ test('常駐（結合）: 止まっている間に来た読み直しの予約は
   await pc.agent.close();
 });
 
+test('常駐（結合）: サーバーが動いているか決められない（unknown）間は読まず、共有も自動登録もしない', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site, server: fakeServer('unknown') });
+  pc.current = snapshotOf({ seconds: 0, minutes: 100, day: 10, eggs: ['GuardianDog'] });
+  assert.equal(await pc.agent.login(), 'ok');
+  await pc.agent.tick();
+  await pc.agent.settle();
+  assert.equal(pc.agent.attached(), false);
+  assert.deepEqual([pc.reads, gas.writes('ownedUpload'), gas.writes('create')], [[], [], []]);
+  await pc.agent.close();
+});
+
 test('常駐（結合）: Level.sav・LevelMeta.sav がまだないワールドは登録せずに待ち、できたら読む', async (t) => {
   const clock = virtualClock();
   const gas = await gasOf({ now: clock.now });

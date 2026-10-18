@@ -229,6 +229,27 @@ test('古い系統の守り: 壊れた状態は止めた状態として扱う（
   assert.equal(await guard.check(W, save(30, 201, 11)), 'ok');
 });
 
+test('古い系統の守り: 届いたか分からない送信（通信の失敗）も、送ったもの（b）として残す。受け入れの後に公開された世代は、uploadedAt が読めなくても比べる', async () => {
+  const gas = fakeGas();
+  gas.publish(W, { clock: clockAt(100), inGameDay: 10 });
+  const storage = safeStorage(memoryStorage());
+  const guard = guardOf(gas, storage);
+  gas.fail.ownedUpload = 'CONNECTION';
+  assert.equal(await codeOf(guard.server.request('ownedUpload', uploadOf(save(60, 300, 12)))), 'CONNECTION');
+  assert.deepEqual(guard.status(W).sent, { clock: clockAt(300), inGameDay: 12 });
+  gas.fail.ownedUpload = '';
+  assert.equal(await guard.check(W, save(90, 200, 11)), 'blocked');
+  assert.equal(guard.status(W).blocked.against, 'sent');
+
+  // 受け入れの後に公開された世代の uploadedAt が読めない: 後に公開されたものとして比べる（見落とさない）
+  const other = fakeGas();
+  other.publish(W, { clock: clockAt(100), inGameDay: 10 });
+  const accepted = guardOf(other, safeStorage(memoryStorage()));
+  await accepted.accept(W, save(600, 100, 10));
+  other.worlds.set(W, { ...other.publish(W, { clock: clockAt(500), inGameDay: 15 }), uploadedAt: 'not-a-time' });
+  assert.equal(await accepted.check(W, save(630, 101, 10)), 'blocked');
+});
+
 test('古い系統の守り: 受け入れは、公開の世代がない・読めないときは行わない', async () => {
   const gas = fakeGas();
   const guard = guardOf(gas, safeStorage(memoryStorage()));

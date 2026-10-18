@@ -211,10 +211,13 @@ test('常駐の入口: --once は、読めない・共有の通信の失敗な�
   assert.equal(failed.code, 1);
   assert.match(failed.out, /once-failed code="CONNECTION"/);
   gas.control.fail.ownedUpload = '';
-  // セーブを読めない
-  const unreadable = await run(site, ['--once', '--force-host'], { gas, deps: { runImport: async () => { throw new Error('読めません（テスト）'); } } });
+  // セーブを読めない（例外の文にパスワードが入っていても、ログでは伏せる）
+  const unreadable = await run(site, ['--once', '--force-host'], { gas, deps: { runImport: async () => { throw new Error(`読めません（テスト）${PASS}`); } } });
   assert.equal(unreadable.code, 1);
   assert.match(unreadable.out, /once-failed reason="セーブを読めませんでした"/);
+  assert.match(unreadable.out, /read-failed/);
+  assert.ok(!unreadable.out.includes(PASS));
+  assert.ok(!fs.readFileSync(path.join(envDir(site), 'agent.log'), 'utf8').includes(PASS));
   // 通れば 0
   assert.equal((await run(site, ['--once', '--force-host'], { gas })).code, 0);
   // presence の通信の失敗も 1
