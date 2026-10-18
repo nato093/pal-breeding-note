@@ -35,10 +35,12 @@ const SECRET_ENV_KEYS = ['PAL_AGENT_PASSCODE', 'PAL_TEST_PASSCODE'];
 
 /**
  * 二重起動の防止に使う名前（データの場所の env のフォルダごと）。Windows は名前付きパイプ、ほか（CI の Linux）は抽象名前空間の UNIX ソケット。
- * どちらもファイルを作らず、持っているプロセスが落ちれば OS が外す
+ * どちらもファイルを作らず、持っているプロセスが落ちれば OS が外す。大文字と小文字を同じにするのは Windows だけ（Linux では別のフォルダ）
  */
 export function lockPathOf(envDir, platform = process.platform) {
-  const name = `pal-note-agent-${createHash('sha256').update(path.resolve(envDir).toLowerCase()).digest('hex').slice(0, 24)}`;
+  const resolved = path.resolve(envDir);
+  const key = platform === 'win32' ? resolved.toLowerCase() : resolved;
+  const name = `pal-note-agent-${createHash('sha256').update(key).digest('hex').slice(0, 24)}`;
   return platform === 'win32' ? `\\\\.\\pipe\\${name}` : `\0${name}`;
 }
 

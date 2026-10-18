@@ -97,6 +97,9 @@ test('常駐の入口: 二重起動の防止は OS が排他を保証する名�
   assert.notEqual(lockPathOf(path.join(site.root, 'other')), lockPath);
   assert.match(lockPathOf('D:\\data\\test', 'win32'), /^\\\\\.\\pipe\\pal-note-agent-[0-9a-f]{24}$/);
   assert.match(lockPathOf('/data/test', 'linux'), /^\0pal-note-agent-[0-9a-f]{24}$/);
+  // 大文字と小文字の違いは、Windows では同じフォルダ（同じ名前）、Linux では別のフォルダ（別の名前）
+  assert.equal(lockPathOf('D:\\Data\\Test', 'win32'), lockPathOf('d:\\data\\test', 'win32'));
+  assert.notEqual(lockPathOf('/data/Test', 'linux'), lockPathOf('/data/test', 'linux'));
   assert.equal(fs.existsSync(path.join(envDir(site), 'agent.lock')), false);
 });
 
