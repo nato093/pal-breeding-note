@@ -8,6 +8,8 @@
 //   限って解除する（メモリだけ。再起動したらまた判定待ち）。読んでいる間・読めない間も判定待ち
 // - 止めた状態は KV に残し、明示の受け入れ（--accept-world）まで解除しない（再起動しても、後で値が公開の値を追い越しても）
 // - 受け入れの基準は、受け入れたときに GAS から読んだ公開の世代の uploadedAt（GAS のサーバーの時計）。PC の時計は使わない
+// - 判定は、公開の値を読み始めたときと状態を書き換える直前とで、session（常駐の attach の世代）と受け入れの回が同じときだけ状態に残す
+//   （最後の送信の期限の後・次の attach の後・受け入れの後に、前に始めた判定の結果で止めたり解除したりしない）
 import { ownedSaveStamp, ownedWorldId } from '../../web/js/core/owned-shared.js';
 import { isoTime } from '../../web/js/core/boundary.js';
 import { autoRegisterFarmsKey } from '../../web/js/auto-register.js';
@@ -108,6 +110,8 @@ const laterThan = (at, base) => {
  * @param {(worldId: string, env: string) => void} [options.onAccept] 受け入れたときに、動いている自動登録の牧場の記録を捨てる
  *   （createAutoRegister の forgetFarms）。KV の牧場の記録は、渡さなくても捨てる
  * @param {{ info: Function, warn: Function }} [options.log] 常駐のログ（log.mjs。値と理由だけを出す）
+ * @param {() => (number|string|null)} [options.session] 判定してよい間の印（常駐の attach の世代）。null なら判定しない。判定を始めたときと
+ *   状態を書き換える直前とで違えば、その判定の結果を状態に残さない（'pending'）。渡さなければいつも同じ
  * @returns 次のもの。動いている常駐は subscribe で、自動登録の判定（autoRegister.evaluate）と、受け入れの後の共有（owned.uploadLocal）をやり直す
  *   - server: request を包んだもの（createOwnedStore に渡す）。ownedUpload は、そのセーブを判定し、古い系統でないと確かめたときだけ送る
  *   - paused(worldId, stamp): 判定待ち・止めている間は true（createAutoRegister に渡す）
@@ -115,9 +119,11 @@ const laterThan = (at, base) => {
  *   - accept(worldId, values): 受け入れ（--accept-world）。受け入れられなければ例外（code は ACCEPT_ERRORS の鍵）
  *   - status(worldId): 今の状態（--check・ログ）
  */
-export function createLineageGuard({ server, storage, namespace = 'pal-note', onAccept = null, log = null }) {
+export function createLineageGuard({ server, storage, namespace = 'pal-note', onAccept = null, log = null, session = () => 0 }) {
   const scope = () => server.scope?.() || '';
   const stateKey = (env, worldId) => lineageStateKey(namespace, env, worldId);
+  // 受け入れの回（受け入れたら、それより前に始めた判定の結果を使わない）
+  let accepts = 0;
   // 解除した stamp（env|worldId → stamp の Set）・読んでいる途中の判定（env|worldId|stamp → Promise）
   const verified = new Map();
   const inflight = new Map();
@@ -178,7 +184,7 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
     emit({ type: 'blocked', worldId, env });
   }
 
-  async function verify(env, worldId, values) {
+  async function verify(env, worldId, values, token, epoch) {
     let published;
     try {
       published = await readPublished(worldId);
@@ -186,8 +192,8 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
       log?.info?.('lineage-pending', { code: error?.code || 'ERROR' });
       return 'pending';
     }
-    // 読んでいる間にログイン・環境が替わった
-    if (scope() !== env) return 'pending';
+    // 読んでいる間にログイン・環境が替わった・判定してよい間が終わった（最後の送信の期限・次の attach）・受け入れた
+    if (scope() !== env || session() !== token || accepts !== epoch) return 'pending';
     // 読んでいる間に止めた・受け入れた分も見る（読んだ後の状態で比べる）
     const state = readState(env, worldId);
     if (state.blocked) return 'blocked';
@@ -211,11 +217,13 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
     const env = scope();
     const id = ownedWorldId(worldId);
     const values = lineageValues(save);
-    if (!env || !id || !values.stamp) return Promise.resolve('pending');
+    const token = session();
+    if (!env || !id || !values.stamp || token === null || token === undefined) return Promise.resolve('pending');
     if (readState(env, id).blocked) return Promise.resolve('blocked');
     if (verifiedOf(env, id)?.has(values.stamp)) return Promise.resolve('ok');
-    const key = `${env}|${id}|${values.stamp}`;
-    if (!inflight.has(key)) inflight.set(key, verify(env, id, values).finally(() => inflight.delete(key)));
+    // 同じ判定してよい間・受け入れの回の、同じセーブの判定だけを待ち合わせる
+    const key = `${env}|${id}|${values.stamp}|${token}|${accepts}`;
+    if (!inflight.has(key)) inflight.set(key, verify(env, id, values, token, accepts).finally(() => inflight.delete(key)));
     return inflight.get(key);
   }
 
@@ -232,9 +240,10 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
     const env = scope();
     const id = ownedWorldId(input?.worldId);
     const values = lineageOfUpload(input);
+    const token = session();
     const result = await check(id, values);
-    // 判定の後（読んでいる間）に止めた・環境が替わったときも送らない
-    if (result !== 'ok' || scope() !== env || paused(id, values.stamp)) {
+    // 判定の後（読んでいる間）に止めた・環境が替わった・判定してよい間が終わったときも送らない（送った値〔b〕も残さない）
+    if (result !== 'ok' || scope() !== env || session() !== token || paused(id, values.stamp)) {
       throw lineageError(result === 'blocked' || (env && id && readState(env, id).blocked) ? LINEAGE_BLOCKED : LINEAGE_PENDING);
     }
     recordSent(env, id, values);
@@ -261,6 +270,7 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
     if (scope() !== env) throw fail('NOT_READY');
     const uploadedAt = isoTime(published?.uploadedAt);
     if (!uploadedAt) throw fail('NO_PUBLISHED');
+    accepts++;
     writeState(env, id, { blocked: null, baseline: { uploadedAt, ...kept(values) }, sent: kept(values) });
     verified.delete(`${env}|${id}`);
     if (values.stamp) markVerified(env, id, values.stamp);

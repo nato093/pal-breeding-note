@@ -824,6 +824,48 @@ test('常駐（結合）: 最後の送信の期限が過ぎた後に、待って
   await pc.agent.close();
 });
 
+test('常駐（2 台）: 最後の送信の期限の後に届いた公開の値（その間に B が新しい系統を公開した）で、止まっている A を止めた状態にしない', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const a = agentOf({ gas, clock, site });
+  await a.start({ minutes: 100 });
+  // 猶予の間の保存の判定（公開の値の読み取り）が返らないまま、A のサーバーが止まる
+  a.server.state = 'grace';
+  let release;
+  gas.control.gates.ownedWorlds = new Promise((resolve) => { release = resolve; });
+  await clock.advance(30_000);
+  a.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 101, day: 10 });
+  site.save(clock.now());
+  a.watch.settle();
+  await realTurns();
+  gas.control.gates.ownedWorlds = null;
+  a.server.state = 'stopped';
+  let finished = false;
+  a.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.match(a.log.text(), /detached lastUpload="timeout"/);
+  // B が受け取った続き（200 分）で建てて公開した後に、A の待っていた読み取りが返る
+  const b = agentOf({ gas, clock, site: serverWorld(t) });
+  await b.start({ minutes: 200 });
+  await b.agent.close();
+  assert.equal((await gas.published()).clock, clockAt(200));
+  release();
+  await realTurns();
+  await a.agent.settle();
+  assert.notEqual(a.agent.guard.status(W).state, 'blocked', '前の attach の判定で止めない');
+  assert.doesNotMatch(a.log.text(), /lineage-blocked/);
+  // 次に A が B の続き（210 分）で建てれば、そのまま判定して送る
+  a.server.state = 'running';
+  await clock.advance(60_000);
+  a.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 210, day: 11 });
+  site.save(clock.now());
+  await a.agent.tick();
+  await a.agent.settle();
+  assert.deepEqual([a.agent.owned.state.upload.status, (await gas.published()).clock], ['done', clockAt(210)]);
+  await a.agent.close();
+});
+
 test('常駐（結合）: 最後の送信の期限が過ぎた後は、createApi の自動の再送（BUSY・TIMEOUT など）でも共有を送らない', async (t) => {
   const clock = virtualClock();
   const gas = await gasOf({ now: clock.now });

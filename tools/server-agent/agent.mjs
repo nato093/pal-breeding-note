@@ -268,6 +268,8 @@ export function createAgent({
   let autoRegister = null;
   const guard = createLineageGuard({
     server: base, storage: kv, namespace, log, onAccept: (id, env) => autoRegister?.forgetFarms(id, env),
+    // 判定は、送ってよい間の同じ attach の世代のときだけ状態に残す（最後の送信の期限の後・次の attach の後に、前に始めた判定の結果で止めない）
+    session: () => (sendWindow() ? generation : null),
   });
 
   let lastUploadError = '';

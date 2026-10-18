@@ -263,6 +263,47 @@ test('古い系統の守り: 受け入れは、公開の世代がない・読め
   await assert.rejects(guard.accept(W, save(0, 100, 10)), { code: 'NOT_READY' });
 });
 
+test('古い系統の守り: 判定の途中で判定してよい間（session。常駐の attach の世代）が替わった・受け入れたら、その判定の結果で止めも解除もしない', async () => {
+  // 判定の途中で session が替わり（最後の送信の期限・次の attach）、その間に新しい系統が公開された
+  const gas = fakeGas();
+  gas.publish(W, { clock: clockAt(100), inGameDay: 10 });
+  let session = 1;
+  const guard = guardOf(gas, safeStorage(memoryStorage()), { session: () => session });
+  let release;
+  gas.gates.ownedWorlds = new Promise((resolve) => { release = resolve; });
+  const stale = guard.check(W, save(0, 150, 10));
+  await tick();
+  session = 2;
+  gas.gates.ownedWorlds = null;
+  gas.publish(W, { clock: clockAt(200), inGameDay: 11 });
+  release();
+  assert.equal(await stale, 'pending');
+  assert.equal(guard.status(W, stampAt(0)).state, 'pending', '止めた状態にしない・解除もしない');
+  // 判定してよい間でなければ（null）判定しない（公開の値も読まない）
+  session = null;
+  const calls = gas.calls.length;
+  assert.equal(await guard.check(W, save(30, 250, 12)), 'pending');
+  assert.equal(gas.calls.length, calls);
+  // 今の間に判定し直せば、効く
+  session = 3;
+  assert.equal(await guard.check(W, save(0, 150, 10)), 'blocked');
+
+  // 判定の途中で受け入れた: 受け入れの前に始めた古いセーブの判定で、受け入れた値（b）と比べて止めない
+  const gas2 = fakeGas();
+  gas2.publish(W, { clock: clockAt(200), inGameDay: 11 });
+  const guard2 = guardOf(gas2, safeStorage(memoryStorage()));
+  let release2;
+  gas2.gates.ownedWorlds = new Promise((resolve) => { release2 = resolve; });
+  const before = guard2.check(W, save(0, 150, 10));
+  await tick();
+  gas2.gates.ownedWorlds = null;
+  await guard2.accept(W, save(30, 151, 10));
+  release2();
+  assert.equal(await before, 'pending');
+  assert.notEqual(guard2.status(W).state, 'blocked');
+  assert.equal(await guard2.check(W, save(30, 151, 10)), 'ok');
+});
+
 test('古い系統の守り: 受け入れの直後の読み込みでも再起動の後でも止まらない。受け入れの後に公開された新しい系統は見落とさない', async () => {
   const gas = fakeGas();
   const generation = gas.publish(W, { clock: clockAt(1000), inGameDay: 20 });
