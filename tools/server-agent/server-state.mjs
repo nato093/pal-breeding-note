@@ -3,6 +3,10 @@
 // 誰かが接続するまで Starting のままのため）。応答には起動の計画（管理者パスワードを含みうる）が入るので、
 // status の running・pid・state だけを取り出して残りはすぐ捨てる（ログ・例外の文・状態に残さない）。
 // 取れなければ PowerShell の Get-CimInstance Win32_Process で、PalServer の実行ファイルが対象のフォルダの下にあるか（シェルを通さない）。
+// ServerSync が動いていると言うときも、この PC で動いているかを確かめる（ServerSync の共有で、別の PC が動かしているインスタンスの写しを
+// 読んで送らないため）: pid がこの PC で生きていなければ止まっている。生きていれば、対象のフォルダの PalServer があるかを pid ごとに 1 回だけ
+// 実行ファイルのパスで確かめる。確かめられなければ（Windows 以外・PowerShell の失敗）ServerSync の答えのまま。
+// ServerSync に届かない間の実行ファイルのパスの確認は 30 秒に 1 回（PowerShell を 10 秒ごとに起動しない）。
 // どちらでも決められなければ 'unknown'（共有と自動登録をしない）。止まってから graceMs（60 秒）は動いているとみなす（最後の保存を拾う）。
 // 起動・停止・保存の操作は持たない（読み取りの GET だけ）。REST（8212）は使わない（server の決定 9）。
 import { execFile as execFileCallback } from 'node:child_process';
@@ -10,6 +14,8 @@ import { promisify } from 'node:util';
 
 export const SERVERSYNC_API = 'http://127.0.0.1:54866';
 export const GRACE_MS = 60_000;
+/** ServerSync に届かない間に、実行ファイルのパスの確認の結果を使い回す長さ */
+export const PROCESS_RECHECK_MS = 30_000;
 const STATES = new Set(['Stopped', 'Installing', 'Starting', 'Ready']);
 // 名前が PalServer で始まるプロセスの実行ファイルのパスを、1 行に 1 つ「>パス」で出す（パスが取れないものは「>」だけ）。
 // 対象のフォルダは文に入れず、Node の側で比べる（コマンドに外の値を混ぜない）
@@ -41,19 +47,34 @@ export function processStateOf(stdout, dir) {
 
 const defaultExecFile = promisify(execFileCallback);
 
+/** pid のプロセスがこの PC で生きているか（ほかのユーザーのプロセスで EPERM なら生きている） */
+export function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
 /**
  * サーバーの稼働の見張り。check() を呼ぶたびに今の状態を返す。
- * @param {{ instanceId?: string, serverDir?: string, fetch?: Function, execFile?: Function, now?: () => number, graceMs?: number,
- *   apiBase?: string, timeoutMs?: number, platform?: string }} options
- *   fetch・execFile は差し替えられる（テスト）。execFile(file, args, options) は { stdout } を返す Promise。
- *   Windows 以外（CI）では、execFile を渡さなければ実行ファイルのパスでは調べない
+ * @param {{ instanceId?: string, serverDir?: string, fetch?: Function, execFile?: Function, alive?: Function|null, now?: () => number,
+ *   graceMs?: number, apiBase?: string, timeoutMs?: number, platform?: string }} options
+ *   fetch・execFile・alive は差し替えられる（テスト）。execFile(file, args, options) は { stdout } を返す Promise。alive(pid) は真偽。
+ *   Windows 以外（CI）では、execFile・alive を渡さなければ実行ファイルのパス・pid では調べない
  */
 export function createServerMonitor({
-  instanceId = '', serverDir = '', fetch = globalThis.fetch, execFile, now = Date.now, graceMs = GRACE_MS,
+  instanceId = '', serverDir = '', fetch = globalThis.fetch, execFile, alive, now = Date.now, graceMs = GRACE_MS,
   apiBase = SERVERSYNC_API, timeoutMs = 3000, platform = process.platform,
 } = {}) {
   const runFile = execFile ?? (platform === 'win32' ? defaultExecFile : null);
+  const pidAlive = alive === undefined ? (platform === 'win32' ? isAlive : null) : alive;
   let lastRunningAt = null;
+  // ServerSync が動いていると言う pid を、この PC で確かめた結果（{ pid, here: true|false|null }。null は確かめられなかった）
+  let confirmed = null;
+  // ServerSync に届かない間の、実行ファイルのパスの確認の結果と時刻
+  let processResult = null;
 
   // ServerSync のローカル API。{ running, pid, state } か、取れなければ失敗の種類（文に応答の中身を入れない）
   async function fromServerSync() {
@@ -85,20 +106,51 @@ export function createServerMonitor({
     }
   }
 
+  // ServerSync が動いていると言う pid のサーバーが、この PC で動いているか（true・false・null〔確かめられない〕）。pid ごとに 1 回だけ
+  async function runningHere(pid) {
+    if (pid && pidAlive && !pidAlive(pid)) return false;
+    const key = pid ?? 0;
+    if (confirmed?.pid !== key) {
+      const proc = await fromProcess();
+      confirmed = { pid: key, here: proc.error ? null : proc.running };
+    }
+    return confirmed.here;
+  }
+
+  // ServerSync に届かない間の実行ファイルのパスの確認（PROCESS_RECHECK_MS の間は前の結果を使い回す）
+  async function fromProcessThrottled() {
+    if (processResult && now() - processResult.at < PROCESS_RECHECK_MS) return processResult.value;
+    const value = await fromProcess();
+    processResult = { value, at: now() };
+    return value;
+  }
+
   return {
     /**
      * @returns {Promise<{ state: 'running'|'grace'|'stopped'|'unknown', active: boolean, source: 'serversync'|'process'|'',
      *   pid: number|null, serverState: string, stoppedFor: number|null, reasons: string[] }>}
-     *   active は読み込み・共有・自動登録をしてよいか（running と grace）。reasons は取れなかった理由の種類（応答の中身は入れない）
+     *   active は読み込み・共有・自動登録をしてよいか（running と grace）。reasons は取れなかった理由の種類（応答の中身は入れない）。
+     *   serversync:not-here は、ServerSync は動いていると言うが、この PC では対象のサーバーが動いていない
      */
     async check() {
       const reasons = [];
       let decided = null;
       const api = await fromServerSync();
-      if (api.error) reasons.push(`serversync:${api.error}`);
-      else decided = { running: api.running, pid: api.running ? api.pid : null, serverState: api.state, source: 'serversync' };
+      if (api.error) {
+        reasons.push(`serversync:${api.error}`);
+      } else if (!api.running) {
+        confirmed = null;
+        decided = { running: false, pid: null, serverState: api.state, source: 'serversync' };
+      } else if ((await runningHere(api.pid)) === false) {
+        reasons.push('serversync:not-here');
+        decided = { running: false, pid: null, serverState: api.state, source: 'serversync' };
+      } else {
+        decided = { running: true, pid: api.pid, serverState: api.state, source: 'serversync' };
+      }
+      // ServerSync に届いたら、使い回していた結果は捨てる（次に届かなくなったら、すぐ確かめる）
+      if (!api.error) processResult = null;
       if (!decided) {
-        const proc = await fromProcess();
+        const proc = await fromProcessThrottled();
         if (proc.error) reasons.push(proc.error);
         else decided = { running: proc.running, pid: null, serverState: '', source: 'process' };
       }

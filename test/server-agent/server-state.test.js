@@ -111,6 +111,49 @@ test('サーバーの稼働: ServerSync から取れなければ、実行ファ�
   assert.equal(processStateOf('', SERVER_DIR), 'stopped');
 });
 
+test('サーバーの稼働: ServerSync が動いていると言っても、この PC で対象のフォルダの PalServer が動いていなければ止まっている（別の PC が動かす共有のインスタンス）', async () => {
+  let body = detail({ running: true, pid: 4242, state: 'Ready' });
+  const { fetch } = fakeFetch(() => ({ body }));
+  // pid がこの PC で生きていない: PowerShell を起動せずに止まっているとする
+  const none = fakeExec(() => `>${EXE}\r\n`);
+  const away = await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: none.execFile, alive: () => false, platform: 'linux' }).check();
+  assert.deepEqual([away.state, away.active, away.source, away.pid], ['stopped', false, 'serversync', null]);
+  assert.deepEqual(away.reasons, ['serversync:not-here']);
+  assert.equal(none.calls.length, 0);
+  // pid は生きているが（別のプロセスの使い回し）、対象のフォルダの PalServer がない
+  const elsewhere = fakeExec(() => '>G:\\ServerSync\\TESTINSTB0000002\\bin\\PalServer.exe\r\n');
+  const reused = await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: elsewhere.execFile, alive: () => true, platform: 'linux' }).check();
+  assert.deepEqual([reused.state, reused.active, reused.reasons], ['stopped', false, ['serversync:not-here']]);
+  // この PC で動いている: 同じ pid の間は 1 回だけ確かめる（10 秒ごとに PowerShell を起動しない）。pid が替わったら確かめ直す
+  const here = fakeExec(() => `>${EXE}\r\n`);
+  const monitor = createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: here.execFile, alive: () => true, platform: 'linux' });
+  for (let i = 0; i < 3; i++) assert.deepEqual([(await monitor.check()).state, (await monitor.check()).reasons], ['running', []]);
+  assert.equal(here.calls.length, 1);
+  body = detail({ running: true, pid: 5151, state: 'Ready' });
+  assert.equal((await monitor.check()).state, 'running');
+  assert.equal(here.calls.length, 2);
+  // 確かめられない（PowerShell の失敗）ときは ServerSync の答えのまま
+  const broken = fakeExec(() => new Error('spawn failed'));
+  const kept = await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: broken.execFile, alive: () => true, platform: 'linux' }).check();
+  assert.deepEqual([kept.state, kept.active], ['running', true]);
+});
+
+test('サーバーの稼働: ServerSync に届かない間は、実行ファイルのパスの確認を 30 秒に 1 回にする（PowerShell を 10 秒ごとに起動しない）', async () => {
+  let time = 1_000_000;
+  const { fetch } = fakeFetch(() => new TypeError('fetch failed'));
+  const exec = fakeExec(() => `>${EXE}\r\n`);
+  const monitor = createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: exec.execFile, now: () => time, platform: 'linux' });
+  assert.equal((await monitor.check()).state, 'running');
+  time += 10_000;
+  assert.equal((await monitor.check()).state, 'running');
+  time += 10_000;
+  assert.equal((await monitor.check()).source, 'process');
+  assert.equal(exec.calls.length, 1);
+  time += 10_000;
+  await monitor.check();
+  assert.equal(exec.calls.length, 2);
+});
+
 test('サーバーの稼働: どちらでも決められなければ unknown（共有と自動登録をしない）', async () => {
   const cases = [
     // ServerSync に当たらず（404）、PowerShell が失敗
