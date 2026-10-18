@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseWorldPath, savePathForName, handlesFromDrop, handleDropSupported, inspectFiles, readFiles, createHandleSource,
+  SERVER_SAVE_ID, isServerWorld, requiredFiles, usesFile, REQUIRED_FILES,
 } from '../../web/js/save/handles.js';
 import { fakeHandle, hostFiles, memoryPersist, T0 } from '../helpers/file-handles.js';
 
@@ -174,4 +175,70 @@ test('セーブのファイル: 解析が読むファイルの印（readSignatur
   assert.notEqual(saved.readSignature, first.readSignature);
   await source.commit({ worldId: 'A', steamId: '1', files: { '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav') } });
   assert.notEqual((await source.list())[0].readSignature, saved.readSignature);
+});
+
+test('セーブのファイル（server の T1b）: サーバーのワールドはパスの Steam ID（0）で見分け、必須は Level.sav・LevelMeta.sav だけ。LocalData.sav・GlobalPalStorage.sav は使わない', () => {
+  assert.equal(SERVER_SAVE_ID, '0');
+  assert.equal(isServerWorld(parseWorldPath(`D:\\ServerSync\\instances\\test\\bin\\Pal\\Saved\\SaveGames\\0\\${WORLD}`).steamId), true);
+  for (const steamId of ['76561190123456789', '7656', '', null, undefined, '00']) assert.equal(isServerWorld(steamId), false, String(steamId));
+  for (const kind of ['host', 'guest']) assert.deepEqual(requiredFiles(kind, '0'), ['Level.sav', 'LevelMeta.sav'], kind);
+  assert.deepEqual([requiredFiles('host', '7656'), requiredFiles('guest', '7656')], [REQUIRED_FILES.host, REQUIRED_FILES.guest]);
+  assert.deepEqual(['LocalData.sav', '../GlobalPalStorage.sav', 'Level.sav', 'Players/00000000000000000000000000000001.sav'].map((path) => usesFile('0', path)), [false, false, true, true]);
+  assert.deepEqual(['LocalData.sav', '../GlobalPalStorage.sav'].map((path) => usesFile('7656', path)), [true, true]);
+});
+
+test('セーブのファイル（server の T1b）: サーバーのワールドは LocalData.sav がなくても読め、役割はいつもホスト（LocalData.sav が新しくても参加と判定しない）', async () => {
+  const files = hostFiles();
+  delete files['LocalData.sav'];
+  assert.deepEqual(await inspectFiles('host', files, '0').then((r) => [r.status, r.role]), ['ok', 'host']);
+  // 協力プレイなら LocalData.sav がないので判定しない
+  assert.deepEqual(await inspectFiles('host', files, '7656').then((r) => [r.status, r.role]), ['missing', '']);
+  // 協力プレイなら参加と判定する差でも、サーバーはホスト
+  const withLocal = hostFiles();
+  withLocal['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  assert.deepEqual(await inspectFiles('host', withLocal, '0').then((r) => [r.status, r.role]), ['ok', 'host']);
+  assert.deepEqual(await inspectFiles('host', withLocal).then((r) => [r.status, r.role]), ['ok', 'guest']);
+  files['LevelMeta.sav'].gone = true;
+  const lost = await inspectFiles('host', files, '0');
+  assert.deepEqual([lost.status, lost.role, lost.error], ['missing', '', 'LevelMeta.sav が見つかりません']);
+});
+
+test('セーブのファイル（server の T1b）: サーバーの登録は LocalData.sav・GlobalPalStorage.sav を持たない（前の版で登録した分も読み込みで外す）。読むときの必須も Level.sav・LevelMeta.sav', async () => {
+  const persist = memoryPersist();
+  const source = createHandleSource({ persist, key: 'k' });
+  const files = { ...hostFiles(), '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav') };
+  await source.commit({ worldId: WORLD, steamId: '0', files });
+  assert.deepEqual(Object.keys(source.get(WORLD).files).sort(), ['Level.sav', 'LevelMeta.sav', 'Players/00000000000000000000000000000001.sav']);
+  const [world] = await source.list();
+  assert.deepEqual([world.kind, world.role, world.status], ['host', 'host', 'ok']);
+  // Players のファイルが消えていても読める（必須は Level.sav・LevelMeta.sav）
+  files['Players/00000000000000000000000000000001.sav'].gone = true;
+  const read = await source.read(await source.list().then((list) => list[0]));
+  assert.deepEqual(read.files.map((file) => file.path), ['Level.sav', 'LevelMeta.sav']);
+  // 前の版で LocalData.sav ごと登録したサーバーのワールド
+  persist.map.set('old', { version: 1, worlds: [{ id: WORLD, steamId: '0', kind: 'host', files: hostFiles(), name: '', hostName: '', revision: 1 }] });
+  const old = createHandleSource({ persist, key: 'old' });
+  await old.load();
+  assert.equal(old.get(WORLD).files['LocalData.sav'], undefined);
+  // 協力プレイの登録は今どおり
+  await source.commit({ worldId: 'B', steamId: '7656', files: { ...hostFiles(), '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav') } });
+  assert.equal(Object.keys(source.get('B').files).length, 5);
+});
+
+test('セーブのファイル（server の T1b）: 名前を明示した登録（nameSet）は、後の登録の名前で上書きせず、開き直しても残る', async () => {
+  const persist = memoryPersist();
+  const source = createHandleSource({ persist, key: 'k' });
+  await source.commit({ worldId: WORLD, steamId: '0', files: hostFiles(), name: 'Alice のサーバー', nameSet: true });
+  assert.deepEqual([source.get(WORLD).name, source.get(WORLD).nameSet], ['Alice のサーバー', true]);
+  await source.commit({ worldId: WORLD, steamId: '0', files: {}, name: 'セーブの名前' });
+  assert.deepEqual([source.get(WORLD).name, source.get(WORLD).nameSet], ['Alice のサーバー', true]);
+  const again = createHandleSource({ persist, key: 'k' });
+  await again.load();
+  assert.deepEqual([again.get(WORLD).name, again.get(WORLD).nameSet], ['Alice のサーバー', true]);
+  // 明示し直せば替わる。明示していない登録は今どおり（後の名前で替わる）
+  await again.commit({ worldId: WORLD, steamId: '0', files: {}, name: '新しい名前', nameSet: true });
+  assert.equal(again.get(WORLD).name, '新しい名前');
+  await again.commit({ worldId: 'B', steamId: '7656', files: hostFiles(), name: '前の名前' });
+  await again.commit({ worldId: 'B', steamId: '7656', files: {}, name: '後の名前' });
+  assert.deepEqual([again.get('B').name, again.get('B').nameSet], ['後の名前', false]);
 });

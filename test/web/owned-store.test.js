@@ -1400,8 +1400,11 @@ test('所持パル（share-upload）: 送る world に識別（saveStamp・conte
   const [input] = up.sent;
   assert.deepEqual(Object.keys(input).sort(), ['bases', 'columns', 'players', 'rows', 'saveUpdatedAt', 'userId', 'world', 'worldId']);
   const { contentHash, ...identity } = input.world;
-  // GlobalPalStorage.sav も読めたファイルに数え、読めなかったファイルは同じパスを 1 つに数える。登録の確定から送ったので force
-  assert.deepEqual(identity, { name: 'テスト', hostName: 'Alice', saveStamp: tickOf(7), format: OWNED_FORMAT, fileCount: 4, missingCount: 1, force: true });
+  // GlobalPalStorage.sav も読めたファイルに数え、読めなかったファイルは同じパスを 1 つに数える。登録の確定から送ったので force。
+  // セーブの種類（saveKind）も world の中（server の identity）
+  assert.deepEqual(identity, {
+    name: 'テスト', hostName: 'Alice', saveKind: 'coop', saveStamp: tickOf(7), format: OWNED_FORMAT, fileCount: 4, missingCount: 1, force: true,
+  });
   // 中身の印は、送った中身（識別・送った人・セーブのファイルの更新日時を除く）の SHA-256
   assert.match(contentHash, /^[0-9a-f]{64}$/);
   assert.equal(contentHash, sha256(ownedContentText(input)));
@@ -2985,4 +2988,111 @@ test('所持パル（最終レビュー）: ゲーム中の推定を数え直す
   // 今のワールドの見張りの対象が変わったら数え直す
   await host.register(WORLD_A, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
   assert.deepEqual(host.store.state.play, emptyPlay());
+});
+
+// ---- サーバーのワールド（server の T1b） ----
+
+// サーバーの PC が読むセーブ（汎用のワールド名は解析で '' になる〔T1a〕。HostPlayerName もない）
+const serverSnapshot = (ticks, n = 2) => ({ ...stampedSnapshot(ticks, n), world: { name: '', hostName: '', savedAtTicks: ticks } });
+// サーバーのセーブのフォルダ（SaveGames\0\<ワールド ID>）で登録する
+const registerServer = async (target, files, input = {}) => target.commitRegistration(
+  await target.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped(files), ...input }),
+);
+
+test('所持パル（server の T1b）: サーバーのワールドは LocalData.sav・GlobalPalStorage.sav を受け取らずに登録し、役割はホスト。共有の world に saveKind: server・空のホスト名・前の共有の名前を送る', async () => {
+  const up = uploadServer();
+  // 協力プレイのときにホストが共有した
+  const coop = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1)) });
+  await coop.register(WORLD_A, hostFiles());
+  await settleUpload(coop.store);
+  assert.deepEqual([up.sent[0].world.name, up.sent[0].world.hostName, up.sent[0].world.saveKind], ['テスト', 'Alice', 'coop']);
+  assert.deepEqual([coop.store.state.local.world.saveKind, coop.store.state.meta.saveKind], ['coop', 'coop']);
+  // 同じワールドをサーバーに変換して、サーバーの PC が読む（ServerSync が写した古い LocalData.sav は、協力プレイなら参加と判定する時刻）
+  const host = setup({ server: up.as('サーバー'), runImport: async () => serverSnapshot(tickOf(2)) });
+  const files = { ...hostFiles(), '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav') };
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  const preview = await host.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped(files) });
+  assert.deepEqual([preview.kind, preview.role, preview.hostName, preview.ignored], ['host', 'host', '', ['LocalData.sav', '../GlobalPalStorage.sav']]);
+  assert.deepEqual(preview.paths, ['Level.sav', 'LevelMeta.sav', PLAYERS]);
+  assert.deepEqual(await host.store.commitRegistration(preview), { persisted: true, result: 'imported' });
+  await settleUpload(host.store);
+  // セーブにも登録にも名前がなく、前の共有の名前もまだ読んでいない。送る前に一覧から前の名前を引く（空の名前で上書きしない）
+  const sent = up.sent.at(-1).world;
+  assert.deepEqual([sent.name, sent.hostName, sent.saveKind], ['テスト', '', 'server']);
+  assert.equal(host.store.state.upload.status, 'done');
+  const { local, meta } = host.store.state;
+  assert.deepEqual([host.store.state.role, local.world.hostName, local.world.saveKind], ['host', '', 'server']);
+  assert.deepEqual([meta.source, meta.worldName, meta.hostName, meta.saveKind], ['local', 'テスト', '', 'server']);
+  // 開き直しても手元のデータのセーブの種類は残る。形の違う値は ''（分からない）
+  const again = host.make();
+  await again.load();
+  assert.equal(again.state.meta.saveKind, 'server');
+  const saved = host.persist.map.get('pal-note.test.owned');
+  host.persist.map.set('pal-note.test.owned', { ...saved, world: { ...saved.world, saveKind: 'cloud' } });
+  const broken = host.make();
+  await broken.load();
+  assert.equal(broken.state.local.world.saveKind, '');
+});
+
+test('所持パル（server の T1b）: ワールドの名前は、明示した登録の名前 → セーブの名前 → 登録で覚えた名前 → 前の共有の名前。汎用の名前（Autosave_W）は送らない', async () => {
+  const up = uploadServer();
+  const coop = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1)) });
+  await coop.register(WORLD_A, hostFiles());
+  await settleUpload(coop.store);
+  // 名前を明示した登録（常駐の設定など）は、前の共有の名前より先
+  const named = setup({ server: up.as('サーバー'), runImport: async () => serverSnapshot(tickOf(2)) });
+  const preview = await named.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped(hostFiles()), name: 'Alice のサーバー' });
+  assert.deepEqual([preview.name, preview.nameSet], ['Alice のサーバー', true]);
+  await named.store.commitRegistration(preview);
+  await settleUpload(named.store);
+  assert.deepEqual([up.sent.at(-1).world.name, named.store.state.meta.worldName], ['Alice のサーバー', 'Alice のサーバー']);
+  // 汎用の名前は、明示しても名前にしない
+  const generic = await named.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: [], name: 'autosave_w' });
+  assert.deepEqual([generic.name, generic.nameSet], ['Alice のサーバー', false]);
+  // 前の版の解析結果（汎用の名前が残ったスナップショット）でも Autosave_W は送らず、前の共有の名前を送る
+  const legacy = setup({
+    server: up.as('サーバー2'), runImport: async () => ({ ...serverSnapshot(tickOf(3)), world: { name: 'Autosave_W', hostName: '', savedAtTicks: tickOf(3) } }),
+  });
+  await legacy.store.fetchShared({ force: true });
+  await registerServer(legacy.store, hostFiles());
+  await settleUpload(legacy.store);
+  assert.deepEqual([up.sent.at(-1).world.name, legacy.store.state.meta.worldName], ['Alice のサーバー', 'Alice のサーバー']);
+  // セーブの名前がある協力プレイは、今どおりセーブの名前（ゲーム内で名前を変えたら追う）
+  const renamed = setup({
+    server: up.server, runImport: async () => ({ ...stampedSnapshot(tickOf(4)), world: { name: '新しい名前', hostName: 'Alice', savedAtTicks: tickOf(4) } }),
+  });
+  await renamed.store.fetchShared({ force: true });
+  await renamed.register(WORLD_A, hostFiles());
+  await settleUpload(renamed.store);
+  assert.equal(up.sent.at(-1).world.name, '新しい名前');
+  // 何も分からない（一覧にもない新しいワールド）なら空
+  const fresh = uploadServer();
+  const unknown = setup({ server: fresh.server, runImport: async () => serverSnapshot(tickOf(1)) });
+  await registerServer(unknown.store, hostFiles());
+  await settleUpload(unknown.store);
+  assert.deepEqual([fresh.sent.at(-1).world.name, unknown.store.state.upload.status], ['', 'done']);
+});
+
+test('所持パル（server の T1b）: 同じワールド ID の協力プレイの登録とサーバーのセーブは混ぜない（どちらが先でも止める。協力プレイどうしの Steam ID の直しは今どおり）', async () => {
+  const coop = setup();
+  await coop.register(WORLD_A, hostFiles());
+  await assert.rejects(
+    coop.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped({ 'Level.sav': fakeHandle('Level.sav') }) }),
+    /^Error: このワールドは協力プレイのフォルダで登録済みです。同じワールド ID でもサーバーのセーブとは混ぜて登録できません/,
+  );
+  const fixed = await coop.store.previewRegistration({ worldId: WORLD_A, steamId: '76561190123456789', files: asDropped({ [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') }) });
+  assert.deepEqual([fixed.kind, fixed.role, fixed.ignored], ['host', 'host', []]);
+  const server = setup({ runImport: async () => serverSnapshot(tickOf(1)) });
+  await registerServer(server.store, hostFiles());
+  await assert.rejects(
+    server.store.previewRegistration({ worldId: WORLD_A, steamId: '7656', files: asDropped(hostFiles()) }),
+    /^Error: このワールドはサーバーのフォルダで登録済みです。同じワールド ID でも協力プレイのセーブとは混ぜて登録できません/,
+  );
+  assert.deepEqual(server.store.state.auto.worlds.map((world) => [world.id, world.steamId, world.files.length]), [[WORLD_A, '0', 3]]);
+  // サーバーの必須は Level.sav・LevelMeta.sav（LocalData.sav は求めない・受け取らない）
+  const fresh = setup();
+  const lost = await fresh.store.previewRegistration({
+    worldId: WORLD_B, steamId: '0', files: asDropped({ 'Level.sav': fakeHandle('Level.sav'), 'LocalData.sav': fakeHandle('LocalData.sav') }),
+  }).catch((error) => error.message);
+  assert.equal(lost, 'LevelMeta.sav もドロップしてください');
 });

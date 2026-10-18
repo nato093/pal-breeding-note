@@ -3,6 +3,7 @@
 // 参照: palsav (PalworldSaveTools, MIT) の rawdata/*.py。
 
 import { GvasReader, GvasError, readGvas, readGvasHeader, guidAt, ZERO_GUID } from './gvas.js';
+import { isGenericWorldName } from './world-name.js';
 
 // ---------------------------------------------------------------------------
 // .sav ラッパー（圧縮ヘッダ）
@@ -961,14 +962,6 @@ export function parsePalStorage(gvasBytes, { extraPalFields = [] } = {}) {
 // ---------------------------------------------------------------------------
 // LevelMeta.sav
 // ---------------------------------------------------------------------------
-
-/**
- * サーバー（ServerSync）が保存したときの汎用のワールド名（Autosave_W・Autosave_World。大文字小文字は問わない）か。
- * サーバーの LevelMeta.sav はゲーム内のワールド名の代わりにこの名前になる（server の identity）
- */
-export function isGenericWorldName(name) {
-  return /^autosave_w(orld)?$/i.test(String(name ?? '').trim());
-}
 
 /**
  * LevelMeta.sav（解凍済み GVAS）を読む。小さいので全部読む。

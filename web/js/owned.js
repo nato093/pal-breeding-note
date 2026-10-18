@@ -8,7 +8,8 @@ import { normalizeOwned, ownedFromShared, sharedUpload, ownedContentText } from 
 import { OWNED_MAX_ROWS, OWNED_ADDED_FIELDS, OWNED_FORMAT, OWNED_RESULTS, compareSaves, ownedSaveStamp } from './core/owned-shared.js';
 import { isObject, isoTime, text, worldId, cleanOwnedWorlds, cleanOwnedPayload } from './core/boundary.js';
 import { userIdKey } from './core/user.js';
-import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, REQUIRED_FILES } from './save/handles.js';
+import { createHandleSource, inspectFiles, readFiles, fileSignature, kindOf, requiredFiles, usesFile, isServerWorld } from './save/handles.js';
+import { isGenericWorldName } from './save/world-name.js';
 import { createWatchClient, observable } from './save/watch.js';
 import { emptyPlay, trackPlay, playTicksMs, isPlaying } from './core/playing.js';
 import { errorMessage } from './api.js';
@@ -72,6 +73,8 @@ const columnsRejected = (error) => error?.code === 'VALIDATION'
   && (Array.isArray(error.response?.errors) ? error.response.errors : []).some((item) => item?.field === 'columns' && item?.code === 'INVALID_COLUMNS');
 // 共有の送信の結果（state.upload）の空の形
 const emptyUpload = () => ({ status: '', at: '', error: '', worldId: '', result: '', signature: '', stamp: '', savedAt: '', scope: '', userId: '', published: null });
+// セーブの種類（server の identity）。'server'（専用サーバー）・'coop'（協力プレイ）。分からなければ ''
+const saveKindOf = (value) => (value === 'server' || value === 'coop' ? value : '');
 
 /**
  * 共有の中身の印（world.contentHash）。core/owned.js の ownedContentText を UTF-8 にした SHA-256 の 16 進（64 字）。
@@ -218,7 +221,10 @@ function cleanLocalData(value) {
     pals: objectsOf(snapshot.pals), bases: objectsOf(snapshot.bases), guilds: objectsOf(snapshot.guilds), breedFarms: objectsOf(snapshot.breedFarms),
   };
   // 古い版で保存したデータは、Level.sav から読んだものなのでホスト扱い
-  return { ...value, snapshot: cleaned, importedAt: isoTime(value.importedAt), source: text(value.source, 20), world: { ...value.world, id, role: value.world.role || 'host' } };
+  return {
+    ...value, snapshot: cleaned, importedAt: isoTime(value.importedAt), source: text(value.source, 20),
+    world: { ...value.world, id, role: value.world.role || 'host', saveKind: saveKindOf(value.world.saveKind) },
+  };
 }
 
 /** IndexedDB に保存した共有のキャッシュ。worlds が配列でなければ null。今のワールドの所持パル（current）は形が違えば null */
@@ -401,6 +407,18 @@ export function createOwnedStore({
     cancelUploadTimer();
   }
 
+  /**
+   * ワールドの名前（server の identity）。上から先に、空でも汎用の名前（サーバーの Autosave_W）でもないもの:
+   * 名前を明示した登録（nameSet。常駐の設定など）→ セーブの名前（saveName）→ 登録で覚えた名前 → 前の共有の名前。
+   * サーバーのセーブには名前がない（汎用の名前になる）ので、前の共有の名前を送る（GAS は送った名前で上書きする。空や Autosave_W を送らない）
+   */
+  function worldNameOf(id, saveName) {
+    const record = source.get(id);
+    const shared = state.shared.worlds.find((world) => world.worldId === id);
+    const names = [record?.nameSet ? record.name : '', saveName, record?.name, shared?.worldName];
+    return names.find((name) => typeof name === 'string' && name && !isGenericWorldName(name)) ?? '';
+  }
+
   const registeredWorlds = () => source.worlds().map((record) => ({
     id: record.id, dir: record.id, steamId: record.steamId ?? '', kind: record.kind, name: record.name ?? '', hostName: record.hostName ?? '', status: '', role: '', playedAt: '', files: Object.keys(record.files),
   }));
@@ -438,10 +456,15 @@ export function createOwnedStore({
       normalizedFrom = source;
     }
     state.data = source;
-    state.meta = !source ? (target ? { worldId: target, worldName: sharedMeta?.worldName ?? '', hostName: sharedMeta?.hostName ?? '' } : null) : {
+    // saveKind はセーブの種類（手元は登録したフォルダから決めた値、共有は共有された値。分からなければ ''）
+    state.meta = !source ? (target ? {
+      worldId: target, worldName: sharedMeta?.worldName ?? '', hostName: sharedMeta?.hostName ?? '', saveKind: saveKindOf(sharedMeta?.saveKind),
+    } : null) : {
       worldId: target,
-      worldName: useLocal ? local.world.name : shared.world.worldName,
+      // 手元のデータの名前は、表示する時点の前の共有の名前まで見て決める（サーバーのセーブには名前がない）
+      worldName: useLocal ? worldNameOf(target, local.snapshot?.world?.name) : shared.world.worldName,
       hostName: useLocal ? local.world.hostName : shared.world.hostName,
+      saveKind: saveKindOf(useLocal ? local.world.saveKind : shared.world.saveKind),
       source: useLocal ? 'local' : 'shared',
       saveUpdatedAt: useLocal ? local.world.updatedAt || local.importedAt : shared.world.saveUpdatedAt,
       importedAt: useLocal ? local.importedAt : '',
@@ -928,10 +951,23 @@ export function createOwnedStore({
     try {
       const owned = normalizeOwned(local.snapshot, { pals, passives });
       const payload = sharedUpload(owned);
-      // ゲーム内の日数（save-extras）とセーブの識別（owned-gas）は、GAS の最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）
+      // ゲーム内の日数（save-extras）・セーブの識別（owned-gas）・セーブの種類（server の identity）は、GAS の最上位の項目を増やさないよう
+      // world の中に入れる（古い GAS は捨てるだけ）。名前は送る時点の前の共有の名前まで見て決める（サーバーのセーブには名前がない）
+      const saveKind = saveKindOf(local.world.saveKind);
+      let name = worldNameOf(local.world.id, local.snapshot?.world?.name);
+      if (!name && !state.shared.worlds.some((item) => item.worldId === local.world.id)) {
+        // 名前が分からず、前の共有の名前もまだ読んでいない（サーバーのセーブを開いた・常駐を起動した直後）。GAS は送った名前で上書きする
+        // ので、空の名前を送る前に一覧から前の名前を引く（読めなければ送らずに再試行の段に任せる）
+        const list = await server.request('ownedWorlds');
+        if (changed()) return dropped('skipped');
+        const listed = (Array.isArray(list.worlds) ? list.worlds : []).find((item) => item?.worldId === local.world.id);
+        if (typeof listed?.worldName === 'string' && !isGenericWorldName(listed.worldName)) name = listed.worldName;
+      }
       const world = {
-        name: local.world.name || owned.world?.name || '', hostName: local.world.hostName || owned.world?.hostName || '',
+        name,
+        hostName: saveKind === 'server' ? '' : local.world.hostName || owned.world?.hostName || '',
         ...(owned.world?.inGameDay ? { inGameDay: owned.world.inGameDay } : {}),
+        saveKind,
       };
       const head = { userId, worldId: local.world.id, saveUpdatedAt: savedAt };
       const counts = { fileCount: fileCountOf(local.snapshot), missingCount: missingCountOf(local.snapshot) };
@@ -1017,11 +1053,15 @@ export function createOwnedStore({
       // 読む前に消えていたファイルも、読めなかったファイルとして知らせる
       const snapshot = skipped.length && !parsed
         ? { ...result, files: { ...result.files, skipped: [...skipped, ...(result.files?.skipped ?? [])] } } : result;
+      const id = String(world.id ?? '').toUpperCase();
+      // サーバーのワールド（パスの Steam ID が '0'）にはホストがいない（ホスト名は空。前の協力プレイのホスト名も引き継がない）
+      const serverSave = isServerWorld(world.steamId);
       const data = {
         version: DATA_VERSION, importedAt: new Date(now()).toISOString(), source: from,
         world: {
-          id: String(world.id ?? '').toUpperCase(), dir: world.dir ?? '', role: 'host',
-          name: snapshot.world?.name || world.name || '', hostName: snapshot.world?.hostName || world.hostName || '',
+          id, dir: world.dir ?? '', role: 'host',
+          name: worldNameOf(id, snapshot.world?.name), hostName: serverSave ? '' : snapshot.world?.hostName || world.hostName || '',
+          saveKind: serverSave ? 'server' : 'coop',
           updatedAt: world.updatedAt ?? '', signature: world.signature ?? '',
         },
         snapshot,
@@ -1401,32 +1441,47 @@ export function createOwnedStore({
   }
 
   // 登録の確認: ドロップしたファイル（同じワールドの登録済みのファイルと合わせて）を読んでみる。まだ保存・共有はしない。
-  async function previewTask({ worldId, steamId, files }) {
+  // name は名前を明示する登録（常駐の設定など。worldNameOf でセーブの名前より先に使う）。サーバーのワールド（Steam ID が '0'）は
+  // LocalData.sav・GlobalPalStorage.sav を受け取らない（ignored に入れる）
+  async function previewTask({ worldId, steamId, files, name = '' }) {
     await load();
     const existing = source.get(worldId);
+    const steam = steamId || existing?.steamId || '';
+    // 協力プレイをサーバーに変換すると（その逆も）ワールド ID が同じになる。登録済みのファイルに足すと、サーバーの Level.sav と
+    // 協力プレイの Players などが混ざるので止める
+    if (existing && isServerWorld(existing.steamId) !== isServerWorld(steam)) {
+      const [registered, dropped] = isServerWorld(existing.steamId) ? ['サーバー', '協力プレイ'] : ['協力プレイ', 'サーバー'];
+      throw new Error(`このワールドは${registered}のフォルダで登録済みです。同じワールド ID でも${dropped}のセーブとは混ぜて登録できません`
+        + `（${dropped}のセーブにするなら、登録を削除してから登録し直してください）`);
+    }
+    const used = files.filter((file) => usesFile(steam, file.path));
     const merged = { ...(existing?.files ?? {}) };
-    for (const file of files) merged[file.path] = file.handle;
+    for (const file of used) merged[file.path] = file.handle;
     const kind = kindOf(Object.keys(merged));
-    const lost = REQUIRED_FILES[kind].filter((path) => !merged[path]);
+    const lost = requiredFiles(kind, steam).filter((path) => !merged[path]);
     if (lost.length) throw new Error(`${lost.join('・')} もドロップしてください`);
-    const inspected = await inspectFiles(kind, merged);
+    const inspected = await inspectFiles(kind, merged, steam);
     if (inspected.status === 'permission') throw new Error('登録済みのファイルを読む許可がありません。「読み込みを許可」を押してから、もう一度ドロップしてください');
     if (inspected.status !== 'ok') throw new Error(inspected.error);
+    const explicit = isGenericWorldName(name) ? '' : text(name, 100).trim();
     const preview = {
       worldId, steamId, kind, role: inspected.role, paths: Object.keys(merged).sort(),
-      files: Object.fromEntries(files.map((file) => [file.path, file.handle])),
-      replaced: files.filter((file) => existing?.files[file.path]).map((file) => file.path),
-      fileSignature: fileSignature(inspected.infos), snapshot: null, name: existing?.name ?? '', hostName: existing?.hostName ?? '', palCount: 0,
+      files: Object.fromEntries(used.map((file) => [file.path, file.handle])),
+      replaced: used.filter((file) => existing?.files[file.path]).map((file) => file.path),
+      ignored: files.filter((file) => !usesFile(steam, file.path)).map((file) => file.path),
+      fileSignature: fileSignature(inspected.infos), snapshot: null,
+      name: explicit || (existing?.name ?? ''), nameSet: Boolean(explicit), hostName: existing?.hostName ?? '', palCount: 0,
     };
     if (kind === 'host') {
       state.progress = 'セーブを読み込み中…';
       emit();
-      const read = await readFiles(merged, inspected.files, REQUIRED_FILES[kind]);
+      const read = await readFiles(merged, inspected.files, requiredFiles(kind, steam));
       const skipped = [...inspected.missing.map((path) => ({ path, reason: 'ファイルが見つかりません' })), ...read.skipped];
       const result = await runImport(read.files, (message) => { state.progress = message; emit(); });
       preview.snapshot = { ...result, files: { ...result.files, skipped: [...skipped, ...(result.files?.skipped ?? [])] } };
-      preview.name = result.world?.name || preview.name;
-      preview.hostName = result.world?.hostName || preview.hostName;
+      preview.name = explicit || worldNameOf(worldId, result.world?.name);
+      // サーバーのワールドにはホストがいない（ホスト名は空）
+      preview.hostName = isServerWorld(steam) ? '' : result.world?.hostName || preview.hostName;
       preview.palCount = result.pals.length;
     }
     return preview;
@@ -1484,7 +1539,9 @@ export function createOwnedStore({
     commitRegistration(preview) {
       const epoch = linkEpoch;
       return serial(async () => {
-        const { persisted } = await source.commit({ worldId: preview.worldId, steamId: preview.steamId, files: preview.files, name: preview.name, hostName: preview.hostName });
+        const { persisted } = await source.commit({
+          worldId: preview.worldId, steamId: preview.steamId, files: preview.files, name: preview.name, nameSet: preview.nameSet === true, hostName: preview.hostName,
+        });
         state.auto.enabled = true;
         saveSettings();
         lastAuto = now();

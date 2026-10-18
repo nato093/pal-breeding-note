@@ -2,7 +2,8 @@
 // 汎用のワールド名（Autosave_W）。解析の結果（parseLevel・parsePlayer・parseLevelMeta の形）をそのまま組んで buildSnapshot に渡す（値はダミー）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSnapshot, isGenericWorldName } from '../../web/js/save/palworld.js';
+import { buildSnapshot } from '../../web/js/save/palworld.js';
+import { isGenericWorldName } from '../../web/js/save/world-name.js';
 
 const P1 = 'abcdef01-0000-0000-0000-000000000000';
 const P2 = 'bbbbbbbb-0000-0000-0000-000000000000';
