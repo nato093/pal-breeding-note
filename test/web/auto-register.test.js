@@ -29,8 +29,8 @@ function memoryStorage() {
 
 // gas: プレイヤーの対応を GAS（開発用 API）に置く（server の mapping。createPlayerMapStore を渡す）。mapCalls は対応の操作、
 // mapControl.fail は対応の操作の失敗（'BAD_ACTION' で古い GAS）・failSet は書き込みだけの失敗、gates は操作ごとに止める Promise（止めた後に
-// 失敗を決める）、mapClock は対応のストアの時計
-async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1', now = null, gas = false, badAction = false } = {}) {
+// 失敗を決める）、mapClock は対応のストアの時計。paused は古い系統の守り（常駐。server の T5）
+async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1', now = null, gas = false, badAction = false, paused = null } = {}) {
   const development = createDevelopmentApi();
   // サーバの手前で止める・次の登録を断る（手動の登録が送信待ちのまま・取り消される場面を作る）
   let serverGate = null;
@@ -93,6 +93,7 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
   const auto = createAutoRegister({
     store, owned, storage, namespace: 't', toast: (message, options) => { toasts.push(message); toastActions.push(options); }, onNotice: () => { noticed++; },
     navigate: (hash) => navigations.push(hash), loadTable: async () => ({ default: data }), ...(now ? { now } : {}), playerMaps,
+    ...(paused ? { paused } : {}),
   });
   const run = async () => { auto.evaluate(); await auto.idle(); };
   // 新しく読んだセーブ（牧場にタマゴが現れた）にする
@@ -1912,4 +1913,88 @@ test('自動登録（server の mapping・反証のレビュー）: 判定は、
   // 表示している共有のプレイヤーで引くと、H は以前のホスト（仲間）
   assert.deepEqual(t.auto.mapping(MAP_WORLD), { [U]: '自分', [H]: '仲間' });
   assert.deepEqual(registrants(t.store), ['自分']);
+});
+
+// ---- 古い系統の守り（常駐の paused。server の T5。docs/server/README.md の「古い系統の守り」） ----
+// paused(worldId, stamp) が真なら、そのセーブの候補を取り込まず、登録の直前の送信もしない。ページは渡さない（上のテストは今の動きのまま）
+
+test('自動登録（server の T5 古い系統の守り）: paused が真の間は候補を取り込まず、牧場の記録も進めない。解除した後の判定で前の記録と比べて登録する', async () => {
+  const control = { paused: false, calls: [] };
+  const t = await setup({ paused: (worldId, stamp) => { control.calls.push([worldId, stamp]); return control.paused; } });
+  const farmsKey = 't.autoBreeding.farms.test.W1';
+  const before = t.storage.get(farmsKey);
+  control.paused = true;
+  await t.run();
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  assert.equal(t.storage.get(farmsKey), before);
+  // 判定に渡すのは、そのセーブのワールドと保存時刻（このセーブには保存時刻がない）
+  assert.deepEqual(control.calls.at(-1), ['W1', '']);
+  control.paused = false;
+  await t.run();
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分']);
+});
+
+test('自動登録（server の T5 古い系統の守り）: paused にはセーブの保存時刻を渡す。止めている間に届いた共有の結果は、解除の後に取り込んだ候補にも当てる', async () => {
+  const stopped = new Set();
+  const t = await rotation({ paused: (worldId, stamp) => stopped.has(stamp) });
+  stopped.add(ticks(0));
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  assert.deepEqual(unitsOf(t), []);
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  stopped.delete(ticks(0));
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
+});
+
+test('自動登録（server の T5 古い系統の守り）: 前に登録してよいと決めた候補も、止めた後は送らない（取り込みの後・送っている途中に止めた）', async () => {
+  const control = { paused: false };
+  const t = await setup({ farms: [sheepFarm(), dogFarm()], paused: () => control.paused });
+  // 1 件目を送っている途中に止める
+  const release = t.hold();
+  t.auto.evaluate();
+  await tick();
+  assert.equal(t.creates.length, 1);
+  control.paused = true;
+  release();
+  await t.auto.idle();
+  assert.equal(t.creates.length, 1);
+  // 止めている間は、新しいセーブを読んでも、残っている登録してよい候補を送らない
+  t.lay();
+  await t.run();
+  assert.equal(t.creates.length, 1);
+  control.paused = false;
+  await t.run();
+  assert.equal(t.creates.length, 2);
+  assert.equal(registered(t.store).length, 2);
+});
+
+test('自動登録（server の T5 古い系統の守り）: forgetFarms は牧場の記録と候補を捨て、次の読み込みは記録するだけ。その後に現れたタマゴを登録する', async () => {
+  const t = await rotation();
+  const farmsKey = 't.autoBreeding.farms.test.W1';
+  readSave(t, 0, [sheepFarm()]);
+  await t.run();
+  assert.deepEqual(unitsOf(t), [['hold', ticks(0), 'f1']]);
+  t.auto.forgetFarms('W1');
+  assert.equal(t.storage.get(farmsKey), null);
+  // 捨てた候補は、そのセーブの共有の結果が届いても登録しない
+  answer(t, 'done', 0, { result: 'new' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  // 次の読み込みは記録するだけ（前からあるタマゴは新しいタマゴにしない）
+  readSave(t, 30, [sheepFarm()]);
+  await t.run();
+  answer(t, 'done', 30, { result: 'newer' });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  assert.equal(JSON.parse(t.storage.get(farmsKey)).saveStamp, ticks(30));
+  // その後に現れたタマゴは登録する
+  readSave(t, 60, [farm('f1', sheepFarm().parents, ['GuardianDog', 'GuardianDog'])]);
+  await t.run();
+  answer(t, 'done', 60, { result: 'newer' });
+  await t.run();
+  assert.deepEqual(registered(t.store), [SHEEP]);
 });
