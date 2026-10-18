@@ -963,6 +963,14 @@ export function parsePalStorage(gvasBytes, { extraPalFields = [] } = {}) {
 // ---------------------------------------------------------------------------
 
 /**
+ * サーバー（ServerSync）が保存したときの汎用のワールド名（Autosave_W・Autosave_World。大文字小文字は問わない）か。
+ * サーバーの LevelMeta.sav はゲーム内のワールド名の代わりにこの名前になる（server の identity）
+ */
+export function isGenericWorldName(name) {
+  return /^autosave_w(orld)?$/i.test(String(name ?? '').trim());
+}
+
+/**
  * LevelMeta.sav（解凍済み GVAS）を読む。小さいので全部読む。
  * @param {Uint8Array|ArrayBuffer} gvasBytes
  * @returns {{ worldName: string, hostPlayerName: string, hostPlayerLevel: number, inGameDay: number,
@@ -1113,21 +1121,26 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     if (gs.containerId) itemContainer.set(gs.containerId, { kind: 'egg-guild', playerUid: '', guildId: gs.guildId });
   }
 
-  // プレイヤー一覧（Level のキャラクター → ギルドのメンバー名 → プレイヤーセーブの順で補完）
+  // プレイヤー一覧（Level のキャラクター → ギルドのメンバー名 → プレイヤーセーブの順で補完）。
+  // instanceId はキャラクターの InstanceId（Level のプレイヤーのキー、なければ Players/<uid>.sav の IndividualId。ギルドだけの人は ''）。
+  // 協力プレイとサーバーを往復して PlayerUId が入れ替わっても変わらない（server の identity。プレイヤーの鍵 i: に使う）
   const playerMap = new Map();
   for (const p of level.players) {
-    if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: p.name, level: p.level });
+    if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: p.name, level: p.level, instanceId: p.instanceId || '' });
   }
   for (const g of level.guilds) {
     for (const m of g.players) {
       if (!m.uid) continue;
       const cur = playerMap.get(m.uid);
-      if (!cur) playerMap.set(m.uid, { uid: m.uid, name: m.name, level: 0 });
+      if (!cur) playerMap.set(m.uid, { uid: m.uid, name: m.name, level: 0, instanceId: '' });
       else if (!cur.name) cur.name = m.name;
     }
   }
   for (const p of playerSaves) {
-    if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0 });
+    if (!p.uid) continue;
+    const cur = playerMap.get(p.uid);
+    if (!cur) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0, instanceId: p.instanceId || '' });
+    else if (!cur.instanceId) cur.instanceId = p.instanceId || '';
   }
   // 捕獲数（paldex。ホストの画面だけ・共有しない）。読めたプレイヤーだけに付ける（古いセーブ・読めなかったプレイヤーには項目がない）
   for (const p of playerSaves) {
@@ -1298,13 +1311,17 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
   // ゲーム内の日数は LevelMeta.sav の InGameDay。読めなければ Level.sav のゲーム内の時刻から（floor(GameDateTimeTicks ÷ 864e9) と一致する）
   const gameTicks = Number(level.gameDateTimeTicks);
   const world = {
-    name: m ? m.worldName : '',
+    // サーバー（ServerSync）が保存すると、ワールド名が汎用の名前（Autosave_W）になる。名前として使わない（server の identity）
+    name: m && !isGenericWorldName(m.worldName) ? m.worldName : '',
     hostName: m ? m.hostPlayerName : '',
     savedAt: ticksToIso(level.savedAtTicks) || (m ? ticksToIso(m.timestampTicks) : ''),
     // Level.sav の中の保存時刻の生のティック（10 進の文字列。読めなければ ''）。ISO の savedAt は日本時間の PC で 9 時間ずれ、ミリ秒より
     // 細かい桁も落ちるので、同じセーブの見分けと新旧はこちらで比べる（core/owned-shared.js の compareSaves。sync-fixes の owned-gas）
     savedAtTicks: ticksText(level.savedAtTicks),
     inGameDay: m && m.inGameDay > 0 ? m.inGameDay : Number.isFinite(gameTicks) && gameTicks > 0 ? Math.floor(gameTicks / TICKS_PER_DAY) : 0,
+    // ワールドが動いた通算の時間（Level.sav の GameTimeSaveData.RealDateTimeTicks。10 進の文字列。読めなければ ''）。保存のたびに進み、
+    // 協力プレイとサーバーを往復しても続くので、どちらが新しい系統のワールドかを比べる手がかりにする（server の identity）
+    clock: ticksText(level.realDateTimeTicks),
   };
 
   return {

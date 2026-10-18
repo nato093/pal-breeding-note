@@ -216,6 +216,20 @@ test('所持パル共有: タマゴのアイテム ID（eggItemId 列）を残�
   assert.deepEqual(old.call('owned', { worldId: WORLD_A }).rows.map((r) => [r[0], r[eggAt]]), [['e3', 'PalEgg_Fire_01']]);
 });
 
+test('所持パル共有: プレイヤーのキャラクターの InstanceId（players の JSON の instanceId）を GUID の形のときだけ小文字で残して返す（server の identity。列は増えない）', () => {
+  const env = fixture();
+  const IID = '11111111-2222-3333-4444-555555555555';
+  const players = [
+    { uid: '00000000-0000-0000-0000-000000000001', name: 'Dave', instanceId: IID.toUpperCase() },
+    { uid: '00000000-0000-0000-0000-000000000002', name: 'Frank', instanceId: 'not-a-guid' },
+  ];
+  const stored = env.call('ownedUpload', upload(WORLD_A, [row('p1')], '2026-10-05T10:00:00.000Z', { players }));
+  assert.equal(stored.stored, true);
+  const expected = [{ uid: players[0].uid, name: 'Dave', instanceId: IID }, { uid: players[1].uid, name: 'Frank' }];
+  assert.deepEqual(env.call('ownedWorlds').worlds[0].players, expected);
+  assert.deepEqual(env.call('owned', { worldId: WORLD_A }).world.players, expected);
+});
+
 test('所持パル共有: 入手時刻（ownedAt 列）とゲーム内の日数（ワールドの inGameDay 列）を残して返す。列のない古いシートでは書かずに読み、setup をやり直すと列を足す（save-extras）', () => {
   const ownedAt = OWNED_FIELDS.indexOf('ownedAt');
   assert.equal(ownedAt, OWNED_FIELDS.length - 1);

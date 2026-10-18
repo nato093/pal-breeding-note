@@ -1,7 +1,10 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay } from './owned-shared.js';
+import {
+  OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay,
+  HOST_UID, hostIsPlayer, playerGuid, shortUid, formerLabel,
+} from './owned-shared.js';
 import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
@@ -132,15 +135,18 @@ export function createSpeciesResolver(pals) {
   };
 }
 
-/** プレイヤー・ギルドの UID の頭 8 字（- を除いた大文字。名前の分からない・同じ名前のプレイヤーを見分けるとき） */
-export const shortUid = (uid) => String(uid ?? '').replace(/-/g, '').slice(0, 8).toUpperCase();
+// UID の頭 8 字は core/owned-shared.js に置く（以前の持ち主の表示名 formerLabel と同じ。ここから読む画面のために出し直す）
+export { shortUid };
 
-// 協力プレイのホストの PlayerUId（SAVE_FORMAT.md）
-const HOST_UID = '00000000-0000-0000-0000-000000000001';
-
-export function playerName(players, uid) {
+/**
+ * 個体の所持者・預けた人の表示名（uid → プレイヤーの Map から）。名前のないプレイヤーは「不明なプレイヤー（頭 8 字）」、プレイヤーにいない
+ * UID（以前の持ち主）は formerLabel（H なら「以前のホスト」。協力プレイで H がプレイヤーにいれば、今までどおりホストの名前）
+ */
+export function ownerName(players, uid) {
   if (!uid) return '';
-  return players.get(uid)?.name || `不明なプレイヤー（${shortUid(uid)}）`;
+  const player = players.get(uid);
+  if (player) return player.name || `不明なプレイヤー（${shortUid(uid)}）`;
+  return formerLabel(uid);
 }
 
 const GENDERS = { Male: 'M', Female: 'F' };
@@ -330,7 +336,7 @@ function stockOf(value, { baseLabel, players }) {
     const object = typeof entry.object === 'string' && Object.hasOwn(STOCK_OBJECTS, entry.object) ? entry.object : 'other';
     const label = entry.where === 'base' ? joinName(baseLabel(id), `の${STOCK_OBJECTS[object]}`)
       : entry.where === 'guild' ? 'ギルド保管庫'
-        : entry.where === 'player' && id ? joinName(playerName(players, id), 'の所持品') : '';
+        : entry.where === 'player' && id ? joinName(ownerName(players, id), 'の所持品') : '';
     if (!label) continue;
     const key = itemId.toLowerCase();
     let item = byItem.get(key);
@@ -426,14 +432,16 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   // 捕獲数（paldex）はパル ID ごとの回数にして、読めたプレイヤーだけに captures を付ける（古いスナップショットには項目がない）
   // パル次元ストレージの読み漏れ（dps-missing）の候補のプレイヤーには、読めていない数（dpsGap）を付ける（共有で参加者に知らせる）。
   // 解析結果のプレイヤーに同じ名前の項目があっても使わない（ここで求めた値だけ）
+  // キャラクターの InstanceId（server の identity。プレイヤーの鍵 i: に使う）は GUID の形のときだけ小文字で付ける（古いスナップショットにはない）
   const gap = dpsMissing(snapshot);
   const gapUids = new Set(gap?.candidates.map((player) => player.uid) ?? []);
   const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
-    .map(({ captures: raw, dpsGap: _gap, ...player }) => {
+    .map(({ captures: raw, dpsGap: _gap, instanceId: rawInstance, ...player }) => {
       const captures = capturesOf(raw, resolve);
+      const instanceId = playerGuid(rawInstance);
       return [player.uid, {
         ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}),
-        ...(gapUids.has(player.uid) ? { dpsGap: gap.missing } : {}),
+        ...(gapUids.has(player.uid) ? { dpsGap: gap.missing } : {}), ...(instanceId ? { instanceId } : {}),
       }];
     }));
   const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
@@ -447,8 +455,16 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const guild = guildNames.get(base.guildId);
     return `${label}（${guild && !/^[0-9a-f]{32}$/i.test(guild) ? guild : `ギルド ${shortUid(base.guildId)}`}）`;
   };
-  // グローバルパルボックスは、セーブを読み込んだ PC のアカウント（協力プレイのホスト）のもの
-  const globalHolder = players.get(HOST_UID)?.name || text(snapshot?.world?.hostName, 50) || 'ホスト';
+  // グローバルパルボックスは、セーブを読み込んだ PC のアカウント（協力プレイのホスト）のもの。H の名前を使うのは H がプレイヤーにいる
+  // ワールド（協力プレイ）だけ（サーバーのワールドの H は以前の持ち主で、人ではない）
+  const globalHolder = (hostIsPlayer(players) ? players.get(HOST_UID).name : '') || text(snapshot?.world?.hostName, 50) || 'ホスト';
+  // ワールドにいない UID（以前の持ち主）ごとの数（拠点・観賞用ケージの個体の預けた人と、牧場の親を預けた人）
+  const formers = new Map();
+  const former = (uid) => {
+    let entry = formers.get(uid);
+    if (!entry) formers.set(uid, (entry = { uid, kind: uid === HOST_UID ? 'host' : 'unknown', pals: 0, farms: 0 }));
+    return entry;
+  };
   const entries = [];
   const seen = new Set();
   for (const source of objects(snapshot?.pals)) {
@@ -472,7 +488,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     if (kind === 'base' || kind === 'display' || atBase) holder = baseLabel(location.baseId);
     else if (kind === 'global') holder = globalHolder;
     else if (kind === 'egg-guild') holder = 'ギルド保管庫';
-    else holder = playerName(players, holderUid) || '不明';
+    else holder = ownerName(players, holderUid) || '不明';
     let placeDetail = PLACE_LABELS[kind];
     // パルボックス・パル次元ストレージはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
     const boxFormat = BOX_FORMATS.get(kind);
@@ -483,6 +499,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const passiveIds = cleanPassives(source.passives);
     const pal = palsById.get(palId);
     const rank = int(source.rank, RANK);
+    const lastOwnerUid = idText(source.lastOwnerUid, 64);
+    if ((kind === 'base' || kind === 'display') && lastOwnerUid && !players.has(lastOwnerUid)) former(lastOwnerUid).pals++;
     entries.push({
       id,
       palId,
@@ -517,7 +535,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       holderUid,
       holder: text(holder, 60),
       lastOwnerUid: source.lastOwnerUid ?? '',
-      lastOwner: playerName(players, source.lastOwnerUid),
+      lastOwner: ownerName(players, source.lastOwnerUid),
       baseId: location.baseId ?? '',
       // save-extras: 入手した時刻（ISO。持ち主のない個体・読む前のセーブは ''）・魂の強化と状態（読む前のセーブは null。共有しない）
       ownedAt: ownedTime(source.ownedAt),
@@ -529,6 +547,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const eggs = list(farm.eggs, { max: FARM_EGGS_MAX, map: (egg) => (isObject(egg) && idText(egg.localId) ? {
       id: egg.localId, palId: resolve(text(egg.characterId, 200)).palId, mutant: isMutationEggItem(text(egg.itemId, 200)),
     } : null) });
+    const depositors = new Set(list(farm.parents, { map: (parent) => (isObject(parent) ? idText(parent.depositorUid, 64) || null : null) }));
+    for (const uid of depositors) if (!players.has(uid)) former(uid).farms++;
     return {
       id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
       status: farm.status === 'uncertain' ? 'uncertain' : 'ok', eggs, eggCount: eggs.length,
@@ -558,6 +578,9 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     farmsCounted: true,
     // アイテムの在庫（インプラント・パルリバーサー。itemStock で引く。implants）。在庫を読む前のスナップショットは null
     items: stockOf(snapshot?.items, { baseLabel, players }),
+    // ワールドにいない UID（以前の持ち主）ごとの { uid, kind: 'host'（H。「以前のホスト」）| 'unknown', pals: 拠点・観賞用ケージの個体の数,
+    // farms: 親を預けた牧場の数 }。H を先、残りは UID の順（server の identity。プレイヤーの対応の行に出す）
+    formers: [...formers.values()].sort((a, b) => Number(b.kind === 'host') - Number(a.kind === 'host') || compareText(a.uid, b.uid)),
     stats: snapshot?.stats ?? {},
   };
 }
@@ -1108,13 +1131,18 @@ export function sharedUpload(owned) {
   return {
     // プレイヤーの Lv とプレイ中（save-extras）は players の JSON の中に足す（古い GAS は捨てるだけで、共有は止まらない）。
     // 分からない値（Lv 0・プレイ中 null）は送らない
-    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）も同じく players の中に、候補のプレイヤーにだけ付ける
-    players: owned.players.map((player) => ({
-      uid: player.uid, name: player.name,
-      ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
-      ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
-      ...(Number.isInteger(player.dpsGap) && player.dpsGap > 0 ? { dpsGap: Math.min(player.dpsGap, OWNED_DPS_GAP_MAX) } : {}),
-    })),
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）も同じく players の中に、候補のプレイヤーにだけ付ける。
+    // キャラクターの InstanceId（server の identity）も、分かるプレイヤーにだけ付ける（参加者の画面がプレイヤーの鍵 i: を引くため）
+    players: owned.players.map((player) => {
+      const instanceId = playerGuid(player.instanceId);
+      return {
+        uid: player.uid, name: player.name,
+        ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
+        ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
+        ...(Number.isInteger(player.dpsGap) && player.dpsGap > 0 ? { dpsGap: Math.min(player.dpsGap, OWNED_DPS_GAP_MAX) } : {}),
+        ...(instanceId ? { instanceId } : {}),
+      };
+    }),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
     // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。牧場ごとにタマゴの数（n）と中身（eggs。20 個まで）を足し、セルに入るよう
     // 縮めてから送る（farm-data。owned-shared.js の fitOwnedFarms）。読めない牧場は親を空にして s: 'u'（古い GAS・旧コードの画面が s を
@@ -1260,9 +1288,11 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）
     world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay) },
     // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）。
-    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある。
+    // キャラクターの InstanceId（server の identity）は、分かるプレイヤーにだけある（古い共有・古い GAS では付かない）
     players: cleanSharedPlayers(world.players).map((player) => ({
       uid: player.uid, name: player.name || '不明', ...playerExtras(player), ...(player.dpsGap ? { dpsGap: player.dpsGap } : {}),
+      ...(player.instanceId ? { instanceId: player.instanceId } : {}),
     })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
@@ -1270,6 +1300,8 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
     ...farmData,
     // アイテムの在庫は共有しない（ホストの画面だけ。implants）
     items: null,
+    // ワールドにいない UID（以前の持ち主）は共有の行からは分からない（null）
+    formers: null,
     stats: {},
   };
 }

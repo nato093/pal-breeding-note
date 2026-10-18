@@ -113,11 +113,94 @@ export function ownedWorldId(value) {
   return /^[0-9A-F]{32}$/.test(id) ? id : '';
 }
 
+// ---------------------------------------------------------------------------
+// プレイヤーの同一性（server の identity。docs/server/README.md の「テーマ間の取り決め」）
+// ---------------------------------------------------------------------------
+
+// 協力プレイのホストの PlayerUId（H。docs/SAVE_FORMAT.md）。人ではなく「その時のホスト」の枠で、ホストの交代（SaveSync）とサーバーへの
+// 変換（ServerSync）で中の人が替わる。サーバーのワールドではプレイヤーにいない（個体の預けた人にだけ残る）
+export const HOST_UID = '00000000-0000-0000-0000-000000000001';
+// GUID（8-4-4-4-12 桁の 16 進）。0 だけの GUID は「なし」
+const PLAYER_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PLAYER_ZERO_GUID = '00000000-0000-0000-0000-000000000000';
+// 鍵 'u:' の中の UID（小文字にした後の英数字とハイフン 1〜40 字。共有の uid の上限と同じ）
+const PLAYER_KEY_UID = /^[0-9a-z-]{1,40}$/;
+
+/** GUID の形（0 だけの GUID を除く）なら小文字にして返す。違えば ''（キャラクターの InstanceId の検査） */
+export function playerGuid(value) {
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return PLAYER_GUID.test(text) && text !== PLAYER_ZERO_GUID ? text : '';
+}
+
+/**
+ * プレイヤーの鍵を検査して小文字にそろえる: 'i:<キャラクターの InstanceId〔GUID〕>' か 'u:<PlayerUId>'。違えば ''。
+ * プレフィックスのない UID（前の版の値）も ''（読み替えは legacyPlayerKey）
+ */
+export function playerMapKey(value) {
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (text.startsWith('i:')) return playerGuid(text.slice(2)) ? text : '';
+  if (text.startsWith('u:')) return PLAYER_KEY_UID.test(text.slice(2)) ? text : '';
+  return '';
+}
+
+/**
+ * プレイヤー（{ uid, instanceId? }）の鍵。キャラクターの InstanceId があれば 'i:<InstanceId>'（協力プレイとサーバーを往復して PlayerUId が
+ * H ⇔ U と入れ替わっても変わらない）、なければ 'u:<uid>'（InstanceId のない古いデータ・ワールドにいない UID）。どちらもなければ ''
+ */
+export function playerKeyOf(player) {
+  if (!player || typeof player !== 'object') return '';
+  const instanceId = playerGuid(player.instanceId);
+  if (instanceId) return `i:${instanceId}`;
+  return typeof player.uid === 'string' ? playerMapKey(`u:${player.uid}`) : '';
+}
+
+/** 前の版の値（プレフィックスのない UID）も受けて鍵にする（'u:<uid>' に読み替える）。鍵ならそのまま（小文字）、どちらでもなければ '' */
+export function legacyPlayerKey(value) {
+  const key = playerMapKey(value);
+  if (key) return key;
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return PLAYER_KEY_UID.test(text) ? `u:${text}` : '';
+}
+
+/**
+ * 鍵（前の版の UID も受ける）を、その回のプレイヤー（{ uid, instanceId? } の配列）の uid に引く。'i:' はその InstanceId のプレイヤー、
+ * 'u:' は同じ uid（大文字小文字は問わない）のプレイヤー。いなければ ''
+ */
+export function playerUidOfKey(players, value) {
+  const key = legacyPlayerKey(value);
+  if (!key || !Array.isArray(players)) return '';
+  const id = key.slice(2);
+  const byInstance = key.startsWith('i:');
+  for (const player of players) {
+    if (!player || typeof player !== 'object' || typeof player.uid !== 'string' || !player.uid) continue;
+    if (byInstance ? playerGuid(player.instanceId) === id : player.uid.toLowerCase() === id) return player.uid;
+  }
+  return '';
+}
+
+/** プレイヤー（配列か、uid → プレイヤーの Map）に H がいるか（協力プレイのワールド。サーバーのワールドにはいない） */
+export function hostIsPlayer(players) {
+  if (players instanceof Map) return players.has(HOST_UID);
+  return Array.isArray(players) && players.some((player) => Boolean(player) && player.uid === HOST_UID);
+}
+
+/** プレイヤー・ギルドの UID の頭 8 字（- を除いた大文字。名前の分からない・同じ名前のプレイヤーを見分けるとき） */
+export const shortUid = (uid) => String(uid ?? '').replace(/-/g, '').slice(0, 8).toUpperCase();
+
+/**
+ * プレイヤーにいない UID（以前の持ち主。拠点の個体の預けた人・牧場の親を預けた人）の表示名。H は「以前のホスト」、ほかは
+ * 「不明なプレイヤー（頭 8 字）」。共有の lastOwner の列にもこの文字が載るので、参加者の画面はこの文字で比べる（core/ideal-goals.js）
+ */
+export function formerLabel(uid) {
+  return uid === HOST_UID ? '以前のホスト' : `不明なプレイヤー（${shortUid(uid)}）`;
+}
+
 /**
  * 共有のプレイヤー 1 人（uid・name と、save-extras で足した level〔1〜999 の整数〕・online〔true・false〕、dps-missing で足した
  * dpsGap〔1〜OWNED_DPS_GAP_MAX の整数。ホストの画面で、Level.sav のパル次元ストレージの個体のうち読めていない数。そのプレイヤーの
- * _dps.sav が登録されていないかもしれない人〔候補〕だけに付く〕）。uid がなければ null。
- * level・online・dpsGap は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
+ * _dps.sav が登録されていないかもしれない人〔候補〕だけに付く〕、server の identity で足した instanceId〔キャラクターの InstanceId。
+ * GUID の形のときだけ小文字で〕）。uid がなければ null。
+ * level・online・dpsGap・instanceId は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
  */
 export function cleanOwnedPlayer(player) {
   if (!player || typeof player !== 'object') return null;
@@ -126,6 +209,8 @@ export function cleanOwnedPlayer(player) {
   if (Number.isInteger(player.level) && player.level > 0 && player.level <= OWNED_PLAYER_LEVEL_MAX) clean.level = player.level;
   if (typeof player.online === 'boolean') clean.online = player.online;
   if (Number.isInteger(player.dpsGap) && player.dpsGap > 0 && player.dpsGap <= OWNED_DPS_GAP_MAX) clean.dpsGap = player.dpsGap;
+  const instanceId = playerGuid(player.instanceId);
+  if (instanceId) clean.instanceId = instanceId;
   return clean;
 }
 

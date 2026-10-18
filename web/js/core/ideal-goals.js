@@ -1,10 +1,7 @@
 // 登録した理想個体（目標）の形と、完成品の判定。遺伝の仕組み（core/ideal.js）は使わない。
 import { sanitizeText } from './validate.js';
-import { ownedWorldId } from './owned-shared.js';
+import { ownedWorldId, HOST_UID, hostIsPlayer, formerLabel, playerUidOfKey } from './owned-shared.js';
 import { userIdKey } from './user.js';
-
-// 協力プレイのホストの PlayerUId（SAVE_FORMAT.md）。グローバルパルボックスはホストのもの
-const HOST_UID = '00000000-0000-0000-0000-000000000001';
 
 export const GOAL_MODES = Object.freeze(['include', 'only']);
 export const GOAL_CAKES = Object.freeze(['none', 'talent', 'special']);
@@ -105,27 +102,37 @@ export function goalKey(goal) {
 
 /**
  * 自分（ログイン中の ID）にあたるセーブのプレイヤー。決め方は次の順:
- * 1. 設定の「このワールドでの自分」（selfUid。そのワールドのプレイヤーにいるときだけ。いればその 1 人だけ）
+ * 1. 設定の「このワールドでの自分」（self。プレイヤーの鍵 'i:'・'u:' か前の版の UID〔selfUid でも受ける〕。その回のプレイヤーに引けるときだけ。
+ *    引ければその 1 人だけ）
  * 2. 設定の「登録者の対応」（配合牧場の自動登録。プレイヤーの UID → ノートの ID）で自分の ID を選んだプレイヤー
  * 3. 対応を選んでいないプレイヤーのうち、ノートの ID と同じ名前のプレイヤー
  * 2・3 は配合牧場の自動登録の core/auto-breeding.js の mappedUser と同じ規則（そちらは自動登録の外から読まないので、ここに置く）。
+ * 1〜3 で 1 人以上決まったときだけ、プレイヤーにいない UID（以前の持ち主。サーバーのワールドの H など）のうち、対応で自分の ID を選んだものを
+ * 足す（1 人も決まらないときに足すと、所持者の「自分」が出ないのに自分の個体だけがある、になる）。
  * ログインしていなければ（userId が空）空。
- * @param {{ uid: string, name: string }[]} players
- * @param {{ userId: string, users?: string[], mapping?: Record<string, string>, selfUid?: string }} identity mapping はプレイヤーの UID → ID
- * @returns {Set<string>} プレイヤーの UID
+ * @param {{ uid: string, name: string, instanceId?: string }[]} players
+ * @param {{ userId: string, users?: string[], mapping?: Record<string, string>, self?: string, selfUid?: string }} identity mapping はプレイヤーの UID → ID
+ * @returns {Set<string>} プレイヤーの UID（以前の持ち主の UID を含む）
  */
-export function ownPlayerUids(players, { userId, users = [], mapping = {}, selfUid = '' }) {
+export function ownPlayerUids(players, { userId, users = [], mapping = {}, self = '', selfUid = '' }) {
   const me = userId ? userIdKey(userId) : '';
   const known = new Set(users.map(userIdKey));
   const mine = new Set();
   if (!me) return mine;
+  const mappedTo = (chosen) => (known.has(userIdKey(chosen)) ? userIdKey(chosen) : '');
   // このワールドでの自分。別のワールドの値・プレイヤーが消えたときは、ここで決めずに 2・3 の規則に戻る
-  if (selfUid && players.some((player) => player.uid === selfUid)) return new Set([selfUid]);
-  for (const player of players) {
-    const chosen = mapping[player.uid];
-    const user = chosen ? (known.has(userIdKey(chosen)) ? userIdKey(chosen) : '') : known.has(userIdKey(player.name)) ? userIdKey(player.name) : '';
-    if (user === me) mine.add(player.uid);
+  const chosenSelf = playerUidOfKey(players, self || selfUid);
+  if (chosenSelf) mine.add(chosenSelf);
+  else {
+    for (const player of players) {
+      const chosen = mapping[player.uid];
+      const user = chosen ? mappedTo(chosen) : known.has(userIdKey(player.name)) ? userIdKey(player.name) : '';
+      if (user === me) mine.add(player.uid);
+    }
   }
+  if (!mine.size) return mine;
+  const present = new Set(players.map((player) => player.uid));
+  for (const [uid, chosen] of Object.entries(mapping)) if (!present.has(uid) && chosen && mappedTo(chosen) === me) mine.add(uid);
   return mine;
 }
 
@@ -141,11 +148,18 @@ export function palsOfPlayers(data, uids) {
   const count = new Map();
   for (const player of players) count.set(player.name, (count.get(player.name) ?? 0) + 1);
   const names = new Set(players.filter((player) => player.name && uids.has(player.uid) && count.get(player.name) === 1).map((player) => player.name));
+  // プレイヤーにいない UID（以前の持ち主）は、送った側が付けた表示名（formerLabel。「以前のホスト」など）で比べる。同じ名前のプレイヤーが
+  // いれば、どちらか分からないので数えない
+  const present = new Set(players.map((player) => player.uid));
+  for (const uid of uids) if (!present.has(uid) && !count.has(formerLabel(uid))) names.add(formerLabel(uid));
   // 拠点に置かれたタマゴ（地面・孵化器・保管箱）には最後の持ち主が入らないので、誰の個体にもしない（孵化させて受け取った人の個体になる）
   // 観賞用ケージ（display。save-extras）の個体も拠点の個体と同じく、預けた人（最後の持ち主）の個体にする
+  // グローバルパルボックスは協力プレイのホスト（H）のもの。H がプレイヤーにいないワールド（サーバー）では、以前のホストを自分に対応づけて
+  // uids に H があっても数えない
+  const hostGlobal = uids.has(HOST_UID) && hostIsPlayer(players);
   return data.pals.filter((pal) => (pal.holderUid && uids.has(pal.holderUid))
     || ((pal.place === 'base' || pal.place === 'display') && (pal.lastOwnerUid ? uids.has(pal.lastOwnerUid) : Boolean(pal.lastOwner) && names.has(pal.lastOwner)))
-    || (pal.place === 'global' && uids.has(HOST_UID)));
+    || (pal.place === 'global' && hostGlobal));
 }
 
 /** 自分の個体（palsOfPlayers の自分の分）。自分のプレイヤーが分からなければ null。 */

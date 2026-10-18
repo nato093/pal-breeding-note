@@ -178,17 +178,19 @@ test('save-extras: 個体の入手時刻・魂の強化・病気と空腹と SAN
 test('save-extras: ギルドの最終ログインとワールドの通算の時間の差が 10 秒以内ならプレイ中。読めなければ分からない（null）。Day は通算のゲーム内時刻から', () => {
   const snap = buildSnapshot({ level: parseLevel(level()), players: [player()] });
   assert.deepEqual(snap.players, [
-    { uid: P1, name: 'Alice', level: 52, online: true },
-    { uid: P2, name: 'Bob', level: 47, online: false },
+    { uid: P1, name: 'Alice', level: 52, instanceId: id(101), online: true },
+    { uid: P2, name: 'Bob', level: 47, instanceId: id(102), online: false },
   ]);
   // LevelMeta.sav がなければ、Day は floor(GameDateTimeTicks ÷ 864e9)
   assert.equal(snap.world.inGameDay, 624);
+  // ワールドの通算の時間（RealDateTimeTicks）は 10 進の文字列で残す（server の identity。往復の新旧の手がかり）
+  assert.equal(snap.world.clock, String(REAL));
   // 10 秒（1 億ティック）ちょうどまではプレイ中、それより離れていれば違う
   const edge = buildSnapshot({ level: parseLevel(level({ members: [[P1, REAL - 1e8, 'Alice'], [P2, REAL + 1e8 + 1, 'Bob']] })) });
   assert.deepEqual(edge.players.map((p) => p.online), [true, false]);
   // GameTimeSaveData のないセーブ（古い形・読めない）では分からない
   const old = buildSnapshot({ level: parseLevel(level({ gameTime: false })) });
-  assert.deepEqual([old.players.map((p) => p.online), old.world.inGameDay], [[null, null], 0]);
+  assert.deepEqual([old.players.map((p) => p.online), old.world.inGameDay, old.world.clock], [[null, null], 0, '']);
   // LevelMeta.sav の InGameDay があればそちら
   const withMeta = buildSnapshot({ level: parseLevel(level()), meta: { kind: 'levelMeta', worldName: 'World9', hostPlayerName: 'Alice', inGameDay: 623, timestampTicks: null, malformed: {} } });
   assert.equal(withMeta.world.inGameDay, 623);
