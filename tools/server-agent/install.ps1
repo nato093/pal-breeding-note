@@ -7,6 +7,7 @@
 # - タスク スケジューラに「PalNoteServerAgent-<env>」を登録する（ログオン時・このユーザー・Interactive・時間の上限なし）。操作は run-agent.ps1
 # 共通パスワードを変えたら、もう一度実行する。暗号化はこの PC のこの Windows ユーザーでしか戻せないので、入れる PC・ユーザーごとに実行する。
 # <データ> は %LOCALAPPDATA%\pal-note-agent（環境変数 PAL_AGENT_DATA_DIR で変えられる。tools/server-agent/config.mjs の dataDirOf と同じ）。
+# 決めた <データ> はタスクの引数（run-agent.ps1 の -DataDir）に入れ、run-agent.ps1 が子の node に渡す。
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][ValidateSet('prod', 'test')][string]$Env,
@@ -34,6 +35,8 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $MainScript = Join-Path $PSScriptRoot 'main.mjs'
 $RunAgent = Join-Path $PSScriptRoot 'run-agent.ps1'
 $DataDir = if ($env:PAL_AGENT_DATA_DIR) { $env:PAL_AGENT_DATA_DIR } else { Join-Path $env:LOCALAPPDATA 'pal-note-agent' }
+# タスクの引数に入れる（ログオン時のタスクは、この窓だけの PAL_AGENT_DATA_DIR を受け継がないため）。末尾の \ は引数の " を壊すので外す
+$DataDir = [IO.Path]::GetFullPath($DataDir).TrimEnd('\', '/')
 $EnvDir = Join-Path $DataDir $EnvName
 $ConfigFile = Join-Path $DataDir 'config.json'
 $PasscodeFile = Join-Path $EnvDir 'passcode.dpapi'
@@ -148,7 +151,7 @@ Write-Host 'パスワードを暗号化して保存しました（passcode.dpapi
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunAgent`" -Env $EnvName"
+$arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunAgent`" -Env $EnvName -DataDir `"$DataDir`""
 try {
   $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $RepoRoot
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity

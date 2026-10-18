@@ -1,5 +1,5 @@
 ﻿# 常駐（server-agent）を動かす（install.ps1 が登録するタスクの操作。docs/server/README.md の T5「Windows での導入」）。
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\server-agent\run-agent.ps1 -Env prod [-Mode Run|Check|CheckOnline|AcceptWorld|Signup]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\server-agent\run-agent.ps1 -Env prod [-Mode Run|Check|CheckOnline|AcceptWorld|Signup] [-DataDir <データの場所>]
 # - <データ>\<env>\passcode.dpapi を DPAPI で戻し、子の node の環境変数 PAL_AGENT_PASSCODE にだけ渡す
 #   （ProcessStartInfo の写しに置くので、このプロセスの環境変数・ユーザーの環境変数には残らない）
 # - Run（既定。タスク）: node main.mjs --env <env> を動かす。終了コードが 0・2・3 以外なら 30 秒後に起動し直す（待つ間に stop.request があれば止まる）
@@ -8,7 +8,9 @@
 # ログ（<データ>\<env>\run-agent.log）には起動・終了コード・起動し直しだけを書く（パスワード・パス・ID を書かない）。常駐のログは agent.log
 param(
   [Parameter(Mandatory = $true)][ValidateSet('prod', 'test')][string]$Env,
-  [ValidateSet('Run', 'Check', 'CheckOnline', 'AcceptWorld', 'Signup')][string]$Mode = 'Run'
+  [ValidateSet('Run', 'Check', 'CheckOnline', 'AcceptWorld', 'Signup')][string]$Mode = 'Run',
+  # データの場所（install.ps1 がタスクの引数に入れる。なければ PAL_AGENT_DATA_DIR・%LOCALAPPDATA%\pal-note-agent）。子の node にも渡す
+  [string]$DataDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +37,7 @@ $ModeArgs = @{
 $EnvName = $Env.ToLowerInvariant()
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $MainScript = Join-Path $PSScriptRoot 'main.mjs'
-$DataDir = if ($env:PAL_AGENT_DATA_DIR) { $env:PAL_AGENT_DATA_DIR } else { Join-Path $env:LOCALAPPDATA 'pal-note-agent' }
+$DataDir = if ($DataDir) { $DataDir } elseif ($env:PAL_AGENT_DATA_DIR) { $env:PAL_AGENT_DATA_DIR } else { Join-Path $env:LOCALAPPDATA 'pal-note-agent' }
 $EnvDir = Join-Path $DataDir $EnvName
 $PasscodeFile = Join-Path $EnvDir 'passcode.dpapi'
 $StopFile = Join-Path $EnvDir 'stop.request'
@@ -86,6 +88,8 @@ function Invoke-Agent([string]$NodePath, [string[]]$AgentArgs, [string]$Passcode
   $info.Arguments = (@("`"$MainScript`"", '--env', $EnvName) + $AgentArgs) -join ' '
   $info.WorkingDirectory = $RepoRoot
   $info.UseShellExecute = $false
+  # 子の node（config.mjs の dataDirOf）が、このスクリプトと同じデータの場所を使うように
+  $info.EnvironmentVariables['PAL_AGENT_DATA_DIR'] = $DataDir
   if ($Passcode) { $info.EnvironmentVariables['PAL_AGENT_PASSCODE'] = $Passcode } else { $info.EnvironmentVariables.Remove('PAL_AGENT_PASSCODE') }
   $process = [System.Diagnostics.Process]::Start($info)
   $info.EnvironmentVariables.Remove('PAL_AGENT_PASSCODE')

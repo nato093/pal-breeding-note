@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -87,7 +88,9 @@ test('常駐の導入: データの場所と config.json の項目は config.mjs
 test('常駐の導入: タスクはログオン時・このユーザー・Interactive・時間の上限なし・二重に動かさない・電池でも動く', () => {
   const text = read(INSTALL);
   assert.match(text, /\$TaskName = "PalNoteServerAgent-\$EnvName"/);
-  assert.match(text, /"-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"\$RunAgent`" -Env \$EnvName"/);
+  // データの場所は引数で渡す（ログオン時のタスクは、導入した窓だけの PAL_AGENT_DATA_DIR を受け継がない）
+  assert.match(text, /"-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"\$RunAgent`" -Env \$EnvName -DataDir `"\$DataDir`""/);
+  assert.match(text, /\$DataDir = \[IO\.Path\]::GetFullPath\(\$DataDir\)\.TrimEnd\('\\', '\/'\)/);
   assert.match(text, /New-ScheduledTaskTrigger -AtLogOn -User \$identity/);
   assert.match(text, /New-ScheduledTaskPrincipal -UserId \$identity -LogonType Interactive -RunLevel Limited/);
   for (const setting of [
@@ -96,6 +99,35 @@ test('常駐の導入: タスクはログオン時・このユーザー・Intera
   ]) assert.match(text, setting);
   assert.match(text, /winget install --id OpenJS\.NodeJS\.LTS -e/);
   assert.match(text, /winget install --id Git\.Git -e/);
+});
+
+test('常駐の導入: run-agent.ps1 は -DataDir のデータの場所を使い、子の node にも渡す（Windows と pwsh があるときだけ動かす）', (t) => {
+  const runAgent = read(RUN_AGENT);
+  assert.match(runAgent, /\[string\]\$DataDir = ''/);
+  assert.match(runAgent, /\$info\.EnvironmentVariables\['PAL_AGENT_DATA_DIR'\] = \$DataDir/);
+  if (process.platform !== 'win32') {
+    t.skip('Windows だけ（run-agent.ps1 は node.exe を探す）');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pal-agent-ps-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // config.json はデータの場所にだけ置く（%LOCALAPPDATA% は空。データの場所が子に届かなければワールドが見つからない）
+  const dataDir = path.join(root, 'data dir');
+  const worldDir = path.join(root, 'srv', 'Pal', 'Saved', 'SaveGames', '0', 'ABCDEF0123456789ABCDEF0123456789');
+  fs.mkdirSync(worldDir, { recursive: true });
+  for (const name of ['Level.sav', 'LevelMeta.sav']) fs.writeFileSync(path.join(worldDir, name), 'x');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ env: 'test', worldDir }));
+  const env = { ...process.env, LOCALAPPDATA: path.join(root, 'empty') };
+  delete env.PAL_AGENT_DATA_DIR;
+  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', RUN_AGENT, '-Env', 'test', '-Mode', 'Check', '-DataDir', dataDir], {
+    encoding: 'utf8', env, timeout: 60_000,
+  });
+  if (result.error?.code === 'ENOENT') {
+    t.skip('pwsh がない');
+    return;
+  }
+  assert.match(result.stdout, /world source="worldDir"/, `${result.stdout}\n${result.stderr}`);
 });
 
 test('常駐の導入: pwsh で構文の誤りがない', (t) => {
