@@ -167,7 +167,9 @@ test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で war
   // プレイヤーの対応（server の mapping）: 自分の ID に対応づいたプレイヤーがいれば出さない。GAS で動いていれば、どの PC からでも選べる文
   const players = [{ uid: 'u1', name: 'Alice' }, { uid: 'u3', name: 'ぼぶ' }];
   assert.equal(roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' }, mappingMode: 'gas' }).hint, '');
-  assert.equal(roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' } }).hint, '');
+  // 前の版（mappingMode が legacy）の対応はこの PC のもので、登録するホストの PC の対応ではないので、対応づいていても出す（反証のレビュー）
+  assert.equal(roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' } }).hint, mismatch.hint);
+  assert.equal(roleSummary(shared('', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' }, mappingMode: 'legacy' }).hint, mismatch.hint);
   // ワールドにいない UID（以前のホストなど）だけに対応づいていても、自分のプレイヤーは決まっていないので出す
   const gas = roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u1: 'Alice', gone: 'Bob' }, mappingMode: 'gas' });
   assert.equal(gas.hint, 'このワールドに「Bob」という名前のプレイヤーがいません（Alice・ぼぶ）。あなたが親 2 体を預けた配合は、設定の「プレイヤーの対応」で自分のプレイヤーに Bob を選ぶと登録されます（どの PC からでも選べます）。');

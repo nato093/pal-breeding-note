@@ -67,7 +67,7 @@ export const SERVER_AUTO_TEXT = 'この PC では読み込みません。配合�
 /**
  * 役割ごとの 1 行。ホスト・参加者（role 'guest'）・未連携で共有を見ている人。共有を見ていない未連携の人は null
  *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
- * いなければ hint に 1 行（X-07。一致したとき・プレイヤーの対応〔mapping。mappingMode は 'gas'・'legacy'〕で自分の ID に対応づいた人が
+ * いなければ hint に 1 行（X-07。一致したとき・GAS のプレイヤーの対応〔mapping。mappingMode が 'gas'〕で自分の ID に対応づいた人が
  * いるときは出さない）。
  * 参加者の文は、最後に共有した人を今のホストと決めつけない（ホストは仲間内で交代する。sync-fixes の host-rotation）: 新しい共有を別の人が
  * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える。
@@ -260,10 +260,10 @@ export function openPagesBrief(state, { now = Date.now } = {}) {
 
 // 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人も、プレイヤーの対応で自分の ID に対応づいた人もいないときの 1 行。
 // mapping は表示しているワールドの対応（uid → ID。auto-register.js の mapping）。mappingMode が 'gas' なら対応はノートにあり、どの PC からでも
-// 選べる（server の mapping）。'legacy'（前の版）なら、ホストの PC の対応だけが効く
+// 選べる（server の mapping）。'legacy'（前の版）なら、ホストの PC の対応だけが効く（mapping はこの PC の対応なので、出す・出さないに使わない）
 function nameMismatch(players, userId, { mapping = {}, mappingMode = 'legacy' } = {}) {
   if (!userId || !players.length || players.some((player) => player.name && userIdKey(player.name) === userIdKey(userId))) return '';
-  if (players.some((player) => typeof mapping[player.uid] === 'string' && userIdKey(mapping[player.uid]) === userIdKey(userId))) return '';
+  if (mappingMode === 'gas' && players.some((player) => typeof mapping[player.uid] === 'string' && userIdKey(mapping[player.uid]) === userIdKey(userId))) return '';
   const names = [...new Set(players.map((player) => player.name).filter(Boolean))];
   const shown = names.length > 5 ? `${names.slice(0, 5).join('・')} ほか` : names.join('・');
   const lead = `このワールドに「${userId}」という名前のプレイヤーがいません（${shown}）。あなたが親 2 体を預けた配合は、`;
