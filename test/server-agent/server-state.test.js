@@ -124,7 +124,7 @@ test('サーバーの稼働: ServerSync が動いていると言っても、こ�
   const elsewhere = fakeExec(() => '>G:\\ServerSync\\TESTINSTB0000002\\bin\\PalServer.exe\r\n');
   const reused = await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: elsewhere.execFile, alive: () => true, platform: 'linux' }).check();
   assert.deepEqual([reused.state, reused.active, reused.reasons], ['stopped', false, ['serversync:not-here']]);
-  // この PC で動いている: 同じ pid の間は 1 回だけ確かめる（10 秒ごとに PowerShell を起動しない）。pid が替わったら確かめ直す
+  // この PC で動いている: 同じ pid の間は 30 秒だけ結果を使い回す（10 秒ごとに PowerShell を起動しない）。pid が替わったら確かめ直す
   const here = fakeExec(() => `>${EXE}\r\n`);
   const monitor = createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: here.execFile, alive: () => true, platform: 'linux' });
   for (let i = 0; i < 3; i++) assert.deepEqual([(await monitor.check()).state, (await monitor.check()).reasons], ['running', []]);
@@ -132,10 +132,41 @@ test('サーバーの稼働: ServerSync が動いていると言っても、こ�
   body = detail({ running: true, pid: 5151, state: 'Ready' });
   assert.equal((await monitor.check()).state, 'running');
   assert.equal(here.calls.length, 2);
-  // 確かめられない（PowerShell の失敗）ときは ServerSync の答えのまま
-  const broken = fakeExec(() => new Error('spawn failed'));
-  const kept = await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: broken.execFile, alive: () => true, platform: 'linux' }).check();
-  assert.deepEqual([kept.state, kept.active], ['running', true]);
+});
+
+test('サーバーの稼働: この PC で動いているかの確かめは 30 秒で確かめ直す（最初に見つからなくても、後から動けば拾う）。確かめられなければ unknown で、次の確認でまた確かめる', async () => {
+  let time = 1_000_000;
+  const { fetch } = fakeFetch(() => ({ body: detail({ running: true, pid: 4242, state: 'Starting' }) }));
+  // 起動の途中で、まだ PalServer の実行ファイルが見つからない
+  let stdout = '';
+  const exec = fakeExec(() => stdout);
+  const monitor = createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: exec.execFile, alive: () => true, now: () => time, platform: 'linux' });
+  assert.deepEqual([(await monitor.check()).state, exec.calls.length], ['stopped', 1]);
+  stdout = `>${EXE}\r\n`;
+  time += 10_000;
+  assert.deepEqual([(await monitor.check()).state, exec.calls.length], ['stopped', 1], '30 秒の間は使い回す');
+  time += 20_000;
+  assert.deepEqual([(await monitor.check()).state, exec.calls.length], ['running', 2], '同じ pid でも確かめ直して拾う');
+  // 動いていると確かめた後も、30 秒ごとに確かめ直す（止まった・別のものに替わったのを拾う）
+  stdout = '';
+  time += 30_000;
+  assert.deepEqual([(await monitor.check()).reasons, exec.calls.length], [['serversync:not-here'], 3]);
+  // 確かめられない（PowerShell の失敗・パスの取れない PalServer）: ServerSync の答えのままにせず unknown（共有と自動登録をしない）。
+  // 結果を使い回さず、次の確認でまた確かめる
+  let fail = true;
+  const flaky = fakeExec(() => (fail ? new Error('spawn failed') : `>${EXE}\r\n`));
+  const unsure = createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: flaky.execFile, alive: () => true, now: () => time, platform: 'linux' });
+  const failed = await unsure.check();
+  assert.deepEqual([failed.state, failed.active, failed.reasons], ['unknown', false, ['serversync:unconfirmed', 'process-error']]);
+  assert.equal((await unsure.check()).state, 'unknown');
+  assert.equal(flaky.calls.length, 2, '失敗は使い回さない');
+  fail = false;
+  assert.equal((await unsure.check()).state, 'running');
+  const pathless = fakeExec(() => '>\r\n');
+  const partial = await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, execFile: pathless.execFile, alive: () => true, platform: 'linux' }).check();
+  assert.deepEqual([partial.state, partial.reasons], ['unknown', ['serversync:unconfirmed', 'process-unknown']]);
+  // 実行ファイルのパスを調べる手段がない（Windows 以外で execFile を渡さない）ときだけ ServerSync の答えのまま
+  assert.equal((await createServerMonitor({ instanceId: INSTANCE, serverDir: SERVER_DIR, fetch, platform: 'linux' }).check()).state, 'running');
 });
 
 test('サーバーの稼働: ServerSync に届かない間は、実行ファイルのパスの確認を 30 秒に 1 回にする（PowerShell を 10 秒ごとに起動しない）', async () => {
