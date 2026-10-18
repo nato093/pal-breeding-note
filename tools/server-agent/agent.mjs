@@ -780,19 +780,29 @@ export function createAgent({
     return done;
   }
 
-  // 読み込み・共有・自動登録が落ち着くまで待つ（--once とテスト）。期限は実際の時間で数える
-  async function settle({ timeoutMs = 120_000 } = {}) {
-    const startedAt = Date.now();
+  // 読み込み・共有・自動登録が落ち着くまで待つ（--once とテスト）。期限（deadline。既定は今から timeoutMs）は自動登録の判定・登録を待つ間も
+  // 含めて実際の時間で数え、過ぎたら false
+  async function settle({ timeoutMs = 120_000, deadline = Date.now() + timeoutMs } = {}) {
     const turn = () => new Promise((resolve) => setTimeout(resolve, 5));
     const quiet = () => !reading && !owned.state.busy && owned.state.upload.status !== 'sending';
+    const registered = async () => {
+      if (!autoRegister) return true;
+      let timer = null;
+      const limit = new Promise((resolve) => { timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now())); });
+      try {
+        return await Promise.race([autoRegister.idle().then(() => true), limit]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
     for (;;) {
       await turn();
       if (quiet()) {
-        await autoRegister?.idle();
+        if (!(await registered())) return false;
         await turn();
         if (quiet()) return true;
       }
-      if (Date.now() - startedAt > timeoutMs) return false;
+      if (Date.now() >= deadline) return false;
     }
   }
 
@@ -824,13 +834,17 @@ export function createAgent({
   }
 
   async function onceSteps({ dryRun, timeoutMs }) {
+    // 読み込み・共有・自動登録・presence の待ちのすべてに、1 つの期限を使う
+    const deadline = Date.now() + timeoutMs;
     const result = await login();
     if (result !== 'ok') return result === 'network' ? 1 : 2;
     lastServer = await monitor.check();
     let code = 0;
+    let timedOut = false;
     const settled = async () => {
-      if (await settle({ timeoutMs })) return true;
-      log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '読み込み・共有が終わるのを待ちきれませんでした' });
+      if (await settle({ deadline })) return true;
+      if (!timedOut) log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '読み込み・共有・自動登録が終わるのを待ちきれませんでした' });
+      timedOut = true;
       return false;
     };
     if (forceHost || dryRun || lastServer.active) {

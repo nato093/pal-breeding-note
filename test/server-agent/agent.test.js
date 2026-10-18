@@ -527,6 +527,25 @@ test('常駐: --once は、読み込み・共有が落ち着くのを待ちき�
   assert.match(pc.log.text(), /once-timeout/);
 });
 
+test('常駐: --once の期限は自動登録の判定・登録を待つ間にも効く（終わらなければ 1 で終わる）', { timeout: 30_000 }, async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  pc.current = snapshotOf({ seconds: 0, minutes: 100, day: 10 });
+  // 自動登録がプレイヤーの対応（GAS）を読む所で返らない
+  let release;
+  gas.control.gates.playerMap = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  const startedAt = Date.now();
+  assert.equal(await pc.agent.runOnce({ timeoutMs: 500 }), 1);
+  assert.ok(gas.control.calls.includes('playerMap'), '自動登録の待ちまで進んでいる');
+  assert.ok(Date.now() - startedAt < 10_000);
+  assert.equal(pc.log.text().match(/once-timeout/g).length, 1);
+  // 共有は済んでいる（期限で止めたのは自動登録の待ちだけ）
+  assert.equal((await gas.published()).clock, clockAt(100));
+});
+
 test('常駐: 止めるときに状態のファイル（state.json）を保存できなければ、ログに出して終了コード 2 にする（正常な終了にしない）', async (t) => {
   const clock = virtualClock();
   const gas = await gasOf({ now: clock.now });
