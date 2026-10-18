@@ -1,5 +1,6 @@
 // 常駐のログ（<データ>\<env>\agent.log。1MB ごとに回し、agent.log・agent.log.1・agent.log.2 の 3 世代）と標準出力。
-// 書く前に redact() で ID・パス・IP を伏せる。プレイヤー名・パスワード・GAS の応答の中身は呼ぶ側が渡さない（数と結果の種類だけ）。
+// 書く前に redact() で ID・パス・IP・秘密を伏せる（項目の値は、JSON の文字列にする・長さで切る前に伏せる）。プレイヤー名・パスワード・GAS の
+// 応答の中身は呼ぶ側が渡さない（数と結果の種類だけ）。
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -11,17 +12,21 @@ const LEVELS = ['debug', 'info', 'warn', 'error'];
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // フォルダのパスに当たる正規表現（\ と / のどちらでも、JSON の \\ でも、大文字と小文字を区別しない）
 const pathPattern = (dir) => new RegExp(escapeRegExp(String(dir).replace(/[\\/]+$/, '')).replace(/\\\\|\//g, '[\\\\/]+'), 'gi');
+// 伏せる秘密の形（そのままと、JSON の文字列に書いたときのエスケープした形）。長さでは除かない（1〜2 文字の秘密なら関係のない文字も伏せる）。
+// 長い形から置き換える
+const secretForms = (secrets) => [...new Set(secrets.map((secret) => (secret === null || secret === undefined ? '' : String(secret)))
+  .filter(Boolean).flatMap((secret) => [JSON.stringify(secret).slice(1, -1), secret]))].sort((a, b) => b.length - a.length);
 
 /**
  * ログに出す文の ID・パス・IP を伏せる。
- * - secrets（パスワードなど）は <secret>
+ * - secrets（パスワードなど）は <secret>（長さによらない。JSON のエスケープした形も）
  * - インスタンスのフォルダは <instance>、ユーザーのフォルダ（userProfile と C:\Users\<名前>）は %USERPROFILE%
  * - GUID と 32 桁の 16 進（ワールド ID・UID）は先頭 8 字＋…、SteamID64 は 7656…、instanceIds は先頭 4 字＋…
  * - IPv4 は <ip>
  */
 export function redact(input, { secrets = [], instanceDirs = [], userProfile = '', instanceIds = [] } = {}) {
   let text = String(input ?? '');
-  for (const secret of secrets) if (secret && String(secret).length >= 4) text = text.split(String(secret)).join('<secret>');
+  for (const form of secretForms(secrets)) text = text.split(form).join('<secret>');
   for (const dir of instanceDirs) if (dir) text = text.replace(pathPattern(dir), '<instance>');
   if (userProfile) text = text.replace(pathPattern(userProfile), '%USERPROFILE%');
   text = text.replace(/(?<![A-Za-z])[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s"'<>|:*?]+/gi, '%USERPROFILE%');
@@ -34,13 +39,18 @@ export function redact(input, { secrets = [], instanceDirs = [], userProfile = '
   return text;
 }
 
-// 項目の値を 1 行の文にする（文字列は JSON の引用、ほかは JSON。長いものは切る）
-function formatValue(value) {
-  if (value instanceof Error) return JSON.stringify(`${value.code || value.name || 'Error'}: ${value.message}`.slice(0, MESSAGE_MAX));
-  if (typeof value === 'string') return JSON.stringify(value.length > MESSAGE_MAX ? `${value.slice(0, MESSAGE_MAX)}…` : value);
+// 項目の値を 1 行の文にする（文字列は JSON の引用、ほかは JSON。長いものは切る）。clean（redact）は、JSON の引用にする・切る前にかける
+//（秘密の引用符・\ がエスケープされて伏せられない・切った境目で秘密の頭だけが残る、を防ぐ）
+function formatValue(value, clean = (text) => text) {
+  if (value instanceof Error) return JSON.stringify(clean(`${value.code || value.name || 'Error'}: ${value.message}`).slice(0, MESSAGE_MAX));
+  if (typeof value === 'string') {
+    const text = clean(value);
+    return JSON.stringify(text.length > MESSAGE_MAX ? `${text.slice(0, MESSAGE_MAX)}…` : text);
+  }
   if (value === undefined) return 'null';
   let text;
   try { text = JSON.stringify(value); } catch { text = '"[unserializable]"'; }
+  text = clean(text);
   return text.length > MESSAGE_MAX ? JSON.stringify(`${text.slice(0, MESSAGE_MAX)}…`) : text;
 }
 
@@ -90,7 +100,7 @@ export function createLogger({
 
   const write = (level, event, fields = {}) => {
     if (level === 'debug' && !verbose) return;
-    const parts = Object.entries(fields ?? {}).map(([key, value]) => `${key}=${formatValue(value)}`);
+    const parts = Object.entries(fields ?? {}).map(([key, value]) => `${key}=${formatValue(value, (text) => redact(text, options))}`);
     const line = `${redact(`${new Date(now()).toISOString()} [${level}] ${event}${parts.length ? ` ${parts.join(' ')}` : ''}`, options)}\n`;
     stdout?.write?.(line);
     writeFile(line);

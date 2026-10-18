@@ -36,6 +36,31 @@ test('常駐のログ: ID・パス・IP を伏せる', () => {
   assert.equal(redact(hash), hash);
 });
 
+test('常駐のログ: 秘密は長さによらず伏せ、JSON のエスケープした形・長い値を切った境目でも出さない', () => {
+  const short = 'q7';
+  const quoted = 'pa"ss\\wd';
+  const long = 'L0ngSecretValue-0001';
+  const lines = [];
+  const log = createLogger({ dir: '', stdout: { write: (line) => lines.push(line) }, redaction: { secrets: [short, quoted, long, '', null] }, env: {} });
+  log.info('short', { message: `x ${short} y` });
+  log.warn('error', { error: Object.assign(new Error(`failed ${quoted}`), { code: 'E' }) });
+  log.info('string', { message: `a ${quoted} b` });
+  log.info('object', { detail: { body: `a ${quoted} b`, nested: [long] } });
+  // 300 字で切ると秘密の頭だけが残る位置
+  log.info('cut', { message: `${'x'.repeat(295)}${long}`, detail: { text: `${'x'.repeat(290)}${long}` } });
+  const text = lines.join('');
+  for (const secret of [short, quoted, long]) {
+    assert.ok(!text.includes(secret), secret);
+    assert.ok(!text.includes(JSON.stringify(secret).slice(1, -1)), `${secret}（JSON のエスケープ）`);
+  }
+  assert.ok(!text.includes(long.slice(0, 5)), '切った境目で頭だけ残さない');
+  assert.equal(lines.length, 5);
+  for (const line of lines.slice(0, 4)) assert.match(line, /<secret>/);
+  // 伏せた後で切る（切った境目は伏せた印の途中になる）
+  assert.match(lines[4], /message="x+<secr…"/);
+  assert.equal(redact(`x ${quoted} ${JSON.stringify(quoted)}`, { secrets: [quoted] }), 'x <secret> "<secret>"');
+});
+
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pal-agent-log-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
