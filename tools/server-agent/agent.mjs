@@ -39,6 +39,8 @@ export const LOGIN_RETRY_STEPS = Object.freeze([15_000, 30_000, 60_000, 120_000,
 export const AGENT_STOPPED = 'AGENT_STOPPED';
 /** 今の attach より前（前に動いていた間）に読んだセーブの共有を求められたときの code（同じく再試行の段に入らない。読み直したセーブを送る） */
 export const AGENT_STALE = 'AGENT_STALE';
+/** 応答の env が設定と違うと分かった後の通信の code（それ以後は GAS に何も送らない） */
+export const ENV_MISMATCH = 'ENV_MISMATCH';
 // presence を見直す間隔と、間隔より少し早く来た回も送る幅（owned.js の PRESENCE_SLACK と同じ）
 const PRESENCE_CHECK_MS = 10_000;
 const PRESENCE_SLACK_MS = 5_000;
@@ -82,6 +84,25 @@ export function withUploadLimit(api, { limit = GAS_MAX_UPLOAD_CHARS, onMeasure =
         if (refused) throw new ApiError('TOO_LARGE');
       }
       return api.request(action, passcode, input);
+    },
+  };
+}
+
+/**
+ * api（createApi の形）を包み、すべての応答の env を expected と比べる。違えば onMismatch(got) を 1 回だけ呼び、その応答を捨てて ENV_MISMATCH に
+ * する。それ以後の通信は送らずに ENV_MISMATCH にする（ログインの後に応答の環境が替わっても、違う環境に書き続けない）
+ */
+export function withEnvCheck(api, { expected, onMismatch = () => {} }) {
+  let mismatch = false;
+  return {
+    async request(action, passcode, input) {
+      if (mismatch) throw new ApiError(ENV_MISMATCH);
+      const response = await api.request(action, passcode, input);
+      if (mismatch) throw new ApiError(ENV_MISMATCH);
+      if (response?.env === expected) return response;
+      mismatch = true;
+      onMismatch(typeof response?.env === 'string' ? response.env : '');
+      throw new ApiError(ENV_MISMATCH);
     },
   };
 }
@@ -155,9 +176,21 @@ export function createAgent({
 
   // ---- GAS ----
 
+  // 応答の env が設定と違えば（ログインでも、その後のどの応答でも）、それ以後は何も送らずに終了コード 2 で止める
+  let envMismatch = false;
+  const checkedApi = withEnvCheck(api, {
+    expected: config.env,
+    onMismatch: (got) => {
+      envMismatch = true;
+      log.error('env-mismatch', { expected: config.env, got, reason: '応答の環境が設定と違うため、それ以後は何も書かずに止めます' });
+      requestStop(2);
+      // パスワードをメモリからも外す（止めた後なので、ログインし直しの予約はしない）
+      store.logout();
+    },
+  });
   let tooLargeLoggedAt = -Infinity;
   const measured = { chars: 0, rows: 0, refused: false };
-  const limitedApi = withUploadLimit(api, {
+  const limitedApi = withUploadLimit(checkedApi, {
     limit: uploadLimit,
     onMeasure: (result) => {
       Object.assign(measured, result);
@@ -375,6 +408,8 @@ export function createAgent({
       await store.login(config.userId, config.passcode);
     } catch (error) {
       const code = error?.code || 'ERROR';
+      // 応答の環境が設定と違う（withEnvCheck がログに出して止めている）
+      if (code === ENV_MISMATCH) return 'env';
       if (NETWORK_CODES.has(code)) {
         const delay = LOGIN_RETRY_STEPS[Math.min(loginStep, LOGIN_RETRY_STEPS.length - 1)];
         loginStep++;
@@ -389,12 +424,6 @@ export function createAgent({
         ...(code === 'USER_NOT_FOUND' ? { hint: '常駐の ID がありません。--signup で作ってください' } : {}),
       });
       return 'auth';
-    }
-    if (store.state.env !== config.env) {
-      const got = store.state.env;
-      store.logout();
-      log.error('env-mismatch', { expected: config.env, got, reason: '応答の環境が設定と違うため、何も書かずに止めます' });
-      return 'env';
     }
     loginStep = 0;
     loginRetryAt = 0;
@@ -741,7 +770,7 @@ export function createAgent({
     await sendPresence({ force: true });
     await settle();
     await close();
-    return 0;
+    return envMismatch ? 2 : 0;
   }
 
   return {

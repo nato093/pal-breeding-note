@@ -415,6 +415,27 @@ test('常駐（結合）: 応答の env が設定と違えば、何も書かず�
   assert.ok(!pc.log.text().includes(PASS));
 });
 
+test('常駐（結合）: ログインの後の応答で env が設定と違うと分かったら、それ以後は何も送らずに終了コード 2 で止まる', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  assert.equal((await gas.published()).clock, clockAt(100));
+  // 共有の読み直し（読み取り）の応答が prod になった
+  gas.control.env = 'prod';
+  await pc.agent.owned.fetchShared({ force: true }).catch(() => {});
+  const calls = gas.control.calls.length;
+  // それ以後は、新しいセーブを読んでも共有せず、presence も送らない（GAS に何も届かない）
+  await pc.save({ minutes: 101 });
+  assert.equal(await pc.agent.sendPresence({ force: true }), 'skipped');
+  assert.equal(await pc.agent.start(), 2);
+  assert.equal(gas.control.calls.length, calls);
+  assert.match(pc.log.text(), /env-mismatch expected="test" got="prod"/);
+  assert.equal(pc.agent.store.state.passcode, '');
+  assert.ok(!pc.log.text().includes(PASS));
+});
+
 test('常駐: ログインの失敗は、認証なら 30 分ごと・通信なら 15 秒〜5 分の段で試し直す。認証が外れたら 30 分後にログインし直す', async (t) => {
   const clock = virtualClock();
   const gas = await gasOf({ now: clock.now });
