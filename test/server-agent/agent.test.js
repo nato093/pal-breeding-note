@@ -533,7 +533,7 @@ test('常駐: 止めるときに状態のファイル（state.json）を保存�
   const site = serverWorld(t);
   // rename がいつも失敗する（やり直さない失敗）
   const kvFs = {
-    readFileSync: fs.readFileSync, renameSync: fs.renameSync,
+    readFileSync: fs.readFileSync, copyFileSync: fs.copyFileSync,
     promises: { mkdir: fs.promises.mkdir, writeFile: fs.promises.writeFile, rename: async () => { throw Object.assign(new Error('EIO（テスト）'), { code: 'EIO' }); } },
   };
   const pc = agentOf({ gas, clock, site, server: fakeServer('stopped'), kvFs });

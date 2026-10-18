@@ -258,6 +258,28 @@ test('常駐の入口: state.json が壊れていたら（止めた状態など�
   assert.ok(fs.readdirSync(envDir(site)).some((name) => name.startsWith('state.json.broken-')));
 });
 
+test('常駐の入口: 壊れた state.json（読めない・値の形が違う）から止めた状態にしたことは、--once がログインに失敗して終わっても次の起動に残る', async (t) => {
+  const broken = [
+    '{ "pal-note.agent.lineage.test.',
+    JSON.stringify({ [`pal-note.agent.lineage.test.${W}`]: { blocked: { against: 'published' } }, 'pal-note.userId': 'サーバー' }),
+  ];
+  for (const text of broken) {
+    const site = serverWorld(t, { players: [U1, U2] });
+    fs.mkdirSync(envDir(site), { recursive: true });
+    fs.writeFileSync(path.join(envDir(site), 'state.json'), text);
+    const gas = await gasOf();
+    gas.control.fail.login = 'CONNECTION';
+    const once = await run(site, ['--once', '--force-host'], { gas });
+    assert.equal(once.code, 1);
+    assert.match(once.out, /lineage-unreadable/);
+    assert.deepEqual(gas.writes(), []);
+    // 次の起動（何も書かない --check）でも止めた状態
+    const check = await run(site, ['--check']);
+    assert.match(check.out, /check-lineage blocked=true accepted=false/, text);
+    assert.match(fs.readFileSync(path.join(envDir(site), 'state.json'), 'utf8'), /unreadable/);
+  }
+});
+
 test('常駐の入口: --signup は先に応答の環境を確かめてから ID を作る（すでにあれば 0、環境が違えば作らずに 2）', async (t) => {
   const site = serverWorld(t);
   const gas = await gasOf();

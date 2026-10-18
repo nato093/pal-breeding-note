@@ -20,7 +20,7 @@ function countingFs({ renameFailures = [] } = {}) {
   return {
     counts,
     readFileSync: fs.readFileSync,
-    renameSync: fs.renameSync,
+    copyFileSync: fs.copyFileSync,
     promises: {
       mkdir: fs.promises.mkdir,
       async writeFile(...args) { counts.writeFile++; return fs.promises.writeFile(...args); },
@@ -90,7 +90,7 @@ test('常駐の KV: パスワード・ログインの印・全件のキャッシ
   assert.equal(volatileKey('pal-note.passcodes'), false);
 });
 
-test('常駐の KV: 壊れた JSON は退けて空から始める', async (t) => {
+test('常駐の KV: 壊れた JSON は写しを残して空から始める。state.json は次の書き込みまで残す（書く前に終わっても、次の起動でまた壊れていると分かる）', async (t) => {
   const file = tempFile(t);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '{ "pal-note.userId": ');
@@ -102,11 +102,36 @@ test('常駐の KV: 壊れた JSON は退けて空から始める', async (t) =>
   assert.equal(createKvStorage({ file: tempFile(t) }).brokenState(), false);
   assert.equal(kv.brokenFile(), `${file}.broken-2026-10-18T05-00-00-000Z`);
   assert.equal(fs.readFileSync(kv.brokenFile(), 'utf8'), '{ "pal-note.userId": ');
+  // 止めた状態を足したが、書き出す前に終わった: 次の起動でも壊れていると分かる
+  kv.setItem('pal-note.agent.lineage.test.W', '{"blocked":{"against":"unreadable"}}');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{ "pal-note.userId": ');
+  assert.equal(createKvStorage({ file }).brokenState(), true);
+  // 書き出したら、足した中身に置き換わる
   kv.setItem('pal-note.userId', 'サーバー');
   await kv.flush();
-  assert.deepEqual(readJson(file), { 'pal-note.userId': 'サーバー' });
+  assert.deepEqual(readJson(file), { 'pal-note.agent.lineage.test.W': '{"blocked":{"against":"unreadable"}}', 'pal-note.userId': 'サーバー' });
+  assert.equal(createKvStorage({ file }).brokenState(), false);
   fs.writeFileSync(file, '[1, 2]');
   assert.equal(createKvStorage({ file }).getItem('0'), null);
+});
+
+test('常駐の KV: JSON として読めても、値が文字列でなければ壊れている（値を黙って捨てない。常駐は止めた状態にする）', (t) => {
+  const file = tempFile(t);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (const value of [{ blocked: { against: 'published' } }, null, 5, true, ['x']]) {
+    const text = JSON.stringify({ 'pal-note.userId': 'サーバー', 'pal-note.agent.lineage.test.W': value });
+    fs.writeFileSync(file, text);
+    const errors = [];
+    const kv = createKvStorage({ file, onError: (code) => errors.push(code) });
+    assert.equal(kv.brokenState(), true, JSON.stringify(value));
+    assert.deepEqual(errors, ['BROKEN_STATE']);
+    assert.equal(kv.getItem('pal-note.agent.lineage.test.W'), null);
+    assert.equal(fs.readFileSync(file, 'utf8'), text, '書き出すまで残す');
+  }
+  // 書かないキー（パスワードなど）は形を問わず読まない
+  fs.writeFileSync(file, JSON.stringify({ 'pal-note.userId': 'サーバー', 'pal-note.passcode': 1 }));
+  const kv = createKvStorage({ file });
+  assert.deepEqual([kv.brokenState(), kv.getItem('pal-note.userId'), kv.getItem('pal-note.passcode')], [false, 'サーバー', null]);
 });
 
 test('常駐の KV: state.json があるのに読めなければ、空から始めずに例外にする（EBUSY などはやり直す）', (t) => {

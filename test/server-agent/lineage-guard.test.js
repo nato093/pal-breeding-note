@@ -229,6 +229,33 @@ test('古い系統の守り: 壊れた状態は止めた状態として扱う（
   assert.equal(await guard.check(W, save(30, 201, 11)), 'ok');
 });
 
+test('古い系統の守り: JSON として読めても形の違う状態（3 項目のどれかがない・値の形が違う）は止めた状態として扱う（前に送った値などを黙って捨てない）', async () => {
+  const gas = fakeGas();
+  gas.publish(W, { clock: clockAt(100), inGameDay: 10 });
+  const sent = { clock: clockAt(150), inGameDay: 10 };
+  const baseline = { uploadedAt: '2026-10-18T05:00:00.000Z', ...sent };
+  const broken = [
+    {}, { blocked: null, baseline: null }, { blocked: null, sent: null }, { baseline: null, sent: null },
+    { blocked: null, baseline: null, sent: 'x' }, { blocked: null, baseline: null, sent: [] }, { blocked: null, baseline: null, sent: { clock: 150, inGameDay: 10 } },
+    { blocked: null, baseline: null, sent: { clock: clockAt(150) } }, { blocked: null, baseline: null, sent: { clock: clockAt(150), inGameDay: -1 } },
+    { blocked: null, baseline: 'x', sent }, { blocked: null, baseline: { ...baseline, uploadedAt: 'いつか' }, sent },
+    { blocked: 'x', baseline: null, sent: null }, { blocked: { save: sent }, baseline: null, sent: null }, [], 'x', null,
+  ];
+  for (const value of broken) {
+    const storage = safeStorage(memoryStorage());
+    storage.set(STATE_KEY, JSON.stringify(value));
+    const guard = guardOf(gas, storage);
+    assert.equal(await guard.check(W, save(0, 200, 11)), 'blocked', JSON.stringify(value));
+    assert.equal(guard.status(W).blocked.against, 'unreadable', JSON.stringify(value));
+  }
+  // writeState が書く形なら読める（受け入れた後・送った後の形）
+  for (const value of [{ blocked: null, baseline: null, sent: null }, { blocked: null, baseline, sent }, { blocked: null, baseline: null, sent: { clock: '', inGameDay: 0 } }]) {
+    const storage = safeStorage(memoryStorage());
+    storage.set(STATE_KEY, JSON.stringify(value));
+    assert.equal(await guardOf(gas, storage).check(W, save(0, 200, 11)), 'ok', JSON.stringify(value));
+  }
+});
+
 test('古い系統の守り: 届いたか分からない送信（通信の失敗）も、送ったもの（b）として残す。受け入れの後に公開された世代は、uploadedAt が読めなくても比べる', async () => {
   const gas = fakeGas();
   gas.publish(W, { clock: clockAt(100), inGameDay: 10 });

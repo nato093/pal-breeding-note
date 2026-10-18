@@ -812,6 +812,18 @@ export function createAgent({
    * 1 回送って終わる。終了コードを返す（読めない・送れない・待ちきれないときは 0 にしない。onceUploadCode）
    */
   async function runOnce({ dryRun = false, timeoutMs = 120_000 } = {}) {
+    // どの終わり方（ログインの失敗・例外を含む）でも KV を書き出してから終わる（壊れた state.json から止めた状態にした分などを失わない）
+    let code = 1;
+    try {
+      code = await onceSteps({ dryRun, timeoutMs });
+    } finally {
+      const saved = await close();
+      if (envMismatch || !saved) code = 2;
+    }
+    return code;
+  }
+
+  async function onceSteps({ dryRun, timeoutMs }) {
     const result = await login();
     if (result !== 'ok') return result === 'network' ? 1 : 2;
     lastServer = await monitor.check();
@@ -822,18 +834,14 @@ export function createAgent({
       return false;
     };
     if (forceHost || dryRun || lastServer.active) {
-      if (!(await attach())) {
-        await close();
-        return 2;
-      }
+      if (!(await attach())) return 2;
       code = (await settled()) ? onceUploadCode() : 1;
     } else {
       log.info('once-skipped', { reason: 'サーバーが動いていないため読みません', state: lastServer.state });
     }
     if ((await sendPresence({ force: true })) === 'error') code ||= 1;
     if (!(await settled())) code ||= 1;
-    const saved = await close();
-    return envMismatch || !saved ? 2 : code;
+    return code;
   }
 
   return {

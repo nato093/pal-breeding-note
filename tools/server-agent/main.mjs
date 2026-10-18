@@ -73,10 +73,10 @@ function usageError(flags) {
   return '';
 }
 
-// 書き込みをしない fs（--check・--dry-run の KV。壊れた state.json も退けない）
+// 書き込みをしない fs（--check・--dry-run の KV。壊れた state.json の写しも残さない）
 const readOnlyFs = {
   readFileSync: (...args) => fs.readFileSync(...args),
-  renameSync() {},
+  copyFileSync() {},
   promises: { async mkdir() {}, async writeFile() {}, async rename() {} },
 };
 

@@ -80,6 +80,19 @@ const larger = (a, b) => ({
   inGameDay: Math.max(a.inGameDay, b.inGameDay),
 });
 
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+// KV に残した値（kept の形。clock は整えた 10 進の文字列か ''、日数は 0 以上の整数）か
+const validKept = (value) => isRecord(value) && typeof value.clock === 'string' && Number.isSafeInteger(value.inGameDay)
+  && kept(value).clock === value.clock && kept(value).inGameDay === value.inGameDay;
+/** KV の状態の形（writeState が書く形）か。blocked・baseline・sent の 3 項目が必ずあり、それぞれ null か決まった形 */
+export function validLineageState(value) {
+  if (!isRecord(value) || !['blocked', 'baseline', 'sent'].every((key) => Object.hasOwn(value, key))) return false;
+  const { blocked, baseline, sent } = value;
+  if (blocked !== null && !(isRecord(blocked) && typeof blocked.against === 'string')) return false;
+  if (baseline !== null && !(isRecord(baseline) && isoTime(baseline.uploadedAt) && validKept(baseline))) return false;
+  return sent === null || validKept(sent);
+}
+
 /** KV に残す状態のキー（環境・ワールドごと） */
 export const lineageStateKey = (namespace, env, worldId) => `${namespace}.agent.lineage.${env}.${worldId}`;
 
@@ -130,22 +143,19 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
   const listeners = new Set();
   const emit = (event) => listeners.forEach((listener) => listener(event));
 
-  // KV の状態。壊れていれば止めた状態とみなす（止めた状態を失って古い系統を送らないため。受け入れで戻る）
+  // KV の状態。壊れている・形が違えば（JSON として読めない・3 項目のどれかがない・値の形が違う）止めた状態とみなす（止めた状態・受け入れの基準・
+  // 前に送った値を失って古い系統を送らないため。受け入れで戻る）
   function readState(env, worldId) {
     const empty = { blocked: null, baseline: null, sent: null };
     const raw = storage.get(stateKey(env, worldId));
     if (raw === null || raw === undefined) return empty;
     let value = null;
     try { value = JSON.parse(raw); } catch { value = null; }
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...empty, blocked: { against: 'unreadable', save: kept(null), other: kept(null) } };
-    const blocked = value.blocked && typeof value.blocked === 'object'
-      ? { against: typeof value.blocked.against === 'string' ? value.blocked.against : 'unreadable', save: kept(value.blocked.save), other: kept(value.blocked.other) }
-      : value.blocked ? { against: 'unreadable', save: kept(null), other: kept(null) } : null;
-    const at = isoTime(value.baseline?.uploadedAt);
+    if (!validLineageState(value)) return { ...empty, blocked: { against: 'unreadable', save: kept(null), other: kept(null) } };
     return {
-      blocked,
-      baseline: at ? { uploadedAt: at, ...kept(value.baseline) } : null,
-      sent: value.sent && typeof value.sent === 'object' ? kept(value.sent) : null,
+      blocked: value.blocked ? { against: value.blocked.against, save: kept(value.blocked.save), other: kept(value.blocked.other) } : null,
+      baseline: value.baseline ? { uploadedAt: value.baseline.uploadedAt, ...kept(value.baseline) } : null,
+      sent: value.sent ? kept(value.sent) : null,
     };
   }
   const writeState = (env, worldId, state) => storage.set(stateKey(env, worldId), JSON.stringify(state));

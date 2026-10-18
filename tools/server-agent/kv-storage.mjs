@@ -21,8 +21,11 @@ const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),
 /**
  * @param {{ file: string, namespace?: string, delayMs?: number, fs?: object, setTimer?: Function, clearTimer?: Function,
  *   onError?: (code: string) => void, now?: () => number }} options
- *   fs は readFileSync・renameSync と promises（mkdir・writeFile・rename）を持つもの（テストで差し替える）。
- *   onError は書けなかったとき・壊れた state.json を退けたとき（BROKEN_STATE）の code（文にパスを入れない）。
+ *   fs は readFileSync・copyFileSync と promises（mkdir・writeFile・rename）を持つもの（テストで差し替える）。
+ *   onError は書けなかったとき・壊れた state.json を見つけたとき（BROKEN_STATE）の code（文にパスを入れない）。
+ *   壊れた state.json（JSON として読めない・オブジェクトでない・値が文字列でない）は写しを state.json.broken-<時刻> に残して空から始め、
+ *   brokenState() で知らせる。state.json そのものは、次の書き込み（呼び出し側が止めた状態などを足した後の中身）で置き換わるまで残す
+ *   （置き換わる前に終わっても、次の起動でまた壊れていると分かる）。
  *   state.json があるのに読めなければ、EPERM・EBUSY・EACCES は 100ms おきに 3 回やり直し、それでも読めなければ
  *   例外（code STATE_UNREADABLE）にする（空から始めて上書きしないため。main は想定外の終了にする）
  */
@@ -39,7 +42,7 @@ export function createKvStorage({
   let broken = '';
   let brokenFound = false;
 
-  // 読み込み（同期。ストアを組み立てる前に済ませる）。壊れた JSON は退けて空から始める
+  // 読み込み（同期。ストアを組み立てる前に済ませる）。壊れた中身は写しを残して空から始める
   // 読めない（ENOENT 以外）ときは空から始めない（古い系統の守りの止めた状態などを上書きで失うため）。やり直しても読めなければ例外にする
   let stored = null;
   for (let attempt = 0; ; attempt++) {
@@ -57,14 +60,17 @@ export function createKvStorage({
   if (stored !== null) {
     let saved = null;
     try { saved = JSON.parse(stored); } catch { saved = null; }
-    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+    // この KV が書く形（文字列の値だけのオブジェクト）でなければ壊れている（値を黙って捨てると、止めた状態などを失ったことに気づかない）
+    const valid = saved && typeof saved === 'object' && !Array.isArray(saved)
+      && Object.entries(saved).every(([key, value]) => typeof value === 'string' || volatileKey(key, namespace));
+    if (valid) {
       for (const [key, value] of Object.entries(saved)) {
         if (typeof value === 'string' && !volatileKey(key, namespace)) memory.set(key, value);
       }
     } else {
       brokenFound = true;
       broken = `${file}.broken-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`;
-      try { fileSystem.renameSync(file, broken); } catch { broken = ''; }
+      try { fileSystem.copyFileSync(file, broken); } catch { broken = ''; }
       onError('BROKEN_STATE');
     }
   }
@@ -149,9 +155,9 @@ export function createKvStorage({
     },
     /** 予約中の書き込みがあるか（終わるときの確認とテスト） */
     pending: () => dirty || Boolean(timer) || Boolean(writing),
-    /** 壊れていた state.json を退けた先（なければ ''） */
+    /** 壊れていた state.json の写し（なければ ''） */
     brokenFile: () => broken,
-    /** 起動のときに state.json が壊れていて、空から始めたか（退けられなかったときも true） */
+    /** 起動のときに state.json が壊れていて、空から始めたか（写しを残せなかったときも true） */
     brokenState: () => brokenFound,
   };
   return storage;
