@@ -3617,6 +3617,11 @@ test('設定画面（server の mapping）: ホストは GAS で動いていて�
   assert.equal(section.querySelector('.owned-pending').hidden, false);
   assert.deepEqual(playerRows(card.element).map((row) => row.querySelector('span').textContent), ['Alice']);
   card.destroy();
+  // 参加者（手元にも同じワールドのデータがある）には出さない（登録待ちは、この PC がホストとして読んだ候補だけ）
+  const guestLocal = ownedSettingsCard(gasContext(fakeOwned(undefined, { role: 'guest' }), autoRegister), { win: DROP_WIN });
+  assert.deepEqual(playerRows(guestLocal.element).map((row) => row.querySelector('span').textContent), ['Alice']);
+  assert.equal(guestLocal.element.querySelector('.owned-players').querySelector('.owned-pending'), null);
+  guestLocal.destroy();
   // 前の版（古い GAS）の参加者
   const legacy = { ...gasAutoRegister(), mappingMode: () => 'legacy' };
   const guest = ownedSettingsCard(gasContext(serverShared('guest'), legacy), { win: DROP_WIN });
