@@ -6,6 +6,9 @@ const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const OTHER_WORLD = 'FEDCBA9876543210FEDCBA9876543210';
 const UID_A = '00000000-0000-0000-0000-000000000001';
 const UID_B = 'abcd1234-0000-0000-0000-000000000000';
+// 保存する値はプレイヤーの鍵（server の identity）。InstanceId のないプレイヤーと前の版の値（UID）は 'u:<uid>'
+const KEY_A = `u:${UID_A}`;
+const KEY_B = `u:${UID_B}`;
 
 function memoryStorage() {
   const map = new Map();
@@ -33,13 +36,14 @@ test('このワールドでの自分: キーは環境・ID（大小・全半角�
   assert.equal(self.key(WORLD), '');
 });
 
-test('このワールドでの自分: 保存した UID をワールドごとに読み、空で消し、形の合わない値は読まない・保存しない', () => {
+test('このワールドでの自分: 保存したプレイヤーの鍵をワールドごとに読み、空で消し、形の合わない値は読まない・保存しない', () => {
   const { self, storage, calls } = setup();
   assert.equal(self.get(WORLD), '');
+  // UID だけを渡すと 'u:' の鍵にして保存する
   assert.equal(self.set(WORLD, UID_A), true);
-  assert.equal(storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`), UID_A);
-  assert.equal(self.get(WORLD), UID_A);
-  assert.equal(self.get(WORLD.toLowerCase()), UID_A);
+  assert.equal(storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`), KEY_A);
+  assert.equal(self.get(WORLD), KEY_A);
+  assert.equal(self.get(WORLD.toLowerCase()), KEY_A);
   assert.equal(self.get(OTHER_WORLD), '');
   assert.deepEqual(calls, ['changed']);
   // 空で消す
@@ -67,18 +71,18 @@ test('このワールドでの自分: 保存できない端末では手元にだ
   const { self, calls } = setup({ storage: flaky });
   assert.equal(self.set(WORLD, UID_A), false);
   assert.equal(self.saveFailed, true);
-  assert.equal(self.get(WORLD), UID_A);
+  assert.equal(self.get(WORLD), KEY_A);
   assert.equal(calls.length, 1);
   failing = false;
   assert.equal(self.set(WORLD, UID_B), true);
   assert.equal(self.saveFailed, false);
-  assert.equal(self.get(WORLD), UID_B);
+  assert.equal(self.get(WORLD), KEY_B);
   // 保存先のない端末（localStorage が使えない）
   const none = setup({ storage: null });
   assert.equal(none.self.get(WORLD), '');
   assert.equal(none.self.set(WORLD, UID_A), false);
   assert.equal(none.self.saveFailed, true);
-  assert.equal(none.self.get(WORLD), UID_A);
+  assert.equal(none.self.get(WORLD), KEY_A);
 });
 
 test('このワールドでの自分: reload は SELF_PREFIX のキー（と頭そのもの）だけで読み直して知らせ、ほかのキーでは何もしない', () => {
@@ -91,11 +95,11 @@ test('このワールドでの自分: reload は SELF_PREFIX のキー（と頭�
   assert.deepEqual(calls, []);
   self.reload(`pal-note.ideals.self.test.taro.${WORLD}`);
   assert.deepEqual(calls, ['changed']);
-  assert.equal(self.get(WORLD), UID_B);
+  assert.equal(self.get(WORLD), KEY_B);
   // 名前の変更の後は、頭だけで全部を読み直す
   storage.map.set(`pal-note.ideals.self.test.taro.${WORLD}`, UID_A);
   self.reload('pal-note.ideals.self.');
-  assert.equal(self.get(WORLD), UID_A);
+  assert.equal(self.get(WORLD), KEY_A);
   assert.equal(calls.length, 2);
 });
 
@@ -135,10 +139,10 @@ test('このワールドでの自分: saveFailed は今のログイン（環境�
   storage.setItem(`pal-note.ideals.self.test.taro.${WORLD}`, UID_B);
   self.reload(`pal-note.ideals.self.test.taro.${OTHER_WORLD}`);
   assert.equal(self.saveFailed, true);
-  assert.equal(self.get(WORLD), UID_A);
+  assert.equal(self.get(WORLD), KEY_A);
   self.reload(`pal-note.ideals.self.test.taro.${WORLD}`);
   assert.equal(self.saveFailed, false);
-  assert.equal(self.get(WORLD), UID_B);
+  assert.equal(self.get(WORLD), KEY_B);
   // ID の変更の後（頭だけ）は、全部の書けなかった値を捨てる
   failing = true;
   assert.equal(self.set(OTHER_WORLD, UID_A), false);
@@ -161,7 +165,7 @@ test('このワールドでの自分: reload の defer は知らせを次の sto
   // 知らせを受けたときに読める自分（ID の変更の途中で、前の ID のキーを読んで一度「分からない」にならないこと）
   self.subscribe(() => seen.push(self.get(WORLD)));
   storage.setItem(`pal-note.ideals.self.test.taro.${WORLD}`, UID_A);
-  assert.equal(self.get(WORLD), UID_A);
+  assert.equal(self.get(WORLD), KEY_A);
   // ID の変更で端末のデータを移した（前の ID のキーは消え、ログイン中の ID はまだ前の ID のまま）
   storage.removeItem(`pal-note.ideals.self.test.taro.${WORLD}`);
   storage.setItem(`pal-note.ideals.self.test.jiro.${WORLD}`, UID_A);
@@ -172,11 +176,89 @@ test('このワールドでの自分: reload の defer は知らせを次の sto
   // 新しい ID になった store の通知で、1 回だけ知らせる（購読もやめる）
   store.state.userId = 'Jiro';
   store.emit();
-  assert.deepEqual(seen, [UID_A]);
+  assert.deepEqual(seen, [KEY_A]);
   assert.equal(listeners.size, 0);
   store.emit();
-  assert.deepEqual(seen, [UID_A]);
+  assert.deepEqual(seen, [KEY_A]);
   // 登録者の対応が変わった（本人の決め方が、このストアの外で変わった）
   self.changed();
-  assert.deepEqual(seen, [UID_A, UID_A]);
+  assert.deepEqual(seen, [KEY_A, KEY_A]);
+});
+
+// ---------------------------------------------------------------------------
+// server の identity: キャラクターの鍵（i:）・前の版の UID の読み替え・移行（migrate）
+// ---------------------------------------------------------------------------
+const IID_A = '11111111-2222-3333-4444-555555555555';
+const IID_B = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+const UID_U = 'abcdef01-0000-0000-0000-000000000000';
+
+test('このワールドでの自分（server の identity）: キャラクターの鍵 i: を小文字で保存し、前の版の UID は u: として読む', () => {
+  const { self, storage } = setup();
+  assert.equal(self.set(WORLD, `I:${IID_A.toUpperCase()}`), true);
+  assert.equal(storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`), `i:${IID_A}`);
+  assert.equal(self.get(WORLD), `i:${IID_A}`);
+  // 前の版（プレフィックスのない UID）を別のタブ・前の版の画面が書いた
+  storage.map.set(`pal-note.ideals.self.test.taro.${OTHER_WORLD}`, UID_B.toUpperCase());
+  assert.equal(self.get(OTHER_WORLD), KEY_B);
+  // GUID でない i:・知らないプレフィックスは読まない・保存しない
+  assert.equal(self.set(WORLD, 'i:not-a-guid'), false);
+  assert.equal(self.set(WORLD, `x:${IID_A}`), false);
+  storage.map.set(`pal-note.ideals.self.test.taro.${OTHER_WORLD}`, 'i:1234');
+  self.reload(`pal-note.ideals.self.test.taro.${OTHER_WORLD}`);
+  assert.equal(self.get(OTHER_WORLD), '');
+});
+
+test('このワールドでの自分（server の identity）: migrate は u: の値を同じ UID のプレイヤーの i: に書き直して知らせ、H は手元のホストのデータのときだけ', () => {
+  const { self, storage, calls, store } = setup();
+  const players = [{ uid: UID_A, name: 'Alice', instanceId: IID_A }, { uid: UID_U, name: 'Bob', instanceId: IID_B }, { uid: UID_B, name: 'Carol' }];
+  const stored = () => storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`);
+  // H 以外は共有のデータからでも移す（前の版の値〔UID〕も）
+  storage.map.set(`pal-note.ideals.self.test.taro.${WORLD}`, UID_U);
+  assert.equal(self.migrate(WORLD, players), true);
+  assert.equal(stored(), `i:${IID_B}`);
+  assert.equal(self.get(WORLD), `i:${IID_B}`);
+  assert.deepEqual(calls, ['changed']);
+  // もう i: なら何もしない（知らせない）
+  assert.equal(self.migrate(WORLD, players, { hostLocal: true }), false);
+  assert.deepEqual(calls, ['changed']);
+  // H（UID_A）: 参加者の画面（hostLocal でない）では移さない。手元のホストのデータなら移す
+  assert.equal(self.set(WORLD, UID_A), true);
+  assert.equal(self.migrate(WORLD, players), false);
+  assert.equal(stored(), KEY_A);
+  assert.equal(self.migrate(WORLD, players, { hostLocal: true }), true);
+  assert.equal(stored(), `i:${IID_A}`);
+  // InstanceId のないプレイヤー・プレイヤーにいない UID は移さない（値はそのまま）
+  assert.equal(self.set(WORLD, UID_B), true);
+  assert.equal(self.migrate(WORLD, players, { hostLocal: true }), false);
+  assert.equal(self.set(WORLD, 'ffffffff-0000-0000-0000-000000000000'), true);
+  assert.equal(self.migrate(WORLD, players, { hostLocal: true }), false);
+  assert.equal(stored(), 'u:ffffffff-0000-0000-0000-000000000000');
+  // ID の変更中・ログイン前・プレイヤーの配列がないときは何もしない
+  assert.equal(self.set(WORLD, UID_U), true);
+  store.state.renaming = true;
+  assert.equal(self.migrate(WORLD, players), false);
+  store.state.renaming = false;
+  assert.equal(self.migrate(WORLD, null), false);
+  store.state.passcode = '';
+  assert.equal(self.migrate(WORLD, players), false);
+  store.state.passcode = '入力';
+  assert.equal(stored(), `u:${UID_U}`);
+});
+
+test('このワールドでの自分（server の identity）: 書けない端末・書けずに手元にだけ残している値では migrate しない（saveFailed を立てない）', () => {
+  const storage = memoryStorage();
+  let failing = false;
+  const flaky = { ...storage, setItem(key, value) { if (failing) throw new Error('QuotaExceededError'); storage.setItem(key, value); } };
+  const { self, calls } = setup({ storage: flaky });
+  const players = [{ uid: UID_U, name: 'Bob', instanceId: IID_B }];
+  assert.equal(self.set(WORLD, UID_U), true);
+  failing = true;
+  assert.equal(self.migrate(WORLD, players), false);
+  assert.equal(self.saveFailed, false);
+  assert.equal(self.get(WORLD), `u:${UID_U}`);
+  // 書けずに手元にだけ残している値は、書けるようになって選び直すまで移さない
+  assert.equal(self.set(WORLD, UID_U), false);
+  failing = false;
+  assert.equal(self.migrate(WORLD, players), false);
+  assert.equal(calls.length, 2);
 });

@@ -10,7 +10,7 @@ import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
 import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES } from '../save/handles.js';
 import { mappedUser } from '../core/auto-breeding.js';
 import { ownPlayerUids } from '../core/ideal-goals.js';
-import { ownedWorldId } from '../core/owned-shared.js';
+import { ownedWorldId, playerKeyOf, playerUidOfKey } from '../core/owned-shared.js';
 import { syncOptions } from './shared.js';
 
 function option(value, label) {
@@ -531,13 +531,16 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const label = playerLabels(players);
     const autoNames = players.filter((player) => auto.has(player.uid)).map(label);
     selfAuto = autoNames.length > 0;
+    // 選択肢の値はプレイヤーの鍵（キャラクターの InstanceId の i:、なければ u:。server の identity）。保存した値（前の版の UID も）は
+    // その回のプレイヤーに引いてから選ぶ
     const saved = context.self.get(worldId);
-    const value = players.some((player) => player.uid === saved) ? saved : '';
-    const signature = JSON.stringify([worldId, players.map((player) => [player.uid, player.name]), saved, autoNames, users]);
+    const savedUid = playerUidOfKey(players, saved);
+    const value = savedUid ? playerKeyOf(players.find((player) => player.uid === savedUid)) : '';
+    const signature = JSON.stringify([worldId, players.map((player) => [player.uid, player.name, playerKeyOf(player)]), saved, autoNames, users]);
     if (signature === renderedSelf) return;
     renderedSelf = signature;
     const choices = [['', selfAuto ? `自動（${autoNames.join('・')}）` : '未設定（自分の個体を判定しません）'],
-      ...players.map((player) => [player.uid, label(player)])];
+      ...players.map((player) => [playerKeyOf(player), label(player)])];
     // 選んでいる途中（フォーカス中）は作り直さず、離れてから作り直す（views/shared.js の syncOptions）
     syncOptions(selfSelect, choices, () => {
       optionsWorld = worldId;
@@ -547,8 +550,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // このワールドでの自分が決まっていない（選んでいない〔選んだプレイヤーがいない〕・登録者の対応も同じ名前もない）
   const selfUnknown = () => {
     if (selfRow.hidden || selfAuto) return false;
-    const saved = context.self.get(selfWorld);
-    return !saved || !(owned.state.owned?.players ?? []).some((player) => player.uid === saved);
+    return !playerUidOfKey(owned.state.owned?.players ?? [], context.self.get(selfWorld));
   };
 
   const cardTitle = el('h2', '', 'セーブ連携');

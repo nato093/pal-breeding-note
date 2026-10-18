@@ -139,8 +139,9 @@ test('名前の変更: このワールドでの自分を知らせるのは新し
   const seen = [];
   self.subscribe(() => seen.push([self.get(WORLD), me.store.state.userId]));
   assert.equal(await renamer.rename('Jiro'), 'Jiro');
-  assert.deepEqual(seen, [[UID, 'Jiro']]);
-  assert.equal(me.storage.getItem(`pal-note.ideals.self.test.jiro.${WORLD}`), UID);
+  // 保存する値はプレイヤーの鍵（server の identity。UID だけを渡すと 'u:<uid>'）
+  assert.deepEqual(seen, [[`u:${UID}`, 'Jiro']]);
+  assert.equal(me.storage.getItem(`pal-note.ideals.self.test.jiro.${WORLD}`), `u:${UID}`);
   assert.equal(me.storage.getItem(`pal-note.ideals.self.test.taro.${WORLD}`), null);
 });
 

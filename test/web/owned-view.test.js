@@ -2702,6 +2702,8 @@ test('所持パル画面: 2,000 行を超えて見えている範囲だけ描く
 // ---------------------------------------------------------------------------
 const SELF_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const selfKeyOf = (userId) => `pal-note.ideals.self.test.${userId}.${SELF_WORLD}`;
+// 選択肢の値と保存する値はプレイヤーの鍵（server の identity。InstanceId のないプレイヤーは 'u:<uid>'）
+const keyOf = (uid) => `u:${uid}`;
 // 参加している人の画面（登録したワールドはなく、ホストが共有した所持パルを見ている）。プレイヤーは Alice・Bob・Bob（同じ名前）
 function guestOwned(players = [{ uid: P1, name: 'Alice' }, { uid: P2, name: 'Bob' }, { uid: P3, name: 'Bob' }]) {
   const owned = fakeOwned(null);
@@ -2762,11 +2764,11 @@ test('設定画面（このワールドでの自分）: 参加している人（
   assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'Alice', 'Bob（ABCD1234）', 'Bob（1A2B3C4D）']);
   assert.equal(select.value, '');
   assert.equal(app.ideals.mine(), null);
-  select.value = P2;
+  select.value = keyOf(P2);
   select.dispatch('change');
-  assert.equal(values.get(selfKeyOf('仲間')), P2);
+  assert.equal(values.get(selfKeyOf('仲間')), keyOf(P2));
   assert.deepEqual([...app.ideals.selfUids()], [P2]);
-  assert.equal(select.value, P2);
+  assert.equal(select.value, keyOf(P2));
   // 「未設定」に戻すと消す
   select.value = '';
   select.dispatch('change');
@@ -2810,9 +2812,10 @@ test('設定画面（このワールドでの自分）: 別のタブで変えた
   owned.emit();
   app.store.emit();
   assert.deepEqual([...select.children], options);
+  // 前の版の値（プレフィックスのない UID）も、そのプレイヤーの選択肢に合わせる
   values.set(selfKeyOf('仲間'), P3);
   app.self.reload(selfKeyOf('仲間'));
-  assert.equal(select.value, P3);
+  assert.equal(select.value, keyOf(P3));
   assert.deepEqual([...select.children], options);
   card.destroy();
 });
@@ -3071,7 +3074,7 @@ test('設定画面（このワールドでの自分）: ID の変更中は選べ
   app.store.emit();
   assert.equal(select.disabled, true);
   assert.equal(select.title, 'ID の変更が終わってから選んでください');
-  select.value = P2;
+  select.value = keyOf(P2);
   select.dispatch('change');
   assert.equal(values.has(selfKeyOf('仲間')), false);
   assert.equal(select.value, '');
@@ -3079,9 +3082,30 @@ test('設定画面（このワールドでの自分）: ID の変更中は選べ
   app.store.emit();
   assert.equal(select.disabled, false);
   assert.equal(select.title, '');
-  select.value = P2;
+  select.value = keyOf(P2);
   select.dispatch('change');
-  assert.equal(values.get(selfKeyOf('仲間')), P2);
+  assert.equal(values.get(selfKeyOf('仲間')), keyOf(P2));
+  card.destroy();
+});
+
+test('設定画面（このワールドでの自分）: InstanceId のあるプレイヤーは選択肢の値がキャラクターの鍵（i:）で、前の版の値（UID）もその選択肢に合わせる（server の identity）', (t) => {
+  installDom(t);
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  const IID_BOB = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+  const owned = guestOwned([{ uid: P1, name: 'Alice', instanceId: IID_ALICE }, { uid: P2, name: 'Bob', instanceId: IID_BOB }, { uid: P3, name: 'Carol' }]);
+  const { app, values } = selfApp(owned);
+  // 前の版の画面が UID のまま保存していた
+  values.set(selfKeyOf('仲間'), P2);
+  app.self.reload(selfKeyOf('仲間'));
+  const card = ownedSettingsCard(app, { win: DROP_WIN });
+  const select = selfSelectOf(card.element);
+  assert.deepEqual(select.children.map((node) => node.value), ['', `i:${IID_ALICE}`, `i:${IID_BOB}`, keyOf(P3)]);
+  assert.equal(select.value, `i:${IID_BOB}`);
+  assert.deepEqual([...app.ideals.selfUids()], [P2]);
+  select.value = `i:${IID_ALICE}`;
+  select.dispatch('change');
+  assert.equal(values.get(selfKeyOf('仲間')), `i:${IID_ALICE}`);
+  assert.deepEqual([...app.ideals.selfUids()], [P1]);
   card.destroy();
 });
 
@@ -3101,7 +3125,7 @@ test('設定画面（このワールドでの自分）: 表示するワールド
   owned.emit();
   assert.deepEqual(select.children.map((node) => node.textContent), before);
   // 前のワールドの Bob を選んでも、どちらのワールドのキーにも保存しない
-  select.value = P2;
+  select.value = keyOf(P2);
   await select.dispatch('change');
   assert.equal(values.has(selfKeyOf('仲間')), false);
   assert.equal(values.has(`pal-note.ideals.self.test.仲間.${OTHER}`), false);
@@ -3111,9 +3135,9 @@ test('設定画面（このワールドでの自分）: 表示するワールド
   assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'Carol']);
   assert.equal(select.value, '');
   // 作り直した後は、今のワールドに保存する
-  select.value = P3;
+  select.value = keyOf(P3);
   await select.dispatch('change');
-  assert.equal(values.get(`pal-note.ideals.self.test.仲間.${OTHER}`), P3);
+  assert.equal(values.get(`pal-note.ideals.self.test.仲間.${OTHER}`), keyOf(P3));
   card.destroy();
 });
 

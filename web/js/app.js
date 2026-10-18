@@ -106,7 +106,13 @@ async function boot() {
   // 自分のプレイヤーは「このワールドでの自分」、なければ配合牧場の自動登録と同じ「登録者の対応」（なければ同じ名前）で決める
   const ideals = createIdealStore({
     store, owned, storage: browserStorage, namespace,
-    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId), selfUid: self.get(worldId) }),
+    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId), self: self.get(worldId) }),
+  });
+  // 前の版の「このワールドでの自分」（UID）を、表示しているデータのプレイヤーのキャラクターの鍵（i:）に移す（server の identity）。
+  // H は、この PC がホストとして読んだ手元のデータのときだけ（参加者の画面の H は、そのときホストしている仲間のキャラクター）
+  owned.subscribe((state) => {
+    const world = worldId(state.meta?.worldId);
+    if (world && state.owned?.players) self.migrate(world, state.owned.players, { hostLocal: state.meta.source === 'local' && state.role === 'host' });
   });
   // 本人が変わったら（このワールドでの自分・登録者の対応。別のタブの変更も）、同じセーブのまま完成を判定し直す（そのとき完成している
   // ものは知らせない）。ID の変更中は判定し直せない（ideals.js）ので、変更中に来た分は、変更が終わった store の通知で 1 回だけ判定し直す

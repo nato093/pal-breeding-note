@@ -1372,9 +1372,10 @@ test('画面: 理想個体の「設定で選ぶ」で設定へ移ると、「こ
   const select = document.activeElement;
   assert.equal(select.getAttribute('aria-label'), 'このワールドでの自分');
   assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'アリス']);
-  select.value = PLAYER;
+  // 選択肢の値と保存する値はプレイヤーの鍵（server の identity。InstanceId のない共有のプレイヤーは 'u:<uid>'）
+  select.value = `u:${PLAYER}`;
   await select.dispatch('change');
-  assert.equal(values.get(`pal-note.ideals.self.test.架空データ.${WORLD_A}`), PLAYER);
+  assert.equal(values.get(`pal-note.ideals.self.test.架空データ.${WORLD_A}`), `u:${PLAYER}`);
   assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].complete, true);
 });
 
@@ -1423,8 +1424,9 @@ test('画面: ID の変更中は「このワールドでの自分」を選べず
   Object.defineProperty(window.localStorage, 'length', { get: () => values.size });
   window.localStorage.key = (index) => [...values.keys()][index] ?? null;
   const selfSelect = () => find((node) => node.tagName === 'select' && node.getAttribute('aria-label') === 'このワールドでの自分');
-  for (let i = 0; i < 50 && !selfSelect()?.children.some((option) => option.value === BOB); i++) await flush();
-  assert.equal(selfSelect().value, BOB);
+  // 前の版の値（プレフィックスのない UID）は、そのプレイヤーの鍵（'u:<uid>'）の選択肢に合わせる
+  for (let i = 0; i < 50 && !selfSelect()?.children.some((option) => option.value === `u:${BOB}`); i++) await flush();
+  assert.equal(selfSelect().value, `u:${BOB}`);
   const judged = () => JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A];
   assert.equal(judged().complete, false);
   const before = Number(byClass('notification-badge').textContent);
@@ -1449,7 +1451,31 @@ test('画面: ID の変更中は「このワールドでの自分」を選べず
   assert.deepEqual([after.complete, after.completedAt], [true, '']);
   assert.equal(Number(byClass('notification-badge').textContent), before);
   assert.equal(selfSelect().disabled, false);
-  assert.equal(selfSelect().value, PLAYER);
+  assert.equal(selfSelect().value, `u:${PLAYER}`);
+});
+
+test('画面: 前の版の「このワールドでの自分」（UID）を、共有のプレイヤーのキャラクターの鍵（i:）に移す。H は参加者の画面では移さない（server の identity）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const HOST = '00000000-0000-0000-0000-000000000001';
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  const IID_HOST = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+  // 共有のプレイヤーに InstanceId がある（新しい画面のホストが共有した）
+  await shareWorld(development, WORLD_A, {}, [{ uid: PLAYER, name: 'アリス', instanceId: IID_ALICE }, { uid: HOST, name: 'ホスト', instanceId: IID_HOST }]);
+  await shareWorld(development, WORLD_B, {}, [{ uid: PLAYER, name: 'アリス', instanceId: IID_ALICE }, { uid: HOST, name: 'ホスト', instanceId: IID_HOST }]);
+  const selfKey = (world) => `pal-note.ideals.self.test.架空データ.${world}`;
+  const { values } = await boot(t, { initial: { ...signedIn, [selfKey(WORLD_A)]: PLAYER, [selfKey(WORLD_B)]: HOST, 'pal-note.owned.bridge': JSON.stringify({ viewWorldId: WORLD_A }) }, api: development, hash: '#/settings' });
+  for (let i = 0; i < 50 && values.get(selfKey(WORLD_A)) === PLAYER; i++) await flush();
+  assert.equal(values.get(selfKey(WORLD_A)), `i:${IID_ALICE}`);
+  const selfSelect = () => find((node) => node.tagName === 'select' && node.getAttribute('aria-label') === 'このワールドでの自分');
+  for (let i = 0; i < 50 && selfSelect()?.value !== `i:${IID_ALICE}`; i++) await flush();
+  assert.equal(selfSelect().value, `i:${IID_ALICE}`);
+  // 表示するワールドを B に替えると、H の前の値もその回のプレイヤーに引けて選ばれるが、参加者の画面（共有のデータ）では書き直さない
+  const worldSelect = find((node) => node.tagName === 'select' && node.children.some((option) => option.value === WORLD_B));
+  worldSelect.value = WORLD_B;
+  await worldSelect.dispatch('change');
+  for (let i = 0; i < 50 && selfSelect()?.value !== `i:${IID_HOST}`; i++) await flush();
+  assert.equal(selfSelect().value, `i:${IID_HOST}`);
+  assert.equal(values.get(selfKey(WORLD_B)), HOST);
 });
 
 test('画面: 設定を開いたまま設定の行き先のリンク（ヘッダーのセーブ連携の「設定を開く」）を押しても、履歴を増やさずにその場で行き先へ移る', async (t) => {
