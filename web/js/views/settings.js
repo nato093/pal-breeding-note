@@ -32,12 +32,13 @@ function exportCsv(records) {
 // この端末の既読の id
 const readIds = (context) => context.notifications?.readList?.() ?? [];
 
-// 登録者の対応（登録したワールドと読んでいるワールドの分）
+// 前の版のプレイヤーの対応（この端末の uid → ID。登録したワールドと読んでいるワールドの分）。GAS の対応はノートにあるので書き出さない
+//（ファイルの形 v1 のまま。server の mapping）
 function playerMappings(context) {
   const autoRegister = context.autoRegister;
-  if (!autoRegister) return {};
+  if (!autoRegister?.legacyMapping) return {};
   const ids = new Set([...(context.owned?.state?.auto?.worlds ?? []).map((world) => world.id), context.owned?.state?.local?.world?.id].filter(Boolean));
-  return Object.fromEntries([...ids].map((id) => [id, autoRegister.mapping(id)]));
+  return Object.fromEntries([...ids].map((id) => [id, autoRegister.legacyMapping(id)]));
 }
 
 // 取り込む（各ストアの関数を通す。今のデータは消さずに足す）。取り込んだ結果の文を返す
@@ -59,13 +60,14 @@ function importDeviceData(context, data) {
     context.notifications.markRead(read);
     parts.push(`通知の既読 ${read.length}`);
   }
+  // 前の版の対応に足す（GAS で動いていれば、次の読み直しで GAS にない分だけ上がる。auto-register.js の syncPlayerMap）
   let mapped = 0;
   for (const [worldId, mapping] of Object.entries(data.playerMappings)) {
-    const current = context.autoRegister?.mapping(worldId) ?? null;
+    const current = context.autoRegister?.legacyMapping?.(worldId) ?? null;
     if (!current) continue;
     for (const [uid, userId] of Object.entries(mapping)) {
       if (current[uid]) continue;
-      context.autoRegister.setMapping(uid, userId, worldId);
+      context.autoRegister.setLegacyMapping(uid, userId, worldId);
       mapped++;
     }
   }
@@ -125,7 +127,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
   exportRow.append(recordsCsv, ...(context.owned ? [ownedCsv] : []));
   exportCard.append(el('h3', '', '書き出し'), el('p', 'muted', '有効な登録全件と、表示しているワールドの所持パルを、パルの名前付きの CSV に保存します。'), exportRow);
 
-  // この端末のデータ（下書き・目標・既読・自動登録の記録と登録者の対応。F081）
+  // この端末のデータ（下書き・目標・既読・自動登録の記録と前の版のプレイヤーの対応。F081）
   const deviceCard = el('section', 'settings-card settings-device');
   const deviceTitle = el('h3', '', 'この端末のデータ');
   deviceTitle.append(statusChip('この端末だけ', 'neutral', 'device-only-chip'));
@@ -149,7 +151,7 @@ export function settingsView(context, route = parseHash('#/settings')) {
   fileInput.addEventListener('change', () => readDeviceFile(fileInput.files?.[0]));
   const deviceRow = el('div', 'settings-actions');
   deviceRow.append(exportDevice, importDevice, fileInput);
-  deviceCard.append(deviceTitle, el('p', 'muted', '下書き・目標・通知の既読・自動登録の記録・プレイヤーの対応は、この端末にだけ残ります。書き出したファイルを別の端末で読み込むと、今のデータに足します（パスワードと所持パルは含みません）。'),
+  deviceCard.append(deviceTitle, el('p', 'muted', '下書き・目標・通知の既読・自動登録の記録は、この端末にだけ残ります（プレイヤーの対応はノートに保存します）。書き出したファイルを別の端末で読み込むと、今のデータに足します（パスワードと所持パルは含みません）。'),
     deviceCounts, deviceRow);
   async function readDeviceFile(file) {
     fileInput.value = '';

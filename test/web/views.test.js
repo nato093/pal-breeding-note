@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom } from '../helpers/dom.js';
+import { installDom, FakeElement } from '../helpers/dom.js';
 import pals from '../../web/data/pals.js';
 import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
@@ -925,9 +925,11 @@ test('設定（この端末のデータ）: 自動登録の記録を既読より
   app.autoRegister = {
     notices: () => [], subscribe,
     importNotices: (values) => { calls.push(['notices', values.length]); return { added: 1, skipped: 2 }; },
-    // 知らないワールド（null）の後のワールドも取り込む
-    mapping: (id) => (id === world ? { 'uid-1': '自分' } : null),
-    setMapping: (uid, userId, id) => calls.push(['map', uid, userId, id]),
+    // 知らないワールド（null）の後のワールドも取り込む。取り込むのは前の版の対応（この端末。GAS の対応は次の読み直しで上がる。server の mapping）
+    legacyMapping: (id) => (id === world ? { 'uid-1': '自分' } : null),
+    setLegacyMapping: (uid, userId, id) => calls.push(['map', uid, userId, id]),
+    mapping: () => { throw new Error('GAS の対応は取り込まない'); },
+    setMapping: () => { throw new Error('GAS の対応は取り込まない'); },
   };
   app.self = { changed: () => calls.push('self') };
   const view = settingsView(app);
@@ -947,6 +949,39 @@ test('設定（この端末のデータ）: 自動登録の記録を既読より
   assert.deepEqual(calls, [['notices', 3], 'unread', ['read', ['auto-breed:test:anomaly:f1:e1']], ['map', 'uid-2', '仲間', world], 'self']);
   const toasts = document.body.querySelectorAll('.toast-message').map((node) => node.textContent);
   assert.ok(toasts.includes('取り込みました: 自動登録の記録 1・通知の既読 1・プレイヤーの対応 1 件（自動登録の記録 2 件は重複・上限で取り込みませんでした）'), toasts.join(' / '));
+  view.destroy();
+});
+
+test('設定（この端末のデータ）: 書き出すプレイヤーの対応は前の版の対応だけ（GAS の対応はノートにあるので含めない。形は v1 のまま）', async (t) => {
+  installDom(t);
+  const app = liveContext();
+  app.store.state.passcode = '入力';
+  const world = 'ABCDEF0123456789ABCDEF0123456789';
+  app.owned = {
+    state: {
+      ready: true, busy: false, role: '', meta: null, owned: null, shared: { worlds: [] }, upload: {}, local: { world: { id: world } },
+      auto: { enabled: true, status: 'ready', worldId: '', error: '', worlds: [{ id: world, dir: world, kind: 'host', name: '', hostName: '', status: 'ok', role: 'host', playedAt: '', files: [] }] },
+    },
+    subscribe: () => () => {}, load: () => Promise.resolve(),
+  };
+  app.autoRegister = {
+    notices: () => [], subscribe: () => () => {}, enabled: () => true, pendingSummary: () => ({ unmapped: [], conflict: [] }),
+    legacyMapping: (id) => (id === world ? { 'uid-1': '仲間' } : {}),
+    // 画面の対応（GAS）。書き出しには入れない
+    mapping: () => ({ 'uid-9': '他' }),
+  };
+  // ファイルの保存（a 要素の click）を受け取る
+  const blobs = [];
+  t.mock.method(URL, 'createObjectURL', (blob) => { blobs.push(blob); return 'blob:test'; });
+  t.mock.method(URL, 'revokeObjectURL', () => {});
+  FakeElement.prototype.click = function click() {};
+  t.after(() => { delete FakeElement.prototype.click; });
+  const view = settingsView(app);
+  assert.match(view.element.querySelector('.settings-device').textContent, /プレイヤーの対応はノートに保存します/);
+  await view.element.querySelector('.settings-device').querySelectorAll('button').find((node) => node.textContent === '書き出す').dispatch('click');
+  const data = JSON.parse(await blobs[0].text());
+  assert.equal(data.version, 1);
+  assert.deepEqual(data.playerMappings, { [world]: { 'uid-1': '仲間' } });
   view.destroy();
 });
 

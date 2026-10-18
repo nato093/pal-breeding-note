@@ -82,6 +82,25 @@ test('端末内の移動: 変えた環境の分だけ移し、移し先と連結
   assert.deepEqual(read(storage, 'pal-note.autoBreeding.players.test.W1'), { u1: 'Taro' });
 });
 
+test('端末内の移動（server の mapping）: GAS から読んだプレイヤーの対応の写しと、前の版の対応を上げた印の ID も書き換える（外した印・別の環境はそのまま）', () => {
+  const storage = memoryStorage();
+  const W = 'ABCDEF0123456789ABCDEF0123456789';
+  const copy = { v: 1, entries: { 'i:aaaaaaaa-0000-0000-0000-00000000000a': 'ＴＡＲＯ', 'u:bbbb': '花子', 'u:cccc': '' }, fetchedAt: 123 };
+  storage.setItem(`pal-note.autoBreeding.playerMap.prod.${W}`, JSON.stringify(copy));
+  storage.setItem(`pal-note.autoBreeding.playerMap.test.${W}`, JSON.stringify({ ...copy, entries: { 'u:bbbb': 'Taro' } }));
+  storage.setItem(`pal-note.autoBreeding.players.prod.${W}`, JSON.stringify({ u1: 'Taro' }));
+  storage.setItem(`pal-note.autoBreeding.playersMigrated.prod.${W}`, JSON.stringify({ u1: 'Taro' }));
+  // 形の違う写しは触らない
+  storage.setItem('pal-note.autoBreeding.playerMap.prod.BROKEN', '壊れた');
+  assert.equal(moveUserStorage(storage, 'pal-note', 'prod', 'Taro', 'Jiro'), true);
+  assert.deepEqual(read(storage, `pal-note.autoBreeding.playerMap.prod.${W}`), { ...copy, entries: { 'i:aaaaaaaa-0000-0000-0000-00000000000a': 'Jiro', 'u:bbbb': '花子', 'u:cccc': '' } });
+  assert.deepEqual(read(storage, `pal-note.autoBreeding.playerMap.test.${W}`).entries, { 'u:bbbb': 'Taro' });
+  // 前の版の対応と印を同じに書き換える（印が古いままだと、もう一度 GAS へ上げ直す）
+  assert.deepEqual(read(storage, `pal-note.autoBreeding.players.prod.${W}`), { u1: 'Jiro' });
+  assert.deepEqual(read(storage, `pal-note.autoBreeding.playersMigrated.prod.${W}`), { u1: 'Jiro' });
+  assert.equal(storage.getItem('pal-note.autoBreeding.playerMap.prod.BROKEN'), '壊れた');
+});
+
 test('端末内の移動: 大小だけの変更はキーが同じなので、中身だけを書き換えて消さない', () => {
   const storage = memoryStorage();
   storage.setItem('pal-note.drafts.prod.taro', JSON.stringify([{ id: 'a', registrant: 'taro' }]));

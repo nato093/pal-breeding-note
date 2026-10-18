@@ -1406,6 +1406,49 @@ test('画面: 別のタブで「登録者の対応」を変えたら（storage �
   assert.ok(selectHaving('mine'));
 });
 
+test('画面（server の mapping）: 別のタブが GAS のプレイヤーの対応の写しを書き換えたら（storage イベント）、本人の変化として理想個体を描き直す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_A);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', worlds: {} }];
+  const { values, events } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals) }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const status = () => byClass('ideal-goal-status').textContent;
+  assert.equal(status(), '未確認');
+  // 別のタブが GAS から読んだ対応（アリスのプレイヤーをログイン中の ID に）を写しに書いた
+  const key = `pal-note.autoBreeding.playerMap.test.${WORLD_A}`;
+  values.set(key, JSON.stringify({ v: 1, entries: { [`u:${PLAYER}`]: '架空データ' }, fetchedAt: Date.now() }));
+  events.get('storage')({ key });
+  assert.match(status(), /^完成済み: アリス/);
+});
+
+test('画面（server の mapping）: 10 秒ごとのタイマーは、表のタブなら表示しているワールドのプレイヤーの対応を 5 分に 1 回読み直す（裏のタブでは読まない）', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-16T00:00:00.000Z') });
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_A);
+  // 設定の画面（描くたびに 15 秒で読み直す）は開かない
+  const { intervals, calls } = await boot(t, { initial: signedIn, api: development, hash: '#/search' });
+  for (let i = 0; i < 10; i++) await flush();
+  const reads = () => calls.filter((call) => call.action === 'playerMap').map((call) => call.worldId);
+  const tick = async (visibility, ms = 10 * 1000) => {
+    t.mock.timers.tick(ms);
+    document.visibilityState = visibility;
+    intervals[0].fn();
+    for (let i = 0; i < 10; i++) await flush();
+  };
+  const before = reads().length;
+  assert.equal(before, 0);
+  await tick('visible');
+  assert.deepEqual(reads().slice(before), [WORLD_A]);
+  // 5 分たつまでは読まない
+  for (let i = 0; i < 5; i++) await tick('visible');
+  assert.equal(reads().length, before + 1);
+  await tick('hidden', 5 * 60 * 1000);
+  assert.equal(reads().length, before + 1);
+  await tick('visible');
+  assert.equal(reads().length, before + 2);
+});
+
 test('画面: ID の変更中は「このワールドでの自分」を選べず、変更中に別のタブで自分が変わったら、変更が終わってから 1 回判定し直す（通知は出さない）', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   const BOB = '00000000000000000000000000000002';
