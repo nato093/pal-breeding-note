@@ -179,3 +179,42 @@ test('API: 全件の記録は、id のない要素・同じ id の後の要素�
   assert.deepEqual(created.snapshot.records, [record]);
   assert.deepEqual(created.record, record);
 });
+
+// プレイヤーの対応（server の mapping。GAS の playerMap・playerMapSet）
+const mapKey = (n) => `i:11111111-2222-4333-8444-${String(n).padStart(12, '0')}`;
+const mapEntry = (n, extra = {}) => ({ key: mapKey(n), userId: 'Taro', playerName: 'Alice', updatedBy: 'Bob', updatedAt: '2026-10-18T00:00:00.000Z', ...extra });
+
+test('API（mapping）: playerMap・playerMapSet は決まった項目だけを送り、entries の 1 件も key・userId・playerName だけにする', () => {
+  assert.deepEqual(buildRequest('playerMap', '入力', { worldId: WORLD, entries: [], debug: 1 }), { action: 'playerMap', passcode: '入力', worldId: WORLD });
+  const request = buildRequest('playerMapSet', '入力', {
+    userId: 'Bob', worldId: WORLD, onlyMissing: true, debug: 1,
+    entries: [{ key: mapKey(1), userId: 'Taro', playerName: 'Alice', updatedBy: 'x', updatedAt: 'y' }, { key: mapKey(2), userId: '' }, null],
+  });
+  assert.deepEqual(request, {
+    action: 'playerMapSet', passcode: '入力', userId: 'Bob', worldId: WORLD, onlyMissing: true,
+    entries: [{ key: mapKey(1), userId: 'Taro', playerName: 'Alice' }, { key: mapKey(2), userId: '' }, null],
+  });
+});
+
+test('API（mapping）: 応答は env・api・serverTime・worldId・entries の配列を確かめ、対応の要素を整える（形の違う要素を捨て、同じ鍵は後）', async () => {
+  const good = { ok: true, env: 'test', api: 1, worldId: WORLD, entries: [mapEntry(1), mapEntry(2, { userId: '', playerName: '' })], serverTime: '2026-10-18T00:00:01.000Z' };
+  assert.deepEqual(await respond(good).request('playerMap', '入力', { worldId: WORLD }), good);
+  const messy = await respond({
+    ...good, worldId: WORLD.toLowerCase(),
+    entries: [null, mapEntry(1), { key: 'x', userId: 'Taro' }, mapEntry(3, { userId: 5 }), mapEntry(1, { key: mapKey(1).toUpperCase(), userId: 'Hanako', updatedAt: 'いつか' })],
+  }).request('playerMap', '入力', { worldId: WORLD });
+  assert.deepEqual([messy.worldId, messy.entries], [WORLD, [{ ...mapEntry(1), userId: 'Hanako', updatedAt: '' }]]);
+  const set = { ...good, changed: 1, skipped: 2 };
+  assert.deepEqual(await respond(set).request('playerMapSet', '入力', { worldId: WORLD }), set);
+  assert.deepEqual(await respond({ ...set, changed: 'x', skipped: undefined }).request('playerMapSet', '入力', { worldId: WORLD }), { ...set, changed: 0, skipped: 0 });
+  for (const broken of [{ entries: null }, { entries: {} }, { worldId: 'W1' }, { worldId: undefined }, { serverTime: undefined }, { env: 'dev' }, { api: undefined }]) {
+    await assert.rejects(respond({ ...good, ...broken }).request('playerMap', '入力', { worldId: WORLD }), { code: 'RESPONSE' }, JSON.stringify(broken));
+  }
+  // 古い GAS（版 12）は BAD_ACTION（画面は前の localStorage の対応に落とす）。断られた中身もそのまま渡す
+  await assert.rejects(respond({ ok: false, code: 'BAD_ACTION' }).request('playerMap', '入力', { worldId: WORLD }), { code: 'BAD_ACTION' });
+  const errors = [{ field: 'entries.0.userId', code: 'USER_NOT_FOUND' }];
+  await assert.rejects(respond({ ok: false, code: 'VALIDATION', errors }).request('playerMapSet', '入力', { worldId: WORLD }), (error) => {
+    assert.deepEqual([error.code, error.response.errors], ['VALIDATION', errors]);
+    return true;
+  });
+});

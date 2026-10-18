@@ -351,3 +351,37 @@ test('モック（server）: 共有のワールドの追加の情報（world の
   const old = await send({}, '2026-10-18T10:02:00.000Z');
   assert.deepEqual([pick(old.world), pick((await api(ownedRequest('ownedWorlds'))).worlds[0])], [{}, {}]);
 });
+
+test('モック（server の mapping）: プレイヤーの対応を GAS と同じ規則で扱い（ID の表記・ノートにない ID・onlyMissing・外した印・上限）、本物の API クライアントで読める。ID の変更で対応の ID も変える', async () => {
+  const api = createApi({ transport: createDevelopmentApi() });
+  const call = (action, input) => api.request(action, 'ローカル動作確認', input);
+  const worldId = 'ABCDEF0123456789ABCDEF0123456789';
+  const key = (n) => `i:11111111-2222-4333-8444-${String(n).padStart(12, '0')}`;
+  const H_KEY = 'u:00000000-0000-0000-0000-000000000001';
+  const set = (entries, extra = {}) => call('playerMapSet', { userId: 'Bob', worldId, entries, ...extra });
+  const shape = (entries) => entries.map((entry) => [entry.key, entry.userId, entry.updatedBy]);
+  await call('signup', { userId: 'Taro' });
+  await call('signup', { userId: 'Hanako' });
+  assert.deepEqual((await call('playerMap', { worldId })).entries, []);
+  const stored = await set([{ key: key(1), userId: 'ＴＡＲＯ', playerName: 'Alice', updatedBy: '送らない' }, { key: H_KEY, userId: 'Hanako' }]);
+  assert.deepEqual([stored.changed, stored.skipped, shape(stored.entries)], [2, 0, [[key(1), 'Taro', 'Bob'], [H_KEY, 'Hanako', 'Bob']]]);
+  assert.equal(stored.entries[0].playerName, 'Alice');
+  await assert.rejects(set([{ key: key(2), userId: '未登録' }]), (error) => {
+    assert.deepEqual([error.code, error.response.errors], ['VALIDATION', [{ field: 'entries.0.userId', code: 'USER_NOT_FOUND' }]]);
+    return true;
+  });
+  await assert.rejects(set([{ key: 'u:', userId: 'Taro' }]), { code: 'VALIDATION' });
+  const cleared = await set([{ key: H_KEY, userId: '' }]);
+  const migrated = await set([{ key: H_KEY, userId: 'Taro' }, { key: key(2), userId: 'Taro' }], { onlyMissing: true });
+  assert.deepEqual([cleared.changed, migrated.changed, migrated.skipped], [1, 1, 1]);
+  assert.deepEqual(shape((await call('playerMap', { worldId: worldId.toLowerCase() })).entries), [[key(1), 'Taro', 'Bob'], [H_KEY, '', 'Bob'], [key(2), 'Taro', 'Bob']]);
+  // 1 ワールド 200 の鍵まで（外した印を含む）
+  for (let start = 3; start < 200; start += 50) await set(Array.from({ length: Math.min(50, 200 - start) }, (_, i) => ({ key: key(start + i), userId: '' })));
+  assert.equal((await call('playerMap', { worldId })).entries.length, 200);
+  await assert.rejects(set([{ key: key(999), userId: '' }]), (error) => error.response.errors[0].code === 'TOO_MANY');
+  // ID の変更で、対応の ID と書いた人の ID も新しい ID にする
+  await set([{ key: key(1), userId: 'Hanako' }], { userId: 'taro' });
+  await call('rename', { userId: 'Taro', newUserId: 'Jiro' });
+  const renamed = (await call('playerMap', { worldId })).entries.slice(0, 3);
+  assert.deepEqual(shape(renamed), [[key(1), 'Hanako', 'Jiro'], [H_KEY, '', 'Bob'], [key(2), 'Jiro', 'Bob']]);
+});
