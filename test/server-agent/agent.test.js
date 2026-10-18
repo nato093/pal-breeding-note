@@ -654,6 +654,9 @@ test('常駐（結合）: 動いている常駐の受け入れは、読み込ん
   await pc.agent.settle();
   assert.notEqual(pc.agent.guard.status(W).state, 'blocked');
   assert.equal((await gas.published()).clock, clockAt(151));
+  // 長く動いても、読んだセーブの記録は新しい方だけを残し、最新のセーブは送れる
+  for (let minutes = 152; minutes < 172; minutes++) await pc.save({ minutes });
+  assert.deepEqual([pc.agent.owned.state.upload.status, (await gas.published()).clock], ['done', clockAt(171)]);
   await pc.agent.close();
 });
 

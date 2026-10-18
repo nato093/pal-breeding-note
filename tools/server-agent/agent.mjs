@@ -55,6 +55,8 @@ const ACCEPT_RETRY_MS = 30_000;
 export const ACCEPT_REQUEST_MAX_AGE_MS = 10 * 60_000;
 // 止めるときに、送っている途中の共有を待つ長さ
 const SHUTDOWN_WAIT_MS = 15_000;
+// 今の attach の間に読んだセーブの保存時刻を残す数
+const FRESH_MAX = 16;
 // 上限を超えたことをログに出し直す間隔（30 秒ごとの保存のたびには出さない）
 const TOO_LARGE_LOG_MS = 10 * 60_000;
 // ログインの失敗のうち、間を短く試し直すもの（通信・混雑・サーバーの一時的なエラー）。ほか（AUTH・USER_NOT_FOUND など）は 30 分ごと
@@ -224,6 +226,12 @@ export function createAgent({
   // 送ったりしないため。止まっている間と同じ扱い）
   const freshStamps = new Set();
   const isFresh = (stamp) => Boolean(stamp) && freshStamps.has(stamp);
+  // 動いている間は 30 秒ごとに増えるので、新しい方の FRESH_MAX だけ残す（送るのはいつも手元の最新のセーブ）
+  const markFresh = (stamp) => {
+    freshStamps.delete(stamp);
+    freshStamps.add(stamp);
+    while (freshStamps.size > FRESH_MAX) freshStamps.delete(freshStamps.values().next().value);
+  };
   // 共有を断る理由（送ってよければ null）。古い系統の判定の前と、送る直前（判定を待つ間に止まった・最後の送信の期限が過ぎた・次の attach に
   // 替わった送信を送らないため）の 2 か所で確かめる
   function uploadRefusal(input) {
@@ -387,7 +395,7 @@ export function createAgent({
     if (local && local !== seenLocal) {
       seenLocal = local;
       const stamp = ownedSaveStamp(local.snapshot?.world?.savedAtTicks);
-      if ((attached || finalWindow) && local.world.id === worldId && stamp) freshStamps.add(stamp);
+      if ((attached || finalWindow) && local.world.id === worldId && stamp) markFresh(stamp);
     }
     autoRegister?.evaluate();
     noteOwned();
