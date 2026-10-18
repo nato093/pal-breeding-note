@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSelfStore, selfKey, SELF_PREFIX } from '../../web/js/self-player.js';
 import { ownPlayerUids } from '../../web/js/core/ideal-goals.js';
+import { trackPlay, emptyPlay } from '../../web/js/core/playing.js';
 
 const WORLD = 'ABCDEF0123456789ABCDEF0123456789';
 const OTHER_WORLD = 'FEDCBA9876543210FEDCBA9876543210';
@@ -16,9 +17,9 @@ function memoryStorage() {
   return { map, getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, String(value)), removeItem: (key) => map.delete(key) };
 }
 
-function setup({ storage = memoryStorage(), state = {} } = {}) {
+function setup({ storage = memoryStorage(), state = {}, now } = {}) {
   const store = { state: { env: 'test', userId: 'Ｔａｒｏ', passcode: '入力', ...state } };
-  const self = createSelfStore({ store, storage });
+  const self = createSelfStore({ store, storage, ...(now ? { now } : {}) });
   const calls = [];
   self.subscribe(() => calls.push('changed'));
   return { store, storage, self, calls };
@@ -317,11 +318,14 @@ test('このワールドでの自分（server の identity）: migrate は i: �
   assert.deepEqual(calls, []);
 });
 
-test('このワールドでの自分（server の identity）: migrateShown は表示している所持パルで migrate し、H を移すのは手元のホストのデータ（source local・role host）のときだけ', () => {
-  const { self, storage, calls } = setup();
+test('このワールドでの自分（server の identity）: migrateShown は表示している所持パルで migrate し、H を移すのは手元のホストのデータ（source local・role host）で、この PC がホストとして遊んでいるときだけ', () => {
+  const NOW = 1_800_000_000_000;
+  const { self, storage, calls } = setup({ now: () => NOW });
   const stored = () => storage.map.get(`pal-note.ideals.self.test.taro.${WORLD}`);
   const players = [{ uid: UID_A, name: 'Alice', instanceId: IID_A }, { uid: UID_U, name: 'Bob', instanceId: IID_B }];
-  const shown = (source, role, extra = {}) => ({ role, meta: { worldId: WORLD.toLowerCase(), source }, owned: { players }, ...extra });
+  // 遊んでいる記録（30 秒ごとの保存が続けて見えている。core/playing.js）
+  const playing = [0, 30_000, 60_000].reduce((record, value, i) => trackPlay(record, { worldId: WORLD, role: 'host', value, at: NOW - 60_000 + i * 30_000 }), emptyPlay());
+  const shown = (source, role, extra = {}) => ({ role, meta: { worldId: WORLD.toLowerCase(), source }, local: { world: { id: WORLD } }, play: playing, owned: { players }, ...extra });
   storage.map.set(`pal-note.ideals.self.test.taro.${WORLD}`, UID_A);
   // この PC がホストの判定のまま、別の PC の新しい共有を表示している・参加者・閲覧者では移さない
   assert.equal(self.migrateShown(shown('shared', 'host')), false);
@@ -332,8 +336,11 @@ test('このワールドでの自分（server の identity）: migrateShown は�
   assert.equal(self.migrateShown(shown('local', 'host', { meta: null })), false);
   assert.equal(self.migrateShown(shown('local', 'host', { owned: null })), false);
   assert.equal(self.migrateShown(null), false);
+  // 手元のホストのデータでも、遊んでいなければ（同期で仲間のホストのセーブを受け取っただけ。役割は host）H を移さない
+  assert.equal(self.migrateShown(shown('local', 'host', { play: emptyPlay() })), false);
+  assert.equal(stored(), UID_A);
   assert.deepEqual(calls, []);
-  // 手元のホストのデータなら H も移す
+  // 手元のホストのデータで、この PC がホストとして遊んでいれば H も移す
   assert.equal(self.migrateShown(shown('local', 'host')), true);
   assert.equal(stored(), `i:${IID_A}`);
   assert.deepEqual(calls, ['changed']);
@@ -345,14 +352,17 @@ test('このワールドでの自分（server の identity）: migrateShown は�
 });
 
 test('このワールドでの自分（server の identity）: 前の版の値から、協力プレイ（H）→ サーバー（U）→ 版 12 の共有（InstanceId なし）→ 版 13 → 協力プレイと往復しても、選んだキャラクターのまま（app.js と同じ流れ）', () => {
-  const { self, storage } = setup({ state: { userId: 'Bob' } });
+  const NOW = 1_800_000_000_000;
+  const { self, storage } = setup({ state: { userId: 'Bob' }, now: () => NOW });
   const strip = (players) => players.map(({ uid, name }) => ({ uid, name }));
   // ログイン中の Bob のキャラクターはゲーム内の名前が GameBob（IID_A）。別の人（UID_B）のゲーム内の名前が Bob
   const coopHost = [{ uid: UID_A, name: 'GameBob', instanceId: IID_A }, { uid: UID_B, name: 'Bob', instanceId: IID_B }];
   const server = [{ uid: UID_U, name: 'GameBob', instanceId: IID_A }, { uid: UID_B, name: 'Bob', instanceId: IID_B }];
+  // 協力プレイのホストとして遊んでいる記録（手元のホストのデータのときに渡す）
+  const playing = [0, 30_000, 60_000].reduce((record, value, i) => trackPlay(record, { worldId: WORLD, role: 'host', value, at: NOW - 60_000 + i * 30_000 }), emptyPlay());
   // 表示が替わるたびに app.js と同じく migrateShown を呼び、ideals と同じ identity で自分を決める
   const show = (players, source = 'shared', role = '') => {
-    self.migrateShown({ role, meta: { worldId: WORLD, source }, owned: { players } });
+    self.migrateShown({ role, meta: { worldId: WORLD, source }, local: { world: { id: WORLD } }, play: source === 'local' ? playing : emptyPlay(), owned: { players } });
     return [...ownPlayerUids(players, { userId: 'Bob', users: ['Bob'], self: self.get(WORLD), selfLastUid: self.lastUid(WORLD) })];
   };
   // 前の版で、協力プレイのホストのときに自分（H）を選んでいた

@@ -124,7 +124,7 @@ async function boot() {
     }),
   });
   // 前の版の「このワールドでの自分」（UID）を、表示しているデータのプレイヤーのキャラクターの鍵（i:）に移し、引けた UID を覚える
-  //（server の identity。H は、この PC がホストとして読んだ手元のデータのときだけ。self-player.js の migrateShown）
+  //（server の identity。H は、この PC がホストとして遊んでいる手元のデータのときだけ。self-player.js の migrateShown）
   owned.subscribe((state) => self.migrateShown(state));
   // 本人が変わったら（このワールドでの自分・登録者の対応。別のタブの変更も）、同じセーブのまま完成を判定し直す（そのとき完成している
   // ものは知らせない）。ID の変更中は判定し直せない（ideals.js）ので、変更中に来た分は、変更が終わった store の通知で 1 回だけ判定し直す
