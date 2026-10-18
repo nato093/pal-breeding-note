@@ -72,11 +72,13 @@ function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 's
   pc.agent = createAgent({
     config: { env, userId: 'サーバー', passcode: PASS, apiUrl: 'local', envDir: path.dirname(kvFile), worldName: '', autoRegister: true },
     world: { worldId: W, worldDir: site.worldDir }, storage: pc.kv, log: pc.log.logger, monitor: server, api: gas.api,
-    // current が null の間は、保存の途中で読めなかったことにする
+    // current が null の間は、保存の途中で読めなかったことにする。importGate（Promise）を置くと、解析がそれを待つ（読み込みの途中に別の処理を動かす）
     runImport: async (files) => {
       pc.reads.push(files.map((file) => file.path).sort());
-      if (!pc.current) throw new Error('Level.sav を読めませんでした（テスト）');
-      return pc.current;
+      const current = pc.current;
+      await pc.importGate;
+      if (!current) throw new Error('Level.sav を読めませんでした（テスト）');
+      return current;
     },
     watch: pc.watch.factory, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer,
     ...(uploadLimit ? { uploadLimit } : {}),
@@ -543,6 +545,180 @@ test('常駐（2 台）: A が止まって B が建てる引き継ぎ。共有�
   assert.equal(gas.writes('create').length, 1);
   await a.agent.close();
   await b.agent.close();
+});
+
+// 期限まで仮の時計を進める（done が真になるか、回数の上限まで）
+async function advanceUntil(clock, done, { step = 5_000, times = 30 } = {}) {
+  for (let i = 0; i < times && !done(); i++) await clock.advance(step);
+}
+const realTurns = async (n = 20) => {
+  for (let i = 0; i < n; i++) await new Promise((resolve) => setTimeout(resolve, 2));
+};
+
+test('常駐（結合）: 動いている常駐の受け入れは、読み込んだセーブを基準にする（ディスクに次の保存が出ていても、受け入れの直後に止まらない）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  // 協力プレイで進めた続き（通算 200 分）が公開されている
+  await clock.advance(60_000);
+  const other = agentOf({ gas, clock, site: serverWorld(t) });
+  await other.start({ minutes: 200 });
+  await other.agent.close();
+  // 古いインスタンスのセーブ（150 分）を読むと止まる
+  await pc.save({ minutes: 150 });
+  assert.equal(pc.agent.guard.status(W).state, 'blocked');
+  // サーバーが次の保存（151 分）を書いたが、見張りはまだ読んでいない（5 秒ごとの確認の前）。ここで受け入れる
+  await clock.advance(30_000);
+  pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 151, day: 10 });
+  site.save(clock.now());
+  fs.mkdirSync(path.dirname(pc.kvFile), { recursive: true });
+  fs.writeFileSync(path.join(path.dirname(pc.kvFile), 'accept.request'), new Date(clock.now()).toISOString());
+  await pc.agent.checkRequests();
+  await pc.agent.settle();
+  assert.notEqual(pc.agent.guard.status(W).state, 'blocked', '受け入れの直後に止まらない');
+  assert.deepEqual([pc.agent.owned.state.upload.status, (await gas.published()).clock], ['done', clockAt(150)]);
+  // 次の保存を読んでも止まらずに送る
+  pc.watch.settle();
+  await pc.agent.settle();
+  await clock.advance(30_000);
+  await pc.agent.settle();
+  assert.notEqual(pc.agent.guard.status(W).state, 'blocked');
+  assert.equal((await gas.published()).clock, clockAt(151));
+  await pc.agent.close();
+});
+
+test('常駐（2 台）: A→B→A の引き継ぎで、A が前に動いていた間に読んだセーブは、判定にも共有にも使わない（読み直してから判定して送る）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const siteA = serverWorld(t);
+  const siteB = serverWorld(t);
+  const a = agentOf({ gas, clock, site: siteA });
+  const b = agentOf({ gas, clock, site: siteB, server: fakeServer('stopped') });
+  assert.equal(await b.agent.login(), 'ok');
+  await a.start({ minutes: 100 });
+  // A の最後の保存（101 分）は、公開の値を読めずに判定待ちのまま止まる
+  a.server.state = 'grace';
+  gas.control.fail.ownedWorlds = 'CONNECTION';
+  await a.save({ minutes: 101 });
+  assert.match(a.agent.owned.state.upload.error, /照らせていない/);
+  a.server.state = 'stopped';
+  let finished = false;
+  a.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(a.agent.attached(), false);
+  gas.control.fail.ownedWorlds = '';
+  await clock.advance(10 * 60_000);
+  // B が受け取ったワールドの続き（130 分）で建てて公開する
+  b.server.state = 'running';
+  b.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 130, day: 11 });
+  siteB.save(clock.now());
+  await b.agent.tick();
+  await b.agent.settle();
+  assert.equal((await gas.published()).clock, clockAt(130));
+  b.server.state = 'stopped';
+  await b.agent.tick();
+  // A の PC が同期で受け取った続き（140 分）で建てる。解析に時間がかかる間に、10 秒ごとの処理が動く
+  a.server.state = 'running';
+  await clock.advance(60_000);
+  const uploads = gas.writes('ownedUpload').length;
+  let release;
+  a.importGate = new Promise((resolve) => { release = resolve; });
+  a.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 140, day: 11 });
+  siteA.save(clock.now());
+  await a.agent.tick();
+  await clock.advance(30_000);
+  await a.agent.tick();
+  assert.notEqual(a.agent.guard.status(W).state, 'blocked', '読み込みの前の古いセーブで止めない');
+  assert.equal(gas.writes('ownedUpload').length, uploads, '読み込みの前の古いセーブを送らない');
+  release();
+  a.importGate = null;
+  await a.agent.settle();
+  await clock.advance(30_000);
+  await a.agent.settle();
+  assert.notEqual(a.agent.guard.status(W).state, 'blocked');
+  assert.deepEqual([a.agent.owned.state.upload.status, (await gas.published()).clock], ['done', clockAt(140)]);
+  assert.ok(gas.writes('ownedUpload').slice(uploads).every((item) => item.request.world.clock === clockAt(140)));
+  await a.agent.close();
+  await b.agent.close();
+});
+
+test('常駐（2 台）: 止まる前に送れなかった最後の保存の送り直しの予約は、引き継ぎの後に A が動いても古いセーブを送らない', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const siteA = serverWorld(t);
+  const siteB = serverWorld(t);
+  const a = agentOf({ gas, clock, site: siteA });
+  const b = agentOf({ gas, clock, site: siteB, server: fakeServer('stopped') });
+  assert.equal(await b.agent.login(), 'ok');
+  await a.start({ minutes: 100 });
+  a.server.state = 'grace';
+  gas.control.fail.ownedUpload = 'CONNECTION';
+  await a.save({ minutes: 101 });
+  a.server.state = 'stopped';
+  let finished = false;
+  a.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(a.agent.attached(), false);
+  gas.control.fail.ownedUpload = '';
+  // 止まっている間に送り直しの予約の時刻が来る（預かる）
+  await clock.advance(10 * 60_000);
+  b.server.state = 'running';
+  b.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 130, day: 11 });
+  siteB.save(clock.now());
+  await b.agent.tick();
+  await b.agent.settle();
+  b.server.state = 'stopped';
+  await b.agent.tick();
+  // A が受け取った続き（140 分）で建てる: 預かった予約は、読み込みの前の古いセーブ（101 分）を送らない
+  a.server.state = 'running';
+  await clock.advance(60_000);
+  const uploads = gas.writes('ownedUpload').length;
+  a.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 140, day: 11 });
+  siteA.save(clock.now());
+  await a.agent.tick();
+  await a.agent.settle();
+  await clock.advance(30_000);
+  await a.agent.settle();
+  assert.deepEqual(gas.writes('ownedUpload').slice(uploads).map((item) => item.request.world.clock), [clockAt(140)]);
+  assert.notEqual(a.agent.guard.status(W).state, 'blocked');
+  assert.equal((await gas.published()).clock, clockAt(140));
+  await a.agent.close();
+  await b.agent.close();
+});
+
+test('常駐（結合）: 最後の送信の期限が過ぎた後に、待っていた古い系統の判定が済んでも送らない', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  // 猶予の間の保存の共有が、公開の値を読む所（判定）で止まったまま、サーバーが止まる
+  pc.server.state = 'grace';
+  let release;
+  gas.control.gates.ownedWorlds = new Promise((resolve) => { release = resolve; });
+  await clock.advance(30_000);
+  pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 101, day: 10 });
+  site.save(clock.now());
+  pc.watch.settle();
+  await realTurns();
+  pc.server.state = 'stopped';
+  let finished = false;
+  pc.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(finished, true);
+  assert.equal(pc.agent.attached(), false);
+  assert.match(pc.log.text(), /detached lastUpload="timeout"/);
+  const uploads = gas.writes('ownedUpload').length;
+  // 期限の後に公開の値が読めた: 止まっているので送らない
+  release();
+  gas.control.gates.ownedWorlds = null;
+  await realTurns();
+  await pc.agent.settle();
+  assert.equal(gas.writes('ownedUpload').length, uploads);
+  assert.equal((await gas.published()).clock, clockAt(100));
+  await pc.agent.close();
 });
 
 test('常駐: 送る本文の文字数を測る（GAS の body.length と同じ）。上限を超えるワールドは理由をログに出して送らない', async (t) => {

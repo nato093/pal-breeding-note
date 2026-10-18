@@ -37,6 +37,8 @@ export const AUTH_RETRY_MS = 30 * 60_000;
 export const LOGIN_RETRY_STEPS = Object.freeze([15_000, 30_000, 60_000, 120_000, 300_000]);
 /** 止まっている間に共有を求められたときの code（owned.js の再試行の段に入らない） */
 export const AGENT_STOPPED = 'AGENT_STOPPED';
+/** 今の attach より前（前に動いていた間）に読んだセーブの共有を求められたときの code（同じく再試行の段に入らない。読み直したセーブを送る） */
+export const AGENT_STALE = 'AGENT_STALE';
 // presence を見直す間隔と、間隔より少し早く来た回も送る幅（owned.js の PRESENCE_SLACK と同じ）
 const PRESENCE_CHECK_MS = 10_000;
 const PRESENCE_SLACK_MS = 5_000;
@@ -177,6 +179,25 @@ export function createAgent({
   };
   const loggedIn = () => Boolean(scope());
   const call = (action, input) => store.call(action, input);
+
+  // 読んでいる（attached）か、止まった直後の最後の送信の間（finalWindow）だけ共有する
+  let attached = false;
+  let finalWindow = false;
+  // 今の attach の間（止まった直後の最後の送信を含む）に読んだセーブの保存時刻。attach のたびに空にする。ここにないセーブ（前に動いていた間に
+  // 読んだ手元のデータ）は、古い系統の判定にも共有にも自動登録にも使わない（A→B→A の引き継ぎで、B の続きを受け取る前の古いデータで止めたり
+  // 送ったりしないため。止まっている間と同じ扱い）
+  const freshStamps = new Set();
+  const isFresh = (stamp) => Boolean(stamp) && freshStamps.has(stamp);
+  // 共有を断る理由（送ってよければ null）。古い系統の判定の前と、送る直前（判定を待つ間に止まった・最後の送信の期限が過ぎた・次の attach に
+  // 替わった送信を送らないため）の 2 か所で確かめる
+  function uploadRefusal(input) {
+    if (!attached && !finalWindow) return Object.assign(new Error('サーバーが止まっているため共有しません'), { code: AGENT_STOPPED });
+    if (!isFresh(ownedSaveStamp(input?.world?.saveStamp))) {
+      return Object.assign(new Error('サーバーが動く前に読んだセーブのため共有しません（読み直してから送ります）'), { code: AGENT_STALE });
+    }
+    return null;
+  }
+
   // owned.js が ownedSince に載せる presence は外す（presence は常駐が自分で送る）
   const base = {
     scope,
@@ -187,6 +208,10 @@ export function createAgent({
         const { presence, ...rest } = input;
         return call(action, rest);
       }
+      if (action === 'ownedUpload') {
+        const refusal = uploadRefusal(input);
+        if (refusal) return Promise.reject(refusal);
+      }
       return call(action, input);
     },
   };
@@ -196,17 +221,15 @@ export function createAgent({
     server: base, storage: kv, namespace, log, onAccept: (id, env) => autoRegister?.forgetFarms(id, env),
   });
 
-  // 読んでいる（attached）か、止まった直後の最後の送信の間（finalWindow）だけ共有する
-  let attached = false;
-  let finalWindow = false;
   let lastUploadError = '';
   const server = {
     ...guard.server,
     async request(action, input) {
       if (action !== 'ownedUpload') return guard.server.request(action, input);
-      if (!attached && !finalWindow) {
-        lastUploadError = AGENT_STOPPED;
-        throw Object.assign(new Error('サーバーが止まっているため共有しません'), { code: AGENT_STOPPED });
+      const refusal = uploadRefusal(input);
+      if (refusal) {
+        lastUploadError = refusal.code;
+        throw refusal;
       }
       try {
         const response = await guard.server.request(action, input);
@@ -253,8 +276,8 @@ export function createAgent({
   });
   autoRegister = config.autoRegister === false ? null : createAutoRegister({
     store, owned, storage: kv, namespace, now, playerMaps,
-    // 止まっている間・古い系統の判定が済むまで・止めている間は、候補を取り込まず登録も送らない
-    paused: (id, stamp) => !attached || guard.paused(id, stamp),
+    // 止まっている間・前に動いていた間に読んだセーブ・古い系統の判定が済むまで・止めている間は、候補を取り込まず登録も送らない
+    paused: (id, stamp) => !attached || !isFresh(ownedSaveStamp(stamp)) || guard.paused(id, stamp),
     toast: (message) => log.info('auto-register', { message }),
     onNotice: () => noteNotices(),
   });
@@ -313,11 +336,19 @@ export function createAgent({
     else log.info('upload', fields);
     uploadKey = next;
   }
+  // 読み込んだ手元のデータ（読むたびに別のオブジェクト）。attach の間に読んだものの保存時刻を freshStamps に足す
+  let seenLocal = null;
   owned.subscribe(() => {
+    const local = owned.state.local;
+    if (local && local !== seenLocal) {
+      seenLocal = local;
+      const stamp = ownedSaveStamp(local.snapshot?.world?.savedAtTicks);
+      if ((attached || finalWindow) && local.world.id === worldId && stamp) freshStamps.add(stamp);
+    }
     autoRegister?.evaluate();
     noteOwned();
   });
-  // 判定が済んだ・受け入れた: 自動登録をやり直す。受け入れたら、読んでいるセーブを送り直す
+  // 判定が済んだ・受け入れた: 自動登録をやり直す。受け入れたら、読んでいるセーブを送り直す（今の attach の間に読んだものだけ。uploadRefusal）
   guard.subscribe((event) => {
     autoRegister?.evaluate();
     if (event.type === 'accepted' && attached) owned.uploadLocal({ force: true }).catch(() => {});
@@ -397,6 +428,8 @@ export function createAgent({
     attachWaitLogged = false;
     // 名前は設定の worldName があれば明示する（サーバーのセーブの名前は汎用の Autosave_W なので、なければ前の共有の名前。owned.js の worldNameOf）
     await source.commit({ worldId, steamId: SERVER_SAVE_ID, files: fileHandles(files), name: config.worldName, nameSet: Boolean(config.worldName) });
+    // 前に動いていた間に読んだセーブは使わない（読み直したものから使う）
+    freshStamps.clear();
     attached = true;
     log.info('attached', { worldId, files: Object.keys(files).length });
     gate.open();
@@ -466,13 +499,14 @@ export function createAgent({
     }
   }
 
-  // 判定待ちのまま送れなかったセーブ（公開の値を読めなかった）を、読めるようになったら判定して送る（owned.js はこの失敗を送り直さない）
+  // 判定待ちのまま送れなかったセーブ（公開の値を読めなかった）を、読めるようになったら判定して送る（owned.js はこの失敗を送り直さない）。
+  // 前に動いていた間に読んだセーブは判定しない（attach の後の読み込みを待つ）
   let lineageCheckedAt = -Infinity;
   async function recheckLineage() {
     const local = owned.state.local;
     const stamp = localStamp();
     const upload = owned.state.upload;
-    if (!local || !loggedIn() || lastUploadError !== LINEAGE_PENDING || upload.status !== 'error' || upload.stamp !== stamp) return;
+    if (!local || !isFresh(stamp) || !loggedIn() || lastUploadError !== LINEAGE_PENDING || upload.status !== 'error' || upload.stamp !== stamp) return;
     if (now() - lineageCheckedAt < LINEAGE_RECHECK_MS) return;
     lineageCheckedAt = now();
     if (await guard.check(worldId, lineageOfSnapshot(local.snapshot)) === 'ok') await owned.uploadLocal({ force: true }).catch(() => {});
@@ -572,6 +606,8 @@ export function createAgent({
 
   /**
    * 古い系統の受け入れ。そのときのセーブの値と、GAS から読んだ公開の世代の uploadedAt を基準にする（lineage-guard.mjs の accept）。
+   * 動いていて今の attach の間に読んだセーブがあれば、そのセーブの値にする（受け入れの後に送るのはそのセーブなので。ディスクの次の保存を
+   * 基準にすると、まだ読んでいない手元のセーブがそれより古く、受け入れの直後にまた止まる）。なければ今の Level.sav を読む
    * @returns {Promise<{ ok: boolean, retry: boolean, code?: string }>} retry は、読めるようになってから試し直すもの
    */
   async function acceptWorld() {
@@ -579,9 +615,10 @@ export function createAgent({
       log.warn('accept-failed', { code: 'NOT_READY', reason: 'ログインできていません' });
       return { ok: false, retry: true, code: 'NOT_READY' };
     }
-    let values;
+    const local = owned.state.local;
+    let values = attached && local?.world.id === worldId && isFresh(localStamp()) ? lineageOfSnapshot(local.snapshot) : null;
     try {
-      values = await readSaveValues();
+      values ??= await readSaveValues();
     } catch (error) {
       log.warn('accept-failed', { code: error?.code || 'SAVE_UNREADABLE', reason: 'セーブを読めません' });
       return { ok: false, retry: true, code: error?.code || 'SAVE_UNREADABLE' };
