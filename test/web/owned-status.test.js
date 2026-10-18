@@ -130,7 +130,7 @@ test('今すぐ読み込む（save-watch）: refreshNow は一式を採用せず
 });
 
 test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で warning）・共有を見ている人。共有を見ていない未連携は null', async () => {
-  const { roleSummary, HOST_SUMMARY, timeAgo, ownedNotices } = await import('../../web/js/ui/owned-status.js');
+  const { roleSummary, HOST_SUMMARY, timeAgo, ownedNotices, mappingOptions } = await import('../../web/js/ui/owned-status.js');
   const now = () => Date.parse('2026-10-15T12:00:00.000Z');
   const minutesAgo = (minutes) => new Date(now() - minutes * 60000).toISOString();
   const shared = (role, minutes, players = [{ uid: 'u1', name: 'Alice' }, { uid: 'u2', name: '仲間' }]) => ({
@@ -164,6 +164,20 @@ test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で war
   assert.match(notices[0].text, /配合牧場の自動登録は Alice の画面が行います/);
   assert.match(notices[0].hint, /「Bob」という名前のプレイヤーがいません/);
   assert.doesNotMatch(JSON.stringify(notices), /登録されていません。|動きません/);
+  // プレイヤーの対応（server の mapping）: 自分の ID に対応づいたプレイヤーがいれば出さない。GAS で動いていれば、どの PC からでも選べる文
+  const players = [{ uid: 'u1', name: 'Alice' }, { uid: 'u3', name: 'ぼぶ' }];
+  assert.equal(roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' }, mappingMode: 'gas' }).hint, '');
+  assert.equal(roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' } }).hint, '');
+  // ワールドにいない UID（以前のホストなど）だけに対応づいていても、自分のプレイヤーは決まっていないので出す
+  const gas = roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u1: 'Alice', gone: 'Bob' }, mappingMode: 'gas' });
+  assert.equal(gas.hint, 'このワールドに「Bob」という名前のプレイヤーがいません（Alice・ぼぶ）。あなたが親 2 体を預けた配合は、設定の「プレイヤーの対応」で自分のプレイヤーに Bob を選ぶと登録されます（どの PC からでも選べます）。');
+  assert.match(ownedNotices(shared('guest', 3, players), { userId: 'Bob', now, mappingMode: 'gas' })[0].hint, /どの PC からでも選べます/);
+  // 自動登録の表示しているワールドの対応（mappingOptions）
+  const auto = { mapping: (worldId) => (worldId === 'W' ? { u3: 'Bob' } : {}), mappingMode: () => 'gas' };
+  assert.deepEqual(mappingOptions(auto, shared('guest', 3)), { mapping: { u3: 'Bob' }, mappingMode: 'gas' });
+  assert.deepEqual(mappingOptions({ mapping: () => ({}) }, shared('guest', 3)), { mapping: {}, mappingMode: 'legacy' });
+  assert.deepEqual(mappingOptions(null, shared('guest', 3)), {});
+  assert.deepEqual(mappingOptions(auto, { meta: null }), {});
 });
 
 // ---- パル次元ストレージの読み漏れ（dps-missing） ----

@@ -3336,6 +3336,8 @@ button.ideal-reverser-pal:hover { text-decoration: underline; }
 .owned-breeding-player { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 14px; }
 .owned-breeding-player span { min-width: 8em; font-weight: 700; overflow-wrap: anywhere; }
 .owned-breeding-player select { flex: 1 1 12em; max-width: 100%; }
+/* プレイヤーにいない UID（以前のホストなど。server の mapping）の行の「拠点 n 体・牧場 m か所」は名前の下に小さく */
+.owned-breeding-player .owned-former-count { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 
 /* ---------- 画面の骨組み・細部の動き（2026-10 のデザイン刷新で追加） ---------- */
 /* 左にナビゲーションを固定し、その幅だけ中身を右へ寄せる */

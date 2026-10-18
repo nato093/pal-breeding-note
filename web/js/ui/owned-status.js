@@ -57,14 +57,15 @@ export function guestAutoText(host = '') {
 /**
  * 役割ごとの 1 行。ホスト・参加者（role 'guest'）・未連携で共有を見ている人。共有を見ていない未連携の人は null
  *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
- * いなければ hint に 1 行（X-07。一致したときは出さない）。
+ * いなければ hint に 1 行（X-07。一致したとき・プレイヤーの対応〔mapping。mappingMode は 'gas'・'legacy'〕で自分の ID に対応づいた人が
+ * いるときは出さない）。
  * 参加者の文は、最後に共有した人を今のホストと決めつけない（ホストは仲間内で交代する。sync-fixes の host-rotation）: 新しい共有を別の人が
  * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える。
  * 古い共有は警告の短い文にするが、共有が止まっている案内（shareLagNotice）が出るときは古さをそちらに任せ、info の形にする（同じ内容の
  * 警告を 2 つ並べない）
  * @returns {null | { text: string, kind: 'info' | 'warning', hint: string }}
  */
-export function roleSummary(state, { userId = '', now = Date.now } = {}) {
+export function roleSummary(state, { userId = '', now = Date.now, mapping = {}, mappingMode = 'legacy' } = {}) {
   if (!state) return null;
   if (state.role === 'host') return { text: HOST_SUMMARY, kind: 'info', hint: '' };
   const meta = state.meta ?? {};
@@ -73,7 +74,7 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
   const sharedAt = meta.sharedAt || meta.saveUpdatedAt || '';
   const ago = shared ? timeAgo(sharedAt, now()) : '';
   const stale = shared && Number.isFinite(Date.parse(sharedAt)) && now() - Date.parse(sharedAt) > SHARED_STALE_MS;
-  const hint = shared ? nameMismatch(state.owned?.players ?? [], userId) : '';
+  const hint = shared ? nameMismatch(state.owned?.players ?? [], userId, { mapping, mappingMode }) : '';
   if (state.role === 'guest') {
     if (!shared) return { text: guestAutoText(host), kind: 'info', hint: '' };
     // 共有した PC（送った人は ID で比べる。分からなければ添えない）
@@ -217,12 +218,27 @@ export function openPagesBrief(state, { now = Date.now } = {}) {
   return `3 分以内に応答があったほかの PC: ${others.map((pc) => `${pc.user || '名前なし'}（${[...pc.tags, ...pc.labels].join('・')}）`).join('、')}。`;
 }
 
-// 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人がいないときの 1 行
-function nameMismatch(players, userId) {
+// 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人も、プレイヤーの対応で自分の ID に対応づいた人もいないときの 1 行。
+// mapping は表示しているワールドの対応（uid → ID。auto-register.js の mapping）。mappingMode が 'gas' なら対応はノートにあり、どの PC からでも
+// 選べる（server の mapping）。'legacy'（前の版）なら、ホストの PC の対応だけが効く
+function nameMismatch(players, userId, { mapping = {}, mappingMode = 'legacy' } = {}) {
   if (!userId || !players.length || players.some((player) => player.name && userIdKey(player.name) === userIdKey(userId))) return '';
+  if (players.some((player) => typeof mapping[player.uid] === 'string' && userIdKey(mapping[player.uid]) === userIdKey(userId))) return '';
   const names = [...new Set(players.map((player) => player.name).filter(Boolean))];
   const shown = names.length > 5 ? `${names.slice(0, 5).join('・')} ほか` : names.join('・');
-  return `このワールドに「${userId}」という名前のプレイヤーがいません（${shown}）。あなたが親 2 体を預けた配合は、ホストに設定の「プレイヤーの対応」で ${userId} を選んでもらうまで登録されません（「このワールドでの自分」を選んでも、ホストの対応は変わりません）。`;
+  const lead = `このワールドに「${userId}」という名前のプレイヤーがいません（${shown}）。あなたが親 2 体を預けた配合は、`;
+  if (mappingMode === 'gas') return `${lead}設定の「プレイヤーの対応」で自分のプレイヤーに ${userId} を選ぶと登録されます（どの PC からでも選べます）。`;
+  return `${lead}ホストに設定の「プレイヤーの対応」で ${userId} を選んでもらうまで登録されません（「このワールドでの自分」を選んでも、ホストの対応は変わりません）。`;
+}
+
+/**
+ * 表示しているワールドのプレイヤーの対応（roleSummary・ownedNotices に渡す mapping と mappingMode。auto-register.js の mapping・mappingMode）。
+ * 自動登録がない・表示しているワールドがなければ {}（前の版の文になる）
+ */
+export function mappingOptions(autoRegister, state) {
+  const worldId = state?.meta?.worldId;
+  if (typeof autoRegister?.mapping !== 'function' || !worldId) return {};
+  return { mapping: autoRegister.mapping(worldId) ?? {}, mappingMode: autoRegister.mappingMode?.(worldId) ?? 'legacy' };
 }
 
 /**
@@ -445,7 +461,7 @@ export function dimensionNotice(state, { selfUids = new Set() } = {}) {
  * grant＝読む許可・register＝ワールドの登録のモーダル・settings＝設定のセーブ連携〔読んでいるワールドの行〕へ・editWorld＝読んでいるワールドの
  * 編集のモーダル・unknownPlace＝場所の分からないパル）。selfUids は自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dimensionNotice）
  */
-export function ownedNotices(state, { userId = '', now = Date.now, selfUids = new Set() } = {}) {
+export function ownedNotices(state, { userId = '', now = Date.now, selfUids = new Set(), mapping = {}, mappingMode = 'legacy' } = {}) {
   const notices = [];
   if (!state.ready) return notices;
   const auto = state.auto ?? {};
@@ -467,7 +483,7 @@ export function ownedNotices(state, { userId = '', now = Date.now, selfUids = ne
   const lag = shareLagNotice(state, { now });
   if (state.role === 'guest' && !hasData) notices.push(lag ?? { text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
   if (state.role === 'guest' && hasData) {
-    const summary = roleSummary(state, { userId, now });
+    const summary = roleSummary(state, { userId, now, mapping, mappingMode });
     if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}) });
     if (lag) notices.push(lag);
   }
