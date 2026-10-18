@@ -6,14 +6,15 @@ export const OWNED_FIELDS = [
   'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars',
   'passiveIds', 'passive1', 'passive2', 'passive3', 'passive4', 'talentHp', 'talentShot', 'talentDefense',
   'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner',
-  'skillIds', 'eggItemId', 'ownedAt',
+  'skillIds', 'eggItemId', 'ownedAt', 'soul', 'condition',
 ];
 // 後から足した列（OWNED_FIELDS の末尾）。足す前の画面（開いたままのページ）からの共有も受け付けて空として扱い、
 // GAS は setup() を実行し直してシートに列が足されるまで書かずに読む。eggItemId はタマゴのアイテム ID（名前と突然変異。farm-board）、
-// ownedAt は入手した時刻（ISO。入手の新しい順と NEW。save-extras）
-export const OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId', 'ownedAt'];
-// 覚えているアクティブスキルの ID（| 区切り）は、ほかの列より長くなる
-const OWNED_TEXT_MAX = { skillIds: 1000, eggItemId: 64, ownedAt: 30 };
+// ownedAt は入手した時刻（ISO。入手の新しい順と NEW。save-extras）。soul は魂の強化（'hp|attack|defense|craft'）、condition は状態
+//（'病気|空腹|SAN'。SAN は 0〜100 の整数）。どちらも '' は分からない（タマゴ・読む前のセーブ。server の share-extras。core/owned.js の soulCell）
+export const OWNED_ADDED_FIELDS = ['skillIds', 'eggItemId', 'ownedAt', 'soul', 'condition'];
+// 覚えているアクティブスキルの ID（| 区切り）は、ほかの列より長くなる。状態は病気と空腹の内部名（64 字まで）を 2 つ含む
+const OWNED_TEXT_MAX = { skillIds: 1000, eggItemId: 64, ownedAt: 30, soul: 20, condition: 140 };
 // プレイヤーの Lv（players の JSON の中。save-extras）の上限
 const OWNED_PLAYER_LEVEL_MAX = 999;
 // パル次元ストレージの読み漏れの数（players の JSON の中の dpsGap。dps-missing）の上限（共有できる行数と同じ）
@@ -23,14 +24,19 @@ const OWNED_DAY_MAX = 1000000;
 export const OWNED_MAX_ROWS = 20000;
 // 配合牧場（ワールドの行に JSON で 1 セル）。牧場の ID・拠点・親（個体 ID、2 体まで）と、farm-data で足した短い鍵:
 //   s: 'u'（親が読めない牧場。親は送らない）、eggs: [{ id, p, m }]（牧場の上のタマゴの中身。p はパル ID、m: 1 は突然変異。1 牧場 20 個まで）、
-//   n（タマゴの数。中身を省いても分かる）、of（ワールドの牧場の総数。セルに入らず牧場を切ったときだけ付く＝一部だけ）。
+//   n（タマゴの数。中身を省いても分かる）、of（ワールドの牧場の総数。セルに入らず牧場を切ったときだけ付く＝一部だけ）、
+//   c: [{ i: アイテム ID, n: 個数 }]（入れ物のケーキ。[] はケーキ切れ、鍵がなければ分からない。8 種まで。server の share-extras）。
 // 数は 200 件まで、セルの上限（5 万字）は OWNED_FARMS_MAX_CHARS（JSON にした後の字数）で守る（fitOwnedFarms）。
 // 古い GAS・古い画面はこの鍵を知らずに捨てる（id・baseId・parents だけの今までの形になる）
 export const OWNED_MAX_FARMS = 200;
 export const OWNED_FARMS_MAX_CHARS = 45000;
 export const OWNED_FARM_EGGS_MAX = 20;
+export const OWNED_FARM_CAKES_MAX = 8;
 // 1 牧場のタマゴの数の上限（セーブの解析が読む数。web/js/save/palworld.js の MAX_FARM_EGGS）
 const OWNED_FARM_EGG_COUNT_MAX = 64;
+// ゲームの内部名（パル ID・ケーキのアイテム ID）と、ケーキの個数の上限
+const OWNED_INTERNAL_NAME = /^[A-Za-z0-9_]{1,64}$/;
+const OWNED_CAKE_COUNT_MAX = 1000000;
 // 読めない牧場（s: 'u'）の親の代わり（個体 ID は英数字と - なので、どの個体にも当たらない）。古い画面は s を捨てるので、親を空にすると
 // 空き牧場として「空いた牧場に置くなら」を勧めてしまう。2 体の親がいる牧場として扱わせ、どの個体とも組にならないようにする
 export const OWNED_FARM_UNREADABLE_PARENTS = ['?1', '?2'];
@@ -63,13 +69,16 @@ export function cleanOwnedFarms(value) {
         const eggId = ownedText(egg.id, 40);
         if (!eggId) continue;
         const item = { id: eggId };
-        if (typeof egg.p === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(egg.p)) item.p = egg.p;
+        if (typeof egg.p === 'string' && OWNED_INTERNAL_NAME.test(egg.p)) item.p = egg.p;
         if (egg.m === 1) item.m = 1;
         eggs.push(item);
       }
       clean.eggs = eggs;
     }
     if (Number.isInteger(farm.n) && farm.n >= 0 && farm.n <= OWNED_FARM_EGG_COUNT_MAX) clean.n = farm.n;
+    // ケーキは読めない牧場（s: 'u'）でも残す（入れ物は親と別に読める）
+    const cakes = cleanFarmCakes(farm.c);
+    if (cakes) clean.c = cakes;
     const of = Number.isInteger(farm.of) && farm.of > 0 && farm.of <= 10000 ? farm.of : 0;
     if (of || cut) clean.of = Math.max(of, cut);
     farms.push(clean);
@@ -78,9 +87,26 @@ export function cleanOwnedFarms(value) {
 }
 
 /**
+ * 牧場のケーキ（c）を検査して整える。配列でなければ null（分からない）。アイテム ID の形が違う・個数が 1〜1,000,000 の整数でない項目は捨て、
+ * OWNED_FARM_CAKES_MAX 種まで。空でないのに合う項目が 1 つもなければ null（壊れた値を「ケーキ切れ」にしない）
+ */
+function cleanFarmCakes(value) {
+  if (!Array.isArray(value)) return null;
+  const cakes = [];
+  for (const cake of value) {
+    if (cakes.length >= OWNED_FARM_CAKES_MAX) break;
+    if (!cake || typeof cake !== 'object') continue;
+    const id = typeof cake.i === 'string' && OWNED_INTERNAL_NAME.test(cake.i) ? cake.i : '';
+    if (id && Number.isInteger(cake.n) && cake.n > 0 && cake.n <= OWNED_CAKE_COUNT_MAX) cakes.push({ i: id, n: cake.n });
+  }
+  return value.length && !cakes.length ? null : cakes;
+}
+
+/**
  * 配合牧場の一覧を、JSON にした後 OWNED_FARMS_MAX_CHARS 字以下に収める（入らないときだけ縮める）。
  * (1) そのまま入れば、そのまま (2) 入らなければ、全部の牧場のタマゴの中身（eggs）を外して数（n）だけにする（牧場は全部ある）
- * (3) まだ入らなければ、牧場を先頭から入る分だけ残し、残した全部の牧場に of（元の牧場の数）を付ける（一部だけ。判定は保留する）
+ * (3) まだ入らなければ、全部の牧場のケーキ（c）も外す（分からないになる。牧場を切って判定を保留にするより先に外す）
+ * (4) まだ入らなければ、牧場を先頭から入る分だけ残し、残した全部の牧場に of（元の牧場の数）を付ける（一部だけ。判定は保留する）
  */
 export function fitOwnedFarms(farms) {
   const list = Array.isArray(farms) ? farms : [];
@@ -92,9 +118,11 @@ export function fitOwnedFarms(farms) {
     return { ...rest, n: Number.isInteger(farm.n) ? farm.n : eggs.length };
   });
   if (size(counted) <= OWNED_FARMS_MAX_CHARS) return counted;
+  const bare = counted.map(({ c: _cakes, ...farm }) => farm);
+  if (size(bare) <= OWNED_FARMS_MAX_CHARS) return bare;
   const kept = [];
   let length = 2;
-  for (const farm of counted) {
+  for (const farm of bare) {
     const next = { ...farm, of: Math.max(Number.isInteger(farm.of) ? farm.of : 0, list.length) };
     const add = size(next) + (kept.length ? 1 : 0);
     if (length + add > OWNED_FARMS_MAX_CHARS) break;
@@ -195,12 +223,35 @@ export function formerLabel(uid) {
   return uid === HOST_UID ? '以前のホスト' : `不明なプレイヤー（${shortUid(uid)}）`;
 }
 
+// 捕獲数（players の JSON の captures。server の share-extras）: 種類の数と 1 種の回数の上限。players のセル（5 万字まで）は
+// OWNED_PLAYERS_MAX_CHARS（JSON にした後の字数）で守る（fitOwnedPlayers）
+export const OWNED_CAPTURES_MAX = 1000;
+const OWNED_CAPTURE_COUNT_MAX = 10000000;
+export const OWNED_PLAYERS_MAX_CHARS = 45000;
+
+/**
+ * 捕獲数（{ パル ID: 回数 }）を検査して整える。object でなければ null（分からない）。パル ID の形が違う・回数が 1〜10,000,000 の整数でない
+ * 項目は捨て、OWNED_CAPTURES_MAX 種まで。{} は捕まえていない。空でないのに合う項目が 1 つもなければ null（壊れた値を「0 回」にしない）
+ */
+export function cleanOwnedCaptures(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.keys(value);
+  const kept = [];
+  for (const palId of entries) {
+    if (kept.length >= OWNED_CAPTURES_MAX) break;
+    const count = value[palId];
+    if (OWNED_INTERNAL_NAME.test(palId) && Number.isInteger(count) && count > 0 && count <= OWNED_CAPTURE_COUNT_MAX) kept.push([palId, count]);
+  }
+  // Object.fromEntries は鍵をそのまま自分の項目にする（'__proto__' などでも object の作りを変えない）
+  return entries.length && !kept.length ? null : Object.fromEntries(kept);
+}
+
 /**
  * 共有のプレイヤー 1 人（uid・name と、save-extras で足した level〔1〜999 の整数〕・online〔true・false〕、dps-missing で足した
  * dpsGap〔1〜OWNED_DPS_GAP_MAX の整数。ホストの画面で、Level.sav のパル次元ストレージの個体のうち読めていない数。そのプレイヤーの
  * _dps.sav が登録されていないかもしれない人〔候補〕だけに付く〕、server の identity で足した instanceId〔キャラクターの InstanceId。
- * GUID の形のときだけ小文字で〕）。uid がなければ null。
- * level・online・dpsGap・instanceId は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
+ * GUID の形のときだけ小文字で〕、share-extras で足した captures〔捕獲数。cleanOwnedCaptures〕）。uid がなければ null。
+ * level・online・dpsGap・instanceId・captures は分からなければ鍵ごと付けない（古い画面・古い GAS は uid・name だけを残す）
  */
 export function cleanOwnedPlayer(player) {
   if (!player || typeof player !== 'object') return null;
@@ -211,7 +262,29 @@ export function cleanOwnedPlayer(player) {
   if (Number.isInteger(player.dpsGap) && player.dpsGap > 0 && player.dpsGap <= OWNED_DPS_GAP_MAX) clean.dpsGap = player.dpsGap;
   const instanceId = playerGuid(player.instanceId);
   if (instanceId) clean.instanceId = instanceId;
+  const captures = cleanOwnedCaptures(player.captures);
+  if (captures) clean.captures = captures;
   return clean;
+}
+
+/**
+ * プレイヤーの一覧（cleanOwnedPlayer の形）を、JSON にした後 OWNED_PLAYERS_MAX_CHARS 字以下に収める（入らないときだけ縮める）。
+ * 入らなければ、後ろのプレイヤーから順に捕獲数（captures）だけを外す（その人の捕獲数は分からないになる）。uid・name・instanceId など
+ * ほかの鍵は全員残す（参加者の画面がプレイヤーの鍵を引くため）。捕獲数のない一覧は 100 人でも上限に届かない
+ */
+export function fitOwnedPlayers(players) {
+  const list = Array.isArray(players) ? players : [];
+  let size = JSON.stringify(list).length;
+  if (size <= OWNED_PLAYERS_MAX_CHARS) return list;
+  const fitted = list.slice();
+  for (let i = fitted.length - 1; i >= 0 && size > OWNED_PLAYERS_MAX_CHARS; i--) {
+    if (!fitted[i] || !Object.prototype.hasOwnProperty.call(fitted[i], 'captures')) continue;
+    const { captures: _captures, ...rest } = fitted[i];
+    // 配列の JSON は要素の JSON を , でつないだものなので、外した分の字数だけ減る
+    size -= JSON.stringify(fitted[i]).length - JSON.stringify(rest).length;
+    fitted[i] = rest;
+  }
+  return fitted;
 }
 
 /** ゲーム内の日数（1〜1000000 の整数）。違えば null（列に書かない・分からない） */
@@ -227,12 +300,17 @@ export function ownedInGameDay(value) {
 // 共有の書き込みの結果の種類（GAS の ownedUpload の応答の result）。stored（書いたか）も今どおり返す
 export const OWNED_RESULTS = ['new', 'newer', 'stale', 'unchanged', 'resent', 'same'];
 // 共有の形の版の番号（画面が送る world.format。sync-fixes の share-upload）。同じセーブの送り直しで版が上がれば、decideOwnedUpload は
-// 前の中身を書き直す（resent）。今の形は 4（後から足した列〔OWNED_ADDED_FIELDS〕のない 26 列の形を 1 とし、列を足すごとに上げた数）。
+// 前の中身を書き直す（resent）。後から足した列〔OWNED_ADDED_FIELDS〕のない 26 列の形を 1 とし、skillIds・eggItemId・ownedAt の列を
+// 足すごとに上げて 4 だった。
 // 古い GAS に合わせて末尾の列を外して送るときは、外した列の数だけ下げて送る（劣った中身として扱わせ、全部の列で送り直したときに
 // 書き直されるように。web/js/owned.js の uploadLocal）ので、OWNED_ADDED_FIELDS の数より大きく保つ。上げ方: 列を足したら 1 つ上げる
 //（足した列を外した形が前の形と同じ版になる）。列を足さずに形を変えたら（players の JSON の鍵を足すなど）OWNED_ADDED_FIELDS の数＋1
-// 上げる（列を外して送る新しい形が、前の版の全部の列の形より下にならないように）
-export const OWNED_FORMAT = 4;
+// 上げる（列を外して送る新しい形が、前の版の全部の列の形より下にならないように）。
+// 今の形は 10（server の identity と share-extras を 1 回にまとめて計算した）: 列 soul・condition を足し、JSON の形も変えた（players の
+// instanceId・captures、farms の c、world の saveKind・clock・formers・items〔列 extras〕）。形を変えたので、足した後の OWNED_ADDED_FIELDS の
+// 数（5）＋1 を前の 4 に足して 4＋5＋1＝10。全部の列を外した 26 列の形は 10−5＝5、版 12 の GAS に合わせて soul・condition を外した 29 列の形は
+// 10−2＝8 で、どちらも前の形（4）より上（test/core/owned-shared.test.js で固定）
+export const OWNED_FORMAT = 10;
 // 識別の数の上限（共有の形の版・読めたファイルの数・読めなかったファイルの数）
 const OWNED_FORMAT_MAX = 1000;
 const OWNED_FILE_COUNT_MAX = 10000;
@@ -543,7 +621,8 @@ export function validateOwnedUpload(input) {
       // ゲーム内の日数（save-extras）。GAS の OWNED_UPLOAD_FIELDS_ の最上位の項目を増やさないよう world の中で受ける（古い GAS は捨てるだけ）
       inGameDay: ownedInGameDay(world.inGameDay),
       saveUpdatedAt: new Date(saveTime).toISOString(),
-      players: players.map(cleanOwnedPlayer).filter(Boolean),
+      // セルに入るよう縮める（捕獲数を後ろの人から外す。GAS・開発用 API・画面で同じ上限）
+      players: fitOwnedPlayers(players.map(cleanOwnedPlayer).filter(Boolean)),
       bases: bases.map((base) => ({ id: ownedText(base && base.id, 40), label: ownedText(base && base.label, 60) })).filter((base) => base.id),
       // 牧場を送らない古い画面からの共有では null（牧場の情報がない）。セルに入るよう縮める（GAS・開発用 API・画面で同じ上限）
       farms: source.farms === undefined || source.farms === null ? null : fitOwnedFarms(cleanOwnedFarms(source.farms)),

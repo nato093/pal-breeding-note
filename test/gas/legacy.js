@@ -1,5 +1,7 @@
-// 古い版（本番の GAS の版 10 と、今配信している画面。e984786）のコードを、Git の履歴から取り出す。
-// 「古い GAS＋新しい画面」「新しい GAS＋古い画面」の組み合わせのテストに使う（docs/sync-fixes/README.md の 3）。
+// 古い版のコードを、Git の履歴から取り出す。「古い GAS＋新しい画面」「新しい GAS＋古い画面」の組み合わせのテストに使う
+//（docs/sync-fixes/README.md の 3・docs/server/README.md の T2）。
+// - LEGACY_COMMIT（e984786）: GAS の版 10 と、そのときの画面（sync-fixes の前）
+// - LEGACY_V12_COMMIT（c1a29e7）: GAS の版 12 と、そのときの画面（sync-fixes の後・server の前。今の本番）
 // 履歴のない作業ツリー（浅い複製の CI など）では null を返し、呼び出す側のテストは skip する。
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const LEGACY_COMMIT = 'e984786';
+export const LEGACY_V12_COMMIT = 'c1a29e7';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function gitShow(commit, file) {

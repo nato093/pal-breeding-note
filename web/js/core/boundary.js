@@ -11,7 +11,7 @@
 import { sanitizeText } from './validate.js';
 import {
   OWNED_MAX_ROWS, OWNED_DPS_GAP_MAX, OWNED_PRESENCE_MAX, OWNED_PRESENCE_ROLES, cleanOwnedFarms, ownedWorldId, ownedSaveStamp, playerGuid,
-  cleanOwnedExtras,
+  cleanOwnedExtras, cleanOwnedCaptures,
 } from './owned-shared.js';
 
 export const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -157,8 +157,8 @@ const DAY_MAX = 1000000;
 /**
  * 共有のプレイヤー（uid 40 字・名前 50 字。uid が空・40 字を超えるものは捨てる。uid は個体の所持者と比べるので切り詰めない）。
  * save-extras で足した Lv（1〜999 の整数）とプレイ中（true・false）、dps-missing で足したパル次元ストレージの読み漏れの数
- *（dpsGap。1〜OWNED_DPS_GAP_MAX の整数）、server の identity で足したキャラクターの InstanceId（GUID の形のときだけ小文字で）は、
- * 形が合うときだけ写す（古い共有にはない）
+ *（dpsGap。1〜OWNED_DPS_GAP_MAX の整数）、server の identity で足したキャラクターの InstanceId（GUID の形のときだけ小文字で）、
+ * share-extras で足した捕獲数（captures。GAS と同じ cleanOwnedCaptures）は、形が合うときだけ写す（古い共有にはない）
  */
 export const cleanSharedPlayers = (value) => list(value, {
   max: PLAYERS_MAX,
@@ -170,6 +170,8 @@ export const cleanSharedPlayers = (value) => list(value, {
     if (Number.isInteger(player.dpsGap) && player.dpsGap > 0 && player.dpsGap <= OWNED_DPS_GAP_MAX) clean.dpsGap = player.dpsGap;
     const instanceId = playerGuid(player.instanceId);
     if (instanceId) clean.instanceId = instanceId;
+    const captures = cleanOwnedCaptures(player.captures);
+    if (captures) clean.captures = captures;
     return clean;
   },
 });

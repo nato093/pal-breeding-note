@@ -463,7 +463,8 @@ test('所持パル共有: 覚えているアクティブスキルを skillIds �
   ] }, { pals, passives });
   const upload = sharedUpload(host);
   const skillAt = upload.columns.indexOf('skillIds');
-  assert.equal(skillAt, OWNED_FIELDS.length - 3);
+  // skillIds は後から足した最初の列
+  assert.deepEqual(OWNED_FIELDS.slice(skillAt), OWNED_ADDED_FIELDS);
   assert.deepEqual(upload.rows.map((row) => row[skillAt]), ['Unique_SheepBall_Roll|AirCanon', '']);
   const shared = ownedFromShared({ world: { worldName: 'テスト' }, ...upload }, { pals, passives });
   assert.deepEqual(shared.pals.map((p) => [p.skills, p.skillNames, p.partnerSkill, p.elements]), [
@@ -483,14 +484,19 @@ test('所持パル共有: 後から足した列のない古い画面からの共
   });
   const row = (id, extra = {}) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? id : extra[field] ?? ''));
   const legacyFields = OWNED_FIELDS.slice(0, OWNED_FIELDS.length - OWNED_ADDED_FIELDS.length);
-  assert.deepEqual(OWNED_ADDED_FIELDS, ['skillIds', 'eggItemId', 'ownedAt']);
-  // skillIds だけを知っている画面（eggItemId を足す前の版）・eggItemId までを知っている画面（ownedAt を足す前の版。save-extras）からの共有も受け付ける
-  const withSkills = upload(OWNED_FIELDS.slice(0, -2), [row('p1', { skillIds: 'A' }).slice(0, -2)]);
+  assert.deepEqual(OWNED_ADDED_FIELDS, ['skillIds', 'eggItemId', 'ownedAt', 'soul', 'condition']);
+  const upTo = (field) => OWNED_FIELDS.indexOf(field) + 1;
+  // skillIds だけを知っている画面（eggItemId を足す前の版）・eggItemId までを知っている画面（ownedAt を足す前の版。save-extras）・ownedAt までを
+  // 知っている画面（soul・condition を足す前の版 12 の画面。server の share-extras）からの共有も受け付ける
+  const withSkills = upload(OWNED_FIELDS.slice(0, upTo('skillIds')), [row('p1', { skillIds: 'A' }).slice(0, upTo('skillIds'))]);
   assert.equal(withSkills.ok, true);
-  assert.deepEqual([withSkills.value.rows[0][OWNED_FIELDS.indexOf('skillIds')], withSkills.value.rows[0].at(-2), withSkills.value.rows[0].at(-1)], ['A', '', '']);
-  const withEggs = upload(OWNED_FIELDS.slice(0, -1), [row('p1', { eggItemId: 'PalEgg_Fire_01' }).slice(0, -1)]);
+  assert.deepEqual(withSkills.value.rows[0].slice(upTo('skillIds') - 1), ['A', '', '', '', '']);
+  const withEggs = upload(OWNED_FIELDS.slice(0, upTo('eggItemId')), [row('p1', { eggItemId: 'PalEgg_Fire_01' }).slice(0, upTo('eggItemId'))]);
   assert.equal(withEggs.ok, true);
-  assert.deepEqual([withEggs.value.rows[0][OWNED_FIELDS.indexOf('eggItemId')], withEggs.value.rows[0].at(-1)], ['PalEgg_Fire_01', '']);
+  assert.deepEqual(withEggs.value.rows[0].slice(upTo('eggItemId') - 1), ['PalEgg_Fire_01', '', '', '']);
+  const withOwnedAt = upload(OWNED_FIELDS.slice(0, upTo('ownedAt')), [row('p1', { ownedAt: '2026-10-15T12:52:16.570Z' }).slice(0, upTo('ownedAt'))]);
+  assert.equal(withOwnedAt.ok, true);
+  assert.deepEqual(withOwnedAt.value.rows[0].slice(upTo('ownedAt') - 1), ['2026-10-15T12:52:16.570Z', '', '']);
   const current = upload(OWNED_FIELDS, [row('p1', { skillIds: 'A|B' })]);
   assert.equal(current.ok, true);
   assert.equal(current.value.rows[0][OWNED_FIELDS.indexOf('skillIds')], 'A|B');
@@ -502,7 +508,9 @@ test('所持パル共有: 後から足した列のない古い画面からの共
   assert.deepEqual(upload(legacyFields, [row('p1')]).errors, [{ field: 'rows', code: 'INVALID_ROWS' }]);
   assert.deepEqual(upload([...legacyFields].reverse(), [row('p1').slice(0, legacyFields.length)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
   assert.deepEqual(upload([...OWNED_FIELDS, 'extra'], [[...row('p1'), '']]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
-  assert.deepEqual(upload(OWNED_FIELDS.slice(0, -4), [row('p1').slice(0, -4)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
+  // 後から足す前の 26 列より狭いものも受け付けない
+  const short = legacyFields.length - 1;
+  assert.deepEqual(upload(OWNED_FIELDS.slice(0, short), [row('p1').slice(0, short)]).errors[0], { field: 'columns', code: 'INVALID_COLUMNS' });
   // スキルの ID はほかの列より長く持てる（ほかの列は 200 字まで）
   const long = upload(OWNED_FIELDS, [row('p1', { skillIds: 'x'.repeat(1200), nickname: 'y'.repeat(300) })]).value.rows[0];
   assert.deepEqual([long[OWNED_FIELDS.indexOf('skillIds')].length, long[OWNED_FIELDS.indexOf('nickname')].length], [1000, 200]);
@@ -887,35 +895,70 @@ test('save-extras: 観賞用ケージの個体は拠点の持ち物（所持者�
   assert.equal(unknown.pals[0].place, 'unknown');
 });
 
-test('save-extras: 共有に入手時刻の列（ownedAt）と、players の Lv・プレイ中、world の日数を足す。魂の強化・状態・ケーキは共有しない。古い共有・古い画面の行も受ける', () => {
+test('save-extras・share-extras: 共有に入手時刻・魂の強化・状態の列（ownedAt・soul・condition）と、players の Lv・プレイ中、world の日数、farms のケーキ（c）を足し、参加者の画面に戻る。古い共有・古い画面の行も受ける', () => {
   const host = normalizeOwned({
     ...snapshot,
     world: { ...snapshot.world, inGameDay: 624 },
     players: [{ uid: P1, name: 'Alice', level: 52, online: true }, { uid: P2, name: 'Bob', level: 0, online: null }],
-    breedFarms: [{ id: 'F1', baseId: BASE, status: 'ok', parents: [], eggs: [], cakes: [{ itemId: 'Cake05', count: 7 }, { itemId: 'bad id', count: 3 }, { itemId: 'Cake02', count: 0 }] }],
-    pals: [pal('a', 'Anubis', { kind: 'party' }, { ownedAt: '2026-10-15T12:52:16.570Z', soul: { hp: 10 }, condition: { sick: 'Cold' } }), pal('b', 'PinkCat', { kind: 'party' })],
+    breedFarms: [
+      { id: 'F1', baseId: BASE, status: 'ok', parents: [], eggs: [], cakes: [{ itemId: 'Cake05', count: 7 }, { itemId: 'bad id', count: 3 }, { itemId: 'Cake02', count: 0 }] },
+      // ケーキ切れ・親が読めない牧場のケーキ・ケーキを読む前の牧場
+      { id: 'F2', baseId: BASE, status: 'ok', parents: [], eggs: [], cakes: [] },
+      { id: 'F3', baseId: BASE, status: 'uncertain', parents: [], eggs: [], cakes: [{ itemId: 'Cake02', count: 51 }] },
+      { id: 'F4', baseId: BASE, status: 'ok', parents: [], eggs: [] },
+    ],
+    pals: [
+      pal('a', 'Anubis', { kind: 'party' }, { ownedAt: '2026-10-15T12:52:16.570Z', soul: { hp: 10 }, condition: { sick: 'Cold', sanity: 62.4 } }),
+      pal('b', 'PinkCat', { kind: 'party' }),
+      pal('c', 'PinkCat', { kind: 'base', baseId: BASE }, { soul: { hp: 0, attack: 0, defense: 0, craft: 1 }, condition: { hunger: 'Starvation', sanity: 'x' } }),
+      // タマゴは魂の強化と状態を持たない（送らない）
+      pal('d', 'PinkCat', { kind: 'egg-incubator', baseId: BASE }, { soul: { hp: 1 }, condition: { sick: 'Cold', sanity: 100 } }),
+    ],
   }, { pals, passives });
-  // 牧場のケーキは手元のデータだけ（壊れた項目・0 個は捨てる）
-  assert.deepEqual(host.farms[0].cakes, [{ itemId: 'Cake05', count: 7 }]);
+  // 牧場のケーキ（壊れた項目・0 個は捨てる）
+  assert.deepEqual(host.farms.map((farm) => farm.cakes), [[{ itemId: 'Cake05', count: 7 }], [], [{ itemId: 'Cake02', count: 51 }], null]);
   const upload = sharedUpload(host);
-  assert.equal(upload.columns.at(-1), 'ownedAt');
-  assert.deepEqual(upload.rows.map((row) => row.at(-1)), ['2026-10-15T12:52:16.570Z', '']);
+  assert.deepEqual(upload.columns.slice(-3), ['ownedAt', 'soul', 'condition']);
+  // 魂の強化は 'hp|attack|defense|craft'、状態は '病気|空腹|SAN'（SAN は整数。読めなければ空）。分からない（読む前のセーブ・タマゴ）は ''
+  assert.deepEqual(upload.rows.map((row) => row.slice(-3)), [
+    ['2026-10-15T12:52:16.570Z', '10|0|0|0', 'Cold||62'], ['', '', ''], ['', '0|0|0|1', '|Starvation|'], ['', '', ''],
+  ]);
   // 分からない値（Lv 0・プレイ中 null）は送らない
   assert.deepEqual(upload.players, [{ uid: P1, name: 'Alice', level: 52, online: true }, { uid: P2, name: 'Bob' }]);
-  assert.equal(JSON.stringify(upload.farms).includes('Cake'), false);
-  assert.equal(JSON.stringify(upload).includes('Cold'), false);
+  // ケーキは牧場ごとの短い鍵 c（[] はケーキ切れ、鍵がなければ分からない。読めない牧場にも付ける）
+  assert.deepEqual(upload.farms.map((farm) => farm.c), [[{ i: 'Cake05', n: 7 }], [], [{ i: 'Cake02', n: 51 }], undefined]);
   const checked = validateOwnedUpload({ worldId: 'ABCDEF0123456789ABCDEF0123456789', world: { name: 'World9', hostName: 'Alice', inGameDay: 624 }, saveUpdatedAt: '2026-10-15T12:53:00.000Z', ...upload });
   assert.equal(checked.ok, true);
-  assert.deepEqual([checked.value.inGameDay, checked.value.players], [624, upload.players]);
-  // 参加者の画面: 入手時刻・Lv・プレイ中・日数を受け、魂の強化と状態は分からない（null）
+  assert.deepEqual([checked.value.inGameDay, checked.value.players, checked.value.farms], [624, upload.players, upload.farms]);
+  // 参加者の画面: 入手時刻・魂の強化と状態（SAN は整数）・Lv・プレイ中・日数・ケーキを受ける。タマゴの魂の強化と状態は分からない（null）
   const shared = ownedFromShared({ world: { worldName: 'World9', inGameDay: 624, players: checked.value.players, farms: checked.value.farms }, columns: OWNED_FIELDS, rows: checked.value.rows }, { pals, passives });
-  assert.deepEqual(shared.pals.map((p) => [p.ownedAt, p.soul, p.condition]), [['2026-10-15T12:52:16.570Z', null, null], ['', null, null]]);
+  assert.deepEqual(shared.pals.map((p) => [p.ownedAt, p.soul, p.condition]), [
+    ['2026-10-15T12:52:16.570Z', { hp: 10, attack: 0, defense: 0, craft: 0 }, { sick: 'Cold', hunger: '', sanity: 62 }],
+    ['', null, null],
+    ['', { hp: 0, attack: 0, defense: 0, craft: 1 }, { sick: '', hunger: 'Starvation', sanity: null }],
+    ['', null, null],
+  ]);
+  assert.deepEqual(shared.pals.map((p) => [p.soul, p.condition]).slice(0, 3), host.pals.map((p) => [p.soul, p.condition && { ...p.condition, sanity: p.condition.sanity === null ? null : Math.round(p.condition.sanity) }]).slice(0, 3));
+  assert.deepEqual(filterOwned(shared.pals, { query: '空腹' }).map((p) => p.id), ['c']);
+  assert.deepEqual(shared.farms.map((farm) => farm.cakes), [[{ itemId: 'Cake05', count: 7 }], [], [{ itemId: 'Cake02', count: 51 }], null]);
   assert.deepEqual(shared.players, [{ uid: P1, name: 'Alice', level: 52, online: true }, { uid: P2, name: 'Bob', level: 0, online: null }]);
   assert.equal(shared.world.inGameDay, 624);
-  // ownedAt の列のない古い共有（GAS の setup() の前・前の版の画面）・日数のない古い共有
+  // ownedAt の列のない古い共有（GAS の setup() の前・前の版の画面）・日数のない古い共有。soul・condition・c もないので分からない
   const width = OWNED_FIELDS.indexOf('ownedAt');
-  const legacy = ownedFromShared({ world: { worldName: 'World9', players: [{ uid: P1, name: 'Alice' }] }, columns: OWNED_FIELDS.slice(0, width), rows: checked.value.rows.map((row) => row.slice(0, width)) }, { pals, passives });
-  assert.deepEqual([legacy.pals.map((p) => p.ownedAt), legacy.players[0].online, legacy.world.inGameDay], [['', ''], null, null]);
+  const oldFarms = checked.value.farms.map(({ c: _cakes, ...farm }) => farm);
+  const legacy = ownedFromShared({ world: { worldName: 'World9', players: [{ uid: P1, name: 'Alice' }], farms: oldFarms }, columns: OWNED_FIELDS.slice(0, width), rows: checked.value.rows.map((row) => row.slice(0, width)) }, { pals, passives });
+  assert.deepEqual([legacy.pals.map((p) => p.ownedAt), legacy.players[0].online, legacy.world.inGameDay], [['', '', '', ''], null, null]);
+  assert.deepEqual([legacy.pals.map((p) => [p.soul, p.condition]), legacy.farms.map((farm) => farm.cakes)], [Array(4).fill([null, null]), [null, null, null, null]]);
+  // 版 12 の GAS（soul・condition の列を知らない）に合わせて狭めた 29 列の共有も、魂の強化と状態だけが分からない
+  const narrow = OWNED_FIELDS.indexOf('soul');
+  const v12 = ownedFromShared({ world: {}, columns: OWNED_FIELDS.slice(0, narrow), rows: checked.value.rows.map((row) => row.slice(0, narrow)) }, { pals, passives });
+  assert.deepEqual(v12.pals.map((p) => [p.ownedAt, p.soul, p.condition])[0], ['2026-10-15T12:52:16.570Z', null, null]);
+  // 形の壊れたセルは分からない（null）。範囲の外の数は 0〜100 に収める
+  const odd = (soul, condition) => ownedFromShared({ world: {}, columns: ['instanceId', 'soul', 'condition'], rows: [['z', soul, condition]] }, { pals, passives }).pals[0];
+  for (const [soul, condition] of [['1|2|3', 'Cold|x'], ['a|0|0|0', 'Cold|Hungry|1.5'], ['1|2|3|4|5', 'bad name||1'], ['|||', '||-1']]) {
+    assert.deepEqual([odd(soul, condition).soul, odd(soul, condition).condition], [null, null], `${soul} ${condition}`);
+  }
+  assert.deepEqual([odd('999|0|0|0', '||999').soul.hp, odd('999|0|0|0', '||999').condition.sanity], [100, 100]);
   // 壊れた時刻・日数・Lv は捨てる
   const broken = validateOwnedUpload({
     worldId: 'ABCDEF0123456789ABCDEF0123456789', world: { name: 'World9', inGameDay: 'x' }, saveUpdatedAt: '2026-10-15T12:53:00.000Z',

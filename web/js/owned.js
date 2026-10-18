@@ -958,9 +958,9 @@ export function createOwnedStore({
     try {
       const owned = normalizeOwned(local.snapshot, { pals, passives });
       const payload = sharedUpload(owned);
-      // ゲーム内の日数（save-extras）・セーブの識別（owned-gas）・追加の情報（セーブの種類・通算の時間・以前の持ち主。server）は、GAS の
-      // 最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ）。名前は送る時点の前の共有の名前まで見て決める（サーバーの
-      // セーブには名前がない）
+      // ゲーム内の日数（save-extras）・セーブの識別（owned-gas）・追加の情報（セーブの種類・通算の時間・以前の持ち主・在庫。server）は、GAS の
+      // 最上位の項目を増やさないよう world の中に入れる（古い GAS は捨てるだけ。在庫は中身の印に入る）。名前は送る時点の前の共有の名前まで
+      // 見て決める（サーバーのセーブには名前がない）
       const saveKind = saveKindOf(local.world.saveKind);
       let name = worldNameOf(local.world.id, local.snapshot?.world?.name);
       if (!name && !state.shared.worlds.some((item) => item.worldId === local.world.id)) {

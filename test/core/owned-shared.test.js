@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {
   compareSaves, ownedSaveStamp, ownedUploadIdentity, ownedSaveKey, parseOwnedSaveKey, decideOwnedUpload, cleanPresenceInput, validateOwnedUpload, OWNED_FIELDS,
   HOST_UID, OWNED_EXTRAS_MAX_CHARS, OWNED_FORMERS_MAX, OWNED_ITEMS_MAX, ownedSaveKind, cleanOwnedItems, cleanOwnedExtras, ownedExtrasText, parseOwnedExtras,
-  fitOwnedExtras,
+  fitOwnedExtras, OWNED_FORMAT, OWNED_ADDED_FIELDS, cleanOwnedFarms, fitOwnedFarms, OWNED_FARM_CAKES_MAX, OWNED_FARMS_MAX_CHARS, cleanOwnedCaptures,
+  cleanOwnedPlayer, fitOwnedPlayers, OWNED_CAPTURES_MAX, OWNED_PLAYERS_MAX_CHARS,
 } from '../../web/js/core/owned-shared.js';
 import { ticksText } from '../../web/js/save/palworld.js';
 
@@ -107,6 +108,24 @@ test('cleanPresenceInput: ページ・PC の ID・役割・真偽を検査し、
   for (const broken of [null, [], 'x', { ...value, pageId: 'short' }, { ...value, pageId: 'a'.repeat(65) }, { ...value, device: 'has space!' },
     { ...value, role: 'owner' }, { ...value, playing: 1 }, { ...value, canShare: 'false' }, { ...value, user: 5 }]) {
     assert.equal(cleanPresenceInput(broken), null, JSON.stringify(broken));
+  }
+});
+
+test('共有の形の版（OWNED_FORMAT。server）: soul・condition の列と JSON の形（instanceId・captures・c・extras）を 1 回にまとめて 4＋5＋1＝10。狭めた形も前の形（4）より上', () => {
+  // 前の配信（GAS 版 12・画面 c1a29e7）の形の版。共有の書き込みは、同じセーブなら形の版が上がったときだけ書き直す（decideOwnedUpload の resent）
+  const PREVIOUS_FORMAT = 4;
+  assert.equal(OWNED_FORMAT, PREVIOUS_FORMAT + OWNED_ADDED_FIELDS.length + 1);
+  assert.equal(OWNED_FORMAT, 10);
+  // 全部の後から足した列を外した 26 列の形（10−5＝5）と、版 12 の GAS に合わせて soul・condition を外した 29 列の形（10−2＝8）
+  const narrowest = OWNED_FORMAT - OWNED_ADDED_FIELDS.length;
+  const forV12 = OWNED_FORMAT - (OWNED_FIELDS.length - OWNED_FIELDS.indexOf('soul'));
+  assert.deepEqual([narrowest, forV12], [5, 8]);
+  assert.ok(narrowest > PREVIOUS_FORMAT && forV12 > PREVIOUS_FORMAT);
+  // 前の画面の全部の列（29 列・版 4）で書いた行を、新しい画面の狭めた送り直し（同じ人・同じセーブ）が書き直す（resent）
+  const id = (format) => ({ stamp: '638650000000000001', hash: HASH, format, fileCount: 6, missingCount: 0 });
+  const current = { saveUpdatedAt: AT, uploadedBy: 'Alice', identity: id(PREVIOUS_FORMAT) };
+  for (const format of [narrowest, forV12, OWNED_FORMAT]) {
+    assert.deepEqual(decideOwnedUpload(current, { saveUpdatedAt: AT, uploadedBy: 'Alice', identity: { ...id(format), hash: 'd'.repeat(64) } }), { result: 'resent', write: true }, String(format));
   }
 });
 
@@ -225,6 +244,115 @@ test('fitOwnedExtras（server）: セル（at を含む JSON）を 45,000 字以
   assert.deepEqual(fitted.formers, crowd.filter((former) => kept.has(former.uid)));
   assert.deepEqual(Object.keys(fitted), ['saveKind', 'clock', 'formers', 'formersPartial', 'items']);
   assert.deepEqual(cleanOwnedExtras(fitted), fitted);
+});
+
+// ---------------------------------------------------------------------------
+// ホストの画面だけだった情報の共有（server の share-extras）: 魂の強化と状態の列・牧場のケーキ（c）・捕獲数（captures）
+// ---------------------------------------------------------------------------
+
+test('列 soul・condition（share-extras）: OWNED_FIELDS の末尾の後から足した列。31 列・版 12 の 29 列・26 列の共有を受け、足りない列は空。長さの上限', () => {
+  assert.deepEqual(OWNED_FIELDS.slice(-2), ['soul', 'condition']);
+  assert.deepEqual(OWNED_ADDED_FIELDS.slice(-2), ['soul', 'condition']);
+  const row = (overrides = {}) => OWNED_FIELDS.map((field) => (field === 'instanceId' ? 'p1' : overrides[field] ?? ''));
+  const upload = (width, cells = row()) => validateOwnedUpload({
+    worldId: 'A'.repeat(32), saveUpdatedAt: AT, world: { name: 'W' }, columns: OWNED_FIELDS.slice(0, width), rows: [cells.slice(0, width)],
+  });
+  const full = upload(OWNED_FIELDS.length, row({ soul: '10|0|0|1', condition: 'Cold|Starvation|62' }));
+  assert.deepEqual(full.value.rows[0].slice(-2), ['10|0|0|1', 'Cold|Starvation|62']);
+  for (const width of [OWNED_FIELDS.length - 2, OWNED_FIELDS.length - OWNED_ADDED_FIELDS.length]) {
+    const narrow = upload(width);
+    assert.equal(narrow.ok, true, String(width));
+    assert.deepEqual([narrow.value.rows[0].length, ...narrow.value.rows[0].slice(-2)], [OWNED_FIELDS.length, '', ''], String(width));
+  }
+  assert.equal(upload(OWNED_FIELDS.length - OWNED_ADDED_FIELDS.length - 1).errors[0].code, 'INVALID_COLUMNS');
+  const long = upload(OWNED_FIELDS.length, row({ soul: '1'.repeat(30), condition: 'x'.repeat(200) })).value.rows[0];
+  assert.deepEqual([long.at(-2).length, long.at(-1).length], [20, 140]);
+});
+
+test('牧場のケーキ c（share-extras）: [{ i: アイテム ID, n: 個数 }] を検査して 8 種まで残す（読めない牧場にも）。[] はケーキ切れ、壊れた値・配列でないは鍵を付けない（分からない）', () => {
+  const farm = (c) => cleanOwnedFarms([{ id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 0, ...(c === undefined ? {} : { c }) }])[0];
+  assert.deepEqual(farm([{ i: 'Cake02', n: 51 }, { i: 'Cake03', n: 18 }]).c, [{ i: 'Cake02', n: 51 }, { i: 'Cake03', n: 18 }]);
+  assert.deepEqual(farm([]).c, []);
+  for (const broken of [undefined, null, 'x', {}, [null], [{ i: 'bad id', n: 1 }], [{ i: 'Cake02', n: 0 }]]) {
+    assert.equal('c' in farm(broken), false, JSON.stringify(broken));
+  }
+  // 形の合う項目だけを残す（ID の形・個数 1〜1,000,000 の整数）。知らない鍵は落とす
+  assert.deepEqual(farm([{ i: 'Cake02', n: 1.5 }, { i: 'Cake03', n: 1000001 }, { i: 'Cake04', n: '3' }, { i: 'Cake05', n: 7, x: 1 }, 'Cake06']).c, [{ i: 'Cake05', n: 7 }]);
+  assert.equal(farm(Array.from({ length: 12 }, (_, i) => ({ i: `Cake${i}`, n: 1 }))).c.length, OWNED_FARM_CAKES_MAX);
+  // 読めない牧場（s: 'u'）のケーキも残す（入れ物は親と別に読める）
+  const unreadable = cleanOwnedFarms([{ id: 'F2', baseId: 'b1', parents: [], s: 'u', n: 1, c: [{ i: 'Cake02', n: 2 }] }])[0];
+  assert.deepEqual([unreadable.s, unreadable.c], ['u', [{ i: 'Cake02', n: 2 }]]);
+});
+
+test('fitOwnedFarms（share-extras）: セルに入らなければ タマゴの中身（eggs）→ ケーキ（c）→ 牧場 の順に外す', () => {
+  const id = (prefix, i) => `${prefix}${i}`.padEnd(40, 'x');
+  const cakes = Array.from({ length: OWNED_FARM_CAKES_MAX }, (_, j) => ({ i: `Cake${String(j).padStart(60, '0')}`, n: 1000000 }));
+  const farms = (count, { eggs = 0 } = {}) => cleanOwnedFarms(Array.from({ length: count }, (_, i) => ({
+    id: id('F', i), baseId: id('B', i), parents: [id('P', i), id('Q', i)], n: eggs, c: cakes,
+    ...(eggs ? { eggs: Array.from({ length: eggs }, (_, j) => ({ id: id(`E${i}-`, j), p: 'SheepBall', m: 1 })) } : {}),
+  })));
+  const size = (value) => JSON.stringify(value).length;
+  // (2) タマゴの中身を外せば入る: ケーキは残す
+  const withEggs = farms(40, { eggs: 20 });
+  assert.ok(size(withEggs) > OWNED_FARMS_MAX_CHARS);
+  const counted = fitOwnedFarms(withEggs);
+  assert.ok(counted.every((farm) => !('eggs' in farm) && farm.n === 20 && farm.c.length === OWNED_FARM_CAKES_MAX));
+  // (3) タマゴの中身を外しても入らなければケーキも外す（牧場は全部残る・of を付けない）
+  const many = farms(100);
+  assert.ok(size(many) > OWNED_FARMS_MAX_CHARS);
+  const bare = fitOwnedFarms(many);
+  assert.ok(size(bare) <= OWNED_FARMS_MAX_CHARS, String(size(bare)));
+  assert.deepEqual([bare.length, bare.some((farm) => 'c' in farm || 'of' in farm)], [100, false]);
+  // (4) それでも入らなければ牧場を切る（ケーキのない形で、残した牧場に of）。JSON で 2 字になる文字の ID で、ケーキを外しても入らない牧場
+  const quoted = cleanOwnedFarms(Array.from({ length: 200 }, (_, i) => ({
+    id: `F${i}`.padEnd(40, '"'), baseId: `B${i}`.padEnd(40, '"'), parents: [`P${i}`.padEnd(40, '"'), `Q${i}`.padEnd(40, '"')], n: 0, c: cakes,
+  })));
+  const cut = fitOwnedFarms(quoted);
+  assert.ok(size(cut) <= OWNED_FARMS_MAX_CHARS, String(size(cut)));
+  assert.ok(cut.length > 0 && cut.length < 200, String(cut.length));
+  assert.ok(cut.every((farm) => !('c' in farm) && farm.of === 200));
+});
+
+test('cleanOwnedCaptures（share-extras）: { パル ID: 回数 } を検査（ID の形・1〜10,000,000 の整数・1,000 種まで）。{} は捕まえていない、object でない・壊れた値だけなら null', () => {
+  assert.deepEqual(cleanOwnedCaptures({ SheepBall: 12, Werewolf_Ice: 3 }), { SheepBall: 12, Werewolf_Ice: 3 });
+  assert.deepEqual(cleanOwnedCaptures({}), {});
+  for (const broken of [null, undefined, 'x', 3, [], [['SheepBall', 1]], { SheepBall: 0 }, { 'bad id': 1 }, { SheepBall: '3' }]) {
+    assert.equal(cleanOwnedCaptures(broken), null, JSON.stringify(broken));
+  }
+  assert.deepEqual(cleanOwnedCaptures({ SheepBall: 1.5, PinkCat: 10000001, Anubis: 7, 'x y': 1 }), { Anubis: 7 });
+  const many = Object.fromEntries(Array.from({ length: OWNED_CAPTURES_MAX + 10 }, (_, i) => [`Pal${i}`, 1]));
+  assert.equal(Object.keys(cleanOwnedCaptures(many)).length, OWNED_CAPTURES_MAX);
+  // '__proto__' などの鍵でも object の作りを変えない（自分の項目として残る）
+  const odd = cleanOwnedCaptures(JSON.parse('{"__proto__": 5, "SheepBall": 1}'));
+  assert.deepEqual([Object.getPrototypeOf(odd), Object.keys(odd)], [Object.prototype, ['__proto__', 'SheepBall']]);
+  // プレイヤー: 分かるときだけ captures（ほかの鍵の後）
+  assert.deepEqual(cleanOwnedPlayer({ uid: 'u1', name: 'Alice', captures: { SheepBall: 2 }, x: 1 }), { uid: 'u1', name: 'Alice', captures: { SheepBall: 2 } });
+  assert.deepEqual(cleanOwnedPlayer({ uid: 'u1', name: 'Alice', captures: 'x' }), { uid: 'u1', name: 'Alice' });
+});
+
+test('fitOwnedPlayers（share-extras）: players のセルを 45,000 字以下に。入らなければ後ろの人から捕獲数（captures）だけを外し、instanceId などほかの鍵は全員残す', () => {
+  const IID = (i) => `${String(i).padStart(8, '0')}-1111-2222-3333-444444444444`;
+  const captures = Object.fromEntries(Array.from({ length: 250 }, (_, i) => [`Pal_${String(i).padStart(10, '0')}`, 1000 + i]));
+  const players = Array.from({ length: 20 }, (_, i) => cleanOwnedPlayer({
+    uid: `${String(i).padStart(8, '0')}-0000-0000-0000-000000000000`, name: `Player${i}`, level: 50, online: i % 2 === 0, instanceId: IID(i), captures,
+  }));
+  const small = players.slice(0, 2);
+  assert.equal(fitOwnedPlayers(small), small);
+  assert.ok(JSON.stringify(players).length > OWNED_PLAYERS_MAX_CHARS);
+  const fitted = fitOwnedPlayers(players);
+  assert.ok(JSON.stringify(fitted).length <= OWNED_PLAYERS_MAX_CHARS, String(JSON.stringify(fitted).length));
+  // 前の人は捕獲数が残り、後ろの人から外れる（間に残った人はいない）
+  const kept = fitted.map((player) => 'captures' in player);
+  const first = kept.indexOf(false);
+  assert.ok(first > 0 && kept.slice(first).every((value) => !value), JSON.stringify(kept));
+  // ほかの鍵（uid・name・level・online・instanceId）は全員そのまま
+  assert.deepEqual(fitted.map(({ captures: _captures, ...rest }) => rest), players.map(({ captures: _captures, ...rest }) => rest));
+  assert.equal(fitted.length, players.length);
+  // 元の一覧は変えない
+  assert.ok(players.every((player) => 'captures' in player));
+  // validateOwnedUpload（GAS・開発用 API）も同じ規則で縮める
+  const checked = validateOwnedUpload({ worldId: 'A'.repeat(32), saveUpdatedAt: AT, world: { name: 'W' }, players, columns: OWNED_FIELDS, rows: [] });
+  assert.deepEqual(checked.value.players, fitted);
 });
 
 test('validateOwnedUpload（server）: 追加の情報は world の中で受けて extras に整え（セルに入るよう縮める）、分かることがなければ null', () => {

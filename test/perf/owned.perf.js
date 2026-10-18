@@ -7,7 +7,7 @@ import { cleanOwnedPayload } from '../../web/js/core/boundary.js';
 import { ownedFromShared } from '../../web/js/core/owned.js';
 
 // data-boundary の予算: 共有を読み直すときの整え直し（cleanOwnedPayload）と画面用の変換（ownedFromShared）を合わせて 200ms 以内
-test('性能: 共有の所持パル 20,000 行（27 列）の整え直しと画面用の変換が 200ms 以内', () => {
+test('性能: 共有の所持パル 20,000 行（31 列）の整え直しと画面用の変換が 200ms 以内', () => {
   let state = 0x4f574e44;
   const random = () => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
@@ -29,6 +29,9 @@ test('性能: 共有の所持パル 20,000 行（27 列）の整え直しと画�
       holderUid: '00000000-0000-0000-0000-000000000001', holder: 'Alice', baseId: '', lastOwner: '', skillIds: 'AirCanon|FireBall',
       // 入手した時刻（save-extras の列。行ごとに形を確かめる）
       ownedAt: new Date(Date.UTC(2026, 0, 1) + Math.floor(random() * 3e10)).toISOString(),
+      // 魂の強化と状態（server の share-extras の列）。多くは同じ文字で、一部だけ強化・空腹・SAN が違う（タマゴは空）
+      soul: random() < 0.01 ? `${Math.floor(random() * 4) * 10}|0|0|1` : '0|0|0|0',
+      condition: random() < 0.05 ? `|Starvation|${Math.floor(random() * 101)}` : `||${random() < 0.9 ? 100 : Math.floor(random() * 101)}`,
     };
     return OWNED_FIELDS.map((field) => value[field] ?? '');
   });

@@ -5,8 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ZERO_GUID } from '../../web/js/save/gvas.js';
 import { parseLevel, parsePlayer, buildSnapshot } from '../../web/js/save/palworld.js';
-import { normalizeOwned, ownedFromShared, itemStock, stockText } from '../../web/js/core/owned.js';
-import { OWNED_FIELDS } from '../../web/js/core/owned-shared.js';
+import { normalizeOwned, ownedFromShared, itemStock, stockText, sharedExtras } from '../../web/js/core/owned.js';
+import { OWNED_FIELDS, OWNED_ITEMS_MAX, OWNED_EXTRAS_MAX_CHARS, validateOwnedUpload, ownedExtrasText } from '../../web/js/core/owned-shared.js';
+import { cleanOwnedWorlds } from '../../web/js/core/boundary.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { ByteWriter, GvasWriter, gvasWithHeader, finishGvas } from '../helpers/gvas-writer.js';
@@ -191,7 +192,7 @@ test('在庫（画面）: アイテムごとの合計と、数の多い場所 3 
   assert.equal(stockText(itemStock(owned, 'PalPassiveSkillChange_Consumable_Deffence_up3')), '在庫なし');
   assert.equal(stockText(itemStock(owned, SPEED), { short: true }), '在庫 6');
   assert.equal(stockText(null), '');
-  // 在庫を読む前の古いスナップショット・形の壊れた値は分からない（null）。参加者（共有のデータ）は在庫を持たない（共有しない）
+  // 在庫を読む前の古いスナップショット・形の壊れた値は分からない（null）。在庫のない古い共有も分からない（共有は次のテスト）
   const old = normalizeOwned({ version: 1, world: {}, players: [], bases: [], pals: [], stats: {} }, { pals, passives });
   assert.equal(old.items, null);
   assert.equal(itemStock(old, SPEED), null);
@@ -211,4 +212,48 @@ test('在庫（画面）: アイテムごとの合計と、数の多い場所 3 
   const shared = ownedFromShared({ world: { worldName: 'W' }, columns: OWNED_FIELDS, rows: [] }, { pals, passives });
   assert.equal(shared.items, null);
   assert.equal(itemStock(shared, SPEED), null);
+});
+
+test('在庫の共有（server の share-extras）: world の items（列 extras）で送り、GAS の検査を通って参加者の画面で同じ在庫と文になる。種類の上限で切れた共有は、ないアイテムを「分からない」にする', () => {
+  const owned = normalizeOwned(buildSnapshot({ level: parseLevel(level()), players: [player()] }), { pals, passives });
+  const extras = sharedExtras(owned, 'coop');
+  // アイテム ID の順。場所の内訳は多い順に 3 か所まで
+  assert.deepEqual(extras.items, [
+    { id: REVERSER, t: 12, p: [{ l: '拠点 1 の設備', n: 8 }, { l: 'ギルド保管庫', n: 3 }, { l: '拠点 1 の箱', n: 1 }] },
+    { id: SPEED, t: 6, p: [{ l: '拠点 1 の箱', n: 5 }, { l: 'Alice の所持品', n: 1 }] },
+    { id: NOUKIN, t: 2, p: [{ l: 'Alice の所持品', n: 1 }, { l: '拠点 1 の配合牧場', n: 1 }] },
+  ]);
+  const checked = validateOwnedUpload({ worldId: 'A'.repeat(32), saveUpdatedAt: '2026-10-18T10:00:00.000Z', world: { name: 'W', ...extras }, columns: OWNED_FIELDS, rows: [] });
+  // GAS が world に広げて返したもの → 一覧のキャッシュの検査 → 参加者の画面
+  const [world] = cleanOwnedWorlds([{ worldId: 'A'.repeat(32), worldName: 'W', ...checked.value.extras }]);
+  const shared = ownedFromShared({ world, columns: OWNED_FIELDS, rows: [] }, { pals, passives });
+  assert.deepEqual([shared.items, shared.itemsPartial], [owned.items, false]);
+  for (const item of [SPEED, REVERSER, NOUKIN, 'PalPassiveSkillChange_Consumable_Deffence_up3']) {
+    assert.equal(stockText(itemStock(shared, item)), stockText(itemStock(owned, item)), item);
+  }
+  // 何も持っていない（[]）は在庫なし。在庫を読む前のデータは送らない（参加者は分からない）
+  assert.deepEqual(sharedExtras({ ...owned, items: {} }, 'coop').items, []);
+  assert.equal('items' in sharedExtras({ ...owned, items: null }, 'coop'), false);
+  assert.equal(stockText(itemStock(ownedFromShared({ world: { items: [] }, rows: [] }, { pals, passives }), SPEED)), '在庫なし');
+  // セルに入らず場所の内訳を外した在庫は、数だけの文
+  const bare = ownedFromShared({ world: { items: [{ id: SPEED, t: 6 }] }, rows: [] }, { pals, passives });
+  assert.equal(stockText(itemStock(bare, SPEED)), '在庫 6');
+  // 種類の上限まで届いた共有（一部だけかもしれない）: 見つからないアイテムは「在庫なし」ではなく分からない（null）
+  const many = Array.from({ length: OWNED_ITEMS_MAX }, (_, i) => ({ id: `PalPassiveSkillChange_X${i}`, t: 1 }));
+  const partial = ownedFromShared({ world: { items: many }, rows: [] }, { pals, passives });
+  assert.equal(partial.itemsPartial, true);
+  assert.equal(itemStock(partial, SPEED), null);
+  assert.equal(itemStock(partial, 'PalPassiveSkillChange_X3').total, 1);
+  assert.equal(normalizeOwned({ version: 1, players: [], bases: [], pals: [], items: [] }, { pals, passives }).itemsPartial, false);
+  // 大きな在庫（200 種・長い名前）も、送る前にセルに入るよう縮める（GAS と同じ関数。送る中身と GAS が残す中身が同じ）
+  const big = Object.fromEntries(Array.from({ length: OWNED_ITEMS_MAX + 20 }, (_, i) => [`PalPassiveSkillChange_${String(i).padStart(90, 'x')}`, {
+    total: 2000000, places: [{ label: '拠点'.repeat(30), count: 1000000 }, { label: 'ギルド保管庫', count: 1000000 }],
+  }]));
+  const fitted = sharedExtras({ ...owned, items: big }, 'coop');
+  assert.ok(ownedExtrasText('2026-10-18T10:00:00.000Z', fitted).length <= OWNED_EXTRAS_MAX_CHARS);
+  assert.equal(fitted.items.length, OWNED_ITEMS_MAX);
+  // 合計が上限（1,000,000）を超えるアイテムも捨てずに上限にする
+  assert.ok(fitted.items.every((item) => item.t === 1000000));
+  const again = validateOwnedUpload({ worldId: 'A'.repeat(32), saveUpdatedAt: '2026-10-18T10:00:00.000Z', world: { name: 'W', ...fitted }, columns: OWNED_FIELDS, rows: [] });
+  assert.deepEqual(again.value.extras.items, fitted.items);
 });

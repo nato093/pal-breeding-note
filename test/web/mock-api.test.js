@@ -288,6 +288,12 @@ test('モック（roles）: as=viewer なら、ホスト（Alice）が 3 分前�
   assert.ok(minutes > 2.5 && minutes < 3.5, String(minutes));
   const shared = await api(ownedRequest('owned', { worldId: VIEWER_WORLD_ID }));
   assert.equal(shared.rows.length, 30);
+  // ホストの画面だけだった情報（server の share-extras）: 捕獲数・ケーキ・在庫・魂の強化と状態（GAS と同じ検査を通した値）
+  assert.deepEqual([world.players[0].captures, world.farms.map((farm) => farm.c), world.saveKind, world.items.length], [
+    { SheepBall: 12, PinkCat: 3 }, [[{ i: 'Cake02', n: 51 }], [], undefined], 'coop', 2,
+  ]);
+  const soulAt = shared.columns.indexOf('soul');
+  assert.deepEqual(shared.rows[0].slice(soulAt), ['0|0|0|0', '||100']);
   assert.deepEqual((await createDevelopmentApi({ as: 'host' })(ownedRequest('ownedWorlds'))).worlds, []);
   assert.deepEqual((await createDevelopmentApi()(ownedRequest('ownedWorlds'))).worlds, []);
 });
