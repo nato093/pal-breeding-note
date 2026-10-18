@@ -255,6 +255,8 @@ const sharedSave = (world) => ({ stamp: world.saveStamp, updatedAt: world.saveUp
  *   セーブのファイルの見張り（save/watch.js の createWatchClient。テストは偽物を渡す）。対象ができたときに 1 回だけ作る
  * @param {string} [options.pageId] このページの ID（ページを開いている PC。ページを読み込むたびにメモリの中で作る。sessionStorage は複製した
  *   タブで同じ値になるので使わない）
+ * @param {boolean} [options.resident] サーバーの PC の常駐プログラム（server の participant-ui）。true なら送る presence に resident: true を
+ *   付ける（ほかの PC の「ページを開いている PC」に「サーバー（常駐）」と出る）。ページは渡さない（今と同じ形）
  */
 export function createOwnedStore({
   persist = idbPersist(), settings, namespace = 'pal-note', runImport = runImportInWorker,
@@ -263,6 +265,7 @@ export function createOwnedStore({
   hidden = () => globalThis.document?.visibilityState === 'hidden',
   watch = createWatchClient,
   pageId = randomId(),
+  resident = false,
 } = {}) {
   const source = handles ?? createHandleSource({ persist, key: `${namespace}.owned.handles` });
   const listeners = new Set();
@@ -559,7 +562,7 @@ export function createOwnedStore({
   // そのワールド（ふつうは今のワールド＝表示するワールド）について送る値。role は判定の結果（連携しているワールドでなければ none）、playing は
   // ゲーム中の推定（core/playing.js）、canShare はこのワールドをホストの一式（Level.sav・LevelMeta.sav・LocalData.sav）で登録していて、直近の
   // 確認で読む許可があるか。一覧の確認では許可があっても、その後の読み込みで許可が外れた（自動の読み込みが許可待ちで止まった。一覧の status は
-  // 'ok' のまま）間は共有できないとする。ワールドがなければ null
+  // 'ok' のまま）間は共有できないとする。常駐（options.resident）なら resident: true を足す。ワールドがなければ null
   function presenceValue(id) {
     if (!WORLD_ID.test(id)) return null;
     const role = id === state.linkedWorldId && ['host', 'guest'].includes(state.role) ? state.role : 'none';
@@ -567,7 +570,10 @@ export function createOwnedStore({
     const canShare = Boolean(state.auto.enabled && state.auto.status !== 'permission' && source.get(id)?.kind === 'host' && !removing.has(id)
       && listed?.status && listed.status !== 'permission');
     const playing = role !== 'none' && isPlaying(state.play, { worldId: id, role }, now());
-    return { worldId: id, presence: { pageId, device: deviceOf(id), user: text(server?.userId?.() ?? '', 20), role, playing, canShare } };
+    return {
+      worldId: id,
+      presence: { pageId, device: deviceOf(id), user: text(server?.userId?.() ?? '', 20), role, playing, canShare, ...(resident === true ? { resident: true } : {}) },
+    };
   }
 
   // 送る回なら今の値（{ worldId, presence, key }）、でなければ null（ログインしていない・古い GAS と覚えている間・ワールドがない・前に送ってから

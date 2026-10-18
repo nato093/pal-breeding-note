@@ -881,8 +881,8 @@ test('設定画面: 「＋ ワールドを登録」のモーダルで、パス�
   await path.dispatch('input');
   assert.equal(status().textContent, '✓ Steam 7656 ／ ワールド ABCD…');
   assert.match(status().className, /ok/);
-  // ドロップするファイルを 2 組（全員／ホストする PC〔交代でホストする人も。host-rotation〕）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
-  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストする PC（交代でホストする人も）']);
+  // ドロップするファイルを 2 組（全員／ホストする PC〔協力プレイで交代でホストする人も。host-rotation・server の participant-ui〕）に並べ、ドロップしたものに印を付ける。各行に、貼ったパスから作った実際のパスを添える（長い ID は頭 4 字。F082・C-27）
+  assert.deepEqual(dialog.querySelectorAll('.owned-draft-title').map((node) => node.textContent), ['全員', 'ホストする PC（協力プレイで交代でホストする人も）']);
   const labels = () => dialog.querySelectorAll('.owned-draft-items').flatMap((list) => list.children)
     .map((item) => item.textContent.replace(item.querySelector('.owned-draft-path')?.textContent ?? '', '').replace(item.querySelector('.owned-draft-note')?.textContent ?? '', ''));
   assert.deepEqual(labels(), ['— LocalData.sav', '— Level.sav', '— LevelMeta.sav', '— Players\\ の中のファイル全部', '— ..\\GlobalPalStorage.sav（任意）']);
@@ -923,6 +923,67 @@ test('設定画面: 登録したワールドの「編集」は、パスを入れ
   // 編集は登録済みのワールドなので「登録済み」と出す
   assert.match(dialog.querySelector('.owned-path-status').textContent, /登録済みのワールドです/);
   assert.equal(dialog.querySelector('.icon-button').querySelector('svg').getAttribute('class'), 'close-icon');
+  card.destroy();
+});
+
+// 専用サーバーのセーブ（…\SaveGames\0\<ワールド ID>）。ブラウザでは登録しない（server の participant-ui・決定 16）
+const SERVER_WORLD_PATH = 'D:\\Server\\bin\\Pal\\Saved\\SaveGames\\0\\ABCDEF0123456789ABCDEF0123456789';
+const SERVER_PATH_TEXT = '専用サーバーのセーブは、サーバーの PC の常駐プログラムが読み込みます（ブラウザでは登録しません）';
+const toastTexts = (body) => body.querySelectorAll('.toast-message').map((node) => node.textContent);
+
+test('設定画面（server の participant-ui）: 登録のモーダルに専用サーバーのセーブのパスを貼ると、常駐プログラムが読むことを出し、ドロップと保存を受けない', async (t) => {
+  const { body } = installDom(t);
+  const calls = [];
+  const owned = fakeOwned(null);
+  owned.previewRegistration = async (input) => { calls.push(['preview', input.steamId]); return { ...input, kind: 'host', role: 'host', name: 'World9', hostName: '', palCount: 1, replaced: [] }; };
+  owned.commitRegistration = async () => { calls.push(['commit']); return { persisted: true, result: 'imported' }; };
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  await card.element.querySelectorAll('button').find((node) => node.textContent === '＋ ワールドを登録').dispatch('click');
+  const dialog = body.querySelector('.world-dialog');
+  const path = dialog.querySelector('.owned-path');
+  const status = dialog.querySelector('.owned-path-status');
+  const save = dialog.querySelectorAll('button').find((node) => node.textContent === '登録して連携');
+  path.value = SERVER_WORLD_PATH;
+  await path.dispatch('input');
+  assert.deepEqual([status.textContent, status.className], [SERVER_PATH_TEXT, 'owned-path-status todo']);
+  assert.ok(dialog.querySelector('.owned-drop').className.split(' ').includes('disabled'));
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav') });
+  await tick();
+  assert.deepEqual(calls, []);
+  assert.ok(toastTexts(body).includes(SERVER_PATH_TEXT), toastTexts(body).join('\n'));
+  assert.equal(save.disabled, true);
+  // 協力プレイのパスに直せば、今までどおり受ける
+  path.value = WORLD_PATH;
+  await path.dispatch('input');
+  assert.equal(status.textContent, '✓ Steam 7656 ／ ワールド ABCD…');
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav', 'LevelMeta.sav', 'LocalData.sav') });
+  await tick();
+  assert.deepEqual(calls, [['preview', '7656']]);
+  // 読み込んだ後でも、サーバーのパスに替えたら保存できない
+  path.value = SERVER_WORLD_PATH;
+  await path.dispatch('input');
+  assert.deepEqual([status.textContent, save.disabled], [SERVER_PATH_TEXT, true]);
+  card.destroy();
+});
+
+test('設定画面（server の participant-ui）: 前にブラウザで登録した専用サーバーのセーブ（steamId 0）は、行に削除を勧める 1 行を出し、編集ではファイルを足せない', async (t) => {
+  const { body } = installDom(t);
+  const owned = fakeOwned();
+  owned.state.auto.worlds[0].steamId = '0';
+  owned.state.auto.worlds.push({ id: 'C', dir: 'C', steamId: '7656', kind: 'host', name: '協力', hostName: 'Alice', status: 'ok', role: 'host', playedAt: '', files: ['Level.sav'] });
+  const card = ownedSettingsCard(context(owned), { win: DROP_WIN });
+  const [server, coop] = card.element.querySelectorAll('.owned-registered-item');
+  assert.equal(server.querySelector('.owned-server-note').textContent, '専用サーバーのセーブの登録です。共有と自動登録がサーバーの PC の常駐プログラムと重なるため、この登録は削除してください。');
+  // 閉じたままでも見える（ワールドの行の開閉の中に入れない）
+  assert.equal(server.querySelector('.owned-world-details').querySelector('.owned-server-note'), null);
+  assert.equal(coop.querySelector('.owned-server-note'), null);
+  await server.querySelectorAll('button').find((node) => node.textContent === '編集').dispatch('click');
+  const dialog = body.querySelector('.world-dialog');
+  assert.equal(dialog.querySelector('.owned-path-status').textContent, SERVER_PATH_TEXT);
+  await dialog.querySelector('.owned-drop').dispatch('drop', { dataTransfer: dropped('Level.sav') });
+  await tick();
+  assert.ok(toastTexts(body).includes(SERVER_PATH_TEXT));
+  assert.equal(dialog.querySelectorAll('button').find((node) => node.textContent === '保存').disabled, true);
   card.destroy();
 });
 
@@ -979,8 +1040,8 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   assert.deepEqual(calls, [['enabled', false, 'W'], ['mapping', P1, '仲間', 'W']]);
   // 参加しているだけのワールドでは、自動登録はホストの画面が行うこと（「自動登録は動きません」とは言わない。X-06）
   assert.match(guest.querySelector('.owned-breeding').textContent, /この PC では読み込みません。配合牧場の自動登録はホストの画面が行います（ホストが/);
-  // 交代でホストするなら［編集］でホストの組のファイルを足すこと（host-rotation）
-  assert.equal(guest.querySelector('.owned-rotation-note').textContent, '交代でホストするなら、［編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください（ホストしたときに共有と自動登録が動きます）。');
+  // 協力プレイで交代でホストするなら［編集］でホストの組のファイルを足すこと（host-rotation・server の participant-ui）
+  assert.equal(guest.querySelector('.owned-rotation-note').textContent, '協力プレイで交代でホストするなら、［編集］で Level.sav・LevelMeta.sav・Players のファイルを足してください（ホストしたときに共有と自動登録が動きます）。');
   assert.equal(host.querySelector('.owned-rotation-note'), null);
   assert.doesNotMatch(card.element.textContent, /自動登録は動きません/);
   assert.ok(!guest.querySelector('.owned-toggle'));
@@ -988,6 +1049,12 @@ test('設定画面: 登録したワールドの行を開くと、そのワール
   owned.state.auto.worlds[0].playedAt = '2026-10-06T00:00:00.000Z';
   owned.emit();
   assert.equal(card.element.querySelectorAll('.owned-world-details')[0].open, true);
+  // 参加のワールドの最後の共有がサーバーのセーブなら、自動登録はサーバーの PC の常駐プログラムが行うこと（server の participant-ui）
+  owned.state.shared = { ...owned.state.shared, worlds: [{ worldId: 'G', uploadedAt: '2026-10-06T00:00:00.000Z', saveKind: 'server' }] };
+  owned.emit();
+  const serverGuest = card.element.querySelectorAll('.owned-world-details')[1];
+  assert.equal(serverGuest.querySelector('.owned-role-note').textContent, 'この PC では読み込みません。配合牧場の自動登録は、サーバーの PC の常駐プログラムが行います（プレイヤーの対応であなたが選ばれているとき）。');
+  assert.match(serverGuest.querySelector('.owned-rotation-note').textContent, /^協力プレイで交代でホストするなら/);
   card.destroy();
 });
 
@@ -3244,9 +3311,9 @@ test('ワールドの登録（roles）: 背景のクリックでは閉じず、�
   await tick();
   const [, host] = dialog.querySelectorAll('.owned-draft-group');
   assert.match(host.className, /is-dim/);
-  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストする PC（交代でホストする人も。なくても参加者として登録できます）');
-  // 参加者として登録する結果欄には、交代でホストするならホストの組のファイルも足すこと（host-rotation）
-  assert.equal(dialog.querySelector('.owned-dialog-result').textContent, '参加者として登録します（交代でホストするなら Level.sav・LevelMeta.sav・Players のファイルも足すと、ホストしたときに共有と自動登録が動きます）');
+  assert.equal(host.querySelector('.owned-draft-title').textContent, 'ホストする PC（協力プレイで交代でホストする人も。なくても参加者として登録できます）');
+  // 参加者として登録する結果欄には、協力プレイで交代でホストするならホストの組のファイルも足すこと（host-rotation・server の participant-ui）
+  assert.equal(dialog.querySelector('.owned-dialog-result').textContent, '参加者として登録します（協力プレイで交代でホストするなら Level.sav・LevelMeta.sav・Players のファイルも足すと、ホストしたときに共有と自動登録が動きます）');
   assert.equal(register.disabled, false);
 });
 
@@ -3445,4 +3512,126 @@ test('継承ルート（implants）: 選んだ運びたいパッシブのうち�
   view.applyRoute(parseHash('#/route?p=MoveSpeed_up_3'));
   assert.equal(note(view).hidden, true);
   view.destroy();
+});
+
+// ---------------------------------------------------------------------------
+// server の mapping: 設定の「プレイヤーの対応」を GAS で動いているときは誰でも選べる（行は表示しているデータのプレイヤーと以前の持ち主）
+// ---------------------------------------------------------------------------
+const MAP_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+const MAP_HOST = '00000000-0000-0000-0000-000000000001';
+const MAP_U = '11111111-2222-3333-4444-555555555555';
+const MAP_GONE = '33333333-4444-5555-6666-777777777777';
+// GAS で動いている自動登録（対応はノート。setMapping は Promise。fail を入れるとその文で断る）
+function gasAutoRegister({ mapping = {}, fail = '' } = {}) {
+  const calls = [];
+  return {
+    calls, map: { ...mapping }, fail,
+    enabled: () => true, setEnabled() {}, subscribe: () => () => {},
+    mappingMode: () => 'gas',
+    mapping() { return this.map; },
+    refreshMapping(worldId, maxAge) { calls.push(['refresh', worldId, maxAge]); return Promise.resolve(); },
+    setMapping(uid, userId, worldId) {
+      calls.push(['map', uid, userId, worldId]);
+      if (this.fail) return Promise.reject(new Error(this.fail));
+      this.map = userId ? { ...this.map, [uid]: userId } : Object.fromEntries(Object.entries(this.map).filter(([key]) => key !== uid));
+      return Promise.resolve();
+    },
+    pendingSummary: () => ({ unmapped: [], conflict: [] }),
+  };
+}
+// サーバーのワールドの共有を表示している（H はプレイヤーにいない。以前のホストと、ワールドにいない人が預けたパルがある）
+function serverShared(role) {
+  const owned = fakeOwned(null);
+  Object.assign(owned.state, {
+    role,
+    owned: {
+      players: [{ uid: MAP_U, name: 'Bob', instanceId: 'abcdef01-0000-0000-0000-000000000001' }], pals: [],
+      formers: [{ uid: MAP_HOST, kind: 'host', pals: 66, farms: 2 }, { uid: MAP_GONE, kind: 'unknown', pals: 5, farms: 0 }],
+    },
+    meta: { worldId: MAP_WORLD, worldName: 'テストのワールド', hostName: '', source: 'shared', saveUpdatedAt: '2026-10-18T00:00:00.000Z', importedAt: '', sharedAt: '2026-10-18T00:01:00.000Z', uploadedBy: 'サーバー', palCount: 0 },
+  });
+  return owned;
+}
+function gasContext(owned, autoRegister) {
+  const ctx = { ...context(owned), autoRegister };
+  Object.assign(ctx.store.state, { passcode: '入力', users: ['仲間', 'Bob'] });
+  return ctx;
+}
+const playerRows = (root) => root.querySelector('.owned-players').querySelectorAll('.owned-breeding-player');
+
+test('設定画面（server の mapping）: GAS で動いていれば、参加者・共有を見ている人にも選択を出し、以前のホスト・不明なプレイヤーの行に預けた数を添える', async (t) => {
+  for (const role of ['guest', 'none']) {
+    installDom(t);
+    const autoRegister = gasAutoRegister({ mapping: { [MAP_GONE]: 'Bob' } });
+    const card = ownedSettingsCard(gasContext(serverShared(role), autoRegister), { win: DROP_WIN });
+    const section = card.element.querySelector('.owned-players');
+    assert.equal(section.hidden, false, role);
+    assert.match(section.textContent, /ノートに保存し、仲間と共有します（どの PC からでも選べます）/);
+    assert.doesNotMatch(section.textContent, /ホストの PC で設定します/);
+    const rows = playerRows(card.element);
+    assert.deepEqual(rows.map((row) => row.querySelector('span').textContent), ['Bob', '以前のホスト（0000…0001）拠点 66 体・牧場 2 か所', '不明なプレイヤー（33333333）拠点 5 体']);
+    assert.deepEqual(rows.map((row) => row.querySelector('.owned-former-count')?.textContent ?? ''), ['', '拠点 66 体・牧場 2 か所', '拠点 5 体']);
+    const selects = rows.map((row) => row.querySelector('select'));
+    assert.deepEqual(selects.map((select) => select.getAttribute('aria-label')), ['Bobのノートの ID', '以前のホスト（0000…0001）のノートの ID', '不明なプレイヤー（33333333）のノートの ID']);
+    // Bob は同じ名前のユーザー、以前の持ち主には同じ名前の人がいない。選んだ対応を出す
+    assert.deepEqual(selects.map((select) => select.children[0].textContent), ['Bob（同じ名前）', '未設定（登録しない）', '未設定（登録しない）']);
+    assert.deepEqual(selects.map((select) => select.value), ['', '', 'Bob']);
+    // 正確にしたい牧場は親を預け直す、の 1 行。登録待ちはこの PC の候補なので出さない
+    assert.match(section.querySelector('.owned-former-note').textContent, /親を預け直してください/);
+    assert.equal(section.querySelector('.owned-pending'), null);
+    // 描くときに GAS の対応を読み直す（15 秒）
+    assert.deepEqual(autoRegister.calls[0], ['refresh', MAP_WORLD, 15000]);
+    // 以前のホストを選ぶ: 表示しているワールドに書き、欄は作り直さない（選んだ select のまま）
+    selects[1].value = '仲間';
+    await selects[1].dispatch('change');
+    assert.deepEqual(autoRegister.calls.at(-1), ['map', MAP_HOST, '仲間', MAP_WORLD]);
+    assert.equal(playerRows(card.element)[1].querySelector('select'), selects[1]);
+    card.destroy();
+  }
+});
+
+test('設定画面（server の mapping）: 対応を保存できなければトーストで知らせ、元の対応で欄を作り直す', async (t) => {
+  installDom(t);
+  const autoRegister = gasAutoRegister({ fail: 'サーバに接続できません' });
+  const owned = serverShared('guest');
+  const card = ownedSettingsCard(gasContext(owned, autoRegister), { win: DROP_WIN });
+  const select = playerRows(card.element)[0].querySelector('select');
+  select.value = '仲間';
+  await select.dispatch('change');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(document.body.querySelectorAll('.toast-message').some((node) => node.textContent === 'サーバに接続できません'));
+  const rebuilt = playerRows(card.element)[0].querySelector('select');
+  assert.notEqual(rebuilt, select);
+  assert.equal(rebuilt.value, '');
+  card.destroy();
+});
+
+test('設定画面（server の mapping）: ホストは GAS で動いていても登録待ちを出し、前の版で動いているときの参加者は今までどおり案内だけ', (t) => {
+  installDom(t);
+  // ホスト（手元のデータを表示している）
+  const owned = fakeOwned();
+  const autoRegister = gasAutoRegister();
+  autoRegister.pendingSummary = () => ({ unmapped: [{ uid: P1, name: 'Alice', parents: ['SheepBall', 'PinkCat'] }], conflict: [] });
+  const card = ownedSettingsCard(gasContext(owned, autoRegister), { win: DROP_WIN });
+  const section = card.element.querySelector('.owned-players');
+  assert.equal(section.querySelector('.owned-pending').hidden, false);
+  assert.deepEqual(playerRows(card.element).map((row) => row.querySelector('span').textContent), ['Alice']);
+  card.destroy();
+  // 参加者（手元にも同じワールドのデータがある）には出さない（登録待ちは、この PC がホストとして読んだ候補だけ）
+  const guestLocal = ownedSettingsCard(gasContext(fakeOwned(undefined, { role: 'guest' }), autoRegister), { win: DROP_WIN });
+  assert.deepEqual(playerRows(guestLocal.element).map((row) => row.querySelector('span').textContent), ['Alice']);
+  assert.equal(guestLocal.element.querySelector('.owned-players').querySelector('.owned-pending'), null);
+  guestLocal.destroy();
+  // 前の版（古い GAS）の参加者
+  const legacy = { ...gasAutoRegister(), mappingMode: () => 'legacy' };
+  const guest = ownedSettingsCard(gasContext(serverShared('guest'), legacy), { win: DROP_WIN });
+  assert.equal(guest.element.querySelector('.owned-players').textContent, 'プレイヤーの対応（セーブのプレイヤー → ノートの ID）プレイヤーの対応はホストの PC で設定します。自分の個体は「このワールドでの自分」で選べます。');
+  assert.equal(playerRows(guest.element).length, 0);
+  guest.destroy();
+  // ログインしていなければ（前の版の扱い）共有を見ている人には出さない
+  const viewer = gasContext(serverShared('none'), gasAutoRegister());
+  viewer.store.state.passcode = '';
+  const hidden = ownedSettingsCard(viewer, { win: DROP_WIN });
+  assert.equal(hidden.element.querySelector('.owned-players').hidden, true);
+  hidden.destroy();
 });

@@ -10,6 +10,7 @@
 // 仲間には共有しない（GAS は変えない）。
 import { userIdKey } from './core/user.js';
 import { ownedWorldId, HOST_UID, legacyPlayerKey, playerKeyOf, playerUidOfKey } from './core/owned-shared.js';
+import { isPlaying } from './core/playing.js';
 
 // キーの末尾のワールド ID（ownedWorldId の形。ID に「.」があっても、別の人のキーを今のログインの分に数えないため）
 const WORLD = /^[0-9A-F]{32}$/;
@@ -48,7 +49,7 @@ export function selfKey(namespace, env, userId, worldId) {
  *   readonly saveFailed: boolean, reload(storageKey, options?): void, migrate(worldId, players, options?): boolean,
  *   migrateShown(state): boolean, changed(): void, subscribe(listener): () => void }}
  */
-export function createSelfStore({ store, storage, namespace = 'pal-note' }) {
+export function createSelfStore({ store, storage, namespace = 'pal-note', now = () => Date.now() }) {
   const listeners = new Set();
   // 読んだ値（キー → { playerKey, lastUid }。無ければどちらも ''）と、この端末に書けなかった値（ページを開いている間はこちらを使う）
   const cache = new Map();
@@ -188,7 +189,13 @@ export function createSelfStore({ store, storage, namespace = 'pal-note' }) {
     migrateShown(state) {
       const players = state?.owned?.players;
       if (!state?.meta?.worldId || !players) return false;
-      return migrate(state.meta.worldId, players, { hostLocal: state.meta.source === 'local' && state.role === 'host' });
+      // H を移すのは、この PC がホストとして遊んでいる（手元のセーブの保存が続けて見えている）ときだけ。同期で受け取った仲間のホストの
+      // セーブ（ゲームをしていない PC でも役割は host）の H は仲間のキャラクターなので、前の版の H（この PC がホストしたときの人）を移さない
+      //（auto-register.js の hostPlaying と同じ決め方）
+      const id = state.local?.world?.id ?? '';
+      const hostLocal = state.meta.source === 'local' && state.role === 'host'
+        && isPlaying(state.play, { worldId: id, role: 'host' }, now());
+      return migrate(state.meta.worldId, players, { hostLocal });
     },
     /** 本人の決め方が、このストアの外で変わった（登録者の対応を変えた・別のタブで変わった）。購読者に知らせる */
     changed() { emit(); },

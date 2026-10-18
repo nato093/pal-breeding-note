@@ -10,6 +10,7 @@ function setup() {
     ensureSheet_(ss, SHEET_NAMES_[env].users, USER_HEADERS_);
     ensureSheet_(ss, SHEET_NAMES_[env].ownedPals, ownedPalHeaders_());
     ensureSheet_(ss, SHEET_NAMES_[env].ownedWorlds, OWNED_WORLD_HEADERS_.concat(OWNED_WORLD_OPTIONAL_HEADERS_));
+    ensureSheet_(ss, SHEET_NAMES_[env].playerMap, PLAYER_MAP_HEADERS_);
   });
   var settings = ensureSheet_(ss, SETTINGS_SHEET_, SETTINGS_HEADERS_);
   var table = readTable_(settings, SETTINGS_HEADERS_);
@@ -82,6 +83,7 @@ function removeEmptyDefaultSheet_(ss) {
     ours[SHEET_NAMES_[env].users] = true;
     ours[SHEET_NAMES_[env].ownedPals] = true;
     ours[SHEET_NAMES_[env].ownedWorlds] = true;
+    ours[SHEET_NAMES_[env].playerMap] = true;
   });
   ss.getSheets().forEach(function (sheet) {
     if (ours[sheet.getName()]) return;

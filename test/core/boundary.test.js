@@ -170,6 +170,10 @@ test('所持パルの共有（owned-gas）: セーブの中の保存時刻（sav
   assert.equal(cleanPresenceList(Array.from({ length: 60 }, () => item)).length, 50);
   assert.equal(cleanPresenceList(null), null);
   assert.equal(cleanPresenceList({}), null);
+  // サーバーの PC の常駐プログラムの印（server の participant-ui）は true のときだけ写す（ほかは鍵ごと付けない）
+  assert.deepEqual(cleanPresenceList([{ ...item, resident: true }, { ...item, resident: false }, { ...item, resident: 'true' }, item]), [
+    { ...item, resident: true }, item, item, item,
+  ]);
 });
 
 test('所持パルの共有（server）: GAS が列 extras から広げた追加の情報は、分かることがあれば GAS と同じ決まった形で写し、なければ付けない（API の応答とキャッシュの復元で同じ）', () => {

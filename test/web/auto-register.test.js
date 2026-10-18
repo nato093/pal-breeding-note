@@ -7,6 +7,7 @@ import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { createApi, ApiError } from '../../web/js/api.js';
 import { createStore, safeStorage } from '../../web/js/store.js';
 import { createAutoRegister, safeAutoNotice, AUTO_NOTICE_TITLES } from '../../web/js/auto-register.js';
+import { createPlayerMapStore } from '../../web/js/player-map.js';
 import { cleanNotification, groupNotifications } from '../../web/js/notifications.js';
 import { moveUserStorage } from '../../web/js/user-rename.js';
 
@@ -26,16 +27,27 @@ function memoryStorage() {
   return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) };
 }
 
-async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1', now = null } = {}) {
+// gas: プレイヤーの対応を GAS（開発用 API）に置く（server の mapping。createPlayerMapStore を渡す）。mapCalls は対応の操作、
+// mapControl.fail は対応の操作の失敗（'BAD_ACTION' で古い GAS）・failSet は書き込みだけの失敗、gates は操作ごとに止める Promise（止めた後に
+// 失敗を決める）、mapClock は対応のストアの時計
+async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自分' }, { uid: P2, name: 'Frank' }], records = [], login = true, storage: givenStorage = null, worldId = 'W1', now = null, gas = false, badAction = false } = {}) {
   const development = createDevelopmentApi();
   // サーバの手前で止める・次の登録を断る（手動の登録が送信待ちのまま・取り消される場面を作る）
   let serverGate = null;
   let rejectNextCreate = false;
+  const mapCalls = [];
+  const mapControl = { fail: badAction ? 'BAD_ACTION' : null, failSet: null, gates: {} };
   const api = createApi({ transport: async (request) => {
     await serverGate;
     if (request.action === 'create' && rejectNextCreate) {
       rejectNextCreate = false;
       return { ok: false, code: 'VALIDATION', errors: [] };
+    }
+    if (request.action.startsWith('playerMap')) {
+      mapCalls.push(request);
+      await mapControl.gates[request.action];
+      const code = mapControl.fail || (request.action === 'playerMapSet' ? mapControl.failSet : null);
+      if (code) return { ok: false, code };
     }
     return development(request);
   } });
@@ -72,9 +84,15 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
   const navigations = [];
   let noticed = 0;
   const storage = givenStorage ?? safeStorage(memoryStorage());
+  const mapClock = { now: Date.parse('2026-10-06T00:00:00.000Z') };
+  const playerMaps = gas ? createPlayerMapStore({
+    request: (action, input) => store.call(action, { userId: store.state.userId, ...input }),
+    scope: () => (store.state.passcode && store.state.userId && store.state.env ? store.state.env : ''),
+    endpoint: () => 'local', storage, namespace: 't', now: () => mapClock.now,
+  }) : null;
   const auto = createAutoRegister({
     store, owned, storage, namespace: 't', toast: (message, options) => { toasts.push(message); toastActions.push(options); }, onNotice: () => { noticed++; },
-    navigate: (hash) => navigations.push(hash), loadTable: async () => ({ default: data }), ...(now ? { now } : {}),
+    navigate: (hash) => navigations.push(hash), loadTable: async () => ({ default: data }), ...(now ? { now } : {}), playerMaps,
   });
   const run = async () => { auto.evaluate(); await auto.idle(); };
   // 新しく読んだセーブ（牧場にタマゴが現れた）にする
@@ -88,7 +106,7 @@ async function setup({ farms = [sheepFarm()], players = [{ uid: P1, name: '自�
     lay();
   }
   return {
-    store, api, owned, auto, creates, toasts, toastActions, navigations, run, lay, storage,
+    store, api, owned, auto, creates, toasts, toastActions, navigations, run, lay, storage, playerMaps, mapCalls, mapControl, mapClock, development,
     get noticed() { return noticed; },
     original,
     rejectNextCreate() { rejectNextCreate = true; },
@@ -1521,4 +1539,377 @@ test('自動登録（host-rotation・Codex のレビュー）: 自分の ID の 
   answer(t, 'same', 0, { result: 'same', uploadedBy: '前の名前', userId: '前の名前' });
   await t.run();
   assert.deepEqual(registered(t.store), [SHEEP]);
+});
+
+// ---------------------------------------------------------------------------
+// server の mapping: プレイヤーの対応を GAS に置く（鍵は 'i:<InstanceId>'・'u:<uid>'。鍵から UID への解決は mappingFor の 1 か所。
+// docs/server/README.md の「テーマ間の取り決め」）。ID・名前はダミー
+// ---------------------------------------------------------------------------
+const MAP_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+// 協力プレイのホストの UID（H）・サーバーでの作成者の UID（U）・仲間の UID・ワールドにいない人の UID
+const H = '00000000-0000-0000-0000-000000000001';
+const U = '11111111-2222-3333-4444-555555555555';
+const F = '22222222-3333-4444-5555-666666666666';
+const GONE = '33333333-4444-5555-6666-777777777777';
+// キャラクターの InstanceId（協力プレイとサーバーを往復しても変わらない）
+const X = 'abcdef01-0000-0000-0000-000000000001';
+const Y = 'abcdef02-0000-0000-0000-000000000002';
+const coopPlayers = [{ uid: H, name: 'ホストの名前', instanceId: X }, { uid: F, name: 'Frank', instanceId: Y }];
+const serverPlayers = [{ uid: U, name: 'ホストの名前', instanceId: X }, { uid: F, name: 'Frank', instanceId: Y }];
+const LEGACY_KEY = `t.autoBreeding.players.test.${MAP_WORLD}`;
+const MIGRATED_KEY = `t.autoBreeding.playersMigrated.test.${MAP_WORLD}`;
+const pairFarm = (id, depositor) => farm(id, [parent('GuardianDog', 'Male', depositor), parent('GuardianDog', 'Female', depositor)], ['GuardianDog']);
+// ほかの PC（仲間）が GAS に書いた対応（この PC の送信には数えない）
+const otherPc = (t, entries) => t.development({ action: 'playerMapSet', passcode: PASS, userId: '仲間', worldId: MAP_WORLD, entries });
+// 新しく読んだセーブ（プレイヤーと牧場を入れ替える）
+let mapReads = 0;
+const readWorld = (t, players, breedFarms) => {
+  t.owned.state.local = { ...t.owned.state.local, importedAt: `2026-10-07T00:00:${String(mapReads++ % 60).padStart(2, '0')}.${String(mapReads).padStart(3, '0')}Z`, snapshot: { players, breedFarms } };
+};
+const registrants = (store) => store.state.records.map((record) => record.registrant);
+const setCalls = (t) => t.mapCalls.filter((call) => call.action === 'playerMapSet');
+// ゲームの保存が続けて見えている記録（core/playing.js の isPlaying が真。この PC がホストとして遊んでいる）
+const playingRecord = (worldId, at = Date.now()) => ({ worldId, role: 'host', value: 90_000, changes: [{ at: at - 30_000, gap: 30_000 }, { at, gap: 30_000 }] });
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('自動登録（server の mapping）: 協力プレイ ↔ サーバーで UID が H ⇔ U と入れ替わっても、i:<InstanceId> の対応で同じ登録者になる', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(H)] });
+  assert.equal(t.auto.mappingMode(MAP_WORLD), 'gas');
+  // 協力プレイのホスト（H）を「仲間」に。鍵は H のキャラクターの i:（u:H は以前のホストの鍵なので使わない）
+  await t.auto.setMapping(H, '仲間', MAP_WORLD);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`i:${X}`]: '仲間' });
+  assert.equal(setCalls(t).at(-1).entries[0].playerName, 'ホストの名前');
+  await t.auto.idle();
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:仲間']);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [H]: '仲間' });
+  // サーバーに変換した（H は U に。キャラクターは同じ）。U が預けた牧場のタマゴも同じ人の登録
+  readWorld(t, serverPlayers, emptied([pairFarm('f3', U)]));
+  await t.run();
+  readWorld(t, serverPlayers, [pairFarm('f3', U)]);
+  await t.run();
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [U]: '仲間' });
+  assert.deepEqual(registrants(t.store), ['仲間', '仲間']);
+  // 協力プレイに戻しても同じ
+  readWorld(t, coopPlayers, []);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [H]: '仲間' });
+});
+
+test('自動登録（server の mapping）: u:H（以前のホスト）は H がプレイヤーにいないときだけ効く。協力プレイのホストは同じ名前の規則のまま', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: [{ uid: H, name: '自分', instanceId: X }], farms: [sheepFarm(H)] });
+  // サーバーのワールドで以前のホストを「仲間」にした。協力プレイのホストのキャラクターの鍵（i:X）はない
+  await otherPc(t, [{ key: `u:${H}`, userId: '仲間' }]);
+  t.mapClock.now += 61_000;
+  await t.run();
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), {});
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分']);
+  // サーバーのワールド（H はプレイヤーにいない）: H が預けた牧場は以前のホストの対応で登録する
+  readWorld(t, [{ uid: U, name: '自分', instanceId: X }], emptied([pairFarm('f3', H)]));
+  await t.run();
+  readWorld(t, [{ uid: U, name: '自分', instanceId: X }], [pairFarm('f3', H)]);
+  await t.run();
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [H]: '仲間' });
+  assert.deepEqual(registrants(t.store).sort(), ['仲間', '自分']);
+});
+
+test('自動登録（server の mapping）: 値が空の鍵（外した印）は同じ名前の規則に戻り、u: にも落ちない。プレイヤーにいない u: の鍵も uid で返す', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: [{ uid: F, name: '自分', instanceId: Y }], farms: [] });
+  await otherPc(t, [{ key: `i:${Y}`, userId: '' }, { key: `u:${F}`, userId: '仲間' }, { key: `u:${GONE}`, userId: '仲間' }, { key: `u:${H}`, userId: '' }]);
+  t.mapClock.now += 61_000;
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [GONE]: '仲間' });
+  // InstanceId のないプレイヤー（古い共有）は u: で引く
+  readWorld(t, [{ uid: F, name: '自分' }], []);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [F]: '仲間', [GONE]: '仲間' });
+});
+
+test('自動登録（server の mapping）: 前の版の対応を一度だけ onlyMissing で上げる。H は手元のホスト（遊んでいる）のスナップショットの i:、ノートにない ID は捨て、GAS にある鍵は上書きしない', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(F)] });
+  // ほかの PC で、Frank のキャラクターを先に「自分」にしてある
+  await otherPc(t, [{ key: `i:${Y}`, userId: '自分' }]);
+  const legacy = { [H]: '仲間', [F]: '仲間', [GONE]: '仲間', ghost: 'ノートにない' };
+  t.storage.set(LEGACY_KEY, JSON.stringify(legacy));
+  t.owned.state.play = playingRecord(MAP_WORLD);
+  t.mapClock.now += 61_000;
+  await t.run();
+  const [sent] = setCalls(t);
+  assert.equal(setCalls(t).length, 1);
+  assert.equal(sent.onlyMissing, true);
+  assert.deepEqual(sent.entries.map((entry) => [entry.key, entry.userId]), [[`i:${X}`, '仲間'], [`i:${Y}`, '仲間'], [`u:${GONE}`, '仲間']]);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`i:${Y}`]: '自分', [`i:${X}`]: '仲間', [`u:${GONE}`]: '仲間' });
+  // GAS にあった対応（自分）で登録する
+  assert.deepEqual(registrants(t.store), ['自分']);
+  // 印を書き、次からは送らない。前の版の対応は消さない（古いタブと巻き戻しのため）
+  assert.equal(t.storage.get(MIGRATED_KEY), JSON.stringify(legacy));
+  assert.deepEqual(JSON.parse(t.storage.get(LEGACY_KEY)), legacy);
+  t.mapClock.now += 61_000;
+  t.lay();
+  await t.run();
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.equal(setCalls(t).length, 1);
+  // 前の版の対応が変わったら（この端末のデータの読み込みなど）、もう一度 onlyMissing で上げる
+  t.auto.setLegacyMapping(GONE, '自分', MAP_WORLD);
+  await t.auto.idle();
+  assert.equal(setCalls(t).length, 2);
+  assert.equal(t.playerMaps.entries('test', MAP_WORLD)[`u:${GONE}`], '仲間');
+});
+
+test('自動登録（server の mapping）: H の移行は、この PC がホストとして遊んでいる手元のデータのときだけ。表示しているのが共有なら H は上げない', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [] });
+  // 参加者の画面（共有を表示している）で読み直した
+  Object.assign(t.owned.state, { role: 'guest', meta: { worldId: MAP_WORLD, source: 'shared' }, owned: { players: coopPlayers } });
+  t.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '仲間', [F]: '仲間' }));
+  t.mapClock.now += 61_000;
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.deepEqual(setCalls(t).map((call) => call.entries.map((entry) => entry.key)), [[`i:${Y}`]]);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`i:${Y}`]: '仲間' });
+  assert.ok(t.storage.get(MIGRATED_KEY));
+  // ホストとして遊んでいて手元のデータを表示しているなら、表示の読み直しでも H を移す
+  const host = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [] });
+  Object.assign(host.owned.state, { meta: { worldId: MAP_WORLD, source: 'local' }, owned: { players: coopPlayers }, play: playingRecord(MAP_WORLD) });
+  host.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '仲間' }));
+  // 判定（run）が先に移さないよう、自動登録はオフにしておく
+  host.auto.setEnabled(false, MAP_WORLD);
+  host.mapClock.now += 61_000;
+  await host.auto.refreshMapping(MAP_WORLD, 0);
+  assert.deepEqual(host.playerMaps.entries('test', MAP_WORLD), { [`i:${X}`]: '仲間' });
+});
+
+test('自動登録（server の mapping）: 上げ終えるまでは、GAS に鍵のないプレイヤー（H を除く）に前の版の対応を使う', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(F)] });
+  t.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '仲間', [F]: '仲間' }));
+  // 書き込みが失敗し続ける（印を書かない）
+  t.mapControl.failSet = 'INTERNAL';
+  t.mapClock.now += 61_000;
+  await t.run();
+  assert.equal(t.storage.get(MIGRATED_KEY), null);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [F]: '仲間' });
+  assert.deepEqual(registrants(t.store), ['仲間']);
+  // GAS に鍵があればそちら
+  await otherPc(t, [{ key: `i:${Y}`, userId: '自分' }]);
+  t.mapClock.now += 61_000;
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [F]: '自分' });
+  // 送れなかった移行は、戻した知らせの判定のたびには送り直さない（60 秒あける）
+  await t.auto.idle();
+  assert.equal(setCalls(t).length, 1);
+});
+
+test('自動登録（server の mapping）: 古い GAS（BAD_ACTION）なら前の版の対応で動き、setMapping はこの端末に書く。判定のたびには読みに行かない', async () => {
+  const t = await setup({ gas: true, badAction: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(F)] });
+  assert.equal(t.auto.mappingMode(MAP_WORLD), 'legacy');
+  await t.auto.setMapping(F, '仲間', MAP_WORLD);
+  assert.deepEqual(JSON.parse(t.storage.get(LEGACY_KEY)), { [F]: '仲間' });
+  await t.auto.idle();
+  assert.deepEqual(registrants(t.store), ['仲間']);
+  // 協力プレイのホスト（H がプレイヤー）の前の版の対応は今までどおり効く
+  t.auto.setLegacyMapping(H, '自分', MAP_WORLD);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [F]: '仲間', [H]: '自分' });
+  // 古い GAS と分かってからは送らない（起動の 1 回だけ）
+  t.lay();
+  await t.run();
+  assert.deepEqual(t.mapCalls.map((call) => call.action), ['playerMap']);
+  assert.equal(setCalls(t).length, 0);
+});
+
+test('自動登録（server の mapping・T1 の反証）: 前の版の H の対応は、サーバーのワールド（H がプレイヤーにいない）で以前のホストの対応として効かない', async () => {
+  for (const badAction of [false, true]) {
+    const t = await setup({ gas: true, badAction, worldId: MAP_WORLD, players: serverPlayers, farms: [sheepFarm(H)] });
+    t.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '仲間' }));
+    t.mapClock.now += 61_000;
+    await t.run();
+    assert.equal(t.creates.length, 0, `badAction: ${badAction}`);
+    assert.deepEqual(t.auto.mapping(MAP_WORLD), {});
+    // 未設定の通知の名前は「以前のホスト」
+    assert.deepEqual(t.auto.notices().map((notice) => notice.body), ['以前のホストの配合を登録できません。設定の「プレイヤーの対応」で選んでください。']);
+    assert.deepEqual(t.auto.pendingSummary(MAP_WORLD).unmapped.map((item) => [item.uid, item.name]), [[H, '以前のホスト']]);
+    if (badAction) continue;
+    // 移行でも H は上げない（手元のデータにも H がいない）
+    assert.equal(setCalls(t).length, 0);
+    assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), {});
+    // 設定で以前のホストを選ぶと（u:H）登録し、未設定の通知は消える
+    await t.auto.setMapping(H, '仲間', MAP_WORLD);
+    assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`u:${H}`]: '仲間' });
+    await t.auto.idle();
+    assert.deepEqual(registrants(t.store), ['仲間']);
+    assert.deepEqual(t.auto.notices().map((notice) => notice.title), ['配合を自動登録しました']);
+  }
+});
+
+test('自動登録（server の mapping）: ほかの PC で決めた対応を読み直すと、保留していた未設定の候補を次の判定で登録する', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(F)] });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(t.auto.notices().map((notice) => notice.title), ['プレイヤーの対応が未設定です']);
+  let changes = 0;
+  t.auto.subscribe(() => { changes++; });
+  await otherPc(t, [{ key: `i:${Y}`, userId: '仲間' }]);
+  // 読み直すまでは前の写しのまま
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), {});
+  // 表のタブのタイマー（5 分）で読み直した
+  t.mapClock.now += 5 * 60_000 + 1000;
+  await t.auto.refreshMapping(MAP_WORLD, 5 * 60_000);
+  await t.auto.idle();
+  assert.ok(changes > 0);
+  assert.deepEqual(registrants(t.store), ['仲間']);
+  assert.deepEqual(t.auto.notices().map((notice) => notice.title), ['配合を自動登録しました']);
+});
+
+test('自動登録（server の mapping）: 手元に古い H が残る参加者は、表示している共有のプレイヤーで引き、設定の欄から選ぶ鍵も同じ一覧で作る', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [] });
+  // 手元には協力プレイのときのセーブ（H がプレイヤー）。表示しているのはサーバーの共有（H は U に）
+  Object.assign(t.owned.state, { role: 'guest', meta: { worldId: MAP_WORLD, source: 'shared' }, owned: { players: serverPlayers } });
+  await otherPc(t, [{ key: `i:${X}`, userId: '自分' }, { key: `u:${H}`, userId: '仲間' }]);
+  t.mapClock.now += 61_000;
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  // 手元の古い H で引くと H が i:X の「自分」になり、以前のホスト（u:H）と食い違う
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [U]: '自分', [H]: '仲間' });
+  // 以前のホスト（表示しているデータにいない H）を選ぶと u:H を書く（i:X は変えない）
+  await t.auto.setMapping(H, '自分', MAP_WORLD);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`i:${X}`]: '自分', [`u:${H}`]: '自分' });
+});
+
+test('自動登録（server の mapping）: InstanceId のない協力プレイのホストは選べず（u:H を書かない）、失敗しても元のまま', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: [{ uid: H, name: 'ホストの名前' }], farms: [] });
+  await assert.rejects(t.auto.setMapping(H, '仲間', MAP_WORLD), { code: 'PLAYER_KEY' });
+  assert.equal(setCalls(t).length, 0);
+  // 送れなかったとき（ノートにない ID）は、先に反映した分を戻して投げる
+  readWorld(t, coopPlayers, []);
+  await assert.rejects(t.auto.setMapping(F, 'ノートにない', MAP_WORLD), { code: 'VALIDATION' });
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), {});
+});
+
+
+test('自動登録（server の mapping・Codex のレビュー）: 対応を保存している間は登録を待ち、保存できなかった（BUSY）対応では登録しない', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(F)] });
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  // 書き込みを止めたまま、Frank を「仲間」にする
+  let release;
+  t.mapControl.gates.playerMapSet = new Promise((resolve) => { release = resolve; });
+  const saving = t.auto.setMapping(F, '仲間', MAP_WORLD);
+  // 選んだ対応は表示にはすぐ出るが、判定（登録）は保存を待つ
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [F]: '仲間' });
+  t.auto.evaluate();
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(t.creates.length, 0);
+  // 保存できなかった（GAS が混んでいる）: 元に戻り、その対応では登録しない
+  t.mapControl.failSet = 'BUSY';
+  release();
+  await assert.rejects(saving, { code: 'BUSY' });
+  await t.auto.idle();
+  assert.equal(t.creates.length, 0);
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), {});
+  // 保存できたら登録する
+  t.mapControl.gates.playerMapSet = null;
+  t.mapControl.failSet = null;
+  await t.auto.setMapping(F, '仲間', MAP_WORLD);
+  await t.auto.idle();
+  assert.deepEqual(registrants(t.store), ['仲間']);
+});
+
+test('自動登録（server の mapping・反証のレビュー）: 前の版の H は、この PC がホストとして遊んでいる（保存が続いている）ときだけ上げる。同期で受け取った仲間のセーブでは上げない', async () => {
+  // 仲間がホストした回のセーブを SaveSync で受け取った（H は仲間のキャラクター。この PC ではゲームをしていない）
+  const MATE = 'abcdef0b-0000-0000-0000-00000000000b';
+  const synced = [{ uid: H, name: '仲間の名前', instanceId: MATE }, { uid: F, name: 'Frank', instanceId: Y }];
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: synced, farms: [] });
+  // この PC の前の版の対応（自分がホストしたときに H を「自分」にした）
+  t.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '自分' }));
+  t.mapClock.now += 61_000;
+  t.lay();
+  await t.run();
+  // 手元のデータを表示していても、表示の読み直しでも上げない
+  Object.assign(t.owned.state, { meta: { worldId: MAP_WORLD, source: 'local' }, owned: { players: synced } });
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.equal(setCalls(t).length, 0);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), {});
+  // 自分がホストして遊び始めた（H は自分のキャラクター）: 上げる
+  t.owned.state.play = playingRecord(MAP_WORLD);
+  readWorld(t, coopPlayers, []);
+  t.owned.state.owned = { players: coopPlayers };
+  await t.run();
+  assert.deepEqual(setCalls(t).map((call) => call.entries.map((entry) => [entry.key, entry.userId])), [[[`i:${X}`, '自分']]]);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`i:${X}`]: '自分' });
+  assert.equal(t.storage.get(MIGRATED_KEY), JSON.stringify({ [H]: '自分' }));
+});
+
+test('自動登録（server の mapping・反証のレビュー）: 最初の移行で H を上げられなくても、後でホストとして遊ぶと H を上げる。上げるまでは遊んでいる判定で前の版の H を使う', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [] });
+  // 参加者の画面（共有を表示している）で最初に移した: H は上げず、ほかを上げる。印は H を除いた分
+  Object.assign(t.owned.state, { role: 'guest', meta: { worldId: MAP_WORLD, source: 'shared' }, owned: { players: coopPlayers } });
+  t.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '仲間', [F]: '仲間' }));
+  t.mapClock.now += 61_000;
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.deepEqual(setCalls(t).map((call) => call.entries.map((entry) => entry.key)), [[`i:${Y}`]]);
+  assert.equal(t.storage.get(MIGRATED_KEY), JSON.stringify({ [F]: '仲間' }));
+  // 表示の読み直しを続けても送り直さない
+  t.mapClock.now += 61_000;
+  await t.auto.refreshMapping(MAP_WORLD, 0);
+  assert.equal(setCalls(t).length, 1);
+  // この PC がホストになって遊んでいる（H は自分のキャラクター X）。H が預けた牧場のタマゴ
+  Object.assign(t.owned.state, { role: 'host', meta: { worldId: MAP_WORLD, source: 'local' }, play: playingRecord(MAP_WORLD) });
+  readWorld(t, coopPlayers, emptied([pairFarm('f3', H)]));
+  await t.run();
+  readWorld(t, coopPlayers, [pairFarm('f3', H)]);
+  await t.run();
+  assert.deepEqual(setCalls(t).at(-1).entries.map((entry) => [entry.key, entry.userId]), [[`i:${X}`, '仲間']]);
+  assert.deepEqual(t.playerMaps.entries('test', MAP_WORLD), { [`i:${Y}`]: '仲間', [`i:${X}`]: '仲間' });
+  assert.equal(t.storage.get(MIGRATED_KEY), JSON.stringify({ [H]: '仲間', [F]: '仲間' }));
+  assert.deepEqual(registrants(t.store), ['仲間']);
+
+  // H を上げられない（書き込みの失敗）間も、遊んでいる判定では前の版の H で登録する。遊んでいなければ使わない
+  for (const playing of [true, false]) {
+    const u = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [] });
+    u.storage.set(LEGACY_KEY, JSON.stringify({ [H]: '仲間' }));
+    u.mapControl.failSet = 'INTERNAL';
+    if (playing) u.owned.state.play = playingRecord(MAP_WORLD);
+    u.mapClock.now += 61_000;
+    readWorld(u, coopPlayers, emptied([pairFarm('f3', H)]));
+    await u.run();
+    readWorld(u, coopPlayers, [pairFarm('f3', H)]);
+    await u.run();
+    // 遊んでいれば送れなかったので印を書かない。遊んでいなければ H を除いた印（H は後で上げる）
+    assert.equal(u.storage.get(MIGRATED_KEY), playing ? null : '{}', `playing: ${playing}`);
+    assert.deepEqual(registrants(u.store), playing ? ['仲間'] : [], `playing: ${playing}`);
+    // 表示（設定の欄）は GAS の対応だけ
+    assert.deepEqual(u.auto.mapping(MAP_WORLD), {});
+  }
+});
+
+test('自動登録（server の mapping・反証のレビュー）: 対応の読み込みを待つ前に牧場を記録する。読めなかったら 60 秒の間は判定のたびに読み直さない', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [sheepFarm(F)] });
+  const farmsKey = `t.autoBreeding.farms.test.${MAP_WORLD}`;
+  // GAS の応答が遅い（障害で 35 秒の打ち切りまで返らない）
+  t.mapClock.now += 61_000;
+  let release;
+  t.mapControl.gates.playerMap = new Promise((resolve) => { release = resolve; });
+  t.auto.evaluate();
+  for (let i = 0; i < 5; i++) await tick();
+  assert.equal(JSON.parse(t.storage.get(farmsKey)).importedAt, t.owned.state.local.importedAt);
+  t.mapControl.fail = 'INTERNAL';
+  release();
+  await t.auto.idle();
+  const reads = t.mapCalls.filter((call) => call.action === 'playerMap').length;
+  // 次のセーブ（30 秒後）では読みに行かず、そのまま記録する
+  t.mapControl.gates.playerMap = null;
+  t.mapClock.now += 30_000;
+  t.lay();
+  await t.run();
+  assert.equal(t.mapCalls.filter((call) => call.action === 'playerMap').length, reads);
+  assert.equal(JSON.parse(t.storage.get(farmsKey)).importedAt, t.owned.state.local.importedAt);
+});
+
+test('自動登録（server の mapping・反証のレビュー）: 判定は、その回のセーブのプレイヤーで引く（表示している共有のプレイヤーではない）', async () => {
+  const t = await setup({ gas: true, worldId: MAP_WORLD, players: coopPlayers, farms: [] });
+  // H のキャラクター（X）は「自分」、以前のホスト（u:H）は「仲間」
+  await otherPc(t, [{ key: `i:${X}`, userId: '自分' }, { key: `u:${H}`, userId: '仲間' }]);
+  t.mapClock.now += 61_000;
+  // 手元はホストの協力プレイのセーブ（H がプレイヤー）、表示しているのはサーバーの共有（H は U に）
+  Object.assign(t.owned.state, { meta: { worldId: MAP_WORLD, source: 'shared' }, owned: { players: serverPlayers } });
+  readWorld(t, coopPlayers, emptied([pairFarm('f3', H)]));
+  await t.run();
+  readWorld(t, coopPlayers, [pairFarm('f3', H)]);
+  await t.run();
+  // 表示している共有のプレイヤーで引くと、H は以前のホスト（仲間）
+  assert.deepEqual(t.auto.mapping(MAP_WORLD), { [U]: '自分', [H]: '仲間' });
+  assert.deepEqual(registrants(t.store), ['自分']);
 });

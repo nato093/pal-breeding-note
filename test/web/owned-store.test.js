@@ -67,7 +67,7 @@ function sharedServer({ scope = 'test', userId = 'ホスト', rewrite = null } =
 }
 
 // watch はセーブのファイルの見張り（save/watch.js の createWatchClient）の代わり。渡さなければ本物（Node には Worker がないので 'timer'）
-function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false, watch = null } = {}) {
+function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false, watch = null, resident = undefined } = {}) {
   const calls = { imports: 0 };
   let time = 1_000_000;
   const timers = [];
@@ -79,6 +79,7 @@ function setup({ server = null, persist = memoryPersist(), storage = memoryStora
     cancel: (id) => { timers[id].cancelled = true; },
     hidden,
     ...(watch ? { watch } : {}),
+    ...(resident !== undefined ? { resident } : {}),
   });
   const store = make();
   const register = async (worldId, files, target = store) => target.commitRegistration(await target.previewRegistration({ worldId, steamId: '7656', files: asDropped(files) }));
@@ -2468,6 +2469,29 @@ test('所持パル（page-presence）: ホストと参加者のページが同�
   assert.ok(lines.every((line) => line.startsWith('● ホスト')));
   assert.ok(lines.some((line) => /^● ホスト（(PC 2・)?この PC） · たった今 · 参加者$/.test(line)), lines.join('\n'));
   assert.ok(lines.some((line) => /^● ホスト(（PC 2）)? · たった今 · ホスト用のセーブあり · 共有できる$/.test(line)), lines.join('\n'));
+});
+
+test('所持パル（server の participant-ui）: 常駐（resident: true）のストアは presence に resident: true を付けて送り、ほかの PC の一覧に「サーバー（常駐）」と出る。ページは付けない', async () => {
+  const { openPagesLines } = await import('../../web/js/ui/owned-status.js');
+  const shared = presenceServer();
+  const agent = setup({ server: shared.server, resident: true });
+  await agent.register(WORLD_A, hostFiles());
+  await settleUpload(agent.store);
+  agent.advance(60000);
+  assert.equal(await agent.store.reportPresence(), 'sent');
+  const sent = shared.sent.at(-1)[2];
+  assert.deepEqual([sent.role, sent.playing, sent.resident], ['host', false, true]);
+  const guest = setup({ server: shared.server });
+  await guest.register(WORLD_A, { 'LocalData.sav': fakeHandle('LocalData.sav') });
+  guest.advance(60000);
+  assert.equal(await guest.store.reportPresence(), 'sent');
+  // ページ（resident を渡さない）の値は今と同じ形
+  assert.equal('resident' in shared.sent.at(-1)[2], false);
+  assert.equal(guest.store.state.pages.list.filter((page) => page.resident === true).length, 1);
+  // 常駐の行はログインの ID によらず「サーバー（常駐）」。保存が続いていなければ「サーバー停止中」（警告にしない）
+  const lines = openPagesLines(guest.store.state, { now: guest.time });
+  assert.ok(lines.includes('● サーバー（常駐） · たった今 · サーバー停止中'), lines.join('\n'));
+  assert.ok(lines.some((line) => /^● ホスト（この PC） · たった今 · 参加者$/.test(line)), lines.join('\n'));
 });
 
 // ---- Codex のレビューの直し（page-presence） ----

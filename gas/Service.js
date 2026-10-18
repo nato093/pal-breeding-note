@@ -47,7 +47,7 @@ function actionAccount_(req, env) {
 var RENAME_FIELDS_ = ['action', 'passcode', 'opId', 'userId', 'newUserId'];
 
 /**
- * 自分の名前（ID）を変え、配合の登録者名・所持パルの共有者名も新しい名前にそろえる。
+ * 自分の名前（ID）を変え、配合の登録者名・所持パルの共有者名・プレイヤーの対応の ID（PlayerMap の userId・updatedBy）も新しい名前にそろえる。
  * 開始と完了を Log に opId で残し、途中で止まっても同じ opId で続きから行えるようにする。
  * Users を最後に書くので、途中で止まっても旧名でやり直せる。
  */
@@ -89,6 +89,8 @@ function actionRename_(req, env) {
     });
     var worlds = readOwnedWorlds_(env);
     var uploads = worlds.worlds.filter(function (entry) { return userIdKey(entry.world.uploadedBy) === userIdKey(from); });
+    // シートがなければ（setup() の前）null で、書き換えを飛ばす
+    var playerMapRows = playerMapRenameRows_(env, from);
     var logTable = readHeader_(sheetFor_(env, 'log'), LOG_HEADERS_);
     var now = new Date().toISOString();
 
@@ -97,6 +99,7 @@ function actionRename_(req, env) {
     writeCells_(dataSheet, dataTable.index.registrant + 1, records.map(function (row) { return row.rowNumber; }), to);
     writeCells_(sheetFor_(env, 'ownedWorlds'), worlds.table.index.uploadedBy + 1,
       uploads.map(function (entry) { return entry.rowNumber; }), to);
+    renamePlayerMap_(playerMapRows, to);
     if (own) writeCells_(sheetFor_(env, 'users'), users.table.index.userId + 1, [own.rowNumber], to);
     appendRecordLog_(env, logTable, 'renamed', req.opId, { userId: from }, { userId: to, records: records.length }, now);
 

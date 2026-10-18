@@ -1,6 +1,8 @@
 import { API_URL } from './config.js';
 import { cleanSnapshot, cleanOwnedWorlds, cleanOwnedPayload, cleanPresenceList, isoTime, int, text } from './core/boundary.js';
-import { OWNED_MAX_ROWS, OWNED_RESULTS, ownedSaveStamp } from './core/owned-shared.js';
+import {
+  OWNED_MAX_ROWS, OWNED_RESULTS, ownedSaveStamp, ownedWorldId, PLAYER_MAP_ENTRY_FIELDS, PLAYER_MAP_SET_MAX, cleanPlayerMapEntries,
+} from './core/owned-shared.js';
 
 const messages = {
   AUTH: 'パスワードが違います。もう一度入力してください。',
@@ -52,11 +54,15 @@ const actionFields = {
   ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'],
   // 共有が変わったか（uploadedAt は画面が持っている共有の版）と、ページを開いている PC（owned-gas。古い GAS は BAD_ACTION）
   ownedSince: ['worldId', 'uploadedAt', 'presence'], presence: ['worldId', 'presence'],
+  // プレイヤーの対応（server の mapping。古い GAS は BAD_ACTION）。entries の 1 件は PLAYER_MAP_ENTRY_FIELDS の項目だけを送る
+  playerMap: ['worldId'], playerMapSet: ['userId', 'worldId', 'entries', 'onlyMissing'],
 };
 // 所持パルの共有（スプレッドシート）。配合の全件（snapshot）は返さない
 const ownedActions = new Set(['ownedWorlds', 'owned', 'ownedUpload', 'ownedDelete', 'ownedSince', 'presence']);
-// ページを開いている PC として送る項目（core/owned-shared.js の cleanPresenceInput）
-const presenceFields = ['pageId', 'device', 'user', 'role', 'playing', 'canShare'];
+// プレイヤーの対応（server の mapping）。配合の全件（snapshot）は返さない
+const playerMapActions = new Set(['playerMap', 'playerMapSet']);
+// ページを開いている PC として送る項目（core/owned-shared.js の cleanPresenceInput。resident はサーバーの PC の常駐プログラムだけが送る）
+const presenceFields = ['pageId', 'device', 'user', 'role', 'playing', 'canShare', 'resident'];
 const recordFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 
 function pick(source, fields) {
@@ -69,6 +75,9 @@ export function buildRequest(action, passcode, input = {}) {
   if (request.record) request.record = pick(request.record, action === 'create' ? ['id', ...recordFields] : recordFields);
   if (request.expectedEtags) request.expectedEtags = pick(request.expectedEtags, ['source', 'target']);
   if (request.presence && typeof request.presence === 'object') request.presence = pick(request.presence, presenceFields);
+  if (action === 'playerMapSet' && Array.isArray(request.entries)) {
+    request.entries = request.entries.map((entry) => (entry && typeof entry === 'object' ? pick(entry, PLAYER_MAP_ENTRY_FIELDS) : entry));
+  }
   return request;
 }
 
@@ -84,6 +93,7 @@ export function validateResponse(response, action) {
     throw new ApiError(response.code, response);
   }
   if (ownedActions.has(action)) return validateOwnedResponse(response, action);
+  if (playerMapActions.has(action)) return validatePlayerMapResponse(response, action);
   const account = ['login', 'signup', 'rename'].includes(action);
   if (!['prod', 'test'].includes(response.env) || !response.api
     || !validSnapshot(action === 'snapshot' || account ? response : response.snapshot)
@@ -133,6 +143,21 @@ function validateOwnedResponse(response, action) {
   }
   if (action === 'presence') return { ...response, presence: cleanPresenceList(response.presence), saved: response.saved === true };
   return response;
+}
+
+// プレイヤーの対応（{ worldId, entries, serverTime }。playerMapSet は changed・skipped も）。形を確かめた後で、対応の要素を整える
+//（形の違う要素を捨て、同じ鍵は後の要素。core/owned-shared.js の cleanPlayerMapEntries）
+function validatePlayerMapResponse(response, action) {
+  const worldId = ownedWorldId(response.worldId);
+  const ok = ['prod', 'test'].includes(response.env) && response.api && typeof response.serverTime === 'string'
+    && worldId && Array.isArray(response.entries);
+  if (!ok) throw new ApiError('RESPONSE');
+  const cleaned = { ...response, worldId, entries: cleanPlayerMapEntries(response.entries) };
+  if (action === 'playerMapSet') {
+    cleaned.changed = int(response.changed, { min: 0, max: PLAYER_MAP_SET_MAX });
+    cleaned.skipped = int(response.skipped, { min: 0, max: PLAYER_MAP_SET_MAX });
+  }
+  return cleaned;
 }
 
 export function createApi({ fetcher = globalThis.fetch, url = API_URL, timeoutMs = 35000, transport } = {}) {

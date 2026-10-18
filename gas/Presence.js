@@ -1,6 +1,7 @@
 /**
  * ページを開いている PC（presence。docs/sync-fixes/README.md の 3・8）。シートには書かず、CacheService に置く。
- * - ページごとのキー presence:<env>:<worldId>:<pageId>（値は { user, device, role, playing, canShare, at }。6 時間）
+ * - ページごとのキー presence:<env>:<worldId>:<pageId>（値は { user, device, role, playing, canShare, at }。サーバーの PC の常駐プログラム
+ *   〔server の participant-ui〕の値は resident: true も持つ。6 時間）
  * - ワールドの索引のキー presence:<env>:<worldId>（ページの ID と記録した時刻の一覧。期限切れを除き、1 ワールド 50 件まで）
  * 索引の読み・足し・除去は短い鍵の中で行う。共有の鍵（ScriptLock）と別の鍵は使えない（DocumentLock は Web アプリの実行では null。
  * UserLock は匿名で実行する Web アプリでは誰の鍵か定まらない）ので、ScriptLock を 0.5 秒だけ試す。取れなければ索引だけを諦め、
@@ -35,6 +36,7 @@ function writePresence_(env, worldId, input) {
     user: input.user, device: input.device, role: input.role, playing: input.playing, canShare: input.canShare,
     at: new Date(nowMs).toISOString()
   };
+  if (input.resident === true) entry.resident = true;
   try {
     cache.put(presencePageKey_(env, worldId, input.pageId), JSON.stringify(entry), OWNED_PRESENCE_TTL_S);
   } catch (error) {
@@ -84,10 +86,12 @@ function readPresence_(env, worldId) {
       if (!value || typeof value !== 'object') return;
       var at = ownedTime_(value.at);
       if (!isFinite(at) || nowMs - at >= OWNED_PRESENCE_TTL_S * 1000) return;
-      list.push({
+      var item = {
         user: String(value.user == null ? '' : value.user), device: String(value.device == null ? '' : value.device),
         role: value.role, playing: value.playing === true, canShare: value.canShare === true, at: value.at
-      });
+      };
+      if (value.resident === true) item.resident = true;
+      list.push(item);
     });
     list.sort(function (a, b) { return ownedTime_(b.at) - ownedTime_(a.at); });
     return list;

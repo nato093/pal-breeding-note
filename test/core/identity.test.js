@@ -32,6 +32,8 @@ test('プレイヤーの鍵: GUID の検査・鍵の検査（i: は GUID、u: �
   for (const bad of [ZERO, '1111-2222', `${IID_A}0`, IID_A.replace(/-/g, ''), null, 7, {}]) assert.equal(playerGuid(bad), '', String(bad));
   assert.equal(playerMapKey(`I:${IID_A.toUpperCase()}`), `i:${IID_A}`);
   assert.equal(playerMapKey(`u:${U.toUpperCase()}`), `u:${U}`);
+  // i: の後ろの空白は鍵に残さない（空白つきの鍵は、どのプレイヤーにも当たらないまま GAS の枠を使う。反証のレビュー）
+  assert.equal(playerMapKey(`i: ${IID_A}`), `i:${IID_A}`);
   // プレフィックスのない UID・形の違う鍵は ''
   for (const bad of [U, `i:${ZERO}`, 'i:abc', `u:${'a'.repeat(41)}`, 'u:', 'u:a b', `x:${IID_A}`, '', null]) assert.equal(playerMapKey(bad), '', String(bad));
 });

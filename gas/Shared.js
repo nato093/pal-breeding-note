@@ -233,7 +233,10 @@ function playerGuid(value) {
  */
 function playerMapKey(value) {
   const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (text.startsWith('i:')) return playerGuid(text.slice(2)) ? text : '';
+  if (text.startsWith('i:')) {
+    const id = playerGuid(text.slice(2));
+    return id ? `i:${id}` : '';
+  }
   if (text.startsWith('u:')) return PLAYER_KEY_UID.test(text.slice(2)) ? text : '';
   return '';
 }
@@ -288,6 +291,115 @@ const shortUid = (uid) => String(uid ?? '').replace(/-/g, '').slice(0, 8).toUppe
  */
 function formerLabel(uid) {
   return uid === HOST_UID ? '以前のホスト' : `不明なプレイヤー（${shortUid(uid)}）`;
+}
+
+// ---------------------------------------------------------------------------
+// プレイヤーの対応（server の mapping。GAS のシート PlayerMap。docs/server/README.md の T3）
+// ---------------------------------------------------------------------------
+
+// 1 回の書き込み（playerMapSet）の件数の上限（本文 16KB〔gas/Main.js の MAX_BODY_CHARS〕に収める）と、1 ワールドの鍵の数の上限（外した印を含む）
+const PLAYER_MAP_SET_MAX = 50;
+const PLAYER_MAP_WORLD_MAX = 200;
+// playerMapSet の最上位の項目と、entries の 1 件の項目
+const PLAYER_MAP_SET_FIELDS = ['action', 'passcode', 'userId', 'worldId', 'entries', 'onlyMissing'];
+const PLAYER_MAP_ENTRY_FIELDS = ['key', 'userId', 'playerName'];
+// ノートの ID の長さ（core/user.js の validateUserId と同じ）と、設定したときのゲーム内の名前の長さ（共有のプレイヤーの name と同じ）
+const PLAYER_MAP_USER_MAX = 20;
+const PLAYER_MAP_NAME_MAX = 50;
+
+/**
+ * 対応の 1 件（{ key, userId, playerName, updatedBy, updatedAt }）を検査して整える。鍵の形が違う・userId が文字列でないか 20 字を超えるなら
+ * null。userId の '' は「外した」印（墓標）。updatedAt は日時として読めなければ ''
+ */
+function cleanPlayerMapEntry(value) {
+  if (!value || typeof value !== 'object') return null;
+  const key = playerMapKey(value.key);
+  const userId = typeof value.userId === 'string' ? ownedText(value.userId, Infinity) : null;
+  if (!key || userId === null || userId.length > PLAYER_MAP_USER_MAX) return null;
+  const at = typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)) ? value.updatedAt : '';
+  return {
+    key, userId, playerName: ownedText(value.playerName, PLAYER_MAP_NAME_MAX), updatedBy: ownedText(value.updatedBy, PLAYER_MAP_USER_MAX), updatedAt: at,
+  };
+}
+
+/** 1 ワールドの対応の一覧を整える（形の違う要素は捨て、同じ鍵は後の要素を使う。PLAYER_MAP_WORLD_MAX 件まで）。配列でなければ [] */
+function cleanPlayerMapEntries(list) {
+  if (!Array.isArray(list)) return [];
+  const byKey = new Map();
+  for (const item of list) {
+    const entry = cleanPlayerMapEntry(item);
+    if (entry) byKey.set(entry.key, entry);
+  }
+  return [...byKey.values()].slice(0, PLAYER_MAP_WORLD_MAX);
+}
+
+/**
+ * 対応の書き込み（playerMapSet）を検査して整える。ID の検査（core/user.js の validateUserId の形）は checkUserId で受け、findUser（任意）を
+ * 渡せば、entries の ID をノートの ID の表記（見つからなければ '' → USER_NOT_FOUND）にする（GAS・開発用 API は Users を読んでから渡す）。
+ * entries の userId の '' は外す。同じ鍵が 1 回の中に 2 つあれば後の方を使う。
+ * @returns {{ ok: true, value: { userId, worldId, entries: { key, userId, playerName }[], onlyMissing: boolean } } | { ok: false, errors: { field: string, code: string }[] }}
+ */
+function validatePlayerMapSet(input, { checkUserId, findUser } = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const unknown = Object.keys(source).find((field) => !PLAYER_MAP_SET_FIELDS.includes(field));
+  if (unknown) return { ok: false, errors: [{ field: unknown, code: 'UNKNOWN_FIELD' }] };
+  const errors = [];
+  const fail = (field, code) => errors.push({ field, code });
+  const writer = checkUserId(source.userId);
+  if (!writer.ok) fail('userId', writer.errors[0].code);
+  const worldId = ownedWorldId(source.worldId);
+  if (!worldId) fail('worldId', 'INVALID_WORLD');
+  if (source.onlyMissing !== undefined && typeof source.onlyMissing !== 'boolean') fail('onlyMissing', 'INVALID_TYPE');
+  const list = source.entries;
+  if (!Array.isArray(list) || !list.length) fail('entries', 'INVALID_ENTRIES');
+  else if (list.length > PLAYER_MAP_SET_MAX) fail('entries', 'TOO_MANY');
+  if (errors.length) return { ok: false, errors };
+  const byKey = new Map();
+  list.forEach((entry, index) => {
+    const at = `entries.${index}`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return fail(at, 'INVALID_ENTRY');
+    const extra = Object.keys(entry).find((field) => !PLAYER_MAP_ENTRY_FIELDS.includes(field));
+    if (extra) return fail(`${at}.${extra}`, 'UNKNOWN_FIELD');
+    const key = playerMapKey(entry.key);
+    if (!key) fail(`${at}.key`, 'INVALID_KEY');
+    if (entry.playerName !== undefined && typeof entry.playerName !== 'string') fail(`${at}.playerName`, 'INVALID_TYPE');
+    let userId = '';
+    if (typeof entry.userId !== 'string' || ownedText(entry.userId, Infinity)) {
+      const checked = checkUserId(entry.userId);
+      if (!checked.ok) return fail(`${at}.userId`, checked.errors[0].code);
+      userId = findUser ? findUser(checked.value) : checked.value;
+      if (!userId) return fail(`${at}.userId`, 'USER_NOT_FOUND');
+    }
+    if (!key) return;
+    byKey.delete(key);
+    byKey.set(key, { key, userId, playerName: ownedText(entry.playerName, PLAYER_MAP_NAME_MAX) });
+  });
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, value: { userId: writer.value, worldId, entries: [...byKey.values()], onlyMissing: source.onlyMissing === true } };
+}
+
+/**
+ * 対応の書き込み（validatePlayerMapSet の value）を、そのワールドの今の対応（cleanPlayerMapEntry の形。鍵ごとに 1 つ）に当てる
+ *（GAS と開発用 API で同じ規則）。onlyMissing なら、すでにある鍵（外した印を含む）は書かない。userId と playerName が今と同じ鍵も書かない。
+ * どちらも skipped に数える。鍵を増やして PLAYER_MAP_WORLD_MAX を超えるなら、何も書かずに TOO_MANY。
+ * @returns {{ ok: true, writes: object[], entries: object[], changed: number, skipped: number } | { ok: false, errors: { field: string, code: string }[] }}
+ */
+function planPlayerMapSet(current, input, updatedAt) {
+  const entries = new Map(current.map((entry) => [entry.key, entry]));
+  const writes = [];
+  let skipped = 0;
+  for (const entry of input.entries) {
+    const now = entries.get(entry.key);
+    if (now && (input.onlyMissing || (now.userId === entry.userId && now.playerName === entry.playerName))) {
+      skipped++;
+      continue;
+    }
+    const next = { key: entry.key, userId: entry.userId, playerName: entry.playerName, updatedBy: input.userId, updatedAt };
+    writes.push(next);
+    entries.set(entry.key, next);
+  }
+  if (entries.size > PLAYER_MAP_WORLD_MAX && entries.size > current.length) return { ok: false, errors: [{ field: 'worldId', code: 'TOO_MANY' }] };
+  return { ok: true, writes, entries: [...entries.values()], changed: writes.length, skipped };
 }
 
 // 捕獲数（players の JSON の captures。server の share-extras）: 種類の数と 1 種の回数の上限。players のセル（5 万字まで）は
@@ -631,16 +743,21 @@ const OWNED_PRESENCE_TTL_S = 21600;
 // ページと PC の ID（画面が作るランダムな値。認証にも本人の証明にも使わない）
 const PRESENCE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
-/** 画面が送る presence（{ pageId, device, user, role, playing, canShare }）を検査して整える。形が違えば null */
+/**
+ * 画面が送る presence（{ pageId, device, user, role, playing, canShare, resident? }）を検査して整える。形が違えば null。
+ * resident はサーバーの PC の常駐プログラムが送る印（server の participant-ui）。なくてよく、あれば真偽値。true のときだけ写す
+ *（ページの値は今までと同じ形。古い GAS は知らない項目として捨てる）
+ */
 function cleanPresenceInput(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   if (typeof value.pageId !== 'string' || !PRESENCE_ID.test(value.pageId)) return null;
   if (typeof value.device !== 'string' || !PRESENCE_ID.test(value.device)) return null;
   if (!OWNED_PRESENCE_ROLES.includes(value.role) || typeof value.playing !== 'boolean' || typeof value.canShare !== 'boolean') return null;
   if (value.user !== undefined && typeof value.user !== 'string') return null;
+  if (value.resident !== undefined && typeof value.resident !== 'boolean') return null;
   return {
     pageId: value.pageId, device: value.device, user: ownedText(value.user, 20),
-    role: value.role, playing: value.playing, canShare: value.canShare,
+    role: value.role, playing: value.playing, canShare: value.canShare, ...(value.resident === true ? { resident: true } : {}),
   };
 }
 

@@ -6,6 +6,7 @@ import {
   HOST_UID, OWNED_EXTRAS_MAX_CHARS, OWNED_FORMERS_MAX, OWNED_ITEMS_MAX, ownedSaveKind, cleanOwnedItems, cleanOwnedExtras, ownedExtrasText, parseOwnedExtras,
   fitOwnedExtras, OWNED_FORMAT, OWNED_ADDED_FIELDS, cleanOwnedFarms, fitOwnedFarms, OWNED_FARM_CAKES_MAX, OWNED_FARMS_MAX_CHARS, cleanOwnedCaptures,
   cleanOwnedPlayer, fitOwnedPlayers, OWNED_CAPTURES_MAX, OWNED_PLAYERS_MAX_CHARS,
+  validatePlayerMapSet, planPlayerMapSet, cleanPlayerMapEntries, PLAYER_MAP_SET_MAX, PLAYER_MAP_WORLD_MAX,
 } from '../../web/js/core/owned-shared.js';
 import { ticksText } from '../../web/js/save/palworld.js';
 
@@ -109,6 +110,16 @@ test('cleanPresenceInput: ページ・PC の ID・役割・真偽を検査し、
     { ...value, role: 'owner' }, { ...value, playing: 1 }, { ...value, canShare: 'false' }, { ...value, user: 5 }]) {
     assert.equal(cleanPresenceInput(broken), null, JSON.stringify(broken));
   }
+});
+
+test('cleanPresenceInput（server の participant-ui）: 常駐の印 resident は true のときだけ写す。なければ・false なら今と同じ形、真偽値でなければ null', () => {
+  const value = { pageId: 'page-0001', device: 'device_01', user: 'サーバー', role: 'host', playing: true, canShare: true };
+  const plain = { ...value };
+  assert.deepEqual(cleanPresenceInput({ ...value, resident: true }), { ...plain, resident: true });
+  assert.deepEqual(cleanPresenceInput(value), plain);
+  assert.deepEqual(cleanPresenceInput({ ...value, resident: false }), plain);
+  assert.equal('resident' in cleanPresenceInput({ ...value, resident: false }), false);
+  for (const resident of [1, 'true', null, {}]) assert.equal(cleanPresenceInput({ ...value, resident }), null, JSON.stringify(resident));
 });
 
 test('共有の形の版（OWNED_FORMAT。server）: soul・condition の列と JSON の形（instanceId・captures・c・extras）を 1 回にまとめて 4＋5＋1＝10。狭めた形も前の形（4）より上', () => {
@@ -366,4 +377,62 @@ test('validateOwnedUpload（server）: 追加の情報は world の中で受け�
   const fitted = upload({ saveKind: 'server', formers: crowd }).value.extras;
   assert.ok(ownedExtrasText(AT, fitted).length <= OWNED_EXTRAS_MAX_CHARS);
   assert.equal(fitted.formersPartial, true);
+});
+
+// プレイヤーの対応（server の mapping。GAS の PlayerMap と開発用 API で同じ検査と規則）
+const mapKey = (n) => `i:11111111-2222-4333-8444-${String(n).padStart(12, '0')}`;
+const MAP_WORLD = 'ABCDEF0123456789ABCDEF0123456789';
+const checkUserId = (value) => (typeof value === 'string' && value.trim() && value.length <= 20
+  ? { ok: true, value: value.trim() } : { ok: false, errors: [{ field: 'userId', code: typeof value === 'string' ? 'TOO_LONG' : 'REQUIRED' }] });
+
+test('validatePlayerMapSet（mapping）: 形を確かめて整える。空白だけの ID は外す印、同じ鍵は後の方。findUser でノートの ID の表記にし、なければ USER_NOT_FOUND', () => {
+  const input = {
+    action: 'playerMapSet', passcode: 'x', userId: ' Bob ', worldId: MAP_WORLD.toLowerCase(), onlyMissing: true,
+    entries: [{ key: mapKey(1).toUpperCase(), userId: 'taro', playerName: ' Alice\u0000 ' }, { key: mapKey(2), userId: '  ' }, { key: mapKey(1), userId: 'hanako' }],
+  };
+  assert.deepEqual(validatePlayerMapSet(input, { checkUserId }), { ok: true, value: {
+    userId: 'Bob', worldId: MAP_WORLD, onlyMissing: true, entries: [{ key: mapKey(2), userId: '', playerName: '' }, { key: mapKey(1), userId: 'hanako', playerName: '' }],
+  } });
+  const users = ['Taro'];
+  const findUser = (value) => users.find((user) => user.toLowerCase() === value.toLowerCase()) ?? '';
+  assert.deepEqual(validatePlayerMapSet({ ...input, entries: input.entries.slice(0, 2) }, { checkUserId, findUser }).value.entries, [
+    { key: mapKey(1), userId: 'Taro', playerName: 'Alice' }, { key: mapKey(2), userId: '', playerName: '' },
+  ]);
+  assert.deepEqual(validatePlayerMapSet(input, { checkUserId, findUser }), { ok: false, errors: [{ field: 'entries.2.userId', code: 'USER_NOT_FOUND' }] });
+  assert.deepEqual(validatePlayerMapSet({ ...input, onlyMissing: undefined }, { checkUserId }).value.onlyMissing, false);
+  assert.deepEqual(validatePlayerMapSet(null, { checkUserId }).errors, [
+    { field: 'userId', code: 'REQUIRED' }, { field: 'worldId', code: 'INVALID_WORLD' }, { field: 'entries', code: 'INVALID_ENTRIES' },
+  ]);
+  assert.equal(validatePlayerMapSet({ ...input, entries: Array.from({ length: PLAYER_MAP_SET_MAX }, (_, i) => ({ key: mapKey(i), userId: '' })) }, { checkUserId }).ok, true);
+});
+
+test('planPlayerMapSet（mapping）: onlyMissing はある鍵（外した印を含む）を書かず、同じ内容も書かない（どちらも skipped）。鍵を増やして 200 を超えるときだけ TOO_MANY', () => {
+  const at = '2026-10-18T00:00:00.000Z';
+  const current = [
+    { key: mapKey(1), userId: 'Taro', playerName: 'Alice', updatedBy: 'Bob', updatedAt: at },
+    { key: mapKey(2), userId: '', playerName: '', updatedBy: 'Bob', updatedAt: at },
+  ];
+  const input = (entries, onlyMissing = false) => ({ userId: 'Carol', worldId: MAP_WORLD, entries, onlyMissing });
+  const later = '2026-10-18T01:00:00.000Z';
+  const plan = planPlayerMapSet(current, input([
+    { key: mapKey(1), userId: 'Taro', playerName: 'Alice' }, { key: mapKey(2), userId: 'Taro', playerName: '' }, { key: mapKey(3), userId: 'Hanako', playerName: '' },
+  ]), later);
+  assert.deepEqual([plan.ok, plan.changed, plan.skipped], [true, 2, 1]);
+  assert.deepEqual(plan.writes.map((entry) => [entry.key, entry.userId, entry.updatedBy, entry.updatedAt]), [[mapKey(2), 'Taro', 'Carol', later], [mapKey(3), 'Hanako', 'Carol', later]]);
+  assert.deepEqual(plan.entries.map((entry) => entry.key), [mapKey(1), mapKey(2), mapKey(3)]);
+  const missing = planPlayerMapSet(current, input([{ key: mapKey(1), userId: 'Hanako', playerName: '' }, { key: mapKey(2), userId: 'Taro', playerName: '' }], true), later);
+  assert.deepEqual([missing.changed, missing.skipped, missing.writes], [0, 2, []]);
+  // 上限: 200 から鍵を増やすときだけ断る（手で増えて 200 を超えていても、今ある鍵の書き換えはできる）
+  const full = Array.from({ length: PLAYER_MAP_WORLD_MAX + 3 }, (_, i) => ({ key: mapKey(i), userId: '', playerName: '', updatedBy: '', updatedAt: '' }));
+  assert.deepEqual(planPlayerMapSet(full.slice(0, PLAYER_MAP_WORLD_MAX), input([{ key: mapKey(999), userId: '', playerName: '' }]), later),
+    { ok: false, errors: [{ field: 'worldId', code: 'TOO_MANY' }] });
+  assert.equal(planPlayerMapSet(full, input([{ key: mapKey(0), userId: 'Taro', playerName: '' }]), later).changed, 1);
+});
+
+test('cleanPlayerMapEntries（mapping）: 形の違う要素（鍵・ID が文字列でない・ID が 20 字を超える）を捨て、同じ鍵は後の要素。200 件まで', () => {
+  const entry = (n, extra = {}) => ({ key: mapKey(n), userId: 'Taro', playerName: 'Alice', updatedBy: 'Bob', updatedAt: '2026-10-18T00:00:00.000Z', ...extra });
+  assert.deepEqual(cleanPlayerMapEntries([entry(1), null, entry(2, { key: 'x' }), entry(3, { userId: 1 }), entry(4, { userId: 'あ'.repeat(21) }), entry(1, { userId: '', updatedAt: 'x', extra: 1 })]),
+    [{ ...entry(1), userId: '', updatedAt: '' }]);
+  assert.deepEqual(cleanPlayerMapEntries('x'), []);
+  assert.equal(cleanPlayerMapEntries(Array.from({ length: PLAYER_MAP_WORLD_MAX + 5 }, (_, i) => entry(i))).length, PLAYER_MAP_WORLD_MAX);
 });
