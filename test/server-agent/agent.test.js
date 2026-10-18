@@ -1018,3 +1018,45 @@ test('常駐: 送る本文の文字数を測る（GAS の body.length と同じ�
   assert.match(tight.log.text(), /upload-too-large chars=\d+ limit=1000 pals=1 reason="GAS の本文の上限を超えるため共有しません"/);
   await tight.agent.close();
 });
+
+test('常駐（結合）: 自動登録の送信（create）も、送る 1 回ごと（createApi の自動の再送を含む）に、始めたときと同じ attach の間で動いているかを確かめる', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  // 新しいタマゴの登録が、GAS の応答を待ったまま、サーバーが止まる
+  let release;
+  gas.control.gates.create = new Promise((resolve) => { release = resolve; });
+  const creates = () => gas.control.calls.filter((action) => action === 'create').length;
+  await clock.advance(30_000);
+  pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 101, day: 10, eggs: ['GuardianDog'] });
+  site.save(clock.now());
+  pc.watch.settle();
+  for (let i = 0; i < 200 && creates() === 0; i++) await realTurns(1);
+  assert.equal(creates(), 1);
+  pc.server.state = 'stopped';
+  let finished = false;
+  pc.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(pc.agent.attached(), false);
+  // detach が終わった後に、待っていた登録が BUSY で返った: createApi は再送するが、送る直前に止める
+  gas.control.fail.create = 'BUSY';
+  release();
+  gas.control.gates.create = null;
+  await realTurns();
+  await pc.agent.settle();
+  assert.equal(creates(), 1, 'detach の後の再送を GAS に送らない');
+  assert.deepEqual(registered(pc.agent.store), []);
+  gas.control.fail.create = '';
+  // 次に動いたとき: 読み直したセーブで登録する（候補は失わない）
+  pc.server.state = 'running';
+  await clock.advance(30_000);
+  pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 102, day: 10, eggs: ['GuardianDog'] });
+  site.save(clock.now());
+  await pc.agent.tick();
+  await pc.agent.settle();
+  assert.deepEqual(registered(pc.agent.store), [SHEEP]);
+  assert.equal(creates(), 2);
+  await pc.agent.close();
+});

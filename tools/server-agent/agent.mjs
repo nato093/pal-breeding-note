@@ -231,10 +231,24 @@ export function createAgent({
     }
     return null;
   }
+  // 自動登録の送信（create）の印（record.id → 登録を始めたときの attach の世代と、対象のセーブの保存時刻）。registerStore が置き、送り終えたら消す
+  const registerTickets = new Map();
+  // 自動登録の送信を断る理由（送ってよければ null）。始めたときと同じ attach の世代で動いていて、対象のセーブが今の attach の間に読んだ判定済みの
+  // もの（古い系統の守りが止めていない）ときだけ送る（detach の後・止めた後に、createApi の自動の再送で登録を送らないため）
+  function registerRefusal(request) {
+    const ticket = registerTickets.get(request.record?.id);
+    if (!attached) return refusalOf(AGENT_STOPPED, 'サーバーが止まっているため登録しません');
+    if (!ticket || ticket.generation !== generation || !isFresh(ticket.stamp)) {
+      return refusalOf(AGENT_STALE, '前に動いていた間に始めた登録のため送りません（読み直してから登録します）');
+    }
+    if (guard.paused(worldId, ticket.stamp)) return lineageError(guard.status(worldId, ticket.stamp).state === 'blocked' ? LINEAGE_BLOCKED : LINEAGE_PENDING);
+    return null;
+  }
   // 実際に送る 1 回ごと（createApi の自動の再送を含む。gas-client.mjs の gate）の確かめ。止めた後は何も送らない。共有は、始めたときと同じ
-  // attach の世代で、動いているか最後の送信の期限の前で、今の attach の間に読んだ判定済みのセーブのときだけ送る
+  // attach の世代で、動いているか最後の送信の期限の前で、今の attach の間に読んだ判定済みのセーブのときだけ送る。自動登録は registerRefusal
   function sendRefusal(request) {
     if (stopped) return refusalOf(AGENT_STOPPED, '常駐を止めたため送りません');
+    if (request?.action === 'create') return registerRefusal(request);
     if (request?.action !== 'ownedUpload') return null;
     if (uploadTicket.getStore()?.generation !== generation) {
       return refusalOf(AGENT_STALE, '前に動いていた間に始めた共有のため送りません（読み直してから送ります）');
@@ -333,8 +347,21 @@ export function createAgent({
     request: (action, input) => call(action, { userId: store.state.userId, ...input }),
     scope, endpoint: () => config.apiUrl, storage: kv, namespace, now,
   });
+  // 自動登録に渡すストア。登録（mutate）を始めたときの attach の世代と対象のセーブの保存時刻を、record.id の印にする（registerRefusal）。
+  // auto-register.js は送る直前に、始めたときのセーブのまま（same）で止めていない（paused）ことを確かめてから同期で mutate を呼ぶので、
+  // そのときの手元のセーブが対象のセーブ
+  const registerStore = Object.create(store, {
+    mutate: {
+      value(action, input) {
+        const id = input?.record?.id;
+        if (typeof id !== 'string' || !id) return store.mutate(action, input);
+        registerTickets.set(id, { generation, stamp: localStamp() });
+        return store.mutate(action, input).finally(() => registerTickets.delete(id));
+      },
+    },
+  });
   autoRegister = config.autoRegister === false ? null : createAutoRegister({
-    store, owned, storage: kv, namespace, now, playerMaps,
+    store: registerStore, owned, storage: kv, namespace, now, playerMaps,
     // 止まっている間・前に動いていた間に読んだセーブ・古い系統の判定が済むまで・止めている間は、候補を取り込まず登録も送らない
     paused: (id, stamp) => !attached || !isFresh(ownedSaveStamp(stamp)) || guard.paused(id, stamp),
     toast: (message) => log.info('auto-register', { message }),
