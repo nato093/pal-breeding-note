@@ -37,7 +37,7 @@ test('常駐の設定: 何も書かなければ test・既定の接続先・デ�
   assert.equal(config.dataDir, DATA);
   assert.equal(config.envDir, path.join(DATA, 'test'));
   assert.equal(config.configFile, CONFIG_FILE);
-  assert.deepEqual(config.flags, { check: false, online: false, once: false, dryRun: false, forceHost: false, acceptWorld: false, verbose: false });
+  assert.deepEqual(config.flags, { check: false, online: false, once: false, dryRun: false, forceHost: false, acceptWorld: false, signup: false, verbose: false });
 });
 
 test('常駐の設定: データの場所の既定は %LOCALAPPDATA%\\pal-note-agent', () => {
@@ -122,6 +122,10 @@ test('常駐の設定: config.json の BOM と ID の前後の空白・制御文
 
 test('常駐の設定: 動かし方の引数を読む', () => {
   const { flags, values } = parseAgentArgs(['--check', '--online', '--verbose', '--accept-world', '--dry-run', '--server-root', 'G:\\x']);
-  assert.deepEqual(flags, { check: true, online: true, once: false, dryRun: true, forceHost: false, acceptWorld: true, verbose: true });
+  assert.deepEqual(flags, { check: true, online: true, once: false, dryRun: true, forceHost: false, acceptWorld: true, signup: false, verbose: true });
   assert.deepEqual(values, { serverRoot: 'G:\\x' });
+  // --signup（ID を作る）と、--world-dir と同じ --world
+  const signup = parseAgentArgs(['--signup', '--world', 'G:\\w']);
+  assert.equal(signup.flags.signup, true);
+  assert.deepEqual(signup.values, { worldDir: 'G:\\w' });
 });

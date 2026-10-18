@@ -28,6 +28,8 @@ const OPTIONS = {
   env: { type: 'string', key: 'env' },
   user: { type: 'string', key: 'userId' },
   'world-dir': { type: 'string', key: 'worldDir' },
+  // --world は --world-dir と同じ（ワールドのフォルダ SaveGames\0\<ワールド ID>）
+  world: { type: 'string', key: 'worldDir' },
   'server-root': { type: 'string', key: 'serverRoot' },
   instance: { type: 'string', key: 'instance' },
   'world-name': { type: 'string', key: 'worldName' },
@@ -39,6 +41,7 @@ const OPTIONS = {
   'dry-run': { type: 'boolean', flag: 'dryRun' },
   'force-host': { type: 'boolean', flag: 'forceHost' },
   'accept-world': { type: 'boolean', flag: 'acceptWorld' },
+  signup: { type: 'boolean', flag: 'signup' },
   verbose: { type: 'boolean', flag: 'verbose' },
 };
 
