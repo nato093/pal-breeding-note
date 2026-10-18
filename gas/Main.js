@@ -23,6 +23,8 @@ function doPost(e) {
 }
 
 function handleRequest_(body) {
+  // 認証の後の失敗の応答にも env を付ける（サーバーの PC の常駐が、失敗の応答でも違う環境に送っていると気づけるように。画面は失敗の env を読まない）
+  var env = '';
   try {
     if (typeof body !== 'string' || body.length === 0) return fail_('BAD_REQUEST');
     // 所持パルのアップロード以外は、読む前に大きさで断る
@@ -39,27 +41,33 @@ function handleRequest_(body) {
 
     var auth = authenticate_(req.passcode);
     if (!auth.ok) return fail_(auth.code);
+    env = auth.env;
 
     var actions = actions_();
     if (typeof req.action !== 'string' || !Object.prototype.hasOwnProperty.call(actions, req.action)) {
-      return fail_('BAD_ACTION');
+      return withEnv_(fail_('BAD_ACTION'), env);
     }
     var action = actions[req.action];
-    if (action.testOnly && auth.env !== 'test') return fail_('FORBIDDEN');
+    if (action.testOnly && auth.env !== 'test') return withEnv_(fail_('FORBIDDEN'), env);
 
     var result = action.run(req, auth.env);
-    if (result.ok === false) return result;
+    if (result.ok === false) return withEnv_(result, env);
     return Object.assign({ ok: true, env: auth.env, api: API_VERSION }, result);
   } catch (err) {
-    if (err && (err.code === 'BUSY' || err.code === 'SHEET_HEADER')) return fail_(err.code);
+    if (err && (err.code === 'BUSY' || err.code === 'SHEET_HEADER')) return withEnv_(fail_(err.code), env);
     // リクエスト本文（パスワードを含む）はログに出さない
     console.error('handleRequest_ failed: ' + (err && err.stack ? err.stack : err));
-    return fail_('INTERNAL');
+    return withEnv_(fail_('INTERNAL'), env);
   }
 }
 
 function fail_(code) {
   return { ok: false, code: code };
+}
+
+// 失敗の応答に、認証した環境を足す（認証の前の失敗〔env が空〕はそのまま。どの環境か分からない）
+function withEnv_(response, env) {
+  return env ? Object.assign({}, response, { env: env }) : response;
 }
 
 function jsonOut_(obj) {

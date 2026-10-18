@@ -92,14 +92,14 @@ test('名前の変更: 他の人の名前・同じ名前・未登録・不正な
   const state = () => JSON.stringify(['Users_test', 'Breedings_test', 'Log_test'].map((name) => env.sheet(name).data));
   const before = state();
   for (const [input, expected] of [
-    [{ userId: 'Taro', newUserId: 'ｈａｎａｋｏ' }, { ok: false, code: 'USER_EXISTS' }],
-    [{ userId: 'Taro', newUserId: 'Taro' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'SAME_ID' }] }],
-    [{ userId: '未登録', newUserId: '新しい名前' }, { ok: false, code: 'USER_NOT_FOUND' }],
-    [{ userId: 'Taro', newUserId: '' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'REQUIRED' }] }],
-    [{ userId: 'Taro', newUserId: 'あ'.repeat(21) }, { ok: false, code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'TOO_LONG' }] }],
-    [{ userId: '', newUserId: 'Jiro' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'userId', code: 'REQUIRED' }] }],
-    [{ userId: 'Taro', newUserId: 'Jiro', extra: 1 }, { ok: false, code: 'VALIDATION', errors: [{ field: 'extra', code: 'UNKNOWN_FIELD' }] }],
-    [{ userId: 'Taro', newUserId: 'Jiro', opId: 'x' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'opId', code: 'INVALID_UUID' }] }],
+    [{ userId: 'Taro', newUserId: 'ｈａｎａｋｏ' }, { ok: false, env: 'test', code: 'USER_EXISTS' }],
+    [{ userId: 'Taro', newUserId: 'Taro' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'SAME_ID' }] }],
+    [{ userId: '未登録', newUserId: '新しい名前' }, { ok: false, env: 'test', code: 'USER_NOT_FOUND' }],
+    [{ userId: 'Taro', newUserId: '' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'REQUIRED' }] }],
+    [{ userId: 'Taro', newUserId: 'あ'.repeat(21) }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'TOO_LONG' }] }],
+    [{ userId: '', newUserId: 'Jiro' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'userId', code: 'REQUIRED' }] }],
+    [{ userId: 'Taro', newUserId: 'Jiro', extra: 1 }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'extra', code: 'UNKNOWN_FIELD' }] }],
+    [{ userId: 'Taro', newUserId: 'Jiro', opId: 'x' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'opId', code: 'INVALID_UUID' }] }],
   ]) {
     assert.deepEqual(env.call('rename', input), expected);
     assert.equal(state(), before);
@@ -245,7 +245,7 @@ test('名前の変更: PlayerMap のシートがなくても（setup() の前）
   broken.sheet('PlayerMap_test').data[0][4] = 'by';
   const state = () => JSON.stringify(['Users_test', 'Breedings_test', 'Log_test', 'PlayerMap_test'].map((name) => broken.sheet(name).data));
   const before = state();
-  assert.deepEqual(broken.call('rename', { userId: 'Taro', newUserId: 'Jiro' }), { ok: false, code: 'SHEET_HEADER' });
+  assert.deepEqual(broken.call('rename', { userId: 'Taro', newUserId: 'Jiro' }), { ok: false, env: 'test', code: 'SHEET_HEADER' });
   assert.equal(state(), before);
 });
 

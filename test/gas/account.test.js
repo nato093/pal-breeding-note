@@ -43,7 +43,7 @@ for (const [saved, login] of [['ＡｂＣ１２', 'abc12'], ['AbC', 'ＡＢＣ']
     assert.equal(env.call('signup', { userId: saved }).ok, true);
     assert.equal(env.call('login', { userId: login }).userId, saved);
     const before = JSON.stringify(env.users.data);
-    assert.deepEqual(env.call('signup', { userId: login }), { ok: false, code: 'USER_EXISTS' });
+    assert.deepEqual(env.call('signup', { userId: login }), { ok: false, env: 'test', code: 'USER_EXISTS' });
     assert.equal(JSON.stringify(env.users.data), before);
   });
 }
@@ -53,14 +53,14 @@ for (const action of ['login', 'signup']) {
     test(`ID検証: ${action} の ${JSON.stringify(value)} は ${code}`, () => {
       const env = fixture();
       const before = JSON.stringify(env.users.data);
-      assert.deepEqual(env.call(action, { userId: value }), { ok: false, code: 'VALIDATION', errors: [{ field: 'userId', code }] });
+      assert.deepEqual(env.call(action, { userId: value }), { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'userId', code }] });
       assert.equal(JSON.stringify(env.users.data), before);
     });
   }
   test(`アカウント: ${action} は未知の項目を拒否し、認証を先に行う`, () => {
     const env = fixture();
     assert.deepEqual(env.call(action, { userId: 'ID', extra: true }), {
-      ok: false, code: 'VALIDATION', errors: [{ field: 'extra', code: 'UNKNOWN_FIELD' }],
+      ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'extra', code: 'UNKNOWN_FIELD' }],
     });
     assert.deepEqual(env.call(action, { userId: '', extra: true }, '不正'), { ok: false, code: 'AUTH' });
     env.spreadsheet.getSheetByName('設定').data[1][1] = '';
@@ -79,7 +79,7 @@ test('ID検証: 20文字と制御文字を含む入力は除去後の文字数�
 
 test('アカウント: 未登録なら USER_NOT_FOUND、本番とテストの ID を分離する', () => {
   const env = fixture();
-  assert.deepEqual(env.call('login', { userId: '未登録' }), { ok: false, code: 'USER_NOT_FOUND' });
+  assert.deepEqual(env.call('login', { userId: '未登録' }), { ok: false, env: 'test', code: 'USER_NOT_FOUND' });
   assert.equal(env.call('signup', { userId: '試験用ID' }).ok, true);
   assert.equal(env.call('login', { userId: '試験用ID' }, PROPS.PASSCODE).code, 'USER_NOT_FOUND');
   assert.equal(env.call('signup', { userId: '本番ID' }, PROPS.PASSCODE).ok, true);
@@ -247,11 +247,11 @@ test('アカウント: signup は無効な opId を拒否し、login は opId �
   const env = fixture();
   for (const opId of [undefined, '', '不正', 123, {}]) {
     assert.deepEqual(env.call('signup', { userId: 'ID', opId }), {
-      ok: false, code: 'VALIDATION', errors: [{ field: 'opId', code: 'INVALID_UUID' }],
+      ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'opId', code: 'INVALID_UUID' }],
     });
   }
   assert.deepEqual(env.call('login', { userId: 'ID', opId: crypto.randomUUID() }), {
-    ok: false, code: 'VALIDATION', errors: [{ field: 'opId', code: 'UNKNOWN_FIELD' }],
+    ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'opId', code: 'UNKNOWN_FIELD' }],
   });
   assert.equal(env.users.getLastRow(), 1);
   assert.equal(env.cache.puts.length, 0);

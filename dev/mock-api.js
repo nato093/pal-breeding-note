@@ -374,6 +374,12 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
     // ローカルの初回入力をセッションのコードとし、以後の誤入力も検証できるようにする。
     if (acceptedPasscode === undefined) acceptedPasscode = request.passcode.trim();
     if (request.passcode.trim() !== acceptedPasscode) return fail('AUTH');
+    // 認証の後の失敗にも env を付ける（GAS の handleRequest_ と同じ）
+    const response = await authenticated(request);
+    return response?.ok === false ? { ...response, env: 'test' } : response;
+  };
+
+  async function authenticated(request) {
     const unknown = Object.keys(request).find((key) => !['action', 'passcode', ...fields[request.action]].includes(key));
     if (unknown) return invalid(unknown, 'UNKNOWN_FIELD');
     const base = { ok: true, env: 'test', api: 'pal-note-local-v1' };
@@ -420,5 +426,5 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
     if (!['delete', 'restore'].includes(request.action)) delete output.record.deleted;
     operations.set(key, structuredClone(output));
     return structuredClone({ ...base, ...output, snapshot: snapshot() });
-  };
+  }
 }
