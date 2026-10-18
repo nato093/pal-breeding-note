@@ -14,36 +14,39 @@
 
 ## P0 実機の確認とゲーム設定
 
-- 状態: 未着手
-- [ ] `scripts/server-settings.mjs`（差の表。既定は読み取りのみ・`--apply` は止まっている間だけ）とテスト
-- [ ] 計測の道具（`Claude outputs/server/p0/`。1 秒ごとの stat だけ）
-- [ ] バックアップ（ServerSync の手動バックアップ＋サーバーの SaveGames・ini と協力プレイのワールドの写し）
-- [ ] 設定の差の表をユーザーに見せて決めてもらい、止まっている間に直す（決定 11・19）
-- [ ] 計測の通し（無人 6 分 → ユーザーが参加して 10 分〔牧場の親の預け直し・タマゴ 1 つ〕→ 切断して 6 分 → 停止）
-- [ ] 結果と決めたことを README の「P0 の結果」「P0 で決めたこと」に書く（M3 で「同じ中身なら送らない」を入れるか）
+- 状態: 済み（2026-10-18 の 13:37〜15:49）。結果と決めたことは README の「P0 の結果」「P0 で決めたこと」
+- [x] `scripts/server-settings.mjs`（差の表。既定は読み取りのみ・`--apply` は止まっている間だけ）とテスト（cc029d8）
+- [x] 計測の道具（`Claude outputs/server/p0/watch.mjs`。1 秒ごとの stat だけ）
+- [x] バックアップ（ServerSync は前回から変化なし〔409〕で最新の自動バックアップが今の状態。サーバーの SaveGames・ini と協力プレイのワールドの写しは `<バックアップのドライブ>\pal-backup\<日時>\`）
+- [x] 設定の差の表をユーザーに見せて決めてもらい、止まっている間に直す（9 項目を協力プレイに。`bAutoResetGuildNoOnlinePlayers` は false のまま）
+- [x] 計測の通し（PC が 1 時間スリープしたが、その後にユーザーが参加して預け直し・退出・停止・ゲームの終了まで）
+- [x] 結果と決めたことを README に書く（「同じ中身なら送らない」は入れない・稼働の判定は `status.running`・サーバーの PC はスリープしない）
+- [ ] （T6 で）REST（8212）の待ち受けのアドレスを、サーバーが動いている間に `netstat` で見る
 
 ## T1 identity（大）
 
-- 状態: 未着手
-- [ ] スナップショット・共有の players に `instanceId`、`world.clock`、汎用のワールド名を捨てる
-- [ ] 鍵（`i:`・`u:`）と `HOST_UID` を `core/owned-shared.js` の 1 か所に
-- [ ] `formers`（ワールドにいない UID。H は「以前のホスト」）と表示
-- [ ] `HOST_UID` の決め打ちを H がいるワールドだけに（core/owned.js・core/ideal-goals.js）
-- [ ] このワールドでの自分を `i:` で持つ・移す（H は手元のホストのときだけ）
-- [ ] `resolveRegistrant` の「対応が同じ ID なら」
-- [ ] サーバーのワールド（steamId '0'。必須ファイル・役割・名前・`saveKind`）
-- [ ] `ownedOf` の不具合（別のコミット）
-- [ ] GAS: `extras` 列（`at` で確かめる・`fitOwnedExtras`）・players の `instanceId`
-- [ ] テスト・SAVE_FORMAT.md・OPERATIONS.md
+- 状態: 実装済（feature/identity。integrate/server へのマージのコミット a983caf。T2 と同じブランチ）
+- [x] スナップショット・共有の players に `instanceId`、`world.clock`、汎用のワールド名を捨てる（754557c）
+- [x] 鍵（`i:`・`u:`）と `HOST_UID` を `core/owned-shared.js` の 1 か所に（754557c）
+- [x] `formers`（ワールドにいない UID。H は「以前のホスト」）と表示（754557c）
+- [x] `HOST_UID` の決め打ちを H がいるワールドだけに（754557c）
+- [x] このワールドでの自分を `i:` で持つ・移す（H は手元のホストのときだけ。c783d15）。レビューの直しで、値を `i:<InstanceId>|<UID>` にし、InstanceId のない共有（版 12・古い画面）でも別の人に替えない（f855f3c）
+- [x] `resolveRegistrant` の「対応が同じ ID なら」（754557c）
+- [x] サーバーのワールド（steamId `0`。必須ファイル・役割・名前〔`web/js/save/world-name.js`〕・`saveKind`。0cc1561）
+- [x] `ownedOf` の不具合（f7356f3。取得の失敗でも手元に戻る ac5dc58）
+- [x] GAS: `extras` 列（`at` で確かめる・`fitOwnedExtras`）・players の `instanceId`（1fe6b55・6ded4b5）
+- [x] テスト（TZ=UTC npm test 2032 件・版 12 c1a29e7 との組み合わせ・実データで鍵と formers を確認）
+- [ ] SAVE_FORMAT.md・OPERATIONS.md（T6 でまとめて）
 
 ## T2 share-extras（中。T1 と同じブランチで続ける）
 
-- 状態: 未着手
-- [ ] `soul`・`condition` の列（`OWNED_FIELDS`・`OWNED_ADDED_FIELDS`）
-- [ ] 捕獲数（players の `captures`・`fitOwnedPlayers`）・ケーキ（farms の `c`）・在庫（`extras.items`）
-- [ ] `ownedFromShared` で戻す・「ホストの画面」の文言
-- [ ] `OWNED_FORMAT` を T1 と合わせて 1 回で決める
-- [ ] テスト（往復・上限・古い GAS との組み合わせ）・`npm run test:perf`
+- 状態: 実装済（feature/identity。マージ a983caf）
+- [x] `soul`・`condition` の列（88e337a）
+- [x] 捕獲数（players の `captures`・`fitOwnedPlayers`）・ケーキ（farms の `c`）・在庫（`extras.items`。別の `fitOwnedItems` は作らず `fitOwnedExtras` で詰める）（88e337a）
+- [x] `ownedFromShared` で戻す・「ホストの画面」の文言（8de8363）
+- [x] `OWNED_FORMAT` を T1 と合わせて 1 回で決める（4＋5＋1＝10）
+- [x] テスト（往復・上限・版 12 の GAS との組み合わせ・版 13→12→13）。test:perf は全体で流すと共有 20,000 行が予算 200ms を超えることがある（変更前も同じ揺れ。単体・--test-concurrency=1 では通る）
+- 残り: `web/js/ui/farm-board.js` の「中身はホストの画面で見られます」（T4 で見る）。文書の「共有しない」の記述（T6）
 
 ## T3 mapping（中〜大。T1 の後）
 
@@ -85,5 +88,6 @@
 
 ## 次にやること
 
-- **2026-10-18（セッション 4ca854cd）: プランが承認された。統合ブランチ `integrate/server` を main（40e6f0d）から切った。P0 の準備から始める。**
-- 始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる。
+- **2026-10-18（セッション 4ca854cd）: P0 済み・T1・T2 を統合ブランチにマージした（a983caf）。次は T3 mapping**（README の T3。T1 の鍵の関数は core/owned-shared.js にある。反証のレビューの申し送り: 旧 localStorage の H→ID がサーバーのワールドで以前のホストの対応として効かないことを T3 のテストに入れる）。
+- 進め方: テーマごとにワークフロー（実装の担当を順に → Codex と反証のレビュー → 直す担当）で feature/<key> に入れ、親が git status・TZ=UTC npm test・実値の grep・実データの確認をしてから integrate/server へ --no-ff でマージする。
+- 始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる。ワークフローが作業ツリーを使っている間は、文書の変更をそのブランチに混ぜない（混ざりそうなら `git stash push -- <path>` で退避）。

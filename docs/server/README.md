@@ -165,6 +165,32 @@
    - P0 の間、仲間は協力プレイの 元のワールド をホストしない（SaveSync と重ねない）。
 4. 結果と決めたことを `docs/server/README.md` に書く。M3 の結果で、常駐の「同じ中身なら送らない」を入れるかを決める（今の見込みは入れない。状態の共有で中身が毎回変わり、遊ぶときだけ動かすので、今の協力プレイのホストと同じ量になる）。
 
+#### P0 の結果（2026-10-18。テストのインスタンス・このメイン PC。ユーザーが参加）
+
+- 条件: 13:37 起動 → 無人 → 14:57 にユーザーが参加 → 15:45 に退出 → 15:49 に停止 → ゲームを終了。13:54〜14:54 は **PC がスリープして、サーバーも計測も止まっていた**（Windows の電源の記録で確認）。記録は `Claude outputs/server/p0/logs/`（Git の対象外）。
+- 設定: 決定 11・19 のとおり、合わせる候補の 9 項目を `scripts/server-settings.mjs --apply game` で書き換えた（`bAutoResetGuildNoOnlinePlayers` は false のまま）。起動の後、REST の `/v1/api/settings` で 9 項目とも効いていた（応答にパスワードの項目はない）。停止のときにサーバーが ini を書き直したが、値は残った（M5）。書き換えの前の写しは同じフォルダの `PalWorldSettings.ini.before-<日時>`、セーブと ini の写しは `<バックアップのドライブ>\pal-backup\<日時>\`。
+- M1 保存の間隔: **誰も接続していなくても 30.0 秒ごとに保存する**（無人 33 回の中央値 30.02 秒・29.6〜30.3 秒、接続中 94 回の中央値 30.0 秒）。
+- M2 1 回の保存: `Level.sav` → `LevelMeta.sav` → `Players` の 4 ファイルが 6 ms の間にそろう。`backup\world\<日時>` は保存のたびに増え、古いものが消える（3〜7 個）。
+- M3 共有の中身: 状態（SAN・空腹など）は**保存のたびに変わる**（無人でも毎回）。状態を除いた共有の中身は、無人の 17 分で 5 回（牧場のタマゴなど。無人でもワールドは動く）、接続中の 48 分で 13 回変わった。
+- M4: REST の `/v1/api/info` の worldguid は、セーブのフォルダ名と一致した。
+- M6: **牧場の親を拠点から取り出して置き直すと、「預けた人」が今のプレイヤーになった**（6 体すべて。前は 4 体が H）。
+- M7: 参加者の PC は、協力プレイと同じワールド ID のフォルダの `LocalData.sav` だけを 30 秒ごとに書く（Level・Players・GlobalPalStorage.sav は変わらない）。
+- M8: サーバーで遊んだ後にゲームを終えても、SaveSync は協力プレイのフォルダを書き換えなかった（15 分見た）。
+- M9 停止: ServerSync の stop → REST の save → shutdown → 6 秒で停止。最後の保存は停止の直前に書かれ、読めた。
+- M10 起動: ServerSync の `status.state` は、起動の後も**誰かが接続するまで `Starting` のまま**で、最初の接続で `Ready` になった（`status.running` は起動から `true`）。REST は起動の数秒後から応答した。
+- プレイ中の判定: 退出から約 37 秒後の保存で、ギルドの記録の「プレイ中」も 0 人になった。REST の players も同じ。
+- 時計: `RealDateTimeTicks` は壁の時計と同じだけ進んだ（PC のスリープの間も進んだ）。`GameDateTimeTicks` も進み、日数は 678 → 680。
+- CORS: REST の OPTIONS には 404 が返り、CORS のヘッダーもない（ブラウザのページからは呼べない）。
+- 待ち受け: ServerSync のローカル API は 127.0.0.1:54866 だけ。REST（8212）の待ち受けのアドレスは、サーバーが止まった後に見たので未確認（T6 で見る）。
+
+#### P0 で決めたこと
+
+- 常駐がサーバーの稼働を判定するのは、ServerSync の `status.running`（と `pid`）にする。`state` が `Ready` になるのを待たない（誰かが接続するまで `Starting` のままのため）。
+- 「同じ中身なら送らない」は入れない（状態が保存のたびに変わるため。サーバーは遊ぶときだけ動かす）。GAS の負荷は T6 の計測で見て、問題があれば考え直す。
+- 決定 6 の「正確にしたい牧場は親を預け直す」は、そのまま案内してよい（M6）。
+- **サーバーの PC はスリープしない設定にする**（スリープの間はサーバーも常駐も止まる）。T6 のサブ PC の導入の条件に足す。
+- 常駐の presence の `playing` は、保存が続いているか（`core/playing.js` の推定）で決めてよい。サーバーが動いている間は 30 秒ごとに保存するので、「サーバー稼働中」の意味になる。
+
 ### T1 identity: プレイヤーの同一性・ワールドにいない人・サーバーのワールド（大）
 
 - `web/js/save/palworld.js` `buildSnapshot`: `players[].instanceId` を足す。Level のプレイヤーのキーと `Players/<uid>.sav` の IndividualId から取る。"Autosave_W" は名前にしない（`isGenericWorldName`）。`world.clock`（RealDateTimeTicks）を残す。
@@ -333,7 +359,7 @@
 - 自動: 各テーマで `TZ=UTC npm test`（exit code 0）を通す。share-extras の後は `npm run test:perf`、GAS を直したら `npm run build:gas` の差分を見る。
 - 実データ（読み取りのみ。node に heredoc）: テストのサーバーと協力プレイの 元のワールド を読み、次を確かめる。
   - 両方のプレイヤーの `i:` の鍵が同じ組になる。
-  - サーバーの `formers` に H（拠点 66・牧場 2）、協力プレイに U（5）が出る。
+  - サーバーの `formers` に H（変換の直後は拠点 66・牧場 2。P0 の預け直しの後は拠点 62・牧場 0）、協力プレイに U（5）が出る。
   - `sharedUpload` → `validateOwnedUpload` → `ownedFromShared` の往復で、捕獲数・在庫・状態が戻る。
 - GAS: テスト用の deployment（版 13）で `api-check` を通す。版 12 と新しい画面、版 13 と古い画面の組み合わせのテストも行う（`test/gas/legacy.js`）。
 - 実機（テストのインスタンス・test 環境。ユーザーが参加する）: 常駐が共有し、別のプロファイルの参加者の画面で次を見る。
