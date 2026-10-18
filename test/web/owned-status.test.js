@@ -482,3 +482,33 @@ test('共有が止まっている案内（page-presence）: ページを開い�
   // 一覧が分からない（古い GAS・別のワールドの一覧）なら今までどおり
   assert.equal(shareLagNotice(guestPlaying({ pages: pagesOf(PAGES, { worldId: 'OTHER' }) }), { now }).text, `ゲーム中のようですが、共有は 12 分前のセーブのままです。${LAG_HELP}`);
 });
+
+// ---- サーバーのワールド（server の participant-ui） ----
+// 常駐の presence の 1 件（playing はサーバーが保存を続けているか）
+const residentPage = (ms, playing, extra = {}) => pageOf('サーバー', 'server-pc-0001', ms, { role: 'host', playing, canShare: true, resident: true, ...extra });
+
+test('ページを開いている PC（server の participant-ui）: 常駐はログインの ID によらず「サーバー（常駐）」で、サーバー稼働中・サーバー停止中だけを出す（共有できるは出さない）。番号は常駐どうしで数える', async () => {
+  const { openPages, openPagesLines, openPagesBrief, serverRunning } = await import('../../web/js/ui/owned-status.js');
+  const now = () => ROTATION_NOW;
+  const lines = (list) => openPagesLines(guestPlaying({ pages: pagesOf(list) }), { now });
+  assert.deepEqual(lines([residentPage(60000, true)]), ['● サーバー（常駐） · 1 分前 · サーバー稼働中']);
+  assert.deepEqual(lines([residentPage(60000, false, { user: 'server-01' })]), ['● サーバー（常駐） · 1 分前 · サーバー停止中']);
+  assert.deepEqual(lines([residentPage(2 * 3600000, true)]), ['○ サーバー（常駐） · 最近の応答なし（2 時間前）']);
+  // 常駐が 2 台（決定 14）と、同じ ID「サーバー」のふつうのページ（常駐と番号を混ぜない）
+  const list = [residentPage(30000, true), residentPage(90000, false, { device: 'server-pc-0002' }), pageOf('サーバー', 'other-pc-0001', 60000, { role: 'guest' })];
+  assert.deepEqual(lines(list), ['● サーバー（常駐） · たった今 · サーバー稼働中', '● サーバー · 1 分前 · 参加者', '● サーバー（常駐・PC 2） · 1 分前 · サーバー停止中']);
+  const pcs = openPages(guestPlaying({ pages: pagesOf(list) }), { now });
+  assert.deepEqual(pcs.map((pc) => [pc.label, pc.resident, pc.tags, pc.playing]), [
+    ['サーバー', true, ['常駐'], true], ['サーバー', false, [], false], ['サーバー', true, ['常駐', 'PC 2'], false],
+  ]);
+  // サーバー稼働中は、3 分以内に応答した常駐のどれかが保存を続けているときだけ
+  assert.equal(serverRunning(guestPlaying({ pages: pagesOf(list) }), { now }), true);
+  assert.equal(serverRunning(guestPlaying({ pages: pagesOf([residentPage(60000, false), pageOf('Alice', 'alice-pc-0001', 1000, { role: 'host', playing: true })]) }), { now }), false);
+  assert.equal(serverRunning(guestPlaying({ pages: pagesOf([residentPage(4 * 60000, true)]) }), { now }), false);
+  assert.equal(serverRunning(guestPlaying(), { now }), false);
+  // 共有が止まっている案内の短い一覧でも「サーバー（常駐・サーバー稼働中）」
+  assert.equal(openPagesBrief(guestPlaying({ pages: pagesOf(list) }), { now }),
+    '3 分以内に応答があったほかの PC: サーバー（常駐・サーバー稼働中）、サーバー（参加者）、サーバー（常駐・PC 2・サーバー停止中）。');
+  // 印のないページ（ふつうのページ・古い GAS が捨てた印）は今までどおり
+  assert.deepEqual(lines([residentPage(60000, true, { resident: undefined })]), ['● サーバー · 1 分前 · ホスト中 · 共有できる']);
+});

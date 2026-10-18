@@ -61,8 +61,8 @@ const actionFields = {
 const ownedActions = new Set(['ownedWorlds', 'owned', 'ownedUpload', 'ownedDelete', 'ownedSince', 'presence']);
 // プレイヤーの対応（server の mapping）。配合の全件（snapshot）は返さない
 const playerMapActions = new Set(['playerMap', 'playerMapSet']);
-// ページを開いている PC として送る項目（core/owned-shared.js の cleanPresenceInput）
-const presenceFields = ['pageId', 'device', 'user', 'role', 'playing', 'canShare'];
+// ページを開いている PC として送る項目（core/owned-shared.js の cleanPresenceInput。resident はサーバーの PC の常駐プログラムだけが送る）
+const presenceFields = ['pageId', 'device', 'user', 'role', 'playing', 'canShare', 'resident'];
 const recordFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 
 function pick(source, fields) {

@@ -636,6 +636,22 @@ test('owned-gas presence: ページごとのキーと索引に 6 時間残し、
   assert.equal(env.call('presence', { worldId: 'XYZ', presence: page(6) }).code, 'VALIDATION');
 });
 
+test('owned-gas presence（server の participant-ui）: 常駐の印 resident は true のときだけ残して一覧に返す（ほかのページには付けない）。真偽値でなければ形の違う値', () => {
+  const env = fixture();
+  const resident = env.call('presence', { worldId: WORLD_A, presence: page(1, { user: 'サーバー', role: 'host', playing: true, canShare: true, resident: true }) });
+  assert.equal(resident.saved, true);
+  env.call('ownedSince', { worldId: WORLD_A, uploadedAt: '', presence: page(2, { resident: false }) });
+  const list = env.call('ownedSince', { worldId: WORLD_A }).presence.map(({ at, ...rest }) => rest);
+  assert.deepEqual(list, [
+    { user: '仲間2', device: 'device-2', role: 'guest', playing: false, canShare: false },
+    { user: 'サーバー', device: 'device-1', role: 'host', playing: true, canShare: true, resident: true },
+  ]);
+  // キャッシュの値にも true のときだけ書く
+  assert.equal(JSON.parse(env.cache.entries.get(`presence:test:${WORLD_A}:page-0001`)).resident, true);
+  assert.equal('resident' in JSON.parse(env.cache.entries.get(`presence:test:${WORLD_A}:page-0002`)), false);
+  assert.equal(env.call('presence', { worldId: WORLD_A, presence: page(3, { resident: 'yes' }) }).code, 'VALIDATION');
+});
+
 test('owned-gas presence: 索引は短い鍵（0.5 秒）の中で足し、取れなければページのキーだけを書く。上限 50・期限切れの除去', () => {
   const env = fixture();
   env.events.length = 0;
@@ -943,4 +959,15 @@ test('所持パル共有（server の identity）: 版 12 の GAS は players �
   env.call('ownedUpload', upload(WORLD_A, [row('p3')], '2026-10-05T12:00:00.000Z', { players }));
   const [again] = env.call('ownedWorlds').worlds;
   assert.deepEqual([again.players, mine(again)], [players, [U]]);
+});
+
+test('owned-gas presence（server の participant-ui）: 版 12 の GAS は常駐の印 resident を知らない項目として捨てて記録する（VALIDATION にしない）', { skip: skipV12 }, () => {
+  const env = fixture();
+  const previous = createGas({ files: oldV12Files, spreadsheet: env.spreadsheet, props: env.props, cacheEntries: env.cache.entries });
+  const oldCall = (action, fields = {}) => plain(previous.gas.handleRequest_(JSON.stringify({ action, passcode: PROPS.TEST_PASSCODE, ...fields })));
+  const saved = oldCall('presence', { worldId: WORLD_A, presence: page(1, { user: 'サーバー', role: 'host', playing: true, canShare: true, resident: true }) });
+  assert.deepEqual([saved.ok, saved.saved], [true, true]);
+  assert.deepEqual(saved.presence.map(({ at, ...rest }) => rest), [{ user: 'サーバー', device: 'device-1', role: 'host', playing: true, canShare: true }]);
+  // 版 13 に戻しても、版 12 が書いた値には印がない（次に常駐が送るまで、ふつうのページとして出る）
+  assert.equal('resident' in env.call('ownedSince', { worldId: WORLD_A }).presence[0], false);
 });

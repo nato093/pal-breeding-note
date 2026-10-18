@@ -151,10 +151,14 @@ const PAGE_ROLE_TEXT = { host: ['ホスト中', 'ホスト用のセーブあり'
  * 今のワールド（表示しているワールド）でページを開いている PC。PC（device）ごとにまとめ、3 分以内に応答があった PC を先に、応答の新しい順。
  * 一覧が分からない（古い GAS・まだ受け取っていない・別のワールドの一覧）なら null。経過はサーバーの時刻で測る（受け取ったときのサーバーの
  * 時刻＋その後に経った時間。PC の時計がずれていても境目がずれない）。
- * @returns {null | { device: string, user: string, name: string, tags: string[], labels: string[], fresh: boolean, self: boolean, at: string,
- *   time: number, ago: string, role: string, playing: boolean, canShare: boolean }[]}
- *   tags は「PC 2」（同じ人の 2 台目から。番号は今の一覧〔6 時間以内〕に残る PC の ID の順なので、見る人によって入れ替わらない。ID の順で先の
- *   古い PC が一覧から消えると繰り上がることがある）・「この PC」、name は user に tags を添えたもの。
+ * サーバーの PC の常駐プログラム（presence の resident。server の participant-ui）は、ログインの ID によらず「サーバー」と呼び、tags の先頭に
+ *「常駐」、labels は「サーバー稼働中」（常駐が送る playing＝サーバーが保存を続けている）か「サーバー停止中」だけにする。サーバーは遊ぶときだけ
+ * 動かすので、停止中はふつうのこと（警告にしない）
+ * @returns {null | { device: string, user: string, label: string, name: string, tags: string[], labels: string[], fresh: boolean, self: boolean,
+ *   resident: boolean, at: string, time: number, ago: string, role: string, playing: boolean, canShare: boolean }[]}
+ *   tags は「常駐」・「PC 2」（同じ人の 2 台目から。常駐は常駐どうしで数える。番号は今の一覧〔6 時間以内〕に残る PC の ID の順なので、見る人に
+ *   よって入れ替わらない。ID の順で先の古い PC が一覧から消えると繰り上がることがある）・「この PC」、label は呼び名（user。常駐は「サーバー」）、
+ *   name は label に tags を添えたもの。
  *   role・playing・canShare・labels（「ホスト中」「共有できる」）は、その PC の 3 分以内のページの応答だけでまとめたもの（古い PC は ''・false・[]）
  */
 export function openPages(state, { now = Date.now } = {}) {
@@ -175,31 +179,39 @@ export function openPages(state, { now = Date.now } = {}) {
     const newest = list.reduce((best, page) => (page.time > best.time ? page : best));
     const recent = list.filter((page) => current - page.time <= PAGE_FRESH_MS);
     const role = PAGE_ROLES.find((value) => recent.some((page) => page.role === value)) ?? '';
+    const resident = list.some((page) => page.resident === true);
     return {
       device, user: typeof newest.user === 'string' ? newest.user : '', time: newest.time, at: newest.at, fresh: recent.length > 0,
-      self: Boolean(pages.device) && device === pages.device, role,
-      playing: recent.some((page) => page.role === role && page.playing === true), canShare: recent.some((page) => page.canShare === true),
+      self: Boolean(pages.device) && device === pages.device, role, resident,
+      playing: recent.some((page) => (resident ? page.resident === true : page.role === role) && page.playing === true),
+      canShare: recent.some((page) => page.canShare === true),
     };
   });
+  // 番号を数える組（同じ人。常駐はどの ID でも「サーバー」と出すので、常駐どうしで数え、同じ ID のページと混ぜない）
+  const groupOf = (pc) => (pc.resident ? '\u0000resident' : userIdKey(pc.user));
   const sameUser = new Map();
-  for (const pc of pcs) {
-    const key = userIdKey(pc.user);
-    sameUser.set(key, [...(sameUser.get(key) ?? []), pc.device].sort());
-  }
+  for (const pc of pcs) sameUser.set(groupOf(pc), [...(sameUser.get(groupOf(pc)) ?? []), pc.device].sort());
   return pcs
     .sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.time - a.time || a.device.localeCompare(b.device))
     .map((pc) => {
-      const number = sameUser.get(userIdKey(pc.user)).indexOf(pc.device) + 1;
-      const tags = [...(number > 1 ? [`PC ${number}`] : []), ...(pc.self ? ['この PC'] : [])];
+      const number = sameUser.get(groupOf(pc)).indexOf(pc.device) + 1;
+      const tags = [...(pc.resident ? ['常駐'] : []), ...(number > 1 ? [`PC ${number}`] : []), ...(pc.self ? ['この PC'] : [])];
       const [active, idle] = PAGE_ROLE_TEXT[pc.role] ?? PAGE_ROLE_TEXT.none;
-      const labels = pc.fresh ? [pc.playing ? active : idle, ...(pc.canShare ? ['共有できる'] : [])] : [];
-      return { ...pc, name: `${pc.user || '名前なし'}${tags.length ? `（${tags.join('・')}）` : ''}`, tags, labels, ago: timeAgo(pc.at, current) };
+      const labels = !pc.fresh ? []
+        : pc.resident ? [pc.playing ? 'サーバー稼働中' : 'サーバー停止中'] : [pc.playing ? active : idle, ...(pc.canShare ? ['共有できる'] : [])];
+      const label = pc.resident ? 'サーバー' : pc.user || '名前なし';
+      return { ...pc, label, name: `${label}${tags.length ? `（${tags.join('・')}）` : ''}`, tags, labels, ago: timeAgo(pc.at, current) };
     });
+}
+
+/** 3 分以内に応答した常駐のどれかが、サーバーが保存を続けている（playing）と送っているか（サーバー稼働中。決定 14 で常駐は 2 台以上もありうる） */
+export function serverRunning(state, { now = Date.now } = {}) {
+  return (openPages(state, { now }) ?? []).some((pc) => pc.resident && pc.fresh && pc.playing);
 }
 
 /**
  * ヘッダーのセーブ連携のパネルの「ページを開いている PC」の行（1 台 1 行。表の幅いっぱい）。「● Alice · 1 分前 · ホスト中 · 共有できる」
- *「○ Bob · 最近の応答なし（3 時間前）」。分からない・6 時間以内の応答がなければ []
+ *「○ Bob · 最近の応答なし（3 時間前）」「● サーバー（常駐） · たった今 · サーバー稼働中」。分からない・6 時間以内の応答がなければ []
  */
 export function openPagesLines(state, { now = Date.now } = {}) {
   return (openPages(state, { now }) ?? []).map((pc) => (pc.fresh
@@ -215,7 +227,7 @@ export function openPagesBrief(state, { now = Date.now } = {}) {
   if (!pcs) return '';
   const others = pcs.filter((pc) => pc.fresh && !pc.self);
   if (!others.length) return 'ほかの PC のこのページからは、3 分以内の応答がありません。';
-  return `3 分以内に応答があったほかの PC: ${others.map((pc) => `${pc.user || '名前なし'}（${[...pc.tags, ...pc.labels].join('・')}）`).join('、')}。`;
+  return `3 分以内に応答があったほかの PC: ${others.map((pc) => `${pc.label}（${[...pc.tags, ...pc.labels].join('・')}）`).join('、')}。`;
 }
 
 // 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人も、プレイヤーの対応で自分の ID に対応づいた人もいないときの 1 行。

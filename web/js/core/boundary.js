@@ -209,7 +209,8 @@ const PRESENCE_DEVICE = /^[A-Za-z0-9_-]{8,64}$/;
 
 /**
  * ページを開いている PC の一覧（GAS の ownedSince・presence の応答の presence）。配列でなければ null（分からない）。
- * 要素は { user 20 字, device, role（host・guest・none）, playing, canShare, at（ISO） }。形の違う要素は捨て、最大 OWNED_PRESENCE_MAX 件
+ * 要素は { user 20 字, device, role（host・guest・none）, playing, canShare, at（ISO）, resident? }。resident（サーバーの PC の常駐
+ * プログラム。server の participant-ui）は true のときだけ付ける。形の違う要素は捨て、最大 OWNED_PRESENCE_MAX 件
  */
 export function cleanPresenceList(value) {
   if (!Array.isArray(value)) return null;
@@ -219,7 +220,7 @@ export function cleanPresenceList(value) {
       if (!isObject(item) || typeof item.device !== 'string' || !PRESENCE_DEVICE.test(item.device) || !isoTime(item.at)) return null;
       return {
         user: text(item.user, 20), device: item.device, role: oneOf(item.role, OWNED_PRESENCE_ROLES, 'none'),
-        playing: item.playing === true, canShare: item.canShare === true, at: item.at,
+        playing: item.playing === true, canShare: item.canShare === true, at: item.at, ...(item.resident === true ? { resident: true } : {}),
       };
     },
   });

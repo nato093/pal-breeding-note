@@ -21,6 +21,15 @@ test('API: 未知の項目、サーバ管理項目、undefined をリクエス�
   assert.deepEqual(buildRequest('create', '入力', { opId: 'op', record: { id: 'id', childId: 'B' } }).record, { id: 'id', childId: 'B' });
 });
 
+test('API（server の participant-ui）: presence は決まった項目だけを送り、常駐の印 resident も残す（presence・ownedSince の両方。なければ付けない）', () => {
+  const presence = { pageId: 'page-0001', device: 'device-01', user: 'サーバー', role: 'host', playing: true, canShare: true, resident: true, extra: 'x' };
+  const { extra: _extra, ...sent } = presence;
+  assert.deepEqual(buildRequest('presence', '入力', { worldId: 'W', presence }).presence, sent);
+  assert.deepEqual(buildRequest('ownedSince', '入力', { worldId: 'W', uploadedAt: '', presence }).presence, sent);
+  const { resident: _resident, ...page } = sent;
+  assert.deepEqual(buildRequest('presence', '入力', { worldId: 'W', presence: { ...page, resident: undefined } }).presence, page);
+});
+
 test('API: POST、JSON 文字列、Cookie 無送信、転送追従で送る', async () => {
   const calls = [];
   const api = createApi({ url: 'https://script.google.com/example', fetcher: async (...args) => {

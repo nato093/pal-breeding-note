@@ -673,16 +673,21 @@ export const OWNED_PRESENCE_TTL_S = 21600;
 // ページと PC の ID（画面が作るランダムな値。認証にも本人の証明にも使わない）
 const PRESENCE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
-/** 画面が送る presence（{ pageId, device, user, role, playing, canShare }）を検査して整える。形が違えば null */
+/**
+ * 画面が送る presence（{ pageId, device, user, role, playing, canShare, resident? }）を検査して整える。形が違えば null。
+ * resident はサーバーの PC の常駐プログラムが送る印（server の participant-ui）。なくてよく、あれば真偽値。true のときだけ写す
+ *（ページの値は今までと同じ形。古い GAS は知らない項目として捨てる）
+ */
 export function cleanPresenceInput(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   if (typeof value.pageId !== 'string' || !PRESENCE_ID.test(value.pageId)) return null;
   if (typeof value.device !== 'string' || !PRESENCE_ID.test(value.device)) return null;
   if (!OWNED_PRESENCE_ROLES.includes(value.role) || typeof value.playing !== 'boolean' || typeof value.canShare !== 'boolean') return null;
   if (value.user !== undefined && typeof value.user !== 'string') return null;
+  if (value.resident !== undefined && typeof value.resident !== 'boolean') return null;
   return {
     pageId: value.pageId, device: value.device, user: ownedText(value.user, 20),
-    role: value.role, playing: value.playing, canShare: value.canShare,
+    role: value.role, playing: value.playing, canShare: value.canShare, ...(value.resident === true ? { resident: true } : {}),
   };
 }
 

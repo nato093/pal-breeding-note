@@ -112,6 +112,16 @@ test('cleanPresenceInput: ページ・PC の ID・役割・真偽を検査し、
   }
 });
 
+test('cleanPresenceInput（server の participant-ui）: 常駐の印 resident は true のときだけ写す。なければ・false なら今と同じ形、真偽値でなければ null', () => {
+  const value = { pageId: 'page-0001', device: 'device_01', user: 'サーバー', role: 'host', playing: true, canShare: true };
+  const plain = { ...value };
+  assert.deepEqual(cleanPresenceInput({ ...value, resident: true }), { ...plain, resident: true });
+  assert.deepEqual(cleanPresenceInput(value), plain);
+  assert.deepEqual(cleanPresenceInput({ ...value, resident: false }), plain);
+  assert.equal('resident' in cleanPresenceInput({ ...value, resident: false }), false);
+  for (const resident of [1, 'true', null, {}]) assert.equal(cleanPresenceInput({ ...value, resident }), null, JSON.stringify(resident));
+});
+
 test('共有の形の版（OWNED_FORMAT。server）: soul・condition の列と JSON の形（instanceId・captures・c・extras）を 1 回にまとめて 4＋5＋1＝10。狭めた形も前の形（4）より上', () => {
   // 前の配信（GAS 版 12・画面 c1a29e7）の形の版。共有の書き込みは、同じセーブなら形の版が上がったときだけ書き直す（decideOwnedUpload の resent）
   const PREVIOUS_FORMAT = 4;
