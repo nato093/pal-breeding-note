@@ -83,7 +83,7 @@
 
 ## T6 統合・GAS 版 13・配信
 
-- 状態: 実機の確認（test 環境）と最終レビューの直しまで済み（fix/server-final-review を integrate/server へマージ）。ユーザーへの報告・判断と配信の承認も済み（2026-10-19。README の決定 21〜25）。REST の規則（この PC）は済み。Linux のテスト・本番の配信はこれから
+- 状態: 本番へ配信した（2026-10-19。GAS は本番の deployment を版 13・画面は main の 34162d1）。残りは、最後にホストした PC で最初に開くこと・全員のタブの読み込み直し・サブ PC の導入（ユーザー）と、実機で未確認の項目
 - [x] 文書（OPERATIONS.md の新しい章「専用サーバー（ServerSync）と常駐（server-agent）」と「プレイヤーの対応（PlayerMap）」・SAVE_FORMAT.md・README）・release-notes 2 件（2026-10-19-server・2026-10-19-share-extras）・CI の fetch-depth: 0 と互換テストの必須化（feature/docs。マージ eb55981）
 - [x] GAS: build:gas → gas:push（HEAD）→ setup()（2026-10-19 にユーザーが実行）→ 版 13 → テスト用 deployment（説明 "server test"）を -V 13 → api-check すべて OK（プレイヤーの対応の読み書きを含む）。本番は版 12 のまま
 - [x] 常駐をこの PC の test 環境で（2026-10-19 の 10:55〜12:06。ID「サーバー」は --signup で Users_test に作った。データの場所は Claude outputs/server/agent-data）
@@ -99,20 +99,22 @@
 - [x] 最終レビュー（Codex と観点別のエージェント → 反証 → 直し）・`TZ=UTC npm test`・`git grep`。直したもの: プレイヤーの対応のストア（待つ間にログインが替わったら送らない・別のタブの書き込みを古い応答で巻き戻さない）・`server-settings.mjs` の数の書き方と書いた後の読み直し・常駐のログインを 2 本並べない・互換テストの完全なコミット番号・参加者の案内の「プレイヤーの対応を開く」・Pages の deploy を main だけに・Windows PowerShell 5.1 のテスト・文書。main から残っていたテストの実データの値（4 行）をダミーにした（公開済みの履歴はそのまま。ユーザーの判断）。`npm run test:perf` は、この PC でサーバーと常駐が動いている間は、回ごとに別の 1 件が予算を超えたり全部通ったりした（直した所は性能のテストの範囲に触れていない）
 - [ ] 実機で未確認: 以前のホストの対応が牧場のタマゴの自動登録の登録者に効くこと（無人の牧場がタマゴを産まなかった）・古い系統の守りと `--accept-world`（revert が要る＝ユーザーの了承）・ServerSync のバックアップ・停止・起動を常駐が妨げないこと。いずれもモックの結合テスト（test/server-agent）で確かめてある
 - [ ] GAS の負荷と容量: 未計測（`owned-bench.mjs` を広げて `playerMapSet`・`create` を重ねる・全シートのセル数）。版 13 の形での計測は、本番の配信の後に Apps Script の実行数を見る形にする。参考: 常駐を test 環境で約 1 時間動かした間、版 13 の形の共有は 30 秒ごとに 107 回すべて通った（1 回約 10 秒・約 72 万字。書き手は常駐 1 つ）
-- [ ] Linux でのテスト（ブランチを push した後に、Pages の workflow を workflow_dispatch でそのブランチを選んで動かす。deploy は main だけ。integrate/server の push は 2026-10-19 に了承〔README の決定 24〕。セッション 4ca854cd が行う）
+- [x] Linux でのテスト（2026-10-19。integrate/server を push し、Pages の workflow を workflow_dispatch で動かした〔run 39218565386〕。tests 2250・pass 2249・fail 0・skip 1〔Windows だけのテスト。testdata がない 2 件は SKIP の印〕。互換テストは版 10・版 12 を取り出して通った。deploy は skipped）
 - [x] REST 8212 の受信を止める規則（この PC。2026-10-19 に了承〔README の決定 23〕を得て足した。サブ PC は導入の手順で）
   - 規則 'PalServer REST block'（受信・TCP 8212・止める・全部のプロファイル）を管理者の権限で足した
   - テストのサーバーを起動して確かめた: 同じ PC の 127.0.0.1:8212 は認証なしで 401・認証ありで metrics・save・shutdown が 200（止まるまで 9 秒）。WSL（NAT。Windows のファイアウォールを通る）から PC の LAN のアドレスの 8212 は時間切れで届かない。別の PC からの確認はしていない
   - 見つけたこと: 誰も接続していない間（`status.state` が `Starting`）は、ServerSync のローカル API の `stop` が 409（`AlreadyRunning`。「まだ起動中です。オンラインになってから停止してください」）で断られる。規則とは関係しない（規則の前から `Starting` は接続まで続く。P0 の M10）。このときは REST の save → shutdown で止めた（OPERATIONS の「ServerSync のローカル API で使ってよい操作」）
 - [x] ユーザーの判断（2026-10-19。README の決定 21・22）: 常駐の自動登録で、親 2 体の預けた人が違う・分からないときの登録者は「サーバー」のまま（コードは変えない。登録の後に配合の編集で直す。常駐の結合テストを 1 つ足した）・公開済みの履歴に残る実データの値（main のテストの 4 行）は履歴を書き換えずにそのまま
 - [x] ユーザーへの報告（未確認の項目を並べる）と本番への配信の承認（2026-10-19。README の決定 25）
-- [ ] 本番の GAS（-V 13）→ 画面の配信 → 最後にホストした PC で最初に開く → 全員のタブの読み込み直し
+- [x] 本番の GAS: `clasp update-deployment <本番の ID> -V 13 -d "server"` → `list-deployments` で本番が @13（説明 server）・テスト用も @13 → `smoke.mjs` OK → 本番の URL で `api-check`（test 環境に対して。プレイヤーの対応の読み書きを含む）すべて OK
+- [x] 画面の配信: integrate/server を main へマージ（34162d1）して push → Pages の workflow（run 39219192106）の build・deploy が success → 配信したページに release-notes の 2 件と player-map.js があること・本番の画面に test 環境の ID でログインして所持パルが出てエラーがないことを確かめた
+- [ ] 最後に協力プレイでホストした PC で最初にページを開く → 全員のタブの読み込み直し（ユーザー）
 - [ ] サブ PC の導入の手順（ユーザー）
 
 ## 次にやること
 
-- **2026-10-19（セッション 4ca854cd）: テスト用の deployment（版 13）で実機の確認をし、最終レビューの指摘を直して integrate/server へマージした。本番の GAS は版 12 のまま。**
-- 次: ユーザーへの報告（未確認の項目＝上の T6 の [ ]）と判断は済み（2026-10-19。自動登録の登録者は「サーバー」のまま・公開済みの履歴はそのまま・この PC に REST の規則を足してよい・Linux のテストは integrate/server を push して workflow_dispatch・配信の承認。README の決定 21〜25）→ REST の規則（この PC。済み）・Linux のテスト → 本番の GAS（-V 13）→ 画面の配信 → 最後にホストした PC で最初に開く → 全員のタブの読み込み直し → サブ PC の導入（ユーザー）。
+- **2026-10-19（セッション 4ca854cd）: 本番へ配信した（GAS 版 13・画面 34162d1）。この後に integrate/server へ足した文書のコミットは、次の配信で main に入る（文書だけで main を push すると、全員の画面に新しい版の帯が出るため）。**
+- 次: 最後に協力プレイでホストした PC で最初にページを開く → 全員のタブの読み込み直し → サブ PC の導入（ユーザー。OPERATIONS の「サブ PC への導入」）。遊ぶときに、常駐の記録で牧場のタマゴの自動登録（以前のホストの対応の登録者）を見る。巻き戻すときは OPERATIONS の「巻き戻し（本番を版 12 に戻す）」。
 - 本番の配信の手順は docs/OPERATIONS.md の「GAS 版 13 の反映と巻き戻し」。テスト用 deployment（"server test"・版 13）は確かめ終わるまで残す。
 - 片づけ: 作業フォルダ（Claude outputs/worktrees/server-docs・server-test-page・server-final）は使い終わったら git worktree remove。test 環境の Users_test の「サーバー」「検証A」と PlayerMap_test の行・OwnedWorlds_test のワールドは残してよい（test 環境）。
 - 始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる。
