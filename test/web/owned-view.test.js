@@ -3590,6 +3590,23 @@ test('設定画面（server の mapping）: GAS で動いていれば、参加�
   }
 });
 
+test('設定画面（server の mapping）: 描いた後に GAS の対応を読み終えたら（自動登録の知らせ）、所持パルの変化を待たずに欄を出す', (t) => {
+  installDom(t);
+  // 開いたときはまだ GAS から読めていない（前の版の扱い）。共有を見ている人には欄を出さない
+  const listeners = new Set();
+  const autoRegister = { ...gasAutoRegister(), mode: 'legacy', subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); } };
+  autoRegister.mappingMode = () => autoRegister.mode;
+  const card = ownedSettingsCard(gasContext(serverShared('none'), autoRegister), { win: DROP_WIN });
+  const section = card.element.querySelector('.owned-players');
+  assert.equal(section.hidden, true);
+  // 読み終えた（auto-register.js は playerMaps の知らせで changed を呼ぶ）
+  autoRegister.mode = 'gas';
+  listeners.forEach((listener) => listener());
+  assert.equal(section.hidden, false);
+  assert.deepEqual(playerRows(card.element).map((row) => row.querySelector('select').getAttribute('aria-label')), ['Bobのノートの ID', '以前のホスト（0000…0001）のノートの ID', '不明なプレイヤー（33333333）のノートの ID']);
+  card.destroy();
+});
+
 test('設定画面（server の mapping）: 対応を保存できなければトーストで知らせ、元の対応で欄を作り直す', async (t) => {
   installDom(t);
   const autoRegister = gasAutoRegister({ fail: 'サーバに接続できません' });
