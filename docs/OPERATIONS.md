@@ -152,7 +152,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 ### 設定（設定タブの「セーブ連携」）
 
 - 設定の並び（2026-10-15 の settings）: セーブ連携 → アカウント（「ログイン中: X」と「ID を変更」「ログアウト」。名前の変更の説明は変更のモーダルだけ）→ データ（整合性の警告〔0 件ならカードごと隠す。1 件以上なら「整合性の警告（n 件）」とレールの設定のタブに赤い数。タブの行き先は `#/settings?open=warnings` で警告のカードの見出しへ〕・書き出し〔配合の CSV・所持パルの CSV〕・この端末のデータ）→ このアプリについて（小さな文字の権利表記と、配信版のときだけ版の短いハッシュ）。左寄せ（前は中央寄せ）。前の「データの状態」カード（環境・前回取得・「最新に更新」）は、ヘッダーの同期状況（押すと最新に更新）で代わるのでなくした。「通知」カードは bell でなくした。
-- この端末のデータ（`web/js/device-data.js`。F081）: 下書き・目標・通知の既読・自動登録の記録の件数と「書き出す」「読み込む」。書き出しは `pal-note-device-<環境>-<日付>.json`（`format: "pal-breeding-note/device-data"`・`version: 1`・環境・ID・下書き〔保存の形〕と親の性別の対応・目標・観測・既読の id・自動登録の通知・前の版のプレイヤーの対応〔この端末の localStorage の分。2026-10-19 の server から、GAS のシート `PlayerMap` の対応はノートにあるので含めない〕）。**含めないもの**: パスワード・記録のキャッシュ・所持パル（セーブから読み直せる）・自動登録の牧場の記録（端末をまたぐと照合を取り違える）・理想個体の計画の記憶・画面の状態。読み込みは 1MB まで、形式・版・環境（テスト／本番）が違えば断り、ID が違えば確かめ、件数の確認の後に**今のデータに足す**（下書きは id で和・今のものを優先、目標は同じ条件と上限 100 件を除いて足し〔ワールドの完成は持ち込まない〕、観測は和、既読は和、自動登録の通知は同じ id を除いて足し、プレイヤーの対応は今の値を優先。読み込んだ対応は前の版の対応に足し、GAS で動いていれば次の読み直しで GAS にない分だけ上げる〔下の「プレイヤーの対応（PlayerMap）」の移行〕）。書き込みは各ストアの関数（`drafts.importMany`・`ideals.importGoals`・`notifications.markRead`・`autoRegister.importNotices`・`autoRegister.setMapping`）を通す。ログアウトの確認文に「下書き・目標・既読などはこの端末に残ります（同じ ID でログインすると戻ります）」。
+- この端末のデータ（`web/js/device-data.js`。F081）: 下書き・目標・通知の既読・自動登録の記録の件数と「書き出す」「読み込む」。書き出しは `pal-note-device-<環境>-<日付>.json`（`format: "pal-breeding-note/device-data"`・`version: 1`・環境・ID・下書き〔保存の形〕と親の性別の対応・目標・観測・既読の id・自動登録の通知・前の版のプレイヤーの対応〔この端末の localStorage の分。2026-10-19 の server から、GAS のシート `PlayerMap` の対応はノートにあるので含めない〕）。**含めないもの**: パスワード・記録のキャッシュ・所持パル（セーブから読み直せる）・自動登録の牧場の記録（端末をまたぐと照合を取り違える）・理想個体の計画の記憶・画面の状態。読み込みは 1MB まで、形式・版・環境（テスト／本番）が違えば断り、ID が違えば確かめ、件数の確認の後に**今のデータに足す**（下書きは id で和・今のものを優先、目標は同じ条件と上限 100 件を除いて足し〔ワールドの完成は持ち込まない〕、観測は和、既読は和、自動登録の通知は同じ id を除いて足し、プレイヤーの対応は今の値を優先。読み込んだ対応は前の版の対応に足し、GAS で動いていれば次の読み直しで GAS にない分だけ上げる〔下の「プレイヤーの対応（PlayerMap）」の移行〕）。書き込みは各ストアの関数（`drafts.importMany`・`ideals.importGoals`・`notifications.markRead`・`autoRegister.importNotices`・`autoRegister.setLegacyMapping`〔前の版の対応に書く。GAS の対応を書く `setMapping` ではない〕）を通す。ログアウトの確認文に「下書き・目標・既読などはこの端末に残ります（同じ ID でログインすると戻ります）」。
 - セーブ連携のカードの状態の行は、役割（ホスト・参加）の短いチップと読み込みの状態・「読み込みを許可」・「今すぐ読み込む」。前の状態の一覧（この PC・表示中・更新）は、表示中と更新がヘッダーと所持パルで見られるのでなくした。登録したワールドの行は「「テスト」（ホスト Alice） · 10/10 09:00 に遊んだ」（参加のワールドは「参加」のチップ）で、編集・削除は開閉の部品（summary）の外の右端。登録のモーダルの結果欄は 2 行分の高さを保ち、チェックリストの各行に貼ったパスから作った実際のパス（長い ID は頭 4 字）を添える。
 
 - 連携は「＋ ワールドを登録」で、ワールドのセーブのファイルを登録する（Chrome・Edge が前提）。登録していないときは、所持パルのタブの案内に「ワールドを登録」（同じ登録のモーダルを開く）を出す。
@@ -293,7 +293,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 
 セーブのプレイヤー → ノートの ID の対応（配合の自動登録の登録者と、理想個体の「自分の個体」に使う）を GAS のシートに置き、誰の画面からでも設定できるようにした（ユーザーの決定 12・15）。サーバーの PC の常駐も同じ対応を読む。設計は `docs/server/README.md` の T3。
 
-- **置き場所**: シート `PlayerMap`（本番）・`PlayerMap_test`（テスト）。1 行 1 鍵で、列は `worldId`・`key`・`userId`・`playerName`・`updatedBy`・`updatedAt`（`gas/PlayerMap.js`）。`updatedBy` は書いた人の ID（自己申告）、`updatedAt` はサーバーの時刻、`playerName` は設定したときのゲーム内の名前（所有者がシートを読むため。画面と常駐が使うのは `userId` だけ）。
+- **置き場所**: シート `PlayerMap`（本番）・`PlayerMap_test`（テスト）。1 行 1 鍵で、列は `worldId`・`key`・`userId`・`playerName`・`updatedBy`・`updatedAt`（`gas/PlayerMap.js`）。`updatedBy` は書いた人の ID（自己申告）、`updatedAt` は GAS の時刻、`playerName` は設定したときのゲーム内の名前（所有者がシートを読むため。画面と常駐が使うのは `userId` だけ）。
   - 外した対応は行を消さずに、`userId` が空の行（墓標）として残す（別の PC の移行が書き戻さないため）。手で同じ鍵の行を足すと、最後の行が使われる。
   - 1 ワールド 200 鍵まで（墓標を含む。鍵を増やして超えるときだけ断る）、1 回の書き込みは 50 件まで。ノートにない ID は断る（`USER_NOT_FOUND`）。
   - 操作は `playerMap`（読む）と `playerMapSet`（書く。`onlyMissing` は GAS にある鍵〔墓標を含む〕を上書きしない。同じ内容は書かない）。ID の変更（`rename`）で、対応の `userId` と `updatedBy` も新しい ID に書き換わる（版 12 に巻き戻している間の ID の変更では書き換わらない）。
@@ -407,7 +407,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 
 ## 専用サーバー（ServerSync）と常駐（server-agent）（2026-10-19 追加。server）
 
-協力プレイ（招待コード・SaveSync で同期）に加えて、ServerSync（SaveSync と同じ開発元）で建てる専用サーバーでも遊ぶ。同じワールドを協力プレイとサーバーで往復する（同時には進めない）。調査・ユーザーの決定・P0 の実測・設計は `docs/server/README.md`（文書と食い違えばそちらが正）。セーブの違いは `docs/SAVE_FORMAT.md` の「専用サーバー（ServerSync）のセーブ」。
+協力プレイ（招待コード・SaveSync で同期）に加えて、ServerSync（SaveSync と同じ開発元）で建てる専用サーバーでも遊ぶ。同じワールドを協力プレイとサーバーで往復する（同時には進めない）。調査・ユーザーの決定・P0 の実測・設計の経緯は `docs/server/README.md`（設計の途中の記述が実装と違う所が残っている）。運用の手順と常駐の動きは、この文書を実装に合わせてある。セーブの違いは `docs/SAVE_FORMAT.md` の「専用サーバー（ServerSync）のセーブ」。
 
 ### 仕組み
 
@@ -457,6 +457,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 - 常駐は管理の操作（起動・停止・保存・REST）を持たない（ServerSync の状態の読み取りの GET だけ）。
 - 本番のサブ PC の ServerSync は、ユーザー本人の Steam で動かす（変換で H が作成者の UID になるため）。サブ PC の時刻は日本時間（`Get-TimeZone`。保存の時刻で新旧を比べる前提）。
 - タスクは Interactive なので、その Windows ユーザーでログオンしている間だけ動く（画面のロックはよい。ServerSync もログオン中のアプリ）。同じ Windows ユーザーに prod と test の両方は入れられない（`config.json` が env で分かれないため。`install.ps1` が止める）。
+- 実機でまだ確かめていないこと（2026-10-19 時点。最初の導入で見る）: 管理者なしでログオン時のタスクを登録できること・ログオンで動き出すこと・窓の出方・`Stop-ScheduledTask` の後に子の node が残るか・サブ PC での DPAPI。
 
 **手順**
 1. 最新の協力プレイからインスタンスを作る（下の「往復」の「協力プレイ → サーバー」）。
@@ -468,20 +469,21 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
    - `cd <置き場所>`
    - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\server-agent\install.ps1 -Env prod -UserId サーバー [-WorldName <名前>] [-Instance <インスタンス ID の頭>]`
    - node（22 以上）・git の確認 → `config.json`（prod なら `"env": "prod"`。前の項目は残し、引数で渡したものだけ書き換える）→ `--check`（通らなければ `config.json` を元に戻して止まる。サーバーのセーブがまだないときは `-SkipCheck`）→ 共通パスワードを 2 回（画面に出さず、DPAPI で暗号化して `passcode.dpapi` に保存）→ タスク スケジューラにタスク `PalNoteServerAgent-prod`（ログオン時・このユーザー・時間の上限なし）を登録、の順に進む。
-   - `-WorldName` は共有に出すワールドの名前（なければ前の共有の名前）。`-Instance` は ServerSync のインスタンスが 2 つ以上あるときだけ要る（なければ `--check` が終了コード 2 で候補の頭 4 字を出す）。
+   - `-WorldName` は共有に出すワールドの名前（なければ前の共有の名前）。`-Instance` は ServerSync のインスタンスが 2 つ以上あるときだけ要る（なければ `--check` が終了コード 2 で候補の頭 4 字を出す）。往復で作り直した後は古いインスタンスが残る（消さない限り 2 つになる）ので要る（下の「往復」の「協力プレイ → サーバー」の 5）。インスタンス ID とフォルダの組は `%LOCALAPPDATA%\ServerSync\instances.json` にある。
 7. 常駐の ID がまだなければ作る: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\server-agent\run-agent.ps1 -Env prod -Mode Signup`。
 8. 確かめる: `run-agent.ps1 -Env prod -Mode Check`（GAS にはつながない。`--check`）→ `-Mode CheckOnline`（ログインと読み取りだけで、書かない。`--check --online`）。
-9. 動かす: `Start-ScheduledTask -TaskName PalNoteServerAgent-prod`（次のログオンからは自動で動く。ログオンの直後に窓が一瞬だけ出る）。
-10. 画面でプレイヤーの対応を設定する（「以前のホスト（0000…0001）」の行を含む。決定 6・12）。
-11. サーバーを起動 → 参加して、画面で次を見る: 「ページを開いている PC」の「● サーバー（常駐） · … · サーバー稼働中」、共有した人が「サーバー」、所持パル・捕獲数・在庫・状態・ケーキ、牧場のタマゴの自動登録。
+9. 動かす: `Start-ScheduledTask -TaskName PalNoteServerAgent-prod`（次のログオンからは自動で動く。ログオンの直後に窓が一瞬だけ出る見込み。実機で未確認）。
+10. サーバーを起動 → 参加して、画面で次を見る: 「ページを開いている PC」の「● サーバー（常駐） · … · サーバー稼働中」、共有した人が「サーバー」、所持パル・捕獲数・在庫・状態・ケーキ。
+11. 常駐が最初の共有をした後（10 で共有した人が「サーバー」になってから）、画面でプレイヤーの対応を設定する（「以前のホスト（0000…0001）」の行を含む。決定 6・12）。この行はサーバーのセーブの共有で出る（協力プレイの共有では H はプレイヤーにいるので出ない。サーバーが止まっている間は常駐が読み込みも共有もしない）。設定の後、牧場のタマゴの自動登録を見る。
 
 **見方**
 - タスクの状態: `(Get-ScheduledTask -TaskName PalNoteServerAgent-prod).State`（Running・Ready）。
 - ログ: `%LOCALAPPDATA%\pal-note-agent\prod\agent.log`（常駐）と `run-agent.log`（起動・終了コード・起動し直しだけ）。読み方は下の「ログの見方」。
 - `run-agent.ps1` は、node の終了コードが 0・2・3 なら起動し直さず、ほかなら 30 秒後に起動し直す。
+- `run-agent.ps1`（powershell.exe）そのものが落ちたときは、タスクに起動し直しの設定がないので、次のログオンまで動かない（タスクの状態が Ready のまま。`Start-ScheduledTask` で動かす）。
 
 **更新**（画面と GAS を配信したら、サブ PC でもこの手順で更新する）
-1. `Set-Content -LiteralPath "$env:LOCALAPPDATA\pal-note-agent\prod\stop.request" -Value stop`（常駐は 2 秒以内に気づき、state.json を書き出して 0 で終わる）。
+1. `Set-Content -LiteralPath "$env:LOCALAPPDATA\pal-note-agent\prod\stop.request" -Value stop`（常駐は 2 秒以内に気づき、送っている途中の共有を最大 15 秒待ってから state.json を書き出して終わる。終了コードは 0、state.json を保存できなければ 2）。
 2. `(Get-ScheduledTask -TaskName PalNoteServerAgent-prod).State` が Ready になるのを待つ。
 3. `git -C <置き場所> pull --ff-only`
 4. `Start-ScheduledTask -TaskName PalNoteServerAgent-prod`
@@ -511,7 +513,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 | `--auto-register`・`--no-auto-register` | `PAL_AGENT_AUTO_REGISTER`・`autoRegister` | 配合牧場の自動登録（既定はオン） |
 | `--verbose` | — | debug のログも出す |
 
-- パスワードは環境変数 `PAL_AGENT_PASSCODE` だけ（test のときは `.env.local` の `PAL_TEST_PASSCODE` も読む）。`config.json` に秘密は書かない（上の 7 項目だけを読み、知らない項目は使わずにログで知らせる）。接続先は `PAL_API_URL`（既定は本番の URL。https だけ）、データの場所は `PAL_AGENT_DATA_DIR`。
+- パスワードは環境変数 `PAL_AGENT_PASSCODE` だけ（test のときは `.env.local` の `PAL_TEST_PASSCODE` も読む）。`config.json` に秘密は書かない（上の 7 項目だけを読み、知らない項目は使わずにログで知らせる）。接続先は `PAL_API_URL`（既定は本番の URL。https だけ。`localhost`・`127.0.0.1`・`[::1]` なら http も受ける）、データの場所は `PAL_AGENT_DATA_DIR`。
 - ワールドの見つけ方は、設定の `worldDir` → 設定の `serverRoot` → `%LOCALAPPDATA%\ServerSync\instances.json` の各インスタンス（`<インスタンス>\bin\Pal\Saved\Config\WindowsServer\GameUserSettings.ini` の `DedicatedServerName` がワールド ID）。設定したパスで見つからなければ、自動の発見に進まずに終了コード 2。複数のインスタンスが候補なら、更新日時で選ばずに `instance` を求める。`instance.json`・`PalWorldSettings.ini`（パスワードを含む）は読まない。
 - 動かし方（どれか 1 つ）:
   - なし: 常駐として動く（タスク）。
@@ -528,7 +530,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 |---|---|---|
 | 0 | 正常に止まった（`stop.request`・シグナル）・送れた | 起動し直さない |
 | 1 | 想定外（通信の失敗を含む）。`--once` では、セーブを読めない・通信の失敗・判定待ち・期限切れ（`once-timeout`）・presence の失敗 | 30 秒後に起動し直す |
-| 2 | 設定や環境の誤り（再起動しても直らない）: 設定・引数・ワールドが見つからない・応答の env の違い・state.json を保存できない。`--once` では止めた状態・上限超え・形の誤りなど | 起動し直さない（直してから `Start-ScheduledTask`） |
+| 2 | 設定や環境の誤り（再起動しても直らない）: 設定・引数・ワールドが見つからない・応答の env の違い・state.json を保存できない。`--once`・`--accept-world`・`--signup`・`--check --online` では認証の失敗（`USER_NOT_FOUND`・パスワードの誤りの `AUTH`）も 2（常駐として動くときは 30 分ごとに試し直し、終わらない）。`--once` では止めた状態・上限超え・形の誤りなども | 起動し直さない（直してから `Start-ScheduledTask`） |
 | 3 | 二重起動（この環境の常駐がすでに動いている） | 起動し直さない |
 
 ### データの場所
@@ -542,7 +544,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 | `<env>\state.json` | 常駐の localStorage の代わり（KV）: 古い系統の守りの状態（`pal-note.agent.lineage.<env>.<ワールド ID>`）・配合牧場の記録と自動登録の通知・プレイヤーの対応の写し・presence の PC の ID など。パスワード・ログインの印・全件のキャッシュは書かない。1 秒まとめて `state.json.tmp` に書いてから置き換える。壊れていたら写しを `state.json.broken-<日時>` に残す（下の「古い系統の守り」） |
 | `<env>\agent.log`（`.1`・`.2`） | 常駐のログ（1MB ごとに回す。3 世代） |
 | `<env>\run-agent.log`（`.1`） | `run-agent.ps1` のログ（起動・終了コード・起動し直しだけ。パスワード・パス・ID は書かない） |
-| `<env>\stop.request` | 置くと、動いている常駐が 2 秒以内に state.json を書き出して 0 で止まる（中身は何でもよい） |
+| `<env>\stop.request` | 置くと、動いている常駐が 2 秒以内に気づき、送っている途中の共有を最大 15 秒待ってから state.json を書き出して止まる（終了コード 0。state.json を保存できなければ 2）。中身は何でもよい。タスクの `run-agent.ps1` は起動のときに前の `stop.request` を消すので、次のログオンではまた動く |
 | `<env>\accept.request` | `--accept-world` が、動いている常駐に受け入れを伝えるときに書く（書いた時刻。10 分より古いものは捨てる） |
 
 - 二重起動の防止はファイルではなく、名前付きパイプ `\\.\pipe\pal-note-agent-<データの場所から作った印>`（データの場所の env のフォルダごと）。持っているプロセスが落ちれば OS が外すので、停電の後に残らない。
@@ -554,9 +556,13 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 | 出来事 | 意味 |
 |---|---|
 | `started`・`logged-in`・`world` | 起動・ログイン（env）・見つけたワールド（見つけ方とドライブ） |
-| `server-state` | サーバーの状態が変わった（`running`・`grace`・`stopped`・`unknown` と見つけ方。決められない理由 `reasons`: `serversync:unreachable`〔ServerSync に届かない〕・`serversync:not-here`〔ServerSync は動いていると言うが、この PC では動いていない。別の PC が共有のインスタンスを動かしているか、フォルダのパスが実行ファイルのパスと合わない〔ジャンクションなど〕〕・`serversync:unconfirmed`・`process-error` など） |
+| `world-not-found` | ワールドが見つからない（理由と、インスタンスが 2 つ以上なら候補の頭 4 字）。終了コード 2 |
+| `already-running` | この環境の常駐がすでに動いている。終了コード 3 |
+| `config-error`・`config-warning` | 設定・引数の誤り（終了コード 2）・設定の知らせ（`config.json` の知らない項目など。動きは続ける） |
+| `unexpected`・`tick-failed`・`loop-failed` | 想定外の例外。`unexpected` は終了コード 1（`run-agent.ps1` が 30 秒後に起動し直す）。`tick-failed`・`loop-failed` は 10 秒ごとの確認・定期の処理の 1 回の失敗で、常駐は動き続ける（続くなら `--verbose` で見る） |
+| `server-state` | サーバーの状態が変わった（`running`・`grace`・`stopped`・`unknown` と見つけ方 `source`）。`reasons` はそう決めた・決められなかった理由: `serversync:unreachable`〔ServerSync に届かない。実行ファイルのパスで決める〕・`serversync:not-here`〔ServerSync は動いていると言うが、この PC では対象の PalServer が動いていない。止まっているとして扱う（猶予の後 `stopped`）。別の PC が共有のインスタンスを動かしているか、フォルダのパスが実行ファイルのパスと合わない〔ジャンクションなど〕〕・`serversync:unconfirmed`〔この PC で動いているかを確かめられない。`unknown`〕・`process-error` など |
 | `attached`・`attach-waiting` | 読み始めた・`Level.sav`・`LevelMeta.sav` がまだない |
-| `detaching`・`detached lastUpload=…` | 止まった後の最後の送信の結果（`sent`・`timeout`・`none`・`error:<code>`・`unconfirmed`〔unknown で送らなかった〕） |
+| `detaching`・`detached lastUpload=…` | 止まった後の最後の送信の結果（`sent`・`timeout`・`none`・`skipped`〔送れる状態でなかった。ログインしていないなど〕・`error:<code>`・`unconfirmed`〔unknown で送らなかった〕） |
 | `files-added` | `Players` に増えたファイルを足した |
 | `upload` | 共有の結果（`status`・`result`・`error`。種類が変わったときだけ info・warn。同じ結果の繰り返しは debug） |
 | `upload-too-large` | 本文の上限を超えたので共有しない（10 分に 1 回） |
@@ -582,6 +588,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 - **受け入れ**（`--accept-world`。タスクで動かしているなら `run-agent.ps1 -Env prod -Mode AcceptWorld`）:
   - そのときのセーブの値と、受け入れたときに GAS から読んだ公開の世代の `uploadedAt`（GAS のサーバーの時計）を受け入れの基準として残し、(b) も受け入れたセーブの値にする。PC の時計は使わないので、PC の時計がずれていても効く。受け入れた後に別の PC が公開した新しい系統では、また止まる。
   - 動いている常駐には `accept.request` で伝える（2 秒以内に受け入れ、結果は常駐のログの `accepted`・`accept-failed`。要求は書いてから 10 分で無効）。動いている常駐は、今動いている間に読んだセーブの値を基準にする（ディスクの次の保存を基準にすると、受け入れの直後にまた止まるため）。まだ読んでいない・止まっているときは今の `Level.sav` を読む。止まっている間に受け入れたときは、次に動いたときの読み込みで送る。
+  - 二重起動の防止を持っているのが `--once` のときも、`--accept-world` は「伝えました」と出して 0 で終わるが、`--once` は `accept.request` を読まない（要求は 10 分の間残り、その間に起動した常駐が受け入れる。過ぎたら捨てる〔`accept-expired`〕）。`--once` が終わってから、残った `<env>\accept.request` を消して `--accept-world` をやり直し（残すと、後で起動した常駐がもう一度受け入れ、候補と牧場の記録をまた捨てる）、ログの `accepted`（常駐がないときは `accept-done`）を確かめる。
   - 公開の世代がない・読めないときは受け入れない（読めないときは 30 秒ごとに試し直す）。
   - 受け入れると、止めていた間の候補と牧場の記録を捨て、最初の読み込みと同じく「記録だけ」から始める（その時点で牧場にあったタマゴは登録しない）。
   - **受け入れる前に、本当に新しい系統かを確かめる**: 画面の最後の共有の日数（「ゲーム内 N 日目」）・時刻と、常駐の `--check` の日数を照らす。古いワールドを受け入れると、新しい共有をその古い中身で上書きする。
@@ -601,7 +608,12 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
    - `npm run check:save -- "<インスタンス>\bin\Pal\Saved\SaveGames\0\<ワールド ID>"` で、日数（「ゲーム内: N 日目」）とプレイヤーが、協力プレイの最後のセーブ（同じく `npm run check:save`）と同じ（ワールド ID も協力プレイと同じ。体数はグローバルパルボックスの分だけ少ない。サーバーにはないため）。
    - `Players` に `00000000000000000000000000000001.sav` がなく、作った人の UID のファイルがある。ほかの人のファイル名は協力プレイと同じ。
 4. ゲームの設定を合わせる（下の「ゲームの設定の合わせ込み」）。
-5. 常駐を動かしてからサーバーを起動する（常駐が最初の共有者になる）。取り込んだ直後のセーブは保存の時刻が協力プレイの最後と同じなので `same`・`unchanged`（書かない）になり、サーバーが保存した後のセーブから `newer` で載る。
+5. 常駐を新しいインスタンスに向けて動かしてから、サーバーを起動する（常駐が最初の共有者になる）。常駐は起動したときにワールドを 1 回だけ探すので、動いたままの常駐は古いインスタンスを見続ける（古いインスタンスは動かないので読まず、新しいサーバーの共有も自動登録もしない）。常駐を入れてあれば（2 回目から）、次の順で向け直す:
+   1. `stop.request` で常駐を止める（上の「サブ PC への導入」の「更新」の 1・2）。
+   2. 古いインスタンスを残すなら（インスタンスが 2 つあると、常駐は終了コード 2 で止まる）、`install.ps1 -Env prod -UserId サーバー -Instance <新しいインスタンス ID の頭>` で設定を新しいインスタンスにする（ID は `%LOCALAPPDATA%\ServerSync\instances.json` で新しいフォルダと照らす。共通パスワードをもう一度入れる）。前に `-Instance` を入れていたら、古いインスタンスを消しても必ず入れ直す（`install.ps1` は前の項目を残すので、渡さなければ古いインスタンスに結び付いたまま）。`config.json` に `worldDir`・`serverRoot` を書いていたら、新しいインスタンスのパスに直す。
+   3. `run-agent.ps1 -Env prod -Mode Check` で、`world`（見つけ方）・`check-save`（日数）・`check-server` を見る。
+   4. `Start-ScheduledTask -TaskName PalNoteServerAgent-prod` で動かす。
+   - 取り込んだ直後のセーブは保存の時刻が協力プレイの最後と同じなので `same`・`unchanged`（書かない）になり、サーバーが保存した後のセーブから `newer` で載る（変換で保存の時刻〔`Level.sav` の `Timestamp`〕が保たれる前提。実機で未確認）。
 6. 仲間の画面: 登録はそのままでよい（参加と判定され、常駐の共有を見る。同じワールド ID の行）。プレイヤーの対応は `i:` の鍵なのでそのまま効く。必要なら「以前のホスト」の行を選ぶ。
 
 **サーバー → 協力プレイ**（変換はユーザーが行う）
@@ -612,9 +624,9 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
    - 協力プレイの `WorldOption.sav` を残す（サーバーのセーブにはない。なくなると協力プレイの設定が既定に戻る）。
    - `LocalData.sav` は協力プレイのフォルダのもの（サーバーで遊んだ間に書かれた新しいもの）を残す。
    - `Players` のファイル名が U から H（`00000000000000000000000000000001.sav`）に戻ることを確かめる。
-4. 変換した PC（ユーザー）が最初にホストする。このページをその PC で開いておく（登録はそのまま。ファイルを置き換えただけなら許可も残る。読めなければ登録し直す）。最初の共有は保存の時刻がサーバーの最後と同じなので `same`（書かない）、自動登録の証拠も `same` で捨てる（サーバーの常駐が担当した分）。次の保存から `newer` で載る。対応と「このワールドでの自分」は `i:` の鍵なので、同じキャラクターに付いたまま。
+4. 変換した PC（ユーザー）が最初にホストする。このページをその PC で開いておく（登録はそのまま。ファイルを置き換えただけなら許可も残る。読めなければ登録し直す）。最初の共有は保存の時刻がサーバーの最後と同じなので `same`（書かない）、自動登録の証拠も `same` で捨てる（サーバーの常駐が担当した分）。次の保存から `newer` で載る（変換で保存の時刻〔`Level.sav` の `Timestamp`〕が保たれる前提。実機で未確認）。対応と「このワールドでの自分」は `i:` の鍵なので、同じキャラクターに付いたまま。
 5. ゲームを終えて SaveSync の同期を通すまで、ほかの人はホストしない。
-6. 古いサーバーのインスタンスはもう起動しない（ServerSync で停止のままにする。消すかはユーザー）。もう一度サーバーにするときは、上の手順で最新の協力プレイから作り直す。サーバーの PC の常駐は止めなくてよい（サーバーが止まっている間は読まない。「ページを開いている PC」に「サーバー停止中」の行が出たままになる）。
+6. 古いサーバーのインスタンスはもう起動しない（ServerSync で停止のままにする。消すかはユーザー）。もう一度サーバーにするときは、上の手順で最新の協力プレイから作り直す（常駐を新しいインスタンスに向け直すのは上の 5）。協力プレイの間、サーバーの PC の常駐は止めなくてよい（サーバーが止まっている間は読まない。「ページを開いている PC」に「サーバー停止中」の行が出たままになる）。
 
 **注意**
 - 同時に両方で進めない（両方が保存すると、同じワールド ID の共有が新しい時刻の方へ交互に入れ替わり、自動登録も二重に試みる）。
@@ -636,7 +648,7 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 
 **協力プレイから変換し直す**（別の人がサーバーを建てる）
 1. 変換（ServerSync のインスタンスの作成）は、H を作成者の UID に置き換える。変換する人の Steam で H がだれの UID になるかを確かめる: 協力プレイの `Players\savesync.sav`（H の枠の人の本当の UID）が、変換する人のと合うこと（最後にホストした人が変換する）。合わないと、H のキャラクターが変換した人の UID に付け替わり、その人の元のキャラクターと取り違えるおそれがある（実機では確かめていない）。
-2. 残りは上の「協力プレイ → サーバー」と同じ（作り直す・設定を合わせる・常駐を動かしてから起動）。前の PC のサーバーは起動しない。
+2. 残りは上の「協力プレイ → サーバー」と同じ（作り直す・設定を合わせる・常駐を新しいインスタンスに向けて動かしてから起動）。前の PC のサーバーは起動しない。
 
 ### ServerSync のローカル API で使ってよい操作
 
@@ -670,7 +682,7 @@ ServerSync はインスタンスを作るときに協力プレイの `WorldOptio
 
 - test 環境だけで試す。メインの PC に prod の常駐を入れない（`config.json` に `"env": "prod"` を書かない。`install.ps1` で入れるなら `-Env test` だけ）。
 - 常駐の ID「サーバー」は `Users_test` に作る（`--signup` か、画面の新規登録をテスト用パスワードで）。
-- 動かし方: `node --env-file=.env.local tools/server-agent/main.mjs --env test --user サーバー [--verbose]`（`.env.local` の `PAL_TEST_PASSCODE` を使う）。テスト用の deployment（版 13）につなぐときは `PAL_API_URL=https://script.google.com/macros/s/<テスト用 ID>/exec` を足す（既定は本番の URL）。確かめる順は `--check` → `--check --online` → `--dry-run --once` → `--once --force-host`（止まっているテストのサーバーのセーブを 1 回送る）→ 常駐として動かす。
+- 動かし方: `node --env-file=.env.local tools/server-agent/main.mjs --env test --user サーバー [--verbose]`（`.env.local` の `PAL_TEST_PASSCODE` を使う）。テスト用の deployment（版 13）につなぐときは、Git Bash は先頭に `PAL_API_URL=https://script.google.com/macros/s/<テスト用 ID>/exec ` を足し、PowerShell は先に `$env:PAL_API_URL='https://script.google.com/macros/s/<テスト用 ID>/exec'` を実行する（その窓に残る。戻すときは `Remove-Item Env:PAL_API_URL`。既定は本番の URL）。確かめる順は `--check` → `--check --online` → `--dry-run --once` → `--once --force-host`（止まっているテストのサーバーのセーブを 1 回送る）→ 常駐として動かす。
 - test の画面は、いつもとは別の Chrome のプロファイルで見る（いつものプロファイルのページは本番の ID で協力プレイの共有をしているので、ログインを替えない）。画面は `web/js/config.js` の本番の URL につなぐので、画面で版 13 の動き（対応の画面・捕獲数・在庫など）を見られるのは本番の deployment を版 13 にした後（テスト用パスワードなら test のシートにだけ触る）。それまでは `api-check` と常駐の `--check --online`・`--dry-run --once`・`--once` で確かめる。
 - テストのインスタンスの起動・停止は ServerSync の画面か、ローカル API の `start`・`stop`（上の「使ってよい操作」）。試す間は PC をスリープさせない。
 - 共有のインスタンスを別の PC が動かしている間に、この PC の ServerSync が `running`・`pid`・`runningUsers` をどう返すかは、まだ実機で確かめていない。
@@ -682,15 +694,15 @@ GAS が先、画面、常駐の順に出す（版 13 は版 12 の画面〔開�
 2. GAS の編集画面（HEAD のコード）で **`setup()`** を 1 回実行する。足すもの: 新しいシート `PlayerMap`・`PlayerMap_test`、`OwnedWorlds`・`OwnedWorlds_test` の列 `extras`、`OwnedPals`・`OwnedPals_test` の列 `soul`・`condition`（既存のシートとデータは変えない）。版 12 は知らない列とシートを無視するので、本番には影響しない。新しい権限は要らない。
 3. 版を作り、テスト用の deployment を向ける: `npx clasp create-version "server"`（版 13 になるはず）→ `npx clasp update-deployment <テスト用 ID> -V 13 -d "server test"`（テスト用 ID は `npx clasp list-deployments` で、本番の ID〔上の「デプロイ情報」〕と照らして選ぶ）。
 4. テスト用の deployment で確かめる（遊んでいない時間に。テスト用と本番は同じスプレッドシート・同じ鍵を使う）:
-   - `PAL_API_URL=https://script.google.com/macros/s/<テスト用 ID>/exec node scripts/api-check.mjs`（プレイヤーの対応の読み書きを含む）。`api-check` は共有の 31 列・`extras`・`captures`・presence の `resident` を確かめないので、それらは常駐を test 環境で動かして見る（上の「この PC で試すとき」。`--dry-run --once` の要約・`--once --force-host` の後の `OwnedWorlds_test` の行）。
-   - GAS の負荷: 30 秒ごとの共有・参加者の読み直し・対応の書き込み・自動登録を重ねて `scripts/owned-bench.mjs` で測る（README の T6 の 3）。
+   - Git Bash: `PAL_API_URL=https://script.google.com/macros/s/<テスト用 ID>/exec node scripts/api-check.mjs`（プレイヤーの対応の読み書きを含む）。PowerShell は `$env:PAL_API_URL='https://…/exec'; node scripts/api-check.mjs`。`api-check` は共有の 31 列・`extras`・`captures`・presence の `resident` を確かめないので、それらは常駐を test 環境で動かして見る（上の「この PC で試すとき」。`--dry-run --once` の要約・`--once --force-host` の後の `OwnedWorlds_test` の行）。
+   - GAS の負荷: 今の `scripts/owned-bench.mjs` が測るのは、共有と読み直し（`ownedUpload`・`owned`・`ownedSince`・`ownedWorlds`・`probe`。片付けの `ownedDelete`）だけ。README の T6 の 3 の、対応の書き込み（`playerMapSet`）・自動登録（`create`）を重ねて測るには道具を広げる（未実装）。あわせて、全シートの確保済みのセル数（一時的に足す行を含む）が 1,000 万の上限から十分遠いことを確かめる（README の T6 の 3）。
 5. **ユーザーに報告して承認をもらってから本番に出す**（誰も遊んでいない時間に）: `npx clasp update-deployment <本番の ID> -V 13 -d "server"` → `npx clasp list-deployments` で、ID を上の「デプロイ情報」と照らして本番が版 13 になったことを確かめる（`-V` を付けないと HEAD から新しい版を作る。`-d` を付けないと説明が空になる）→ `node scripts/smoke.mjs`。
 6. 画面を配信する（main へマージして push → GitHub の Actions の成功を確かめる）。
 7. **最後に協力プレイでホストした PC で最初に**ページを開く（前の版のプレイヤーの対応を GAS へ上げるため。H 以外はこのとき上がり、H はその PC でホストとして遊んだときに上がる。上の「プレイヤーの対応（PlayerMap）」）。それから全員に、開いているこのページを読み込み直すか閉じてもらう（古いタブは `resident`・新しい形の「自分」を読めない）。
 8. 常駐を入れる・更新する（上の「サブ PC への導入」「更新」）。
 
 **巻き戻し（本番を版 12 に戻す）**
-1. 常駐を止める（`stop.request`。版 12 では対応を読めず、共有の追加の情報も届かない）。
+1. 常駐を止める: `Disable-ScheduledTask -TaskName PalNoteServerAgent-prod` → `stop.request`（版 12 では対応を読めず、共有の追加の情報も届かない。`stop.request` だけでは、`run-agent.ps1` が起動のときに前の `stop.request` を消すので、次のログオンでまた動く）。
 2. `npx clasp update-deployment <本番の ID> -V 12 -d "rollback"`（ID を「デプロイ情報」と照らす）。画面は戻さなくてよい（新しい画面は版 12 で、31 列を断られたら 29 列で送り、対応は `BAD_ACTION` で前の版の対応に 1 時間ずつ落とす）。
 3. 足した列のセルは空にしなくてよい: `extras` は読むときに `at` を行の `uploadedAt` と照らすので、版 12 の間の共有に前の値は付かない。`soul`・`condition` は世代ごとに新しい行で書かれ、版 12 が書いた行は空になる（版 13 → 12 → 13 で前の値を返さないことはテストで確かめている）。空にするなら、見出しの行を残してセルだけを消す（見出しを消すと `setup()` をやり直すまで列がない扱いになる）。シート `PlayerMap` は残してよい（版 12 は読まない。版 13 に戻すとまた使う）。
-4. 版 13 に戻すときは `npx clasp update-deployment <本番の ID> -V 13 -d "server"`。版 12 の間に画面で選んだ対応（前の版の対応）は、次の読み直しで GAS にない分だけ上がる。
+4. 版 13 に戻すときは `npx clasp update-deployment <本番の ID> -V 13 -d "server"`。版 12 の間に画面で選んだ対応（前の版の対応）は、次の読み直しで GAS にない分だけ上がる。それから常駐を動かし直す: `Enable-ScheduledTask -TaskName PalNoteServerAgent-prod` → `Start-ScheduledTask -TaskName PalNoteServerAgent-prod`。
