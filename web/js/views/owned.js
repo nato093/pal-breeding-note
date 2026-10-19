@@ -749,6 +749,11 @@ export function ownedView(context, route) {
       },
     },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
+    // 参加者の名前が合わない 2 行目（GAS の対応）: 表示しているワールドのプレイヤーの対応の、未設定の行へ
+    mapping: {
+      label: 'プレイヤーの対応を開く',
+      run: () => context.navigate(settingsHash(owned.state.meta?.worldId || owned.state.linkedWorldId || '', 'registrant')),
+    },
   };
   summary.append(notices);
 

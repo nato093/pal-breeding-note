@@ -505,7 +505,8 @@ export function dimensionNotice(state, { selfUids = new Set() } = {}) {
  * 所持パルのタブの上に出す案内。対応が要るものだけ（読み込み中・確認中・共有中は出さない。ヘッダーのセーブ連携の状態が知らせる）。
  * 案内は 1 文と行き先のボタン（「設定タブの〜」とだけ書かない。copy-dead-ends）。action はボタンの名前（views/owned.js の noticeActions。
  * grant＝読む許可・register＝ワールドの登録のモーダル・settings＝設定のセーブ連携〔読んでいるワールドの行〕へ・editWorld＝読んでいるワールドの
- * 編集のモーダル・unknownPlace＝場所の分からないパル）。selfUids は自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dimensionNotice）
+ * 編集のモーダル・unknownPlace＝場所の分からないパル・mapping＝設定のプレイヤーの対応〔表示しているワールドの未設定の行〕へ）。selfUids は
+ * 自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dimensionNotice）
  */
 export function ownedNotices(state, { userId = '', now = Date.now, selfUids = new Set(), mapping = {}, mappingMode = 'legacy' } = {}) {
   const notices = [];
@@ -530,7 +531,9 @@ export function ownedNotices(state, { userId = '', now = Date.now, selfUids = ne
   if (state.role === 'guest' && !hasData) notices.push(lag ?? { text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
   if (state.role === 'guest' && hasData) {
     const summary = roleSummary(state, { userId, now, mapping, mappingMode });
-    if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}) });
+    // 名前が合わない 2 行目が GAS の対応の文（本人が設定で選べる）なら、行き先のボタン（プレイヤーの対応を開く。最終レビュー）
+    const pick = summary?.hint && mappingMode === 'gas' ? { action: 'mapping' } : {};
+    if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}), ...pick });
     if (lag) notices.push(lag);
   }
   // パル次元ストレージの読み漏れ（共有を出しているとき。自分が候補のときだけ。この PC で読んだセーブの分は、下の読めなかったファイルの後）
