@@ -21,7 +21,7 @@
 - [x] 設定の差の表をユーザーに見せて決めてもらい、止まっている間に直す（9 項目を協力プレイに。`bAutoResetGuildNoOnlinePlayers` は false のまま）
 - [x] 計測の通し（PC が 1 時間スリープしたが、その後にユーザーが参加して預け直し・退出・停止・ゲームの終了まで）
 - [x] 結果と決めたことを README に書く（「同じ中身なら送らない」は入れない・稼働の判定は `status.running`・サーバーの PC はスリープしない）
-- [ ] （T6 で）REST（8212）の待ち受けのアドレスを、サーバーが動いている間に `netstat` で見る
+- [x] （T6 で）REST（8212）の待ち受けのアドレスを、サーバーが動いている間に `netstat` で見る（2026-10-19: `0.0.0.0:8212`。PalServer の実行ファイルに全部のポートを許す受信の規則〔Public を含む〕もあった。OPERATIONS の導入の条件を、受信の TCP 8212 を止める規則を足す形に直した。規則を足すのは PC の持ち主の了承の後で、この PC にはまだ足していない）
 
 ## T1 identity（大）
 
@@ -36,7 +36,7 @@
 - [x] `ownedOf` の不具合（f7356f3。取得の失敗でも手元に戻る ac5dc58）
 - [x] GAS: `extras` 列（`at` で確かめる・`fitOwnedExtras`）・players の `instanceId`（1fe6b55・6ded4b5）
 - [x] テスト（TZ=UTC npm test 2032 件・版 12 c1a29e7 との組み合わせ・実データで鍵と formers を確認）
-- [ ] SAVE_FORMAT.md・OPERATIONS.md（T6 でまとめて）
+- [x] SAVE_FORMAT.md・OPERATIONS.md（T6 でまとめて。d4a1496・841d943、マージ eb55981）
 
 ## T2 share-extras（中。T1 と同じブランチで続ける）
 
@@ -83,18 +83,21 @@
 
 ## T6 統合・GAS 版 13・配信
 
-- 状態: 未着手
-- [ ] 最終レビュー（Codex と観点別のエージェント）・`TZ=UTC npm test`・`npm run test:perf`・`git grep`
-- [ ] CI の `fetch-depth: 0` と互換テストの必須化
-- [ ] release-notes（1〜2 件）・OPERATIONS.md・SAVE_FORMAT.md・README.md
-- [ ] GAS: build:gas → gas:push（2026-10-19 に済み。HEAD だけ。本番とテスト用は版 12 のまま）→ setup()（ユーザー）→ 版 13 → テスト用 deployment → api-check
-- [ ] 常駐をこの PC の test 環境で（ユーザーが参加）・GAS の負荷と容量
-- [ ] ユーザーへの報告と承認 → 本番の GAS → 画面 → 全員のタブの読み込み直し
+- 状態: 進行中（最終レビューの指摘の直しは fix/server-final-review〔作業フォルダ `Claude outputs/worktrees/server-final`〕。integrate/server へはまだマージしていない）
+- [x] 最終レビュー（Codex と観点別のエージェント）・`TZ=UTC npm test`・`git grep`。直したもの: プレイヤーの対応のストア（待つ間にログインが替わったら送らない・別のタブの書き込みを古い応答で巻き戻さない）・`server-settings.mjs` の数の書き方と書いた後の読み直し・常駐のログインを 2 本並べない・互換テストの完全なコミット番号・参加者の案内の「プレイヤーの対応を開く」・Pages の deploy を main だけに・Windows PowerShell 5.1 のテスト・文書。main から残っていたテストの実データの値（4 行）をダミーにした（公開済みの履歴はそのまま。ユーザーの判断）。`npm run test:perf` は、この PC でサーバーと常駐が動いている間は、回ごとに別の 1 件が予算を超えたり全部通ったりした（直した所は性能のテストの範囲に触れていない）
+- [x] CI の `fetch-depth: 0` と互換テストの必須化（20e075e）
+- [x] release-notes（2 件。e3bc1de）・OPERATIONS.md・SAVE_FORMAT.md・README.md（d4a1496・841d943。マージ eb55981）
+- [x] GAS: build:gas → gas:push → setup()（ユーザー）→ 版 13 → テスト用 deployment を -V 13 → api-check すべて OK（本番は版 12 のまま）
+- [ ] 常駐をこの PC の test 環境で（ユーザーが参加）。済み: 共有・presence・参加者の画面のサーバー向けの文言・「サーバー（常駐）」の行・プレイ中・閲覧者の画面から以前のホストの対応を GAS に保存。残り: 以前のホストの対応が牧場のタマゴの自動登録の登録者に効くこと（常駐のログに create がまだない）・止めたときの最後の送信（detach）と「停止中」の表示（警告にしない）・古い系統の守りと `--accept-world`（revert が要る＝ユーザーの了承）・ServerSync のバックアップ・停止・起動を常駐が妨げないこと。実機でできないものは、モックの結合テスト（test/server-agent）で確かめたと報告に書く
+- [ ] GAS の負荷と容量: 未計測（`owned-bench.mjs` を広げて `playerMapSet`・`create` を重ねる・全シートのセル数）。参考: 常駐を test 環境で約 1 時間動かした間、版 13 の形の共有は 30 秒ごとに 107 回すべて通った（約 72 万字。書き手は常駐 1 つ。常駐のログ）
+- [ ] Linux でのテスト（ブランチを push した後に、Pages の workflow を workflow_dispatch でそのブランチを選んで動かす。deploy は main だけ。push はユーザーの確認の後）
+- [ ] REST 8212 の受信を止める規則（PC の持ち主の了承の後。サブ PC は導入の手順で）
+- [ ] ユーザーの判断: 常駐の自動登録で、親 2 体の預けた人が違う・分からないときの登録者（README の「リスク・未確定事項」）・公開済みの履歴に残る実データの値（main のテストの 4 行。履歴を書き換えるなら、test/gas/legacy.js の LEGACY_* も新しい番号に直す）
+- [ ] ユーザーへの報告と承認（未確認の項目を並べる）→ 本番の GAS → 画面 → 全員のタブの読み込み直し
 - [ ] サブ PC の導入の手順（ユーザー）
 
 ## 次にやること
 
-- **2026-10-19（セッション 4ca854cd）: T1〜T5 を統合ブランチにマージした（0391621）。GAS は HEAD に push した（版 12 のまま）。ユーザーが GAS の編集画面で setup() を実行するのを待っている。文書（OPERATIONS.md・SAVE_FORMAT.md・README・release-notes・CI）は feature/docs〔作業フォルダ Claude outputs/worktrees/server-docs〕でワークフローが書いている。**
-- setup() の後: create-version（13）→ テスト用 deployment（"owned-gas test (sync-fixes)"）を -V 13 -d "server test" に → PAL_API_URL=<テスト用> node scripts/api-check.mjs → Users_test に「サーバー」（常駐の --signup。test）→ テストのサーバーを起動し、この PC で常駐を test 環境で動かす（node --env-file=.env.local tools/server-agent/main.mjs --env test --user サーバー --verbose。データの場所は scratchpad か Claude outputs）→ ユーザーが参加 → 画面（テスト用の deployment につないだ作業フォルダの dev サーバーを、ブラウザの自動操作で test にログイン）で共有・対応・捕獲数などを確かめる → REST 8212 の待ち受けのアドレス → GAS の負荷の計測。
-- その後: 最終レビュー → ユーザーへの報告と承認 → 本番の GAS（-V 13）→ 画面の配信 → サブ PC の導入（ユーザー）。
+- **2026-10-19（セッション 4ca854cd）: テスト用の deployment（版 13）で実機の確認をし（上の T6）、最終レビューの指摘を fix/server-final-review〔作業フォルダ Claude outputs/worktrees/server-final〕で直した（integrate/server へのマージはまだ）。本番の GAS は版 12 のまま。**
+- 次: fix/server-final-review を integrate/server へマージ → ユーザーへの報告（未確認の項目＝上の T6 の [ ]）と判断（自動登録の登録者・公開済みの履歴・REST の規則）→ 承認 → 本番の GAS（-V 13）→ 画面の配信 → 最後にホストした PC で最初に開く → 全員のタブの読み込み直し → サブ PC の導入（ユーザー）。
 - 始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる。
