@@ -411,3 +411,91 @@ test('対応のストア: 別のタブが写しを書き換えたら（storage �
   assert.equal(t.maps.reload(`t.autoBreeding.playerMap.test.${OTHER_WORLD}`), true);
   assert.equal(t.emitted, before + 1);
 });
+
+test('対応のストア（最終レビュー）: 書き込みが順番を待っている間・分けて送る途中にログインが替わったら、残りは送らずに AUTH で投げる', async () => {
+  // 送るときの request は、その時点のログイン（パスワード・ID）で送る。test で選んだ対応を prod の PlayerMap に書かない
+  for (const after of ['prod', '']) {
+    const t = await setup();
+    await t.maps.ensure('test', WORLD);
+    const release = t.hold(['playerMapSet']);
+    const first = t.maps.set('test', WORLD, [{ key: KEY_A, userId: 'Alice' }]);
+    const second = t.maps.set('test', WORLD, [{ key: KEY_B, userId: 'Bob' }]);
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+    t.scope.env = after;
+    release();
+    await first;
+    await assert.rejects(second, { code: 'AUTH' }, after);
+    assert.equal(t.calls.filter((call) => call.action === 'playerMapSet').length, 1, after);
+    // 重ねた分は残さない
+    assert.deepEqual(t.maps.entries('test', WORLD), { [KEY_A]: 'Alice' }, after);
+  }
+  // 51 件を 2 回に分けて送る途中に替わった: 2 回目は送らない
+  const t = await setup();
+  await t.maps.ensure('test', WORLD);
+  const key = (index) => `u:${String(index).padStart(8, '0')}-0000-0000-0000-000000000000`;
+  const release = t.hold(['playerMapSet']);
+  const writing = t.maps.set('test', WORLD, Array.from({ length: 51 }, (_, index) => ({ key: key(index), userId: 'Alice' })));
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  t.scope.env = 'prod';
+  release();
+  await assert.rejects(writing, { code: 'AUTH' });
+  assert.deepEqual(t.calls.filter((call) => call.action === 'playerMapSet').map((call) => call.entries.length), [50]);
+  assert.equal(Object.keys(t.maps.entries('test', WORLD)).length, 50);
+});
+
+test('対応のストア（最終レビュー）: 読んでいる間に別のタブが対応を書いたら、遅れて届いた読み（書く前の中身）で写しを巻き戻さない', async () => {
+  const t = await setup();
+  await t.otherPc([{ key: KEY_A, userId: 'Alice' }]);
+  await t.maps.ensure('test', WORLD);
+  const tab = t.make();
+  // このタブの読みは、読んだ後（別のタブが書く前の中身）で止める
+  const releaseRead = t.hold(['playerMap']);
+  t.clock.now += 1;
+  const reading = t.maps.ensure('test', WORLD);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  await tab.set('test', WORLD, [{ key: KEY_A, userId: 'Bob' }]);
+  t.maps.reload(COPY);
+  releaseRead();
+  assert.equal(await reading, false);
+  tab.reload(COPY);
+  assert.deepEqual(t.maps.entries('test', WORLD), { [KEY_A]: 'Bob' });
+  assert.deepEqual(tab.entries('test', WORLD), { [KEY_A]: 'Bob' });
+  assert.deepEqual(JSON.parse(t.storage.get(COPY)).entries, { [KEY_A]: 'Bob' });
+  // storage イベントが届く前に古い読みが返っても、写しの時刻が変わっていれば使わない
+  const releaseAgain = t.hold(['playerMap']);
+  t.clock.now += 1;
+  const again = t.maps.ensure('test', WORLD);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  await tab.set('test', WORLD, [{ key: KEY_A, userId: 'Alice' }]);
+  releaseAgain();
+  assert.equal(await again, false);
+  assert.deepEqual(JSON.parse(t.storage.get(COPY)).entries, { [KEY_A]: 'Alice' });
+});
+
+test('対応のストア（最終レビュー）: 送っている間に別のタブが別の鍵を書いたら、応答で全部を置き換えず、自分が書いた鍵だけを重ねる', async () => {
+  const t = await setup();
+  await t.otherPc([{ key: KEY_A, userId: 'Alice' }]);
+  // このタブの書き込みは GAS に書けた後、応答だけが遅れる（応答の KEY_A は別のタブが書く前の Alice）
+  let release;
+  const late = new Promise((resolve) => { release = resolve; });
+  const maps = t.make({
+    request: async (action, input) => {
+      const response = await t.api.request(action, PASS, { userId: 'Alice', ...input });
+      if (action === 'playerMapSet') await late;
+      return response;
+    },
+  });
+  await maps.ensure('test', WORLD);
+  const tab = t.make();
+  const writing = maps.set('test', WORLD, [{ key: KEY_U, userId: 'Alice' }]);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  await tab.set('test', WORLD, [{ key: KEY_A, userId: 'Bob' }]);
+  maps.reload(COPY);
+  release();
+  await writing;
+  tab.reload(COPY);
+  const expected = { [KEY_A]: 'Bob', [KEY_U]: 'Alice' };
+  assert.deepEqual(maps.entries('test', WORLD), expected);
+  assert.deepEqual(tab.entries('test', WORLD), expected);
+  assert.deepEqual(JSON.parse(t.storage.get(COPY)).entries, expected);
+});
