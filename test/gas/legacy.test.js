@@ -18,6 +18,12 @@ test('古い版: 取り出せないとき、手元では null（呼び出す側�
   assert.equal(await legacyApi(MISSING, { ci: false }), null);
   assert.throws(() => legacyGasFiles(MISSING, { ci: true }), /fetch-depth: 0/);
   await assert.rejects(legacyApi(MISSING, { ci: true }), /fetch-depth: 0/);
+  // 浅い複製のほか、履歴を書き換えてコミットがなくなった場合も案内する
+  assert.throws(() => legacyGasFiles(MISSING, { ci: true }), /LEGACY_/);
+});
+
+test('古い版（最終レビュー）: 古い版は 40 字の完全なコミット番号で指す（短い番号が別のコミットと重なって取り出せなくならない）', () => {
+  for (const commit of [LEGACY_COMMIT, LEGACY_V12_COMMIT]) assert.match(commit, /^[0-9a-f]{40}$/);
 });
 
 test('古い版: CI では版 10・版 12 の GAS と画面を取り出せる', { skip: runningInCi() ? false : 'CI だけで確かめる（手元の浅い複製では飛ばす）' }, async () => {
@@ -33,4 +39,11 @@ test('古い版: CI（Pages の workflow）の checkout は全部の履歴を取
   const checkout = /- uses: actions\/checkout@[^\r\n]+\r?\n((?:[ \t]+(?![ \t]|- )[^\r\n]*\r?\n)*)/.exec(workflow);
   assert.ok(checkout, 'actions/checkout の step がありません');
   assert.match(checkout[1], /^\s+fetch-depth: 0\s*$/m);
+});
+
+test('CI（最終レビュー）: Pages の deploy は main だけ（workflow_dispatch でブランチを選ぶと、Linux のテストと build だけが動く）', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/pages.yml', import.meta.url), 'utf8');
+  const deploy = /^ {2}deploy:\r?\n((?: {4}[^\r\n]*\r?\n|\r?\n)*)/m.exec(workflow);
+  assert.ok(deploy, 'deploy の job がありません');
+  assert.match(deploy[1], /^ {4}if: github\.ref == 'refs\/heads\/main'\s*$/m);
 });

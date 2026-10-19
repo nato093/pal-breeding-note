@@ -17,7 +17,7 @@ import palWork from '../../web/data/work.js';
 
 const P1 = '00000000-0000-0000-0000-000000000001';
 const P2 = 'abcd1234-0000-0000-0000-000000000000';
-const BASE = 'b6800a4a-4b60-f0bb-f425-53bf17b07603';
+const BASE = 'fedcba98-7654-3210-fedc-ba9876543210';
 
 function pal(instanceId, characterId, location, extra = {}) {
   return {
@@ -40,7 +40,7 @@ const snapshot = {
     pal('d', 'PinkCat', { kind: 'egg-ground', playerUid: P1, baseId: BASE, mapObjectId: 'Palegg' }, { passives: ['CraftSpeed_up2'], level: 1 }),
     pal('e', 'Male_Soldier01', { kind: 'palbox' }),
     pal('f', 'PinkCat', { kind: 'global', playerUid: '' }),
-    pal('g', 'ChickenPal', { kind: 'egg-inventory', playerUid: '791f552e-0000-0000-0000-000000000000' }),
+    pal('g', 'ChickenPal', { kind: 'egg-inventory', playerUid: '9a8b7c6d-0000-0000-0000-000000000000' }),
   ],
   stats: {},
 };
@@ -127,7 +127,7 @@ test('所持パル: 所持者と場所は入れ物で決め、拠点のタマゴ
   assert.deepEqual([byId.d.holder, byId.d.placeLabel, byId.d.egg, byId.d.level], ['拠点 2', 'タマゴ（地面）・拠点 2', true, 0]);
   // グローバルパルボックスは読み込んだ PC のアカウント（ホスト）のもの
   assert.deepEqual([byId.f.holder, byId.f.placeLabel], ['Alice', 'グローバルパルボックス']);
-  assert.equal(byId.g.holder, '不明なプレイヤー（791F552E）');
+  assert.equal(byId.g.holder, '不明なプレイヤー（9A8B7C6D）');
   assert.deepEqual([byId.a.stars, byId.a.lucky, byId.a.gender, byId.b.gender], [2, true, 'F', 'M']);
   assert.deepEqual(byId.a.passiveNames, ['職人気質', '希少']);
 });

@@ -1184,6 +1184,27 @@ test('所持パル画面（dps-missing）: ホストはパル次元ストレー�
   guest.destroy();
 });
 
+test('所持パル画面（最終レビュー）: 参加者の名前が合わない 2 行目が GAS の対応の文なら、［プレイヤーの対応を開く］で設定の未設定の行へ移る', async (t) => {
+  installDom(t);
+  const meta = { worldId: 'W', worldName: 'テスト', hostName: 'Alice', source: 'shared', saveUpdatedAt: '2026-10-05T00:00:00.000Z', sharedAt: '2026-10-05T00:01:00.000Z', uploadedBy: 'ホスト', palCount: 3 };
+  for (const mappingMode of ['gas', 'legacy']) {
+    const ctx = { ...context(fakeOwned(undefined, { role: 'guest', meta })), autoRegister: { mapping: () => ({}), mappingMode: () => mappingMode } };
+    const view = ownedView(ctx, parseHash('#/owned'));
+    const notices = view.element.querySelector('.owned-notices');
+    assert.match(notices.textContent, /「仲間」という名前のプレイヤーがいません/, mappingMode);
+    const action = notices.querySelector('button');
+    if (mappingMode === 'legacy') {
+      // 前の版（ホストに頼む文）はボタンを付けない
+      assert.equal(action, null);
+    } else {
+      assert.equal(action.textContent, 'プレイヤーの対応を開く');
+      await action.dispatch('click');
+      assert.deepEqual(ctx.navigations, ['#/settings?world=W&open=registrant']);
+    }
+    view.destroy();
+  }
+});
+
 // モーダルを開いて、パスを貼り、ファイルをドロップするまで
 async function openRegister(t, owned) {
   const { body } = installDom(t);

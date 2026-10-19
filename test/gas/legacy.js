@@ -11,8 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const LEGACY_COMMIT = 'e984786';
-export const LEGACY_V12_COMMIT = 'c1a29e7';
+// 40 字の完全な番号で指す（短い番号は、後のコミットと重なると曖昧になって取り出せない）。履歴を書き換えたら、新しい番号に直す
+export const LEGACY_COMMIT = 'e984786bc70ac6d719e121bd4667cc4ea1e52d3d';
+export const LEGACY_V12_COMMIT = 'c1a29e79bdf56d7e1b112d62590598bc2b05a40a';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** CI で動いているか（環境変数 CI が空・'0'・'false' 以外） */
@@ -25,7 +26,8 @@ export function runningInCi(env = process.env) {
 function missing(commit, ci) {
   if (ci) {
     throw new Error(`古い版 ${commit} を Git の履歴から取り出せません。CI では互換テストを飛ばさずに失敗にします`
-      + '（.github/workflows/pages.yml の actions/checkout に fetch-depth: 0 が要ります）');
+      + '（.github/workflows/pages.yml の actions/checkout に fetch-depth: 0 が要ります。または、そのコミットが履歴にありません。'
+      + '履歴を書き換えたら test/gas/legacy.js の LEGACY_* を新しい番号に直してください）');
   }
   return null;
 }

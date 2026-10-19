@@ -146,13 +146,17 @@ export function compareSettings(coop, server) {
   return rows.sort((a, b) => order[a.kind] - order[b.kind] || a.key.localeCompare(b.key));
 }
 
-/** 値を ini の書き方にする（数の小数の桁と引用符は今のトークンに合わせる） */
+/** 値を ini の書き方にする（数の小数の桁と引用符は今のトークンに合わせる。桁を合わせると値が変わる数は、サーバーの float の形） */
 export function formatIniValue(value, previousRaw = '') {
   const previous = String(previousRaw).trim();
   if (typeof value === 'boolean') return value ? 'True' : 'False';
   if (typeof value === 'number') {
     const decimals = /^-?\d+\.(\d+)$/.exec(previous)?.[1].length ?? 0;
-    return decimals ? value.toFixed(decimals) : String(Math.round(value));
+    const keep = decimals ? value.toFixed(decimals) : String(Math.round(value));
+    // もとの桁で書いて値が変わらない（WorldOption.sav の float32 の誤差の内）ときだけ、もとの書き方にそろえる。String(value) は
+    // 使わない（float32 の 1.2 が 1.2000000476837158 になる。最終レビュー）
+    if (sameValue(Number(keep), value)) return keep;
+    return value.toFixed(Math.max(decimals, 6));
   }
   if (Array.isArray(value)) return `(${value.join(',')})`;
   if (/^".*"$/s.test(previous)) return `"${value}"`;
@@ -174,6 +178,13 @@ export function replaceOptionSettings(text, changes) {
     const lower = entry.key.toLowerCase();
     if (!wanted.has(lower)) continue;
     out = out.slice(0, entry.start) + formatIniValue(wanted.get(lower), entry.raw) + out.slice(entry.end);
+  }
+  // 読み直して、書いた項目が求めた値になっているかを確かめる。違えば書かずに止める（黙って違う値にしない。最終レビュー）
+  const written = new Map(Object.entries(iniSettings(out) ?? {}).map(([key, value]) => [key.toLowerCase(), [key, value]]));
+  for (const [lower, value] of wanted) {
+    if (!written.has(lower)) continue;
+    const [key, actual] = written.get(lower);
+    if (!sameValue(actual, value)) throw new Error(`${key} を書き換えると、読み直した値が協力プレイの値と違います。ini を手で直してください`);
   }
   return out;
 }

@@ -86,3 +86,25 @@ test('書き換えは対象の Key=Value だけで、ほかは同じバイトの
   assert.equal(formatIniValue('x', '"old"'), '"x"');
   assert.equal(formatIniValue(['Steam'], '(Steam,Xbox)'), '(Steam)');
 });
+
+test('数は、もとの桁で書くと値が変わるときは丸めず、サーバーの float の形（6 桁）で書く（最終レビュー）', () => {
+  assert.equal(formatIniValue(1.5, '1'), '1.500000');
+  assert.equal(formatIniValue(0.5, '1'), '0.500000');
+  assert.equal(formatIniValue(1.25, '1.0'), '1.250000');
+  assert.equal(formatIniValue(0.3, '1'), '0.300000');
+  // 値が変わらなければ、もとの書き方（整数・桁）を保つ。WorldOption.sav の float32 の誤差の内は同じ値とみる
+  assert.equal(formatIniValue(2, '1'), '2');
+  assert.equal(formatIniValue(2, '1.000000'), '2.000000');
+  assert.equal(formatIniValue(Math.fround(1.2), '1.000000'), '1.200000');
+  assert.equal(formatIniValue(Math.fround(1.2), '1'), '1.200000');
+  assert.equal(formatIniValue(Math.fround(0.3), '1.0'), '0.3');
+  // 書き換えた後に読み直すと、協力プレイの値になっている
+  const next = replaceOptionSettings(INI.replace('ExpRate=1.000000', 'ExpRate=1'), { ExpRate: 1.5, PalEggDefaultHatchingTime: 0.5 });
+  assert.equal(iniSettings(next).ExpRate, 1.5);
+  assert.equal(iniSettings(next).PalEggDefaultHatchingTime, 0.5);
+});
+
+test('書き換えた後に読み直して、協力プレイの値と違う項目があれば書かずに止める（最終レビュー）', () => {
+  // 引用符のない文字列に数の形の値を書くと、読み直すと数になる
+  assert.throws(() => replaceOptionSettings(INI, { DeathPenalty: '5' }), /DeathPenalty/);
+});

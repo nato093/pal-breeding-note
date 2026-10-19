@@ -174,6 +174,11 @@ test('役割の 1 行（roles）: ホスト・参加者（10 分の境目で war
   const gas = roleSummary(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u1: 'Alice', gone: 'Bob' }, mappingMode: 'gas' });
   assert.equal(gas.hint, 'このワールドに「Bob」という名前のプレイヤーがいません（Alice・ぼぶ）。あなたが親 2 体を預けた配合は、設定の「プレイヤーの対応」で自分のプレイヤーに Bob を選ぶと登録されます（どの PC からでも選べます）。');
   assert.match(ownedNotices(shared('guest', 3, players), { userId: 'Bob', now, mappingMode: 'gas' })[0].hint, /どの PC からでも選べます/);
+  // GAS の対応なら本人が設定で選べるので、行き先のボタン（プレイヤーの対応を開く）を付ける。前の版（ホストに頼む文）・名前が合えば付けない
+  //（表記の決まり「設定へ移る案内は 1 文と行き先のボタン」。最終レビュー）
+  assert.equal(ownedNotices(shared('guest', 3, players), { userId: 'Bob', now, mappingMode: 'gas' })[0].action, 'mapping');
+  assert.equal(ownedNotices(shared('guest', 3, players), { userId: 'Bob', now })[0].action, undefined);
+  assert.equal(ownedNotices(shared('guest', 3, players), { userId: 'Bob', now, mapping: { u3: 'bob' }, mappingMode: 'gas' })[0].action, undefined);
   // 自動登録の表示しているワールドの対応（mappingOptions）
   const auto = { mapping: (worldId) => (worldId === 'W' ? { u3: 'Bob' } : {}), mappingMode: () => 'gas' };
   assert.deepEqual(mappingOptions(auto, shared('guest', 3)), { mapping: { u3: 'Bob' }, mappingMode: 'gas' });
