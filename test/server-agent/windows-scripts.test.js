@@ -1,6 +1,7 @@
 // 常駐の Windows での導入（tools/server-agent/install.ps1・run-agent.ps1）。CI は Linux なので動かさず、
 // 中身の決まり（文字コード・パスワードの扱い・終了コード・データの場所・タスクの設定）を main.mjs・config.mjs と照らす。
-// pwsh があれば構文も確かめる（なければ飛ばす）。
+// pwsh があれば構文も確かめる（なければ飛ばす）。タスクが動かすのは Windows PowerShell 5.1（install.ps1 の powershell.exe）なので、
+// Windows ではそちらでも -Mode Check と構文を確かめる（最終レビュー）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,6 +18,9 @@ const RUN_AGENT = path.join(DIR, 'run-agent.ps1');
 const read = (file) => fs.readFileSync(file, 'utf8');
 // PowerShell の @('a', 'b') の中身
 const listOf = (text) => [...text.matchAll(/'([^']*)'|(-?\d+)/g)].map((match) => match[1] ?? Number(match[2]));
+// 確かめる PowerShell（pwsh 7 と、Windows では Windows PowerShell 5.1）
+const SHELLS = [['pwsh', 'pwsh'], ...(process.platform === 'win32'
+  ? [['Windows PowerShell 5.1', path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')]] : [])];
 
 test('常駐の導入: Windows PowerShell 5.1 が日本語を読めるよう、どちらも UTF-8 の BOM 付き', () => {
   for (const file of [INSTALL, RUN_AGENT]) {
@@ -101,7 +105,7 @@ test('常駐の導入: タスクはログオン時・このユーザー・Intera
   assert.match(text, /winget install --id Git\.Git -e/);
 });
 
-test('常駐の導入: run-agent.ps1 は -DataDir のデータの場所を使い、子の node にも渡す（Windows と pwsh があるときだけ動かす）', (t) => {
+test('常駐の導入: run-agent.ps1 は -DataDir のデータの場所を使い、子の node にも渡す（Windows で、pwsh と Windows PowerShell 5.1 があれば動かす）', async (t) => {
   const runAgent = read(RUN_AGENT);
   assert.match(runAgent, /\[string\]\$DataDir = ''/);
   assert.match(runAgent, /\$info\.EnvironmentVariables\['PAL_AGENT_DATA_DIR'\] = \$DataDir/);
@@ -120,27 +124,35 @@ test('常駐の導入: run-agent.ps1 は -DataDir のデータの場所を使い
   fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ env: 'test', worldDir }));
   const env = { ...process.env, LOCALAPPDATA: path.join(root, 'empty') };
   delete env.PAL_AGENT_DATA_DIR;
-  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', RUN_AGENT, '-Env', 'test', '-Mode', 'Check', '-DataDir', dataDir], {
-    encoding: 'utf8', env, timeout: 60_000,
-  });
-  if (result.error?.code === 'ENOENT') {
-    t.skip('pwsh がない');
-    return;
+  for (const [name, shell] of SHELLS) {
+    await t.test(name, (s) => {
+      const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', RUN_AGENT, '-Env', 'test', '-Mode', 'Check', '-DataDir', dataDir], {
+        encoding: 'utf8', env, timeout: 60_000,
+      });
+      if (result.error?.code === 'ENOENT') {
+        s.skip(`${name} がない`);
+        return;
+      }
+      assert.match(result.stdout, /world source="worldDir"/, `${result.stdout}\n${result.stderr}`);
+    });
   }
-  assert.match(result.stdout, /world source="worldDir"/, `${result.stdout}\n${result.stderr}`);
 });
 
-test('常駐の導入: pwsh で構文の誤りがない', (t) => {
+test('常駐の導入: pwsh（Windows では Windows PowerShell 5.1 も）で構文の誤りがない', async (t) => {
   const quote = (file) => `'${file.replace(/'/g, "''")}'`;
   const script = [INSTALL, RUN_AGENT].map((file) => (
     `$e = $null; [System.Management.Automation.Language.Parser]::ParseFile(${quote(file)}, [ref]$null, [ref]$e) | Out-Null; `
     + `foreach ($x in $e) { [Console]::Out.WriteLine(${quote(path.basename(file))} + ':' + $x.Extent.StartLineNumber + ': ' + $x.Message) }`
   )).join('; ');
-  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 60_000 });
-  if (result.error?.code === 'ENOENT') {
-    t.skip('pwsh がない');
-    return;
+  for (const [name, shell] of SHELLS) {
+    await t.test(name, (s) => {
+      const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 60_000 });
+      if (result.error?.code === 'ENOENT') {
+        s.skip(`${name} がない`);
+        return;
+      }
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), '', '構文の誤り');
+    });
   }
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), '', '構文の誤り');
 });
