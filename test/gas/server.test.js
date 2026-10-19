@@ -641,10 +641,10 @@ for (const kind of ['欠落', '重複', '空']) {
     if (kind === '欠落') headers.splice(headers.indexOf('memo'), 1);
     if (kind === '重複') headers.push('id');
     env.sheet.data = kind === '空' ? [] : [headers];
-    assert.deepEqual(env.snapshot(), { ok: false, code: 'SHEET_HEADER' });
+    assert.deepEqual(env.snapshot(), { ok: false, env: 'test', code: 'SHEET_HEADER' });
     const output = env.gas.doPost({ postData: { contents: JSON.stringify({ action: 'snapshot', passcode: PROPS.TEST_PASSCODE }) } });
     assert.equal(output.mime, 'application/json');
-    assert.deepEqual(JSON.parse(output.text), { ok: false, code: 'SHEET_HEADER' });
+    assert.deepEqual(JSON.parse(output.text), { ok: false, env: 'test', code: 'SHEET_HEADER' });
     assertFailureUnchanged(env, 'create', { record: { id: uuid(1), ...input() } }, 'SHEET_HEADER');
   });
 }
@@ -666,7 +666,7 @@ test('基盤: 書き込み中の例外も JSON 化し、flush の後にロック
   const env = fixture();
   env.sheet.setCell = () => { throw new Error('偽サービスの書き込み失敗'); };
   const result = env.create();
-  assert.deepEqual(result, { ok: false, code: 'INTERNAL' });
+  assert.deepEqual(result, { ok: false, env: 'test', code: 'INTERNAL' });
   assert.deepEqual(env.events.slice(-2), ['flush', 'releaseLock']);
   assert.equal(env.cache.puts.length, 0);
 });

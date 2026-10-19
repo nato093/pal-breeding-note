@@ -123,17 +123,17 @@ test('対応: 検査で断ったときは何も書かない（形は鍵の外で
   for (const [fields, errors] of cases) {
     env.events.length = 0;
     const result = env.call('playerMapSet', { userId: 'Bob', worldId: WORLD_A, entries: [{ key: key(2), userId: 'Taro' }], ...fields });
-    assert.deepEqual(result, { ok: false, code: 'VALIDATION', errors }, JSON.stringify(fields));
+    assert.deepEqual(result, { ok: false, env: 'test', code: 'VALIDATION', errors }, JSON.stringify(fields));
     assert.equal(env.events.includes('tryLock'), false, JSON.stringify(fields));
     assert.equal(state(), before);
   }
   // ノートにない ID は 1 件でもあれば、ほかの件も書かない
   env.events.length = 0;
   const unknown = env.set([{ key: key(2), userId: 'Taro' }, { key: key(3), userId: '未登録' }]);
-  assert.deepEqual(unknown, { ok: false, code: 'VALIDATION', errors: [{ field: 'entries.1.userId', code: 'USER_NOT_FOUND' }] });
+  assert.deepEqual(unknown, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'entries.1.userId', code: 'USER_NOT_FOUND' }] });
   assert.deepEqual([env.events[0], env.events.at(-1)], ['tryLock', 'releaseLock']);
   assert.equal(state(), before);
-  assert.deepEqual(env.call('playerMap', { worldId: 'x' }), { ok: false, code: 'VALIDATION', errors: [{ field: 'worldId', code: 'INVALID_WORLD' }] });
+  assert.deepEqual(env.call('playerMap', { worldId: 'x' }), { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'worldId', code: 'INVALID_WORLD' }] });
 });
 
 test('対応: 上書き・外した印（墓標）・onlyMissing（外した印もあるとみなす）と changed・skipped。同じ内容の送り直しは書かない', () => {
@@ -208,7 +208,7 @@ test('対応: 鍵を増やして 1 ワールド 200 を超える書き込みは�
   const before = JSON.stringify(env.sheet().data);
   // 2 つ足すと 201（1 つ目も書かない）
   const over = env.set([{ key: keys[PLAYER_MAP_WORLD_MAX - 1], userId: 'Taro' }, { key: keys[PLAYER_MAP_WORLD_MAX], userId: 'Taro' }]);
-  assert.deepEqual(over, { ok: false, code: 'VALIDATION', errors: [{ field: 'worldId', code: 'TOO_MANY' }] });
+  assert.deepEqual(over, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'worldId', code: 'TOO_MANY' }] });
   assert.equal(JSON.stringify(env.sheet().data), before);
   assert.equal(env.set([{ key: keys[PLAYER_MAP_WORLD_MAX - 1], userId: 'Taro' }]).changed, 1);
   assert.equal(env.read().entries.length, PLAYER_MAP_WORLD_MAX);
@@ -239,7 +239,7 @@ test('対応: 書き込みは鍵の中で行い、flush してから解放する
   env.read();
   assert.equal(env.events.includes('tryLock'), false);
   const busy = fixture({ lockAvailable: false });
-  assert.deepEqual(busy.set([{ key: key(1), userId: '' }]), { ok: false, code: 'BUSY' });
+  assert.deepEqual(busy.set([{ key: key(1), userId: '' }]), { ok: false, env: 'test', code: 'BUSY' });
   assert.deepEqual(busy.rows('PlayerMap_test'), []);
 });
 
@@ -247,14 +247,14 @@ test('対応: シートがない（GAS を更新して setup() を実行する�
   const env = fixture();
   env.signup(['Taro']);
   env.spreadsheet.deleteSheet(env.sheet());
-  assert.deepEqual(env.read(), { ok: false, code: 'SHEET_HEADER' });
-  assert.deepEqual(env.set([{ key: key(1), userId: 'Taro' }]), { ok: false, code: 'SHEET_HEADER' });
+  assert.deepEqual(env.read(), { ok: false, env: 'test', code: 'SHEET_HEADER' });
+  assert.deepEqual(env.set([{ key: key(1), userId: 'Taro' }]), { ok: false, env: 'test', code: 'SHEET_HEADER' });
   assert.equal(env.call('ownedWorlds').ok, true);
   assert.deepEqual(env.call('snapshot').users, ['Taro']);
   // 見出しが壊れていても SHEET_HEADER（書かない）
   env.gas.setup();
   env.sheet().data[0][2] = 'user';
-  assert.deepEqual(env.set([{ key: key(1), userId: 'Taro' }]), { ok: false, code: 'SHEET_HEADER' });
+  assert.deepEqual(env.set([{ key: key(1), userId: 'Taro' }]), { ok: false, env: 'test', code: 'SHEET_HEADER' });
   env.sheet().data[0][2] = 'userId';
   assert.equal(env.set([{ key: key(1), userId: 'Taro' }]).changed, 1);
 });

@@ -212,12 +212,17 @@ function judge(unit, verdict) {
   return unit.playing ? { ...unit, state: OK } : unit;
 }
 
+/** 牧場ごとの前に見た親とタマゴ・まだ登録を終えていない候補の保存先のキー（ワールド・環境ごと。常駐の古い系統の受け入れも捨てる） */
+export const autoRegisterFarmsKey = (namespace, env, worldId) => `${namespace}.autoBreeding.farms.${env}.${worldId}`;
+
 /**
  * playerMaps: プレイヤーの対応の GAS のストア（player-map.js の createPlayerMapStore）。渡さなければ、前の版と同じくこの端末の対応だけを使う
+ * paused: 古い系統の守り（常駐の tools/server-agent/lineage-guard.mjs。server の T5）。paused(worldId, stamp) が真なら、そのセーブの候補を
+ * 取り込まず、登録も送らない。ページは渡さない（今の動きのまま）
  */
 export function createAutoRegister({
   store, owned, storage, namespace = 'pal-note', toast = () => {}, onNotice = () => {}, navigate = () => {},
-  loadTable = () => import('../data/breeding.js'), now = Date.now, playerMaps = null,
+  loadTable = () => import('../data/breeding.js'), now = Date.now, playerMaps = null, paused = null,
 }) {
   const resolveSpecies = createSpeciesResolver(pals);
   const settingsKey = `${namespace}.autoBreeding.settings`;
@@ -225,7 +230,7 @@ export function createAutoRegister({
   const mappingKey = (env, worldId) => `${namespace}.autoBreeding.players.${env}.${worldId}`;
   const migratedKey = (env, worldId) => `${namespace}.autoBreeding.playersMigrated.${env}.${worldId}`;
   // 牧場ごとの前に見た親とタマゴ・まだ登録を終えていない候補（ワールド・環境ごと。読み込み直しても続きから）
-  const farmsKey = (env, worldId) => `${namespace}.autoBreeding.farms.${env}.${worldId}`;
+  const farmsKey = (env, worldId) => autoRegisterFarmsKey(namespace, env, worldId);
   const noticeKey = (env, userId) => `${namespace}.autoBreeding.notices.${env}.${userIdKey(userId)}`;
   // 登録できた配合の通知（旧版のタブが知らないキー。名前の変更では user-rename.js が既存のキーと同じく移す）
   const registeredKey = (env, userId) => `${namespace}.autoBreeding.registered.${env}.${userIdKey(userId)}`;
@@ -295,6 +300,11 @@ export function createAutoRegister({
   }
   const same = (a, b) => Boolean(b) && a.env === b.env && a.userId === b.userId
     && a.worldId === b.worldId && a.importedAt === b.importedAt;
+  // 古い系統の守り（常駐の paused）で、そのセーブを止めているか。確かめられなければ止める
+  const isPaused = (ctx) => {
+    if (!paused) return false;
+    try { return Boolean(paused(ctx.worldId, ctx.saveStamp)); } catch { return true; }
+  };
 
   // 保存した記録は別のタブや古い版が書いたものもあるので、形を確かめ、おかしい牧場・候補の分だけ捨てる
   // （捨てた牧場は、初めて読んだものとして記録し直す）
@@ -566,6 +576,9 @@ export function createAutoRegister({
   async function run(ctx) {
     const table = await getTable();
     if (!same(ctx, current())) return;
+    // 古い系統の守り（常駐）: そのセーブの判定が済むまで・止めている間は、候補を取り込まない（牧場の記録も進めないので、解除の後の判定で前の記録と
+    // 比べて取り込む）。前に登録してよいと決めた候補も送らない
+    if (isPaused(ctx)) return;
     const started = generation;
     const { pending: units, anomalies } = absorb(ctx, table);
     // 登録するのは、登録してよい候補だけ（配合のキーごとに証拠をまとめる）
@@ -616,6 +629,8 @@ export function createAutoRegister({
         notices.push(conflictNotice(ctx, candidate, conflict.existing));
         continue;
       }
+      // 送る直前にも確かめる（取り込んだ後に止めた。共有のエラーだけでは、前に登録してよいと決めた候補が送られるため）
+      if (isPaused(ctx)) break;
       try {
         await store.mutate('create', allowDifferentChild ? { record, allowDifferentChild } : { record });
         finish(ctx, candidate.key);
@@ -967,6 +982,19 @@ export function createAutoRegister({
       const added = registered.added + others.added;
       if (added) onNotice();
       return { added, skipped: registered.skipped + others.skipped };
+    },
+    /**
+     * そのワールドの牧場の記録（前に見た親とタマゴ・候補・判定）を捨てる（常駐の古い系統の受け入れ）。次の読み込みは、最初の読み込みと同じく
+     * 記録するだけ。実行中の登録は止める
+     */
+    forgetFarms(worldId, env = store.state.env) {
+      if (!env || !worldId) return;
+      const key = farmsKey(env, worldId);
+      memory.delete(key);
+      finished.delete(key);
+      storage.remove(key);
+      generation++;
+      changed();
     },
     /** 登録待ちの候補を 1 件捨てる（設定の「登録待ち」の「破棄」。id は pendingSummary の id。登録を終えた候補と同じく外し、このタブでは送り直さない）。捨てたら true */
     discardPending(id, worldId = linkedWorld()) {

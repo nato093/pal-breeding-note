@@ -250,19 +250,26 @@
   - `server-state.mjs`: 対象のインスタンスのサーバーが動いているかを見る（下の「サーバーが動いているか」）。
   - `watch-client.mjs`: `createSaveWatcher` を Observer なしで使う（5 秒ごとの確認）。
   - `kv-storage.mjs`: localStorage の形をファイルに書く。パスワードとキャッシュは書かない。
-  - `agent.mjs`（組み立て）・`log.mjs`（ID・パス・IP を伏せる）。
+  - `agent.mjs`（組み立て）・`log.mjs`（ID・パス・IP・秘密を伏せる。値は JSON の文字列にする・切る前に伏せる）。
+  - `gas-client.mjs`: GAS との通信（常駐・`--once`・`--signup`・`--check --online`・`--dry-run` の読み取りで共通）。送る 1 回ごと（`createApi` の自動の再送を含む）に、止める条件（常駐の停止・最後の送信の期限・attach の世代）と応答の env を確かめる（Codex の再レビュー）。
+    - 自動登録の送信（`create`）も同じく、登録を始めたときの attach の世代と対象のセーブの保存時刻を印にし、送る 1 回ごとに、動いていて、そのセーブが今の attach の間に読んだ判定済みのものかを確かめる（Codex の再レビュー 2 回目。detach の後に `createApi` の再送で登録が届いていた）。
+    - env は形の検証と再送より前に比べ、失敗の応答でも env があれば比べる。GAS は版 13 から認証の後の失敗にも env を付ける（画面は失敗の env を読まない）。
+    - env を確かめられていない間（起動の直後・env のない失敗の応答〔認証の前・版 12 以前の GAS〕の後）の書き込みは、先に読み取り（`ownedWorlds`）で確かめてから送る。
 - **サーバーが動いているかは、対象のインスタンスに結び付けて決める**（Codex の指摘。イメージ名だけだと、別のインスタンスの PalServer を取り違える）。
   - 第一に、ServerSync のローカル API の `GET /instances/<ID>` の `status.state` を見る（読み取りの GET だけ）。
     - この応答には起動の計画が入り、管理者パスワードなどの秘密を含みうる（Codex の指摘）。`status.state` だけを取り出したら、応答の残りはすぐ捨てる。ログ・例外の文・キャッシュに残さない。
     - 秘密が出ないかのテストでは、GAS の共通パスワードに加えて、管理者パスワード・ServerPassword のダミー値も調べる。
   - 取れなければ、PalServer の実行ファイルのパスが対象のインスタンスのフォルダの下か（`Get-CimInstance Win32_Process` の ExecutablePath）で見る。
   - どちらでも決められないときは、共有と自動登録をしない。複数のインスタンスが候補なら、更新日時では選ばず、設定の `instance` を求める。
+  - ServerSync が動いていると言うときも、この PC で対象のフォルダの PalServer が動いているかを実行ファイルのパスで確かめる（30 秒で確かめ直す）。確かめられなければ決められない扱い（Codex の再レビュー）。
 - 動き:
   - 起動したら「サーバー」でログインする。
   - 対象のサーバーが動いている間（＋60 秒）は、セーブを読んで共有・自動登録する。Players に増えたファイルは、10 秒ごとの見直しで足す。
   - **止まったら、読み込みの部品を全部止める**（Codex の指摘。`owned.js` の見張りの `onSettled` は自分で読み込みを始めるため）。
     - 止めるもの: 見張り（`update([])`）・読み直しと送信の予約・自動登録の判定。
     - 最後の保存の送信は**最大 60 秒だけ**待ち、送れなくても（通信の失敗・古い系統で送らない）、読み込みと見張りは必ず止める（Codex の指摘）。送れなかった最後の保存は、次に動いたときの読み込みで送る。
+    - 最後の送信は、止まったと確かめたとき（`stopped`）だけ。動いているか確かめられない（`unknown`）ときは、この PC で動いているサーバーのセーブか分からないので、最後の送信をせずにすぐ送信の窓を閉じる（Codex の再レビュー 2 回目）。
+      - 送信の窓を閉じるときに解析の終わりは待たないので、前の attach の間に始めた解析が次の attach の後に終わったセーブは、今の attach の間に読んだものにしない（判定にも共有にも自動登録にも使わない）。解析を始めたときの attach の世代を結果に結び付けて見分ける（Codex の再レビュー 3 回目。前の解析の古いセーブを今の世代として判定して止め、その後に読んだ新しい正しいセーブまで止まったままになっていた）。
     - presence は常駐が自分で送る（`owned.js` の `reportPresence` は使わない）。形は `cleanPresenceInput` に合わせ、対象のワールド ID・`role: 'host'`・`resident: true`・`playing`（サーバーが動いているか）を、ファイルの読み込みとは別に決める。
   - 対応は `createPlayerMapStore` で GAS から読む。
 - **古い系統の守り**（決定 18。Codex の 2 回のレビューで強めた）。小さな部品 `lineage-guard.mjs` にまとめ、状態は KV に残す。
@@ -276,11 +283,14 @@
     - (b) この常駐が前に送った値（KV に残す）。
   - **判定が済むまでは「判定待ち」**（Codex の指摘。今の `auto-register.js` の `run` は、共有の完了を待たずに候補を取り込むため）。
     - 起動したとき・セーブを読んだたびに、まず判定待ちにする。公開の値を読み、そのスナップショットが古い系統でないと確かめたら、そのスナップショットの保存時刻（stamp）に限って解除する。
+    - 解除は、判定した attach の世代の中だけ効く。次の attach・最後の送信の期限の後は、同じセーブも公開の値と照らし直す（Codex の再レビュー 2 回目。送らないまま判定済みになったセーブを次の attach で読み直すと、その間に別の PC が公開した新しい系統を、保存時刻の差で上書きできた）。
     - 公開の値を読んでいる間と、読めない（通信の失敗）間も、判定待ちのまま。
   - **判定待ち・止めている間に止めるもの**: 共有、自動登録の候補の取り込み、登録の直前の送信。
     - `createAutoRegister` に `paused(worldId, stamp)` を足し、候補を取り込む所と送る直前の 2 か所で確かめる。共有のエラーだけでは、前に登録を許した候補が送られるため。
     - 画面のページは `paused` を渡さないので、今の動きは変わらない。
   - **止めた状態は残す**: 一度でも古い系統と判定したら、止めた状態を KV に残す。明示の受け入れまで、再起動しても、後で値が公開の値を追い越しても解除しない。
+    - 判定は、公開の値を読み始めたときと状態を書き換える直前とで、attach の世代・受け入れの回が同じときだけ状態に残す（最後の送信の期限の後・次の attach の後・受け入れの後に、前に始めた判定で止めたり解除したりしない。Codex の再レビュー）。
+    - KV の状態が壊れている・形が違う（3 項目と値の形）なら止めた状態にする。壊れた `state.json` は写しを残し、止めた状態を書き出すまで元を残す（書く前に終わっても、次の起動でまた止まる）。
   - **受け入れ**: `--accept-world` で行う（動いている常駐には、要求のファイルで伝える）。
     - そのときのセーブの値と、**受け入れたときに GAS から読んだ公開の世代の `uploadedAt`**（GAS のサーバーの時計で作る。`gas/Owned.js:162`）を「受け入れの基準」として KV に残す。(a) の比べる相手は、`uploadedAt` がそれより後の世代だけにする。PC の時計は使わない（Codex の指摘。PC の時計がずれると、直後にまた止まったり、後の公開を見落としたりするため）。
     - 公開の世代がない・読めないときは受け入れない（読めるまで待つ）。
@@ -299,6 +309,7 @@
   - `--check`: ネットにつながず、発見と解析の要約だけを出す。
   - `--check --online`: ログインと読むだけ（書かない）。
   - `--dry-run --once`: 送る中身を組み立てるが送らない。
+  - `--once` は、ログイン・稼働の確認・attach（ワールドのファイルの一覧・登録）・読み込み・共有・自動登録・presence の待ちを 1 つの期限で切り、期限を過ぎたら成功（0）にしない（Codex の再レビュー 2 回目・attach は 3 回目）。期限の後に一覧が返っても、登録・読み込み・見張りは始めない。
   - `--once --force-host`: test 環境だけ。
 - テスト（`test/server-agent/`。`npm test` に入る）:
   - 単体: fs のハンドル、KV（パスワードがファイルに出ないこと）、発見（ダミーの ServerSync の形）、インスタンスの判定、古い系統の守り（判定が済むまで共有も登録もしない・公開の値を読めない間も待つ・止めた状態が再起動でも残る・追い越しても解除されない・前に許した候補も送らない・受け入れの直後と再起動の後に止まらない・受け入れで記録だけから・clock と日数を混ぜない・PC の時計が進んでいても遅れていても受け入れの基準が効く）。
@@ -348,7 +359,7 @@
 |---|---|
 | 解析・core | `web/js/save/palworld.js`・`handles.js`・`web/js/core/owned.js`・`owned-shared.js`（GAS に写る）・`boundary.js`・`ideal-goals.js`・`auto-breeding.js` |
 | 画面 | `web/js/owned.js`・`auto-register.js`・`self-player.js`・`player-map.js`（新）・`api.js`・`app.js`・`views/owned-settings.js`・`ui/owned-status.js`・`views/paldex.js`・`views/pal-detail.js`・`ui/farm-board.js`・`release-notes.js` |
-| GAS | `gas/PlayerMap.js`（新）・`Owned.js`・`Sheets.js`・`Setup.js`・`Actions.js`・`Service.js`（rename）・`Presence.js`・`Shared.js`（生成） |
+| GAS | `gas/PlayerMap.js`（新）・`Owned.js`・`Sheets.js`・`Setup.js`・`Actions.js`・`Service.js`（rename）・`Presence.js`・`Main.js`（認証の後の失敗に env）・`Shared.js`（生成） |
 | 常駐・道具 | `tools/server-agent/*`（新）・`scripts/server-settings.mjs`（新）・`package.json`（`agent`・`agent:check`） |
 | 開発用 | `dev/mock-api.js`・`scripts/api-check.mjs` |
 | テスト | `test/core/*`・`test/web/*`・`test/gas/player-map.test.js`（新）・`test/server-agent/*`（新）・`test/server-settings.test.js`（新） |
