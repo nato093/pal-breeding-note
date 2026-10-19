@@ -1142,3 +1142,33 @@ test('常駐（結合）: 動いているか確かめられなくなった（run
   assert.equal((await gas.published()).clock, clockAt(102));
   await pc.agent.close();
 });
+
+test('常駐: --once の期限はログイン・presence を待つ間にも効き、期限を過ぎたら成功にしない（1 で終わる）', { timeout: 30_000 }, async (t) => {
+  // presence の応答が期限より遅い（サーバーは止まっているので読まない）。応答を待たずに、期限で終わる
+  const SLOW_MS = 2_000;
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const pc = agentOf({ gas, clock, site: serverWorld(t), server: fakeServer('stopped') });
+  gas.control.gates.presence = new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+  let startedAt = Date.now();
+  assert.equal(await pc.agent.runOnce({ timeoutMs: 100 }), 1);
+  assert.ok(Date.now() - startedAt < SLOW_MS * 0.75, `presence の応答を待たない（${Date.now() - startedAt} ms）`);
+  assert.ok(gas.control.calls.includes('presence'));
+  assert.equal(pc.log.text().match(/once-timeout/g).length, 1);
+  await gas.control.gates.presence;
+  // ログインの応答が期限より遅い
+  const slow = await gasOf({ now: clock.now });
+  const late = agentOf({ gas: slow, clock, site: serverWorld(t), server: fakeServer('stopped') });
+  slow.control.gates.login = new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+  startedAt = Date.now();
+  assert.equal(await late.agent.runOnce({ timeoutMs: 100 }), 1);
+  assert.ok(Date.now() - startedAt < SLOW_MS * 0.75, `ログインの応答を待たない（${Date.now() - startedAt} ms）`);
+  assert.deepEqual(slow.control.calls, ['login']);
+  assert.match(late.log.text(), /once-timeout/);
+  await slow.control.gates.login;
+  // 落ち着いていても、期限を過ぎていれば成功にしない
+  const quiet = agentOf({ gas, clock, site: serverWorld(t), server: fakeServer('stopped') });
+  assert.equal(await quiet.agent.settle({ deadline: Date.now() - 1 }), false);
+  assert.equal(await quiet.agent.settle({ timeoutMs: 5_000 }), true);
+  await quiet.agent.close();
+});

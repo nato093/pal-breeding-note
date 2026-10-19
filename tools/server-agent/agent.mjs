@@ -73,6 +73,13 @@ const TIMED_OUT = Symbol('timed-out');
 
 const randomId = () => randomBytes(16).toString('hex');
 
+// promise か、実際の時間の期限（deadline。Date.now の値）の早い方（期限なら TIMED_OUT）。--once の待ちに使う
+function realDeadline(promise, deadline) {
+  let timer = null;
+  const limit = new Promise((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), Math.max(0, deadline - Date.now())); });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
+
 /** 共有の本文の文字数（GAS の body.length と同じ UTF-16 の数。パスワードの分も入る。値は外に出さない） */
 export function uploadChars(passcode, input) {
   return JSON.stringify(buildRequest('ownedUpload', passcode, input)).length;
@@ -819,26 +826,17 @@ export function createAgent({
   }
 
   // 読み込み・共有・自動登録が落ち着くまで待つ（--once とテスト）。期限（deadline。既定は今から timeoutMs）は自動登録の判定・登録を待つ間も
-  // 含めて実際の時間で数え、過ぎたら false
+  // 含めて実際の時間で数え、過ぎたら false（落ち着いていても、期限を過ぎていれば成功にしない）
   async function settle({ timeoutMs = 120_000, deadline = Date.now() + timeoutMs } = {}) {
     const turn = () => new Promise((resolve) => setTimeout(resolve, 5));
     const quiet = () => !reading && !owned.state.busy && owned.state.upload.status !== 'sending';
-    const registered = async () => {
-      if (!autoRegister) return true;
-      let timer = null;
-      const limit = new Promise((resolve) => { timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now())); });
-      try {
-        return await Promise.race([autoRegister.idle().then(() => true), limit]);
-      } finally {
-        clearTimeout(timer);
-      }
-    };
+    const registered = async () => !autoRegister || (await realDeadline(autoRegister.idle().then(() => true), deadline)) === true;
     for (;;) {
       await turn();
       if (quiet()) {
         if (!(await registered())) return false;
         await turn();
-        if (quiet()) return true;
+        if (quiet()) return Date.now() < deadline;
       }
       if (Date.now() >= deadline) return false;
     }
@@ -872,26 +870,39 @@ export function createAgent({
   }
 
   async function onceSteps({ dryRun, timeoutMs }) {
-    // 読み込み・共有・自動登録・presence の待ちのすべてに、1 つの期限を使う
+    // ログイン・稼働の確認・読み込み・共有・自動登録・presence の待ちのすべてに、1 つの期限（実際の時間）を使う
     const deadline = Date.now() + timeoutMs;
-    const result = await login();
-    if (result !== 'ok') return result === 'network' ? 1 : 2;
-    lastServer = await monitor.check();
-    let code = 0;
     let timedOut = false;
+    const timeout = () => {
+      if (!timedOut) log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '期限までにログイン・読み込み・共有・自動登録・presence が終わりませんでした' });
+      timedOut = true;
+    };
+    // 期限までに終わらなければ TIMED_OUT（待つのをやめるだけ。後で届いた応答の後の送信は、close の後なので gate が止める）
+    const within = async (promise) => {
+      const result = await realDeadline(promise, deadline);
+      if (result === TIMED_OUT) timeout();
+      return result;
+    };
     const settled = async () => {
       if (await settle({ deadline })) return true;
-      if (!timedOut) log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '読み込み・共有・自動登録が終わるのを待ちきれませんでした' });
-      timedOut = true;
+      timeout();
       return false;
     };
+    const result = await within(login());
+    if (result === TIMED_OUT) return 1;
+    if (result !== 'ok') return result === 'network' ? 1 : 2;
+    const checked = await within(monitor.check());
+    if (checked === TIMED_OUT) return 1;
+    lastServer = checked;
+    let code = 0;
     if (forceHost || dryRun || lastServer.active) {
       if (!(await attach())) return 2;
       code = (await settled()) ? onceUploadCode() : 1;
     } else {
       log.info('once-skipped', { reason: 'サーバーが動いていないため読みません', state: lastServer.state });
     }
-    if ((await sendPresence({ force: true })) === 'error') code ||= 1;
+    const presence = await within(sendPresence({ force: true }));
+    if (presence === TIMED_OUT || presence === 'error') code ||= 1;
     if (!(await settled())) code ||= 1;
     return code;
   }
