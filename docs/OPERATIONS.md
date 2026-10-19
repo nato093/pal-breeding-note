@@ -456,7 +456,8 @@ GAS の共有の書き方を「シート全体を消して書き直す」から*
 - REST のポート（8212）を外に出さない（ServerSync のトンネル〔インスタンスが開くポートすべてを出す〕・ルーターの転送をしない）。
   - 2026-10-19 にこの PC のテストのサーバーで見た結果: REST は `0.0.0.0:8212`（全部のアドレス）で待ち受ける（`netstat -ano | findstr :8212`）。さらに、PalServer の実行ファイルに、全部のポートを許す受信の規則（TCP・UDP。Public のプロファイルを含む）がすでにできていた（最初の起動のときの許可などで自動でできる）。そのため「ファイアウォールの許可をしない」だけでは足りず、REST は同じ LAN から届く（Basic 認証はある）。REST を切ることはできない（ServerSync の停止は REST の save → shutdown を使う。P0 の M9）。
   - そこで、管理者の PowerShell で、受信の TCP 8212 を止める規則を足す: `New-NetFirewallRule -DisplayName 'PalServer REST block' -Direction Inbound -Protocol TCP -LocalPort 8212 -Action Block`（止める規則は許す規則より優先する。同じ PC の中〔ループバック〕の通信はファイアウォールで止まらないので、ServerSync の save → shutdown は残る見込み）。ゲームの接続のポート（UDP）は止めない。
-  - 足した後に確かめる: ServerSync の停止が今までどおり数秒で終わること・別の PC から 8212 に届かないこと（別の PC の PowerShell で `Test-NetConnection <サーバーの PC> -Port 8212` が `TcpTestSucceeded : False`）。規則を足すのはシステムの変更なので、PC の持ち主の了承を取ってから行う（この PC〔メインの PC〕にはまだ足していない）。
+  - 足した後に確かめる: ServerSync の停止が今までどおり数秒で終わること・別の PC から 8212 に届かないこと（別の PC の PowerShell で `Test-NetConnection <サーバーの PC> -Port 8212` が `TcpTestSucceeded : False`）。規則を足すのはシステムの変更なので、PC の持ち主の了承を取ってから行う。
+  - この PC（メインの PC）には 2026-10-19 に足した（`server` の決定 23）。テストのサーバーで、同じ PC の REST（127.0.0.1:8212）の save → shutdown は今までどおり通り（止まるまで 9 秒）、WSL から PC の LAN のアドレスの 8212 には届かなかった。
 - 常駐は管理の操作（起動・停止・保存・REST）を持たない（ServerSync の状態の読み取りの GET だけ）。
 - 本番のサブ PC の ServerSync は、ユーザー本人の Steam で動かす（変換で H が作成者の UID になるため）。サブ PC の時刻は日本時間（`Get-TimeZone`。保存の時刻で新旧を比べる前提）。
 - タスクは Interactive なので、その Windows ユーザーでログオンしている間だけ動く（画面のロックはよい。ServerSync もログオン中のアプリ）。同じ Windows ユーザーに prod と test の両方は入れられない（`config.json` が env で分かれないため。`install.ps1` が止める）。
@@ -661,6 +662,7 @@ ServerSync のローカル API（`http://127.0.0.1:54866`）は**認証がない
 - 上にない操作（インスタンスの削除・全消し〔`POST /instances/purge`・`DELETE /account`〕・ファイルの書き込みなど）は使わない。
 - 常駐が使うのは状態の `GET` だけ。応答には起動の計画（管理者パスワードを含みうる）が入るので、画面やログに貼らない。
 - 起動の後、誰かが接続するまで `status.state` は `Starting` のまま（`status.running` は起動から true）。停止は ServerSync が REST の save → shutdown をして数秒で止まる（P0 の M9・M10）。
+- ただし、誰も接続していない間（`Starting`）は、`stop` が 409（`AlreadyRunning`。「まだ起動中です。オンラインになってから停止してください」）で断られる（2026-10-19 に確認）。誰かが一度接続すれば止められる。誰も接続せずに止めるときは、同じ PC から REST の save → shutdown を呼ぶ（Basic 認証。ユーザー名は `admin`、パスワードは ini の `AdminPassword`。画面やログに出さない）: `POST http://127.0.0.1:8212/v1/api/save` → `POST http://127.0.0.1:8212/v1/api/shutdown`（本文 `{"waittime":1,"message":"stop"}`）。ServerSync の状態は `Stopped` になる（起動し直されない）。
 
 ### ゲームの設定の合わせ込み（scripts/server-settings.mjs）
 
