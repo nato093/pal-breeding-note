@@ -18,6 +18,12 @@ test('古い版: 取り出せないとき、手元では null（呼び出す側�
   assert.equal(await legacyApi(MISSING, { ci: false }), null);
   assert.throws(() => legacyGasFiles(MISSING, { ci: true }), /fetch-depth: 0/);
   await assert.rejects(legacyApi(MISSING, { ci: true }), /fetch-depth: 0/);
+  // 浅い複製のほか、履歴を書き換えてコミットがなくなった場合も案内する
+  assert.throws(() => legacyGasFiles(MISSING, { ci: true }), /LEGACY_/);
+});
+
+test('古い版（最終レビュー）: 古い版は 40 字の完全なコミット番号で指す（短い番号が別のコミットと重なって取り出せなくならない）', () => {
+  for (const commit of [LEGACY_COMMIT, LEGACY_V12_COMMIT]) assert.match(commit, /^[0-9a-f]{40}$/);
 });
 
 test('古い版: CI では版 10・版 12 の GAS と画面を取り出せる', { skip: runningInCi() ? false : 'CI だけで確かめる（手元の浅い複製では飛ばす）' }, async () => {
