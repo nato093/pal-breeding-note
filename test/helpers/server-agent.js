@@ -22,8 +22,8 @@ export const clockAt = (minutes) => String(BigInt(minutes) * 600_000_000n);
 export const instanceOf = (uid) => `00000000-0000-0000-0000-0000${uid.slice(-8)}`;
 
 const parent = (characterId, gender, uid) => ({ instanceId: `${characterId}-${gender}`, characterId, gender, depositorUid: uid });
-const sheepFarm = (eggs, uid) => ({
-  id: 'f1', baseId: 'b', status: 'ok', parents: [parent('SheepBall', 'Female', uid), parent('SwordCutlassfish', 'Male', uid)],
+const sheepFarm = (eggs, [mother, father]) => ({
+  id: 'f1', baseId: 'b', status: 'ok', parents: [parent('SheepBall', 'Female', mother), parent('SwordCutlassfish', 'Male', father)],
   eggs: eggs.map((characterId, i) => ({ localId: `f1-${i}`, characterId, itemId: 'PalEgg_Earth_01' })),
 });
 /** 牧場の親（SheepBall ♀・SwordCutlassfish ♂）のタマゴを登録したときの記録（registered の形） */
@@ -33,9 +33,9 @@ export const registered = (store) => store.state.records
 
 /**
  * 読み込んだセーブ（seconds 秒に保存・通算 minutes 分・day 日目）。プレイヤーの 1 人目は「仲間」（ノートの ID と同じ名前）で、牧場の親を預けた人。
- * pals は個体の数
+ * pals は個体の数。depositors は牧場の親（SheepBall ♀・SwordCutlassfish ♂）を預けた人の UID（既定は 2 体ともプレイヤーの 1 人目）
  */
-export function snapshotOf({ seconds, minutes, day, eggs = [], players = [U1], pals = 1, name = '' }) {
+export function snapshotOf({ seconds, minutes, day, eggs = [], players = [U1], pals = 1, name = '', depositors = [players[0], players[0]] }) {
   return {
     version: 1, world: { name, hostName: '', savedAtTicks: stampAt(seconds), clock: clockAt(minutes), inGameDay: day },
     players: players.map((uid, i) => ({ uid, name: i === 0 ? '仲間' : `参加者${i + 1}`, level: 10, instanceId: instanceOf(uid), online: true })),
@@ -43,7 +43,7 @@ export function snapshotOf({ seconds, minutes, day, eggs = [], players = [U1], p
     pals: Array.from({ length: pals }, (_, i) => ({
       instanceId: `i${i}`, characterId: 'SheepBall', passives: [], talent: {}, location: { kind: 'palbox', playerUid: players[0] },
     })),
-    breedFarms: [sheepFarm(eggs, players[0])], stats: {}, files: { used: [], skipped: [] },
+    breedFarms: [sheepFarm(eggs, depositors)], stats: {}, files: { used: [], skipped: [] },
   };
 }
 

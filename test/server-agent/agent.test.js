@@ -87,16 +87,16 @@ function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 's
     ...(uploadLimit ? { uploadLimit } : {}),
     ...(listFiles ? { listFiles } : {}),
   });
-  // 次のセーブ（30 秒後に保存した中身）。ファイルの更新日時を進め、見張りの知らせで読む
-  pc.save = async ({ minutes, day = 10, eggs = [], players = [U1] }) => {
+  // 次のセーブ（30 秒後に保存した中身）。ファイルの更新日時を進め、見張りの知らせで読む。depositors は牧場の親を預けた人（snapshotOf と同じ）
+  pc.save = async ({ minutes, day = 10, eggs = [], players = [U1], depositors }) => {
     await clock.advance(30_000);
-    pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes, day, eggs, players });
+    pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes, day, eggs, players, depositors });
     site.save(clock.now());
     pc.watch.settle();
     await pc.agent.settle();
   };
-  pc.start = async ({ minutes, day = 10, eggs = [], players = [U1] }) => {
-    pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes, day, eggs, players });
+  pc.start = async ({ minutes, day = 10, eggs = [], players = [U1], depositors }) => {
+    pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes, day, eggs, players, depositors });
     site.save(clock.now());
     assert.equal(await pc.agent.login(), 'ok');
     await pc.agent.tick();
@@ -224,6 +224,25 @@ test('常駐（結合）: ログイン → attach → 共有と presence → Pla
   assert.deepEqual([restarted.agent.owned.state.upload.status, (await gas.published()).clock], ['done', clockAt(106)]);
   assert.equal(gas.writes('create').length, 1);
   await restarted.agent.close();
+});
+
+test('常駐（結合）: 牧場の親 2 体の預けた人が違い、対応も 1 人にまとまらないとき、新しいタマゴの配合の登録者は常駐のログイン中の ID「サーバー」になる（決定 21）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t, { players: [U1, U2] });
+  const pc = agentOf({ gas, clock, site });
+  // 親の SheepBall ♀ は U1（「仲間」。ノートに同じ名前の ID がある）、SwordCutlassfish ♂ は U2（「参加者2」。ノートに ID がない）が預けた
+  const depositors = [U1, U2];
+  await pc.start({ minutes: 100, players: [U1, U2], depositors });
+  assert.deepEqual(registered(pc.agent.store), []);
+  // 新しいタマゴ: 共有の結果の判定の後に登録する。登録者は U1 の対応（仲間）でも未設定でもなく、ログイン中の ID
+  await pc.save({ minutes: 101, eggs: ['GuardianDog'], players: [U1, U2], depositors });
+  assert.deepEqual(registered(pc.agent.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:サーバー']);
+  assert.deepEqual(gas.writes('create').map((item) => item.request.record.registrant), ['サーバー']);
+  // 前からあるタマゴは登録し直さない
+  await pc.save({ minutes: 102, eggs: ['GuardianDog'], players: [U1, U2], depositors });
+  assert.equal(gas.writes('create').length, 1);
+  await pc.agent.close();
 });
 
 test('常駐（結合）: 最後の保存の送信は最大 60 秒だけ待ち、送れなくても読み込みと共有を止める。送れなかった分は次に動いたときに送る', async (t) => {
