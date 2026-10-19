@@ -3,6 +3,7 @@
 // - 対象のサーバーが動いている間（server-state.mjs。止まってから 60 秒の猶予を含む）だけ、ワールドを登録して読む（attach）。10 秒ごとに
 //   Players を見直して増えたファイルを足し、5 分ごとに配合の全件を読み直す
 // - 止まったら（detach）、見張り・読み直しと送信の予約・自動登録の判定を止める。最後の保存の送信は最大 60 秒だけ待ち、送れなくても止める。
+//   最後の送信は止まったと確かめたときだけで、動いているか確かめられない（unknown）ときはすぐ送信の窓を閉じる。
 //   登録は残すが、止まっている間は読まない（予約は動いたときまで預かる）
 // - presence は常駐が自分で送る（owned.js の reportPresence も、ownedSince に載せる presence も使わない）。止まっている間も送る（playing false）
 // - 認証の失敗は 30 分ごと、通信の失敗は 15 秒〜5 分の段でログインし直す。応答の env が設定と違えば、何も書かずに終了コード 2
@@ -569,12 +570,22 @@ export function createAgent({
     }
   }
 
+  // 最後の送信を許すのは、止まったと確かめたとき（stopped）だけ。動いているか確かめられない（unknown）ときは、この PC で動いているサーバーの
+  // セーブか分からないので、最後の送信をせずにすぐ送信の窓を閉じる（世代を進め、送っている途中の共有・登録の再送と判定の結果も使わない）
   async function detach(reason) {
     if (!attached) return;
-    finalDeadline = now() + FINAL_SEND_MS;
-    finalWindow = true;
+    const confirmed = reason === 'stopped';
+    if (confirmed) {
+      finalDeadline = now() + FINAL_SEND_MS;
+      finalWindow = true;
+    }
     attached = false;
     gate.close();
+    if (!confirmed) {
+      generation++;
+      log.info('detached', { reason, lastUpload: 'unconfirmed' });
+      return;
+    }
     log.info('detaching', { reason });
     try {
       const result = await finalSend(finalDeadline);

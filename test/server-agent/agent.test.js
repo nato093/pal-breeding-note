@@ -1104,3 +1104,41 @@ test('常駐（2 台）: 前の attach の間に判定済みで送れなかっ�
   assert.equal(a.agent.guard.status(W).state, 'blocked');
   await a.agent.close();
 });
+
+test('常駐（結合）: 動いているか確かめられなくなった（running → unknown）ときは、最後の送信をせずにすぐ送信の窓を閉じる', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site });
+  await pc.start({ minutes: 100 });
+  // 送れなかった保存（101 分）があるまま、動いているか確かめられなくなる
+  gas.control.fail.ownedUpload = 'CONNECTION';
+  await pc.save({ minutes: 101 });
+  assert.equal(pc.agent.owned.state.upload.status, 'error');
+  gas.control.fail.ownedUpload = '';
+  const uploads = () => gas.control.calls.filter((action) => action === 'ownedUpload').length;
+  const sent = uploads();
+  pc.server.state = 'unknown';
+  let finished = false;
+  pc.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(pc.agent.attached(), false);
+  assert.equal(uploads(), sent, '確かめられないときは最後の送信をしない');
+  // 送り直しの予約も、動いていると確かめるまで送らない
+  await clock.advance(10 * 60_000);
+  await pc.agent.settle();
+  assert.equal(uploads(), sent);
+  assert.equal((await gas.published()).clock, clockAt(100));
+  assert.match(pc.log.text(), /detached reason="unknown" lastUpload="unconfirmed"/);
+  // 動いていると確かめられたら、読み直して送る（送れなかった間の送り直しの段〔owned.js の retryAt〕の後）
+  pc.server.state = 'running';
+  await clock.advance(30_000);
+  pc.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 102, day: 10 });
+  site.save(clock.now());
+  await pc.agent.tick();
+  await pc.agent.settle();
+  await clock.advance(5 * 60_000);
+  await pc.agent.settle();
+  assert.equal((await gas.published()).clock, clockAt(102));
+  await pc.agent.close();
+});
