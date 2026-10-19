@@ -19,6 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 古い版の GAS・画面との組み合わせのテスト（test/gas/legacy.js）は Git の履歴から古い版を取り出す。
+          # 浅い複製だと取り出せず、CI ではテストが失敗する（黙って飛ばさない）ので、全部の履歴を取る
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
