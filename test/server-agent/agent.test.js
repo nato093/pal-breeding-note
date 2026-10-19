@@ -499,6 +499,30 @@ test('常駐: ログインの失敗は、認証なら 30 分ごと・通信な�
   await pc.agent.close();
 });
 
+test('常駐（最終レビュー）: ログインの途中に受け入れが来ても、ログインを 2 本並べない（先のログインを認証の失敗にして 30 分待たない）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const pc = agentOf({ gas, clock, site, server: fakeServer('stopped') });
+  pc.current = snapshotOf({ seconds: 0, minutes: 100, day: 10 });
+  site.save(clock.now());
+  let release;
+  gas.control.gates.login = new Promise((resolve) => { release = resolve; });
+  // 起動の直後（10 秒ごとの tick がログインしている途中）に、2 秒ごとの受け入れの要求が来た
+  const ticking = pc.agent.tick();
+  const accepting = pc.agent.acceptWorld();
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+  gas.control.gates.login = null;
+  release();
+  await ticking;
+  const accepted = await accepting;
+  assert.equal(gas.control.calls.filter((action) => action === 'login').length, 1);
+  assert.doesNotMatch(pc.log.text(), /login-failed/);
+  assert.notEqual(accepted.code, 'NOT_READY');
+  assert.equal(pc.agent.store.state.env, 'test');
+  await pc.agent.close();
+});
+
 test('常駐: stop.request で、KV を書き出して 0 で終わる', async (t) => {
   const clock = virtualClock();
   const gas = await gasOf({ now: clock.now });

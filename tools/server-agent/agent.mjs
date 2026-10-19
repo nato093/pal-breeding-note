@@ -513,12 +513,19 @@ export function createAgent({
     return 'ok';
   }
 
-  async function ensureLogin() {
-    if (loggedIn()) return 'ok';
-    if (now() < loginRetryAt) return 'waiting';
-    const result = await login();
-    if (result === 'env' || result === 'config') requestStop(2);
-    return result;
+  // 進めているログイン。10 秒ごとの tick と 2 秒ごとの受け入れが同時に呼んでも 1 本にする（2 本並べると、store.js の authenticate が先の
+  // ログインを AUTH にし、ログに認証の失敗が出て 30 分の待ちの印が残る。最終レビュー）
+  let loginTask = null;
+  function ensureLogin() {
+    if (loggedIn()) return Promise.resolve('ok');
+    if (loginTask) return loginTask;
+    if (now() < loginRetryAt) return Promise.resolve('waiting');
+    loginTask = (async () => {
+      const result = await login();
+      if (result === 'env' || result === 'config') requestStop(2);
+      return result;
+    })().finally(() => { loginTask = null; });
+    return loginTask;
   }
 
   // ---- 読み込み（attach・detach） ----
