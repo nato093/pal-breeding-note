@@ -42,6 +42,8 @@ jobs:
           path: web
 
   deploy:
+    # 配信は main だけ。workflow_dispatch でほかのブランチを選ぶと、Linux でのテストと build だけが動く（本番の画面に出さない）
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:

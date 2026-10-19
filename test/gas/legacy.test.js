@@ -40,3 +40,10 @@ test('古い版: CI（Pages の workflow）の checkout は全部の履歴を取
   assert.ok(checkout, 'actions/checkout の step がありません');
   assert.match(checkout[1], /^\s+fetch-depth: 0\s*$/m);
 });
+
+test('CI（最終レビュー）: Pages の deploy は main だけ（workflow_dispatch でブランチを選ぶと、Linux のテストと build だけが動く）', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/pages.yml', import.meta.url), 'utf8');
+  const deploy = /^ {2}deploy:\r?\n((?: {4}[^\r\n]*\r?\n|\r?\n)*)/m.exec(workflow);
+  assert.ok(deploy, 'deploy の job がありません');
+  assert.match(deploy[1], /^ {4}if: github\.ref == 'refs\/heads\/main'\s*$/m);
+});
