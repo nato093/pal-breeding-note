@@ -556,3 +556,35 @@ test('古い系統の守り（結合）: 協力プレイで進めた後に古い
   assert.equal(gas.control.uploads, 5);
   assert.ok(host);
 });
+
+test('古い系統の守り: 判定済み（解除した stamp）は判定してよい間（session）ごと。間が替われば、同じセーブも公開の値と照らし直す', async () => {
+  const gas = fakeGas();
+  gas.publish(W, { clock: clockAt(100), inGameDay: 10 });
+  let session = 1;
+  const guard = guardOf(gas, safeStorage(memoryStorage()), { session: () => session });
+  assert.equal(await guard.check(W, save(30, 150, 10)), 'ok');
+  assert.equal(guard.paused(W, stampAt(30)), false);
+  // 送らないまま間が終わり、その間に別の PC が新しい系統（200 分）を公開した
+  session = null;
+  assert.equal(guard.paused(W, stampAt(30)), true, '判定してよい間の外では判定済みとみなさない');
+  gas.publish(W, { clock: clockAt(200), inGameDay: 11 });
+  // 次の間: 同じセーブも判定待ちから。照らし直して止め、送らない
+  session = 2;
+  assert.equal(guard.paused(W, stampAt(30)), true);
+  const reads = gas.calls.filter((action) => action === 'ownedWorlds').length;
+  assert.equal(await codeOf(guard.server.request('ownedUpload', uploadOf(save(30, 150, 10)))), LINEAGE_BLOCKED);
+  assert.equal(gas.calls.filter((action) => action === 'ownedWorlds').length, reads + 1);
+  assert.equal(gas.uploads.length, 0);
+  assert.equal(guard.status(W, stampAt(30)).state, 'blocked');
+
+  // 受け入れた間の判定済みも、その間だけ
+  const gas2 = fakeGas();
+  gas2.publish(W, { clock: clockAt(200), inGameDay: 11 });
+  let session2 = 5;
+  const guard2 = guardOf(gas2, safeStorage(memoryStorage()), { session: () => session2 });
+  await guard2.accept(W, save(60, 150, 10));
+  assert.equal(guard2.paused(W, stampAt(60)), false);
+  session2 = 6;
+  assert.equal(guard2.paused(W, stampAt(60)), true);
+  assert.equal(await guard2.check(W, save(60, 150, 10)), 'ok');
+});

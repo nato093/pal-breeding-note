@@ -5,7 +5,8 @@
 // - 比べる相手: (a) GAS で公開されている同じワールドの値（受け入れの基準の uploadedAt より後の世代だけ。受け入れていなければ全部）、
 //   (b) この常駐が前に送った値。どちらかより小さければ古い系統
 // - 判定待ち: 起動したとき・セーブを読んだたびに、そのセーブ（保存時刻 stamp）は判定待ち。公開の値を読んで古い系統でないと確かめたら、その stamp に
-//   限って解除する（メモリだけ。再起動したらまた判定待ち）。読んでいる間・読めない間も判定待ち
+//   限って解除する（メモリだけ。再起動したら・判定してよい間〔session。常駐の attach の世代〕が替わったらまた判定待ち）。読んでいる間・
+//   読めない間も判定待ち
 // - 止めた状態は KV に残し、明示の受け入れ（--accept-world）まで解除しない（再起動しても、後で値が公開の値を追い越しても）
 // - 受け入れの基準は、受け入れたときに GAS から読んだ公開の世代の uploadedAt（GAS のサーバーの時計）。PC の時計は使わない
 // - 判定は、公開の値を読み始めたときと状態を書き換える直前とで、session（常駐の attach の世代）と受け入れの回が同じときだけ状態に残す
@@ -137,7 +138,9 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
   const stateKey = (env, worldId) => lineageStateKey(namespace, env, worldId);
   // 受け入れの回（受け入れたら、それより前に始めた判定の結果を使わない）
   let accepts = 0;
-  // 解除した stamp（env|worldId → stamp の Set）・読んでいる途中の判定（env|worldId|stamp → Promise）
+  // 解除した stamp（env|worldId → { token: 判定した間の session, stamps: stamp の Set }）・読んでいる途中の判定（env|worldId|stamp|… → Promise）。
+  // 解除は判定した間（session）の中だけ効く。間が替われば（次の attach・最後の送信の期限の後）同じセーブも公開の値と照らし直す（送らないまま
+  // 判定済みになったセーブを次の attach で読み直したとき、その間に別の PC が公開した新しい系統を上書きしないため）
   const verified = new Map();
   const inflight = new Map();
   const listeners = new Set();
@@ -160,14 +163,22 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
   }
   const writeState = (env, worldId, state) => storage.set(stateKey(env, worldId), JSON.stringify(state));
 
-  const verifiedOf = (env, worldId) => verified.get(`${env}|${worldId}`);
-  function markVerified(env, worldId, stamp) {
+  const usable = (token) => token !== null && token !== undefined;
+  // 今の間（session）に解除した stamp（今が判定してよい間でない・前の間の解除なら null）
+  function verifiedOf(env, worldId) {
+    const entry = verified.get(`${env}|${worldId}`);
+    const token = session();
+    return entry && usable(token) && entry.token === token ? entry.stamps : null;
+  }
+  function markVerified(env, worldId, stamp, token) {
+    if (!usable(token)) return;
     const key = `${env}|${worldId}`;
-    const set = verified.get(key) ?? new Set();
-    set.delete(stamp);
-    set.add(stamp);
-    while (set.size > VERIFIED_MAX) set.delete(set.values().next().value);
-    verified.set(key, set);
+    const entry = verified.get(key);
+    const stamps = entry?.token === token ? entry.stamps : new Set();
+    stamps.delete(stamp);
+    stamps.add(stamp);
+    while (stamps.size > VERIFIED_MAX) stamps.delete(stamps.values().next().value);
+    verified.set(key, { token, stamps });
   }
 
   function paused(worldId, stamp) {
@@ -217,7 +228,7 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
       return 'blocked';
     }
     const first = !verifiedOf(env, worldId)?.has(values.stamp);
-    markVerified(env, worldId, values.stamp);
+    markVerified(env, worldId, values.stamp, token);
     if (first) emit({ type: 'verified', worldId, env, stamp: values.stamp });
     return 'ok';
   }
@@ -283,7 +294,8 @@ export function createLineageGuard({ server, storage, namespace = 'pal-note', on
     accepts++;
     writeState(env, id, { blocked: null, baseline: { uploadedAt, ...kept(values) }, sent: kept(values) });
     verified.delete(`${env}|${id}`);
-    if (values.stamp) markVerified(env, id, values.stamp);
+    // 受け入れたセーブの解除も、今の間だけ（判定してよい間でなければ解除しない。次の間に照らし直す）
+    if (values.stamp) markVerified(env, id, values.stamp, session());
     storage.remove(autoRegisterFarmsKey(namespace, env, id));
     onAccept?.(id, env);
     log?.info?.('lineage-accepted', { worldId: id, clock: values.clock, inGameDay: values.inGameDay });

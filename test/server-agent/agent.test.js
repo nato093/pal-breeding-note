@@ -1060,3 +1060,47 @@ test('常駐（結合）: 自動登録の送信（create）も、送る 1 回ご
   assert.equal(creates(), 2);
   await pc.agent.close();
 });
+
+test('常駐（2 台）: 前の attach の間に判定済みで送れなかったセーブを次の attach で読み直したら、公開の値と照らし直す（その間に公開された新しい系統を上書きしない）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const a = agentOf({ gas, clock, site });
+  await a.start({ minutes: 100 });
+  // A の保存（150 分）は、判定は済んだ（公開は 100 分）が、送れないまま止まる
+  gas.control.fail.ownedUpload = 'CONNECTION';
+  await clock.advance(30_000);
+  const seconds = (clock.now() - T0) / 1000;
+  a.current = snapshotOf({ seconds, minutes: 150, day: 10 });
+  site.save(clock.now());
+  a.watch.settle();
+  await a.agent.settle();
+  assert.equal(a.agent.owned.state.upload.status, 'error');
+  a.server.state = 'stopped';
+  let finished = false;
+  a.agent.tick().then(() => { finished = true; });
+  await advanceUntil(clock, () => finished);
+  assert.equal(a.agent.attached(), false);
+  gas.control.fail.ownedUpload = '';
+  // 別の PC の B が、受け取った続き（200 分）を公開する。B の PC の時計は遅れていて、保存時刻は A の 150 分のセーブより前
+  const b = agentOf({ gas, clock, site: serverWorld(t) });
+  b.current = snapshotOf({ seconds: seconds - 10, minutes: 200, day: 11 });
+  b.site.save(clock.now());
+  assert.equal(await b.agent.login(), 'ok');
+  await b.agent.tick();
+  await b.agent.settle();
+  await b.agent.close();
+  assert.equal((await gas.published()).clock, clockAt(200));
+  // A の古いインスタンスを起動し、同じセーブ（150 分・同じ保存時刻）を読み直す: 照らし直して止め、公開の 200 分を上書きしない
+  a.server.state = 'running';
+  await clock.advance(60_000);
+  site.save(clock.now());
+  await a.agent.tick();
+  await a.agent.settle();
+  // 送れなかった間の送り直しの段（owned.js の retryAt）の後まで待つ
+  await clock.advance(5 * 60_000);
+  await a.agent.settle();
+  assert.equal((await gas.published()).clock, clockAt(200));
+  assert.equal(a.agent.guard.status(W).state, 'blocked');
+  await a.agent.close();
+});
