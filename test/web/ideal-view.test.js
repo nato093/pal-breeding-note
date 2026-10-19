@@ -599,7 +599,7 @@ test('理想個体画面: 産まれたタマゴは候補にせず、孵化を読
 test('理想個体画面: 所持者（すべて／自分のプレイヤー名／各プレイヤー）で親の候補とパッシブの所持数を絞り、既定は自分。選んだプレイヤーがいなくなったら既定（自分）に戻す（D29）', async (t) => {
   install(t);
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
-  const BASE = 'b6800a4a-4b60-f0bb-f425-53bf17b07603';
+  const BASE = 'fedcba98-7654-3210-fedc-ba9876543210';
   const list = [
     palworldPal('a1', 'SheepBall', 'Male', ['Rare']),
     palworldPal('a2', 'SheepBall', 'Female', ['Rare']),
