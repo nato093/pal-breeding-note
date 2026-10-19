@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGas } from './harness.js';
+import { legacyApi, LEGACY_COMMIT, LEGACY_V12_COMMIT } from './legacy.js';
+import { createApi } from '../../web/js/api.js';
 
 // vm 内で作られたオブジェクトは別 realm なので、比較前に素のオブジェクトへ戻す
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -60,6 +62,32 @@ test('リクエスト: 不正な入力にも必ず JSON のエラーを返す', 
   assert.equal(call(gas, { action: 'toString', passcode: PROPS.TEST_PASSCODE }).code, 'BAD_ACTION');
 });
 
+test('リクエスト: 認証の後の失敗には環境（env）を付け、認証の前の失敗には付けない（サーバーの PC の常駐が、失敗の応答でも環境の違いに気づくため）', () => {
+  const { gas } = authenticatedGas();
+  // 認証の前（どの環境か分からない）
+  assert.deepEqual(plain(gas.handleRequest_('{')), { ok: false, code: 'BAD_JSON' });
+  assert.deepEqual(call(gas, { action: 'ping', passcode: 'nope' }), { ok: false, code: 'AUTH' });
+  // 認証の後: 知らない操作・本番で使えない操作・例外
+  assert.deepEqual(call(gas, { action: 'hack', passcode: PROPS.TEST_PASSCODE }), { ok: false, code: 'BAD_ACTION', env: 'test' });
+  assert.deepEqual(call(gas, { action: 'probe', passcode: PROPS.PASSCODE, text: 'x' }), { ok: false, code: 'FORBIDDEN', env: 'prod' });
+  assert.deepEqual(call(gas, { action: 'snapshot', passcode: PROPS.TEST_PASSCODE }), { ok: false, code: 'INTERNAL', env: 'test' });
+  // 操作の失敗（鍵が取れない）
+  const busy = authenticatedGas({ lockAvailable: false });
+  assert.deepEqual(call(busy.gas, { action: 'probe', passcode: PROPS.TEST_PASSCODE, text: 'x' }), { ok: false, code: 'BUSY', env: 'test' });
+});
+
+const LEGACY_SCREENS = [['今の画面', { createApi }], ['版 12 の画面', await legacyApi(LEGACY_V12_COMMIT)], ['版 10 の画面', await legacyApi(LEGACY_COMMIT)]];
+test('リクエスト: 失敗の応答に env があっても、今の画面・古い画面（api.js）は今までと同じ code の失敗にする', { skip: LEGACY_SCREENS.every(([, module]) => module) ? false : 'Git の履歴に古い版がない（浅い複製）' }, async () => {
+  const { gas } = authenticatedGas();
+  const transport = (request) => plain(gas.handleRequest_(JSON.stringify(request)));
+  for (const [name, module] of LEGACY_SCREENS) {
+    const api = module.createApi({ transport });
+    // setup の前なのでシートがなく、snapshot は例外（INTERNAL）
+    for (const passcode of [PROPS.TEST_PASSCODE, PROPS.PASSCODE]) await assert.rejects(api.request('snapshot', passcode), { code: 'INTERNAL' }, name);
+    await assert.rejects(api.request('snapshot', 'nope'), { code: 'AUTH' }, name);
+  }
+});
+
 test('リクエスト: 診断用の probe は本番パスワードでは使えない', () => {
   const { gas } = authenticatedGas();
   assert.equal(call(gas, { action: 'probe', passcode: PROPS.PASSCODE, text: 'x' }).code, 'FORBIDDEN');
@@ -72,7 +100,7 @@ test('リクエスト: 例外時は INTERNAL を返し、ログにパスワー�
   const { gas, logs } = authenticatedGas();
   // setup 前なのでシートがなく、snapshot は例外になる
   const res = call(gas, { action: 'snapshot', passcode: PROPS.PASSCODE });
-  assert.deepEqual(res, { ok: false, code: 'INTERNAL' });
+  assert.deepEqual(res, { ok: false, env: 'prod', code: 'INTERNAL' });
   assert.equal(logs.error.length, 1);
   assert.ok(!logs.error[0].includes(PROPS.PASSCODE));
   assert.ok(!logs.error[0].includes('AAAABBBB'));
@@ -88,11 +116,12 @@ test('ロック: 書き込みを flush してから解放する。取れなけ�
   assert.equal(call(busy.gas, { action: 'probe', passcode: PROPS.TEST_PASSCODE, text: 'x' }).code, 'BUSY');
 });
 
-test('setup: 11枚のシートとヘッダーを作り、ログに値を出さず、再実行しても設定を変えない', () => {
+test('setup: 13枚のシートとヘッダーを作り、ログに値を出さず、再実行しても設定を変えない', () => {
   const { gas, spreadsheet, props, logs } = createGas();
   gas.setup();
   assert.deepEqual(spreadsheet.getSheets().map((s) => s.getName()).sort(),
-    ['Breedings', 'Breedings_test', 'Log', 'Log_test', 'OwnedPals', 'OwnedPals_test', 'OwnedWorlds', 'OwnedWorlds_test', 'Users', 'Users_test', '設定']);
+    ['Breedings', 'Breedings_test', 'Log', 'Log_test', 'OwnedPals', 'OwnedPals_test', 'OwnedWorlds', 'OwnedWorlds_test', 'PlayerMap', 'PlayerMap_test',
+      'Users', 'Users_test', '設定']);
   const password = spreadsheet.getSheetByName('設定').data[1][1];
   assert.ok(password && props.store.TEST_PASSCODE);
   assert.notEqual(password, props.store.TEST_PASSCODE);

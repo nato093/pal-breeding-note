@@ -466,3 +466,40 @@ test('ヘッダーのセーブ連携（最終レビュー）: パネルの行は
   assert.equal(rowOf(details, 'ページを開いている PC'), '● 自分（この PC） · たった今 · ホスト中 · 共有できる');
   part.destroy();
 });
+
+// ---- サーバーのワールド（server の participant-ui） ----
+// 最後の共有がサーバーのセーブ（常駐が ID「サーバー」で送った。ホスト名はない）。共有は 2 時間前
+const serverGuest = (overrides = {}) => guestState({
+  linkedWorldId: GUEST_WORLD,
+  meta: { ...guestState().meta, saveKind: 'server', hostName: '', uploadedBy: 'サーバー', sharedAt: at(120), saveUpdatedAt: at(121) },
+  owned: { pals: [{}, {}], players: [{ uid: 'u1', name: 'Alice', level: 50, online: false }] },
+  ...overrides,
+});
+const residentOf = (minutes, playing) => pageOf('サーバー', 'server-pc-0001', minutes, { role: 'host', playing, canShare: true, resident: true });
+
+test('ヘッダーのセーブ連携（server の participant-ui）: サーバーのワールドは表示中・説明に「（サーバー）」、この PC の行に常駐の文、ページを開いている PC に「サーバー（常駐）」。止まっているサーバーの古い共有は警告にしない', async (t) => {
+  const stopped = model(serverGuest({ pages: pagesOf(GUEST_WORLD, [residentOf(1, false)]) }));
+  // チップの色は今の共有の規則のまま（60 分より古い共有は灰色の点。警告の色にしない）
+  assert.deepEqual([stopped.tone, stopped.text], ['stale', '「仲間の島」· 共有 07:30']);
+  assert.match(stopped.title, /^「仲間の島」（サーバー）\n/);
+  const { trigger, part, emit } = setup(t, serverGuest({ pages: pagesOf(GUEST_WORLD, [residentOf(1, false), pageOf('自分', 'self-pc-0001', 0, { role: 'guest' })]) }));
+  await trigger.dispatch('click');
+  const panel = part.element.querySelector('.save-status-panel');
+  assert.equal(rowOf(panel, '表示中'), '「仲間の島」（サーバー） · 2 体');
+  assert.equal(rowOf(panel, 'この PC'), 'この PC では読み込みません。配合牧場の自動登録は、サーバーの PC の常駐プログラムが行います（プレイヤーの対応であなたが選ばれているとき） · 最後の共有 2 時間前');
+  assert.equal(rowOf(panel, 'ページを開いている PC'), '● 自分（この PC） · たった今 · 参加者\n● サーバー（常駐） · 1 分前 · サーバー停止中');
+  assert.match(rowOf(panel, 'プレイ中'), /^いません（サーバーのセーブ \d{2}:\d{2} の時点）$/);
+  assert.equal(part.element.querySelector('.save-status-issues').hidden, true);
+  // サーバーが動いているのに共有が古い: この PC の行を警告の文にする（チップは変えない）
+  emit({ pages: pagesOf(GUEST_WORLD, [residentOf(1, true)]) });
+  assert.equal(rowOf(panel, 'この PC'), 'サーバーは稼働中ですが、最後の共有は 2 時間前です。サーバーの PC の常駐プログラムを確かめてください。');
+  assert.equal(rowOf(panel, 'ページを開いている PC'), '● サーバー（常駐） · 1 分前 · サーバー稼働中');
+  assert.equal(trigger.className, 'save-status-button tone-stale');
+  part.destroy();
+});
+
+test('セーブ連携の状態（server の participant-ui）: 参加者がゲーム中なのに共有が止まっていれば、サーバーの PC の常駐プログラムと、協力プレイに戻した場合の案内', () => {
+  const stopped = model(serverGuest({ play: playing(), shared: checkedNow }));
+  assert.deepEqual([stopped.tone, stopped.text], ['warn', '共有が止まっています']);
+  assert.match(stopped.title, /^ゲーム中のようですが、共有は 2 時間前のセーブのままです。サーバーで遊んでいるなら、サーバーの PC で常駐プログラムが動いているか確かめてください。協力プレイに戻したなら、今のホストの PC でこのページが開いているか確かめてください。/);
+});

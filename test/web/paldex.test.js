@@ -5,7 +5,7 @@ import { installDom, descendants } from '../helpers/dom.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
-import { normalizeOwned } from '../../web/js/core/owned.js';
+import { normalizeOwned, ownedFromShared, sharedUpload } from '../../web/js/core/owned.js';
 import { parseHash } from '../../web/js/router.js';
 import { palView } from '../../web/js/views/pal.js';
 import { palDetail } from '../../web/js/views/pal-detail.js';
@@ -174,13 +174,35 @@ test('図鑑: 所持している種に点・目標の種族に星・自分の捕
   const legend = view.element.querySelectorAll('.paldex-legend-item');
   assert.equal(legend.filter((node) => !node.hidden).length, 5);
   view.destroy();
-  // 自分が分からない（このワールドでの自分も、対応も決まっていない）・捕獲数のないデータ（参加者・古いデータ）では捕獲数を出さない
+  // 自分が分からない（このワールドでの自分も、対応も決まっていない）・捕獲数のないデータ（古いデータ・捕獲数のない古い共有）では捕獲数を出さない
   for (const [label, input] of [['自分が分からない', { owned: fakeOwned(), ideals: fakeIdeals({ self: [] }) }], ['捕獲数のないデータ', { owned: fakeOwned(normalizeOwned(snapshot({ captures: false }), { pals, passives })) }]]) {
     const other = palView(context(input), parseHash('#/pal'));
     assert.equal(cellsOf(other).some((node) => visible(node, 'paldex-capture')), false, label);
     assert.deepEqual(stats(other), ['子として登録0 / 298', '所持2 / 298'], label);
     other.destroy();
   }
+});
+
+test('図鑑・パル詳細: 共有のデータ（参加者の画面。server の share-extras）でも、共有の捕獲数から自分の分を出す（仲間の分は数えない）', (t) => {
+  installDom(t);
+  const host = normalizeOwned(snapshot(), { pals, passives });
+  const upload = sharedUpload(host);
+  const shared = ownedFromShared({ world: { worldName: 'テスト', players: upload.players }, ...upload }, { pals, passives });
+  const view = palView(context({ owned: fakeOwned(shared) }), parseHash('#/pal'));
+  assert.equal(byClass(cell(view, 'SheepBall'), 'paldex-capture').textContent, '捕獲 12');
+  assert.equal(byClass(cell(view, 'Werewolf_Ice'), 'paldex-capture').textContent, '捕獲 2');
+  assert.equal(stats(view).at(-1), '捕獲（自分）2 種');
+  view.destroy();
+  const detail = palDetail(context({ owned: fakeOwned(shared) }), 'SheepBall', { mode: 'drawer' });
+  const line = byClass(detail.element, 'pal-capture-line');
+  assert.deepEqual([line.hidden, line.textContent], [false, '捕獲12 回（自分）']);
+  assert.equal(line.title, 'このワールドで自分のプレイヤーが捕まえた数（ワールドのセーブから。仲間の分は数えません）');
+  detail.destroy();
+  // 捕獲数のない古い共有では出さない
+  const legacy = ownedFromShared({ world: { worldName: 'テスト', players: upload.players.map(({ captures: _captures, ...player }) => player) }, ...upload }, { pals, passives });
+  const old = palView(context({ owned: fakeOwned(legacy) }), parseHash('#/pal'));
+  assert.equal(cellsOf(old).some((node) => visible(node, 'paldex-capture')), false);
+  old.destroy();
 });
 
 test('図鑑: 絞り込み「すべて／未登録／未所持」は viewState に残り、開き直しても同じ。所持パルのデータがなければ「未所持」は「すべて」として描く', (t) => {

@@ -22,7 +22,7 @@ function ownedDate(value) {
 
 /**
  * 魂の強化と状態の節の中身（save-extras）。魂の強化（0 でないものだけ。「HP +10 · 攻撃 +10」）・病気（種類）・空腹（種類）・SAN。
- * 魂の強化も状態も分からない（共有のデータ・読む前のセーブ）・タマゴなら null（節を出さない）
+ * 魂の強化も状態も分からない（列のない古い共有・読む前のセーブ）・タマゴなら null（節を出さない）
  */
 export function soulAndCondition(pal) {
   if (pal.egg || (!pal.soul && !pal.condition)) return null;
@@ -190,7 +190,7 @@ export function ownedDetail(context, instanceId, { terms, query = '', setTitle }
     }
     parts.push(section('個体値', 'is-talent', talent), section('パッシブ', 'is-passives', passiveBody),
       section('パートナースキル', 'is-partner', partner), section('アクティブスキル', 'is-actives', activeBody));
-    // 魂の強化と状態（ホストの画面だけ。共有しない。save-extras）
+    // 魂の強化と状態（save-extras。共有の列 soul・condition で参加者にも出る。server の share-extras）
     const facts = soulAndCondition(pal);
     if (facts) parts.push(section('魂の強化と状態', 'is-condition', facts));
     parts.push(section('場所', 'is-where', where, placeText, ...(acquired ? [acquired] : [])));

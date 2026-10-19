@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createOwnedStore, idbPersist } from '../../web/js/owned.js';
-import { ownedContentText } from '../../web/js/core/owned.js';
+import { createOwnedStore, idbPersist, OWNED_WORLD_FIELDS } from '../../web/js/owned.js';
+import { ownedContentText, ownedFromShared } from '../../web/js/core/owned.js';
 import { safeStorage } from '../../web/js/store.js';
 import { createDevelopmentApi } from '../../dev/mock-api.js';
 import { fakeHandle, hostFiles, asDropped, memoryPersist, settleUpload, T0 } from '../helpers/file-handles.js';
@@ -67,7 +67,7 @@ function sharedServer({ scope = 'test', userId = 'ホスト', rewrite = null } =
 }
 
 // watch はセーブのファイルの見張り（save/watch.js の createWatchClient）の代わり。渡さなければ本物（Node には Worker がないので 'timer'）
-function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false, watch = null } = {}) {
+function setup({ server = null, persist = memoryPersist(), storage = memoryStorage(), runImport = null, hidden = () => false, watch = null, resident = undefined } = {}) {
   const calls = { imports: 0 };
   let time = 1_000_000;
   const timers = [];
@@ -79,6 +79,7 @@ function setup({ server = null, persist = memoryPersist(), storage = memoryStora
     cancel: (id) => { timers[id].cancelled = true; },
     hidden,
     ...(watch ? { watch } : {}),
+    ...(resident !== undefined ? { resident } : {}),
   });
   const store = make();
   const register = async (worldId, files, target = store) => target.commitRegistration(await target.previewRegistration({ worldId, steamId: '7656', files: asDropped(files) }));
@@ -1400,8 +1401,11 @@ test('所持パル（share-upload）: 送る world に識別（saveStamp・conte
   const [input] = up.sent;
   assert.deepEqual(Object.keys(input).sort(), ['bases', 'columns', 'players', 'rows', 'saveUpdatedAt', 'userId', 'world', 'worldId']);
   const { contentHash, ...identity } = input.world;
-  // GlobalPalStorage.sav も読めたファイルに数え、読めなかったファイルは同じパスを 1 つに数える。登録の確定から送ったので force
-  assert.deepEqual(identity, { name: 'テスト', hostName: 'Alice', saveStamp: tickOf(7), format: OWNED_FORMAT, fileCount: 4, missingCount: 1, force: true });
+  // GlobalPalStorage.sav も読めたファイルに数え、読めなかったファイルは同じパスを 1 つに数える。登録の確定から送ったので force。
+  // 追加の情報（セーブの種類・以前の持ち主。server）も world の中。分からない通算の時間（clock）は送らない
+  assert.deepEqual(identity, {
+    name: 'テスト', hostName: 'Alice', saveKind: 'coop', formers: [], saveStamp: tickOf(7), format: OWNED_FORMAT, fileCount: 4, missingCount: 1, force: true,
+  });
   // 中身の印は、送った中身（識別・送った人・セーブのファイルの更新日時を除く）の SHA-256
   assert.match(contentHash, /^[0-9a-f]{64}$/);
   assert.equal(contentHash, sha256(ownedContentText(input)));
@@ -2467,6 +2471,29 @@ test('所持パル（page-presence）: ホストと参加者のページが同�
   assert.ok(lines.some((line) => /^● ホスト(（PC 2）)? · たった今 · ホスト用のセーブあり · 共有できる$/.test(line)), lines.join('\n'));
 });
 
+test('所持パル（server の participant-ui）: 常駐（resident: true）のストアは presence に resident: true を付けて送り、ほかの PC の一覧に「サーバー（常駐）」と出る。ページは付けない', async () => {
+  const { openPagesLines } = await import('../../web/js/ui/owned-status.js');
+  const shared = presenceServer();
+  const agent = setup({ server: shared.server, resident: true });
+  await agent.register(WORLD_A, hostFiles());
+  await settleUpload(agent.store);
+  agent.advance(60000);
+  assert.equal(await agent.store.reportPresence(), 'sent');
+  const sent = shared.sent.at(-1)[2];
+  assert.deepEqual([sent.role, sent.playing, sent.resident], ['host', false, true]);
+  const guest = setup({ server: shared.server });
+  await guest.register(WORLD_A, { 'LocalData.sav': fakeHandle('LocalData.sav') });
+  guest.advance(60000);
+  assert.equal(await guest.store.reportPresence(), 'sent');
+  // ページ（resident を渡さない）の値は今と同じ形
+  assert.equal('resident' in shared.sent.at(-1)[2], false);
+  assert.equal(guest.store.state.pages.list.filter((page) => page.resident === true).length, 1);
+  // 常駐の行はログインの ID によらず「サーバー（常駐）」。保存が続いていなければ「サーバー停止中」（警告にしない）
+  const lines = openPagesLines(guest.store.state, { now: guest.time });
+  assert.ok(lines.includes('● サーバー（常駐） · たった今 · サーバー停止中'), lines.join('\n'));
+  assert.ok(lines.some((line) => /^● ホスト（この PC） · たった今 · 参加者$/.test(line)), lines.join('\n'));
+});
+
 // ---- Codex のレビューの直し（page-presence） ----
 
 test('所持パル（page-presence・Codex のレビュー）: 遅れて届いた前のワールドの presence の応答は捨てる（その間に受け取った今のワールドの一覧を戻さない）', async () => {
@@ -2985,4 +3012,223 @@ test('所持パル（最終レビュー）: ゲーム中の推定を数え直す
   // 今のワールドの見張りの対象が変わったら数え直す
   await host.register(WORLD_A, { [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') });
   assert.deepEqual(host.store.state.play, emptyPlay());
+});
+
+// ---- サーバーのワールド（server の T1b） ----
+
+// サーバーの PC が読むセーブ（汎用のワールド名は解析で '' になる〔T1a〕。HostPlayerName もない）
+const serverSnapshot = (ticks, n = 2) => ({ ...stampedSnapshot(ticks, n), world: { name: '', hostName: '', savedAtTicks: ticks } });
+// サーバーのセーブのフォルダ（SaveGames\0\<ワールド ID>）で登録する
+const registerServer = async (target, files, input = {}) => target.commitRegistration(
+  await target.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped(files), ...input }),
+);
+
+test('所持パル（server の T1b）: サーバーのワールドは LocalData.sav・GlobalPalStorage.sav を受け取らずに登録し、役割はホスト。共有の world に saveKind: server・空のホスト名・前の共有の名前を送る', async () => {
+  const up = uploadServer();
+  // 協力プレイのときにホストが共有した
+  const coop = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1)) });
+  await coop.register(WORLD_A, hostFiles());
+  await settleUpload(coop.store);
+  assert.deepEqual([up.sent[0].world.name, up.sent[0].world.hostName, up.sent[0].world.saveKind], ['テスト', 'Alice', 'coop']);
+  assert.deepEqual([coop.store.state.local.world.saveKind, coop.store.state.meta.saveKind], ['coop', 'coop']);
+  // 同じワールドをサーバーに変換して、サーバーの PC が読む（ServerSync が写した古い LocalData.sav は、協力プレイなら参加と判定する時刻）
+  const host = setup({ server: up.as('サーバー'), runImport: async () => serverSnapshot(tickOf(2)) });
+  const files = { ...hostFiles(), '../GlobalPalStorage.sav': fakeHandle('GlobalPalStorage.sav') };
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  const preview = await host.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped(files) });
+  assert.deepEqual([preview.kind, preview.role, preview.hostName, preview.ignored], ['host', 'host', '', ['LocalData.sav', '../GlobalPalStorage.sav']]);
+  assert.deepEqual(preview.paths, ['Level.sav', 'LevelMeta.sav', PLAYERS]);
+  assert.deepEqual(await host.store.commitRegistration(preview), { persisted: true, result: 'imported' });
+  await settleUpload(host.store);
+  // セーブにも登録にも名前がなく、前の共有の名前もまだ読んでいない。送る前に一覧から前の名前を引く（空の名前で上書きしない）
+  const sent = up.sent.at(-1).world;
+  assert.deepEqual([sent.name, sent.hostName, sent.saveKind], ['テスト', '', 'server']);
+  assert.equal(host.store.state.upload.status, 'done');
+  const { local, meta } = host.store.state;
+  assert.deepEqual([host.store.state.role, local.world.hostName, local.world.saveKind], ['host', '', 'server']);
+  assert.deepEqual([meta.source, meta.worldName, meta.hostName, meta.saveKind], ['local', 'テスト', '', 'server']);
+  // 開き直しても手元のデータのセーブの種類は残る。形の違う値は ''（分からない）
+  const again = host.make();
+  await again.load();
+  assert.equal(again.state.meta.saveKind, 'server');
+  const saved = host.persist.map.get('pal-note.test.owned');
+  host.persist.map.set('pal-note.test.owned', { ...saved, world: { ...saved.world, saveKind: 'cloud' } });
+  const broken = host.make();
+  await broken.load();
+  assert.equal(broken.state.local.world.saveKind, '');
+});
+
+test('所持パル（server の T1b）: ワールドの名前は、明示した登録の名前 → セーブの名前 → 登録で覚えた名前 → 前の共有の名前。汎用の名前（Autosave_W）は送らない', async () => {
+  const up = uploadServer();
+  const coop = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(1)) });
+  await coop.register(WORLD_A, hostFiles());
+  await settleUpload(coop.store);
+  // 名前を明示した登録（常駐の設定など）は、前の共有の名前より先
+  const named = setup({ server: up.as('サーバー'), runImport: async () => serverSnapshot(tickOf(2)) });
+  const preview = await named.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped(hostFiles()), name: 'Alice のサーバー' });
+  assert.deepEqual([preview.name, preview.nameSet], ['Alice のサーバー', true]);
+  await named.store.commitRegistration(preview);
+  await settleUpload(named.store);
+  assert.deepEqual([up.sent.at(-1).world.name, named.store.state.meta.worldName], ['Alice のサーバー', 'Alice のサーバー']);
+  // 汎用の名前は、明示しても名前にしない
+  const generic = await named.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: [], name: 'autosave_w' });
+  assert.deepEqual([generic.name, generic.nameSet], ['Alice のサーバー', false]);
+  // 前の版の解析結果（汎用の名前が残ったスナップショット）でも Autosave_W は送らず、前の共有の名前を送る
+  const legacy = setup({
+    server: up.as('サーバー2'), runImport: async () => ({ ...serverSnapshot(tickOf(3)), world: { name: 'Autosave_W', hostName: '', savedAtTicks: tickOf(3) } }),
+  });
+  await legacy.store.fetchShared({ force: true });
+  await registerServer(legacy.store, hostFiles());
+  await settleUpload(legacy.store);
+  assert.deepEqual([up.sent.at(-1).world.name, legacy.store.state.meta.worldName], ['Alice のサーバー', 'Alice のサーバー']);
+  // セーブの名前がある協力プレイは、今どおりセーブの名前（ゲーム内で名前を変えたら追う）
+  const renamed = setup({
+    server: up.server, runImport: async () => ({ ...stampedSnapshot(tickOf(4)), world: { name: '新しい名前', hostName: 'Alice', savedAtTicks: tickOf(4) } }),
+  });
+  await renamed.store.fetchShared({ force: true });
+  await renamed.register(WORLD_A, hostFiles());
+  await settleUpload(renamed.store);
+  assert.equal(up.sent.at(-1).world.name, '新しい名前');
+  // 何も分からない（一覧にもない新しいワールド）なら空
+  const fresh = uploadServer();
+  const unknown = setup({ server: fresh.server, runImport: async () => serverSnapshot(tickOf(1)) });
+  await registerServer(unknown.store, hostFiles());
+  await settleUpload(unknown.store);
+  assert.deepEqual([fresh.sent.at(-1).world.name, unknown.store.state.upload.status], ['', 'done']);
+});
+
+test('所持パル（server の T1b）: 同じワールド ID の協力プレイの登録とサーバーのセーブは混ぜない（どちらが先でも止める。協力プレイどうしの Steam ID の直しは今どおり）', async () => {
+  const coop = setup();
+  await coop.register(WORLD_A, hostFiles());
+  await assert.rejects(
+    coop.store.previewRegistration({ worldId: WORLD_A, steamId: '0', files: asDropped({ 'Level.sav': fakeHandle('Level.sav') }) }),
+    /^Error: このワールドは協力プレイのフォルダで登録済みです。同じワールド ID でもサーバーのセーブとは混ぜて登録できません/,
+  );
+  const fixed = await coop.store.previewRegistration({ worldId: WORLD_A, steamId: '76561190123456789', files: asDropped({ [PLAYERS_2]: fakeHandle('00000000000000000000000000000002.sav') }) });
+  assert.deepEqual([fixed.kind, fixed.role, fixed.ignored], ['host', 'host', []]);
+  const server = setup({ runImport: async () => serverSnapshot(tickOf(1)) });
+  await registerServer(server.store, hostFiles());
+  await assert.rejects(
+    server.store.previewRegistration({ worldId: WORLD_A, steamId: '7656', files: asDropped(hostFiles()) }),
+    /^Error: このワールドはサーバーのフォルダで登録済みです。同じワールド ID でも協力プレイのセーブとは混ぜて登録できません/,
+  );
+  assert.deepEqual(server.store.state.auto.worlds.map((world) => [world.id, world.steamId, world.files.length]), [[WORLD_A, '0', 3]]);
+  // サーバーの必須は Level.sav・LevelMeta.sav（LocalData.sav は求めない・受け取らない）
+  const fresh = setup();
+  const lost = await fresh.store.previewRegistration({
+    worldId: WORLD_B, steamId: '0', files: asDropped({ 'Level.sav': fakeHandle('Level.sav'), 'LocalData.sav': fakeHandle('LocalData.sav') }),
+  }).catch((error) => error.message);
+  assert.equal(lost, 'LevelMeta.sav もドロップしてください');
+});
+
+test('所持パル（server の T1b）: ownedOf（CSV に保存する用）は表示と同じ規則。共有の方が新しければ共有、共有を読めなければ手元。参加者と判定したワールドの手元の古いデータは返さない', async () => {
+  const up = uploadServer();
+  const host = setup({ server: up.server, runImport: async () => stampedSnapshot(tickOf(2), 2) });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  const count = async () => (await host.store.ownedOf(WORLD_A))?.owned.pals.length ?? null;
+  // 手元と共有が同じセーブなら手元
+  assert.equal(await count(), 2);
+  // 別の PC が新しいセーブを共有した
+  const other = setup({ server: up.as('ホスト2'), runImport: async () => stampedSnapshot(tickOf(5), 3) });
+  await other.register(WORLD_A, hostFiles(T0 + 60000));
+  await settleUpload(other.store);
+  await host.store.fetchShared({ force: true });
+  assert.equal(await count(), 3);
+  // 共有を読めない（ログアウトした）なら、ホストの手元のデータ
+  up.setScope('');
+  await host.store.scopeChanged();
+  assert.equal(await count(), 2);
+  // 参加者と判定したワールドでは、手元のデータ（前にホストしたときの残り）は返さない。共有があれば共有
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  host.advance(25000);
+  assert.equal(await host.store.autoRefresh(), 'guest');
+  assert.equal(await count(), null);
+  up.setScope('test');
+  await host.store.scopeChanged();
+  assert.equal(await count(), 3);
+});
+
+test('所持パル（server の T1b）: ownedOf は一覧にだけ新しい共有があって中身を読めない（通信の失敗・時間切れ）とき、ホストなら手元のデータ、参加者と判定したワールドなら null', async () => {
+  const up = uploadServer();
+  // 中身（owned・ownedSince）だけを失敗させる（一覧は読める）
+  let failing = '';
+  const server = {
+    ...up.server,
+    async request(action, input) {
+      if (failing && (action === 'owned' || action === 'ownedSince')) throw Object.assign(new Error(failing), { code: failing });
+      return up.server.request(action, input);
+    },
+  };
+  const host = setup({ server, runImport: async () => stampedSnapshot(tickOf(2), 2) });
+  const files = hostFiles();
+  await host.register(WORLD_A, files);
+  await settleUpload(host.store);
+  // 別の PC が新しいセーブを共有した
+  const other = setup({ server: up.as('ホスト2'), runImport: async () => stampedSnapshot(tickOf(5), 3) });
+  await other.register(WORLD_A, hostFiles(T0 + 60000));
+  await settleUpload(other.store);
+  // 開き直したページ: 一覧（キャッシュ）にだけ新しい共有があり、中身はまだ持っていない
+  const { worlds } = await up.server.request('ownedWorlds');
+  await host.persist.set('pal-note.test.owned.shared.test', { worlds, current: null, fetchedAt: new Date(T0).toISOString() });
+  const page = host.make();
+  const count = async () => (await page.ownedOf(WORLD_A))?.owned.pals.length ?? null;
+  assert.equal(await count(), 3);
+  // 通信の失敗・時間切れでは、ホストの手元のデータ
+  for (const code of ['CONNECTION', 'TIMEOUT']) {
+    failing = code;
+    assert.equal(await count(), 2, code);
+  }
+  // 参加者と判定したワールドでは、手元のデータ（前にホストしたときの残り）は返さない
+  files['LocalData.sav'].time = T0 + 5 * 60 * 1000;
+  host.advance(25000);
+  assert.equal(await page.autoRefresh(), 'guest');
+  assert.equal(page.state.shared.current, null);
+  assert.equal(await count(), null);
+  failing = '';
+  assert.equal(await count(), 3);
+});
+
+// ---- 共有のワールドの追加の情報（server。OwnedWorlds の列 extras） ----
+
+test('所持パル（server）: 共有の中身の比べ方（OWNED_WORLD_FIELDS）は ownedFromShared が読むワールドの項目と同じ（追加の情報を含む）。ownedSince で入れ替える時刻・共有した人などは入れない', () => {
+  const read = new Set();
+  const world = new Proxy({
+    worldId: WORLD_A, worldName: 'テスト', hostName: '', inGameDay: 3, players: [], bases: [], farms: [], saveStamp: '5', uploadedAt: '2026-10-18T10:00:00.000Z',
+    saveKind: 'server', clock: '638650000000000005', formers: [{ uid: '00000000-0000-0000-0000-000000000001', pals: 1, farms: 0 }], formersPartial: true, items: [],
+  }, {
+    get(target, key, receiver) {
+      if (typeof key === 'string') read.add(key);
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  ownedFromShared({ world, columns: OWNED_FIELDS, rows: [] }, { pals, passives: [] });
+  assert.deepEqual([...read].sort(), [...OWNED_WORLD_FIELDS].sort());
+  for (const field of ['uploadedAt', 'uploadedBy', 'saveUpdatedAt', 'palCount', 'saveStamp']) assert.equal(OWNED_WORLD_FIELDS.includes(field), false, field);
+});
+
+test('所持パル（server）: サーバーの PC の共有のセーブの種類・通算の時間・以前の持ち主を、参加者の画面が共有から受け取る。追加の情報のない古い共有では分からない', async () => {
+  const H = '00000000-0000-0000-0000-000000000001';
+  const up = uploadServer();
+  // 拠点の個体の預けた人に、ワールドにいない旧ホスト（H）が残るサーバーのセーブ
+  const base = { instanceId: 'b1', characterId: 'SheepBall', passives: [], talent: {}, location: { kind: 'base', baseId: 'base-1' }, lastOwnerUid: H };
+  const saved = serverSnapshot(tickOf(2));
+  const host = setup({ server: up.as('サーバー'), runImport: async () => ({ ...saved, world: { ...saved.world, clock: tickOf(9) }, pals: [...saved.pals, base] }) });
+  await registerServer(host.store, hostFiles());
+  await settleUpload(host.store);
+  assert.equal(host.store.state.upload.status, 'done');
+  const sent = up.sent.at(-1).world;
+  assert.deepEqual([sent.saveKind, sent.clock, sent.formers, 'items' in sent], ['server', tickOf(9), [{ uid: H, pals: 1, farms: 0 }], false]);
+  const viewer = setup({ server: up.server });
+  await viewer.store.fetchShared({ force: true });
+  const { meta, owned, shared } = viewer.store.state;
+  assert.deepEqual([meta.source, meta.saveKind, owned.world.saveKind, owned.world.clock], ['shared', 'server', 'server', tickOf(9)]);
+  assert.deepEqual([owned.formers, owned.formersPartial], [[{ uid: H, kind: 'host', pals: 1, farms: 0 }], false]);
+  assert.equal(shared.worlds[0].saveKind, 'server');
+  // 追加の情報を送らない古い画面の共有に替わると、分からない
+  await publish(up, { prefix: 'old' });
+  await viewer.store.fetchShared({ force: true });
+  const after = viewer.store.state;
+  assert.deepEqual([after.meta.saveKind, after.owned.world.saveKind, after.owned.world.clock, after.owned.formers], ['', '', '', null]);
 });

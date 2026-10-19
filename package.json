@@ -23,7 +23,9 @@
     "fetch:icons": "node scripts/fetch-icons.mjs",
     "dev": "node scripts/dev-server.mjs",
     "check:save": "node scripts/check-save.mjs",
-    "gas:push": "npm run build:gas && clasp push --force"
+    "gas:push": "npm run build:gas && clasp push --force",
+    "agent": "node tools/server-agent/main.mjs",
+    "agent:check": "node tools/server-agent/main.mjs --check"
   },
   "devDependencies": {
     "@google/clasp": "3.4.1"

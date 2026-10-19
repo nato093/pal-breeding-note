@@ -2,9 +2,10 @@
  * シート操作の共通部品。列は位置ではなくヘッダー名で対応付ける。
  */
 
+// playerMap はプレイヤーの対応（server の mapping。gas/PlayerMap.js）
 var SHEET_NAMES_ = {
-  prod: { data: 'Breedings', log: 'Log', users: 'Users', ownedPals: 'OwnedPals', ownedWorlds: 'OwnedWorlds' },
-  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test', ownedPals: 'OwnedPals_test', ownedWorlds: 'OwnedWorlds_test' }
+  prod: { data: 'Breedings', log: 'Log', users: 'Users', ownedPals: 'OwnedPals', ownedWorlds: 'OwnedWorlds', playerMap: 'PlayerMap' },
+  test: { data: 'Breedings_test', log: 'Log_test', users: 'Users_test', ownedPals: 'OwnedPals_test', ownedWorlds: 'OwnedWorlds_test', playerMap: 'PlayerMap_test' }
 };
 
 var USER_HEADERS_ = ['userId', 'createdAt'];
@@ -32,8 +33,9 @@ var OWNED_WORLD_HEADERS_ = [
   'worldId', 'worldName', 'hostName', 'saveUpdatedAt', 'uploadedAt', 'uploadedBy', 'palCount', 'players', 'bases'
 ];
 // 後から足した列（なくても読める）。setup() を実行し直すと、既存のシートの末尾に足す。inGameDay はゲーム内の日数（save-extras）、
-// saveKey はセーブの識別（uploadedAt|stamp|hash|format|fileCount|missingCount。owned-gas。列がなければ識別なしとして今の更新日時で比べる）
-var OWNED_WORLD_OPTIONAL_HEADERS_ = ['farms', 'inGameDay', 'saveKey'];
+// saveKey はセーブの識別（uploadedAt|stamp|hash|format|fileCount|missingCount。owned-gas。列がなければ識別なしとして今の更新日時で比べる）、
+// extras は追加の情報（{ at: uploadedAt, saveKind, clock, formers, items } の JSON。server。列がなければ書かず返さない）
+var OWNED_WORLD_OPTIONAL_HEADERS_ = ['farms', 'inGameDay', 'saveKey', 'extras'];
 
 // 少人数の同時書き込み（1 件約 2〜3 秒）を待てる長さ。クライアントのタイムアウト（35 秒）より短くする
 var LOCK_TIMEOUT_MS_ = 25000;

@@ -1,7 +1,10 @@
 // セーブから読み込んだ所持パル（スナップショット）や、スプレッドシートで共有された所持パルを、
 // 画面・継承ルート・表計算で使う形にする。DOM には触れない。
 // スナップショットの形は web/js/save/palworld.js の buildSnapshot、共有の列は core/owned-shared.js を参照。
-import { OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay } from './owned-shared.js';
+import {
+  OWNED_FIELDS, cleanOwnedFarms, fitOwnedFarms, isMutationEggItem, OWNED_FARM_EGGS_MAX, OWNED_DPS_GAP_MAX, ownedInGameDay,
+  HOST_UID, hostIsPlayer, playerGuid, shortUid, formerLabel, cleanOwnedExtras, fitOwnedExtras, cleanOwnedCaptures, fitOwnedPlayers, OWNED_ITEMS_MAX,
+} from './owned-shared.js';
 import { isObject, int, intOrNull, text, idText, internalName, list, cleanSharedPlayers, cleanSharedBases, PLAYERS_MAX, BASES_MAX } from './boundary.js';
 import { normalizeQuery, queryTerms } from './kana.js';
 import humanList from '../../data/humans.js';
@@ -132,15 +135,18 @@ export function createSpeciesResolver(pals) {
   };
 }
 
-/** プレイヤー・ギルドの UID の頭 8 字（- を除いた大文字。名前の分からない・同じ名前のプレイヤーを見分けるとき） */
-export const shortUid = (uid) => String(uid ?? '').replace(/-/g, '').slice(0, 8).toUpperCase();
+// UID の頭 8 字は core/owned-shared.js に置く（以前の持ち主の表示名 formerLabel と同じ。ここから読む画面のために出し直す）
+export { shortUid };
 
-// 協力プレイのホストの PlayerUId（SAVE_FORMAT.md）
-const HOST_UID = '00000000-0000-0000-0000-000000000001';
-
-export function playerName(players, uid) {
+/**
+ * 個体の所持者・預けた人の表示名（uid → プレイヤーの Map から）。名前のないプレイヤーは「不明なプレイヤー（頭 8 字）」、プレイヤーにいない
+ * UID（以前の持ち主）は formerLabel（H なら「以前のホスト」。協力プレイで H がプレイヤーにいれば、今までどおりホストの名前）
+ */
+export function ownerName(players, uid) {
   if (!uid) return '';
-  return players.get(uid)?.name || `不明なプレイヤー（${shortUid(uid)}）`;
+  const player = players.get(uid);
+  if (player) return player.name || `不明なプレイヤー（${shortUid(uid)}）`;
+  return formerLabel(uid);
 }
 
 const GENDERS = { Male: 'M', Female: 'F' };
@@ -235,7 +241,7 @@ const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 /** 時刻の文字列（toISOString の形）ならそのまま、違えば '' */
 export const ownedTime = (value) => (typeof value === 'string' && ISO_MS.test(value) && Number.isFinite(Date.parse(value)) ? value : '');
 const SOUL = { min: 0, max: 100, fallback: 0 };
-// 魂の強化（{ hp, attack, defense, craft }。段階の数）。スナップショットにない（読む前のセーブ）・共有では null
+// 魂の強化（{ hp, attack, defense, craft }。段階の数）。スナップショットにない（読む前のセーブ）・列のない古い共有では null
 function soulOf(value) {
   if (!isObject(value)) return null;
   return { hp: int(value.hp, SOUL), attack: int(value.attack, SOUL), defense: int(value.defense, SOUL), craft: int(value.craft, SOUL) };
@@ -246,11 +252,29 @@ function conditionOf(value) {
   const sanity = typeof value.sanity === 'number' && Number.isFinite(value.sanity) ? Math.min(100, Math.max(0, Math.round(value.sanity * 10) / 10)) : null;
   return { sick: internalName(value.sick, 64), hunger: internalName(value.hunger, 64), sanity };
 }
+// 魂の強化と状態の共有の列（server の share-extras。owned-shared.js の OWNED_ADDED_FIELDS）。'' は分からない（タマゴ・読む前のセーブ）。
+// soul は 'hp|attack|defense|craft'（0〜100 の整数）、condition は '病気|空腹|SAN'（病気・空腹はゲームの内部名か ''、SAN は 0〜100 の整数か
+// ''＝読めない）。SAN は画面がいつも整数に丸めて出すので、整数で送る（保存のたびに小数だけ変わる個体で、送る中身が変わらないように）
+const soulCell = (soul) => (soul ? `${soul.hp}|${soul.attack}|${soul.defense}|${soul.craft}` : '');
+const conditionCell = (condition) => (condition
+  ? `${condition.sick}|${condition.hunger}|${condition.sanity === null ? '' : Math.round(condition.sanity)}` : '');
+const CELL_NUMBER = /^\d{1,3}$/;
+// 列の文字を読み戻す。数が合わない・形が違えば null（分からない）。値は soulOf・conditionOf で整える
+function parseSoulCell(cell) {
+  const parts = cell.split('|');
+  if (parts.length !== 4 || !parts.every((part) => CELL_NUMBER.test(part))) return null;
+  return soulOf({ hp: Number(parts[0]), attack: Number(parts[1]), defense: Number(parts[2]), craft: Number(parts[3]) });
+}
+function parseConditionCell(cell) {
+  const parts = cell.split('|');
+  if (parts.length !== 3 || (parts[0] && !internalName(parts[0])) || (parts[1] && !internalName(parts[1])) || (parts[2] && !CELL_NUMBER.test(parts[2]))) return null;
+  return conditionOf({ sick: parts[0], hunger: parts[1], sanity: parts[2] ? Number(parts[2]) : null });
+}
 // プレイヤーの Lv（0 は分からない）とプレイ中（true・false、分からなければ null）
 const PLAYER_LEVEL = { min: 0, max: 999, fallback: 0 };
 const playerExtras = (player) => ({ level: int(player.level, PLAYER_LEVEL), online: typeof player.online === 'boolean' ? player.online : null });
 
-// ---- 捕獲数（paldex。Players/<uid>.sav の RecordData の PalCaptureCount。ホストの画面だけ・共有しない） ----
+// ---- 捕獲数（paldex。Players/<uid>.sav の RecordData の PalCaptureCount。共有の players の captures で参加者にも届く。server の share-extras） ----
 const CAPTURE_COUNT_MAX = 10000000;
 const CAPTURE_ENTRIES_MAX = 2000;
 /**
@@ -274,7 +298,7 @@ function capturesOf(value, resolve) {
 
 /**
  * 自分のプレイヤー（uids。ideals の selfUids）の捕獲数を種族ごとに合わせる（パル詳細の「捕獲 N」と図鑑のマスの数。paldex）。
- * 自分が分からない・自分のプレイヤーに捕獲数がない（参加者の画面・共有のデータ・古いスナップショット）なら null（出さない）
+ * 自分が分からない・自分のプレイヤーに捕獲数がない（古いスナップショット・捕獲数のない古い共有・セルに入らず外した人）なら null（出さない）
  * @param {{ uid: string, captures?: Record<string, number> }[]} players normalizeOwned のプレイヤー
  * @param {Set<string>} uids
  * @returns {Map<string, number> | null}
@@ -292,7 +316,7 @@ export function ownCaptures(players, uids) {
 // ゲーム内の日数（1〜1000000 の整数。0・欠けている・読めない・範囲外〔'9e99' など〕は丸めずに null。共有側の ownedInGameDay と同じ。
 // 前は範囲外を 1000000 に丸め、「1000000 日目」と出して共有もした。フェーズ 4 の終わりのレビュー）
 const cleanDay = (value) => ownedInGameDay(value);
-// 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない。ホストの画面だけ）
+// 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない。共有の farms の c で参加者にも届く）
 const CAKES_MAX = 16;
 function cakesOf(value) {
   if (!Array.isArray(value)) return null;
@@ -303,7 +327,7 @@ function cakesOf(value) {
   });
 }
 
-// ---- アイテムの在庫（implants。インプラントとパルリバーサー。ホストの画面だけ・共有しない） ----
+// ---- アイテムの在庫（implants。インプラントとパルリバーサー。共有の world の items〔列 extras〕で参加者にも届く。server の share-extras） ----
 // 在庫に数えるアイテム（web/js/save/palworld.js の STOCK_ITEM と同じ）と、場所の数（多い順に 3 つまで）
 const STOCK_ITEM = /^(?:PalPassiveSkillChange_[A-Za-z0-9_]{1,100}|PalGenderReverse)$/i;
 const STOCK_PLACES = 3;
@@ -330,7 +354,7 @@ function stockOf(value, { baseLabel, players }) {
     const object = typeof entry.object === 'string' && Object.hasOwn(STOCK_OBJECTS, entry.object) ? entry.object : 'other';
     const label = entry.where === 'base' ? joinName(baseLabel(id), `の${STOCK_OBJECTS[object]}`)
       : entry.where === 'guild' ? 'ギルド保管庫'
-        : entry.where === 'player' && id ? joinName(playerName(players, id), 'の所持品') : '';
+        : entry.where === 'player' && id ? joinName(ownerName(players, id), 'の所持品') : '';
     if (!label) continue;
     const key = itemId.toLowerCase();
     let item = byItem.get(key);
@@ -344,8 +368,8 @@ function stockOf(value, { baseLabel, players }) {
 }
 
 /**
- * アイテムの在庫（implants）。手元で読んだホストのデータ（normalizeOwned）にだけある。参加者（共有のデータ）・在庫を読む前の
- * スナップショットでは null（分からない）。読んだデータにないアイテムは { total: 0, places: [] }（在庫なし）
+ * アイテムの在庫（implants）。在庫を読む前のスナップショット・在庫のない古い共有では null（分からない）。読んだデータにないアイテムは
+ * { total: 0, places: [] }（在庫なし）。ただし共有の在庫が種類の上限で切れている（itemsPartial）ときは、ないアイテムも null（分からない）
  * @param {object | null | undefined} owned normalizeOwned / ownedFromShared の結果
  * @param {string} itemId アイテム ID（PalPassiveSkillChange_*・PalGenderReverse。大文字小文字は問わない）
  * @returns {{ total: number, places: { label: string, count: number }[] } | null}
@@ -356,7 +380,8 @@ export function itemStock(owned, itemId) {
   if (Object.hasOwn(items, itemId)) return items[itemId];
   const lower = itemId.toLowerCase();
   const found = Object.keys(items).find((key) => key.toLowerCase() === lower);
-  return found ? items[found] : { total: 0, places: [] };
+  if (found) return items[found];
+  return owned.itemsPartial === true ? null : { total: 0, places: [] };
 }
 
 /**
@@ -426,14 +451,16 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
   // 捕獲数（paldex）はパル ID ごとの回数にして、読めたプレイヤーだけに captures を付ける（古いスナップショットには項目がない）
   // パル次元ストレージの読み漏れ（dps-missing）の候補のプレイヤーには、読めていない数（dpsGap）を付ける（共有で参加者に知らせる）。
   // 解析結果のプレイヤーに同じ名前の項目があっても使わない（ここで求めた値だけ）
+  // キャラクターの InstanceId（server の identity。プレイヤーの鍵 i: に使う）は GUID の形のときだけ小文字で付ける（古いスナップショットにはない）
   const gap = dpsMissing(snapshot);
   const gapUids = new Set(gap?.candidates.map((player) => player.uid) ?? []);
   const players = new Map(objects(snapshot?.players).filter((player) => idText(player.uid, 40))
-    .map(({ captures: raw, dpsGap: _gap, ...player }) => {
+    .map(({ captures: raw, dpsGap: _gap, instanceId: rawInstance, ...player }) => {
       const captures = capturesOf(raw, resolve);
+      const instanceId = playerGuid(rawInstance);
       return [player.uid, {
         ...player, name: text(player.name, 50), ...playerExtras(player), ...(captures ? { captures } : {}),
-        ...(gapUids.has(player.uid) ? { dpsGap: gap.missing } : {}),
+        ...(gapUids.has(player.uid) ? { dpsGap: gap.missing } : {}), ...(instanceId ? { instanceId } : {}),
       }];
     }));
   const bases = new Map(objects(snapshot?.bases).filter((base) => idText(base.id, 40)).map((base) => [base.id, base]));
@@ -447,8 +474,16 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const guild = guildNames.get(base.guildId);
     return `${label}（${guild && !/^[0-9a-f]{32}$/i.test(guild) ? guild : `ギルド ${shortUid(base.guildId)}`}）`;
   };
-  // グローバルパルボックスは、セーブを読み込んだ PC のアカウント（協力プレイのホスト）のもの
-  const globalHolder = players.get(HOST_UID)?.name || text(snapshot?.world?.hostName, 50) || 'ホスト';
+  // グローバルパルボックスは、セーブを読み込んだ PC のアカウント（協力プレイのホスト）のもの。H の名前を使うのは H がプレイヤーにいる
+  // ワールド（協力プレイ）だけ（サーバーのワールドの H は以前の持ち主で、人ではない）
+  const globalHolder = (hostIsPlayer(players) ? players.get(HOST_UID).name : '') || text(snapshot?.world?.hostName, 50) || 'ホスト';
+  // ワールドにいない UID（以前の持ち主）ごとの数（拠点・観賞用ケージの個体の預けた人と、牧場の親を預けた人）
+  const formers = new Map();
+  const former = (uid) => {
+    let entry = formers.get(uid);
+    if (!entry) formers.set(uid, (entry = { uid, kind: uid === HOST_UID ? 'host' : 'unknown', pals: 0, farms: 0 }));
+    return entry;
+  };
   const entries = [];
   const seen = new Set();
   for (const source of objects(snapshot?.pals)) {
@@ -472,7 +507,7 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     if (kind === 'base' || kind === 'display' || atBase) holder = baseLabel(location.baseId);
     else if (kind === 'global') holder = globalHolder;
     else if (kind === 'egg-guild') holder = 'ギルド保管庫';
-    else holder = playerName(players, holderUid) || '不明';
+    else holder = ownerName(players, holderUid) || '不明';
     let placeDetail = PLACE_LABELS[kind];
     // パルボックス・パル次元ストレージはページと位置まで出す（共有の placeLabel にも入るので、参加している人にも出る）
     const boxFormat = BOX_FORMATS.get(kind);
@@ -483,6 +518,8 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const passiveIds = cleanPassives(source.passives);
     const pal = palsById.get(palId);
     const rank = int(source.rank, RANK);
+    const lastOwnerUid = idText(source.lastOwnerUid, 64);
+    if ((kind === 'base' || kind === 'display') && lastOwnerUid && !players.has(lastOwnerUid)) former(lastOwnerUid).pals++;
     entries.push({
       id,
       palId,
@@ -517,9 +554,9 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
       holderUid,
       holder: text(holder, 60),
       lastOwnerUid: source.lastOwnerUid ?? '',
-      lastOwner: playerName(players, source.lastOwnerUid),
+      lastOwner: ownerName(players, source.lastOwnerUid),
       baseId: location.baseId ?? '',
-      // save-extras: 入手した時刻（ISO。持ち主のない個体・読む前のセーブは ''）・魂の強化と状態（読む前のセーブは null。共有しない）
+      // save-extras: 入手した時刻（ISO。持ち主のない個体・読む前のセーブは ''）・魂の強化と状態（読む前のセーブは null。共有の列 soul・condition）
       ownedAt: ownedTime(source.ownedAt),
       soul: soulOf(source.soul),
       condition: conditionOf(source.condition),
@@ -529,10 +566,12 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     const eggs = list(farm.eggs, { max: FARM_EGGS_MAX, map: (egg) => (isObject(egg) && idText(egg.localId) ? {
       id: egg.localId, palId: resolve(text(egg.characterId, 200)).palId, mutant: isMutationEggItem(text(egg.itemId, 200)),
     } : null) });
+    const depositors = new Set(list(farm.parents, { map: (parent) => (isObject(parent) ? idText(parent.depositorUid, 64) || null : null) }));
+    for (const uid of depositors) if (!players.has(uid)) former(uid).farms++;
     return {
       id: farm.id, baseId: farm.baseId ?? '', parents: list(farm.parents, { map: (parent) => (isObject(parent) ? parent.instanceId : null) }),
       status: farm.status === 'uncertain' ? 'uncertain' : 'ok', eggs, eggCount: eggs.length,
-      // 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない〔ケーキを読む前のセーブ・入れ物が読めない〕。共有しない）
+      // 牧場のケーキ（[{ itemId, count }]。[] はケーキ切れ、null は分からない〔ケーキを読む前のセーブ・入れ物が読めない〕。共有の c）
       cakes: cakesOf(farm.cakes),
     };
   }) : null;
@@ -556,8 +595,15 @@ export function normalizeOwned(snapshot, { pals, passives, humans = humanList })
     //（共有で n のない古い形は false。空いて見える牧場が読めない牧場かもしれないので、空き牧場の判定をしない）
     farmsPartial: false,
     farmsCounted: true,
-    // アイテムの在庫（インプラント・パルリバーサー。itemStock で引く。implants）。在庫を読む前のスナップショットは null
+    // アイテムの在庫（インプラント・パルリバーサー。itemStock で引く。implants）。在庫を読む前のスナップショットは null。
+    // itemsPartial は在庫が一部だけか（共有で種類の上限に達したとき。手元のセーブはいつも全部）
     items: stockOf(snapshot?.items, { baseLabel, players }),
+    itemsPartial: false,
+    // ワールドにいない UID（以前の持ち主）ごとの { uid, kind: 'host'（H。「以前のホスト」）| 'unknown', pals: 拠点・観賞用ケージの個体の数,
+    // farms: 親を預けた牧場の数 }。H を先、残りは UID の順（server の identity。プレイヤーの対応の行に出す）。formersPartial は一部だけか
+    //（共有でセルに入らず切ったとき。手元のセーブはいつも全部）
+    formers: [...formers.values()].sort((a, b) => Number(b.kind === 'host') - Number(a.kind === 'host') || compareText(a.uid, b.uid)),
+    formersPartial: false,
     stats: snapshot?.stats ?? {},
   };
 }
@@ -617,7 +663,7 @@ function keywordFields(pal) {
     passiveDescs: pal.passiveDescs ?? [],
     gender: GENDER_WORDS[pal.gender] ?? [],
     // 配合牧場の親と牧場の上のタマゴは「配合牧場」、突然変異のタマゴは「突然変異」でも探せる（farm-board）
-    // 病気・空腹の個体は「病気」「空腹」でも探せる（save-extras。ホストの画面だけ）
+    // 病気・空腹の個体は「病気」「空腹」でも探せる（save-extras。状態の分かるデータだけ）
     status: [pal.egg && 'タマゴ', pal.egg && eggName(pal.eggItemId), pal.lucky && 'ラッキー', pal.alpha && 'アルファ', pal.farm && '配合牧場', isMutantEgg(pal) && '突然変異',
       pal.condition?.sick && '病気', pal.condition?.hunger && '空腹'],
     holder: [pal.holder],
@@ -1081,11 +1127,12 @@ export function partnerOwnership(bySpecies, palId, passives) {
 // ---------------------------------------------------------------------------
 
 /** 画面用の一覧を、共有の行（OWNED_FIELDS の順の配列）にする。文字列はそのまま送り、式の無害化は GAS 側で行う。 */
-// 画面用の 1 牧場を共有の形にする（短い鍵。owned-shared.js の cleanOwnedFarms）
+// 画面用の 1 牧場を共有の形にする（短い鍵。owned-shared.js の cleanOwnedFarms）。ケーキ（c）は分かるときだけ、読めない牧場にも付ける
 function sharedFarm(farm) {
   const count = Number.isInteger(farm.eggCount) ? farm.eggCount : Array.isArray(farm.eggs) ? farm.eggs.length : 0;
-  if (farm.status === 'uncertain') return { id: farm.id, baseId: farm.baseId, parents: [], s: 'u', n: count };
-  const shared = { id: farm.id, baseId: farm.baseId, parents: farm.parents, n: count };
+  const cakes = Array.isArray(farm.cakes) ? { c: farm.cakes.map((cake) => ({ i: cake.itemId, n: cake.count })) } : {};
+  if (farm.status === 'uncertain') return { id: farm.id, baseId: farm.baseId, parents: [], s: 'u', n: count, ...cakes };
+  const shared = { id: farm.id, baseId: farm.baseId, parents: farm.parents, n: count, ...cakes };
   if (Array.isArray(farm.eggs)) {
     shared.eggs = farm.eggs.slice(0, OWNED_FARM_EGGS_MAX).map((egg) => ({ id: egg.id, ...(egg.palId ? { p: egg.palId } : {}), ...(egg.mutant ? { m: 1 } : {}) }));
   }
@@ -1101,6 +1148,8 @@ export function sharedUpload(owned) {
       lucky: pal.lucky ? '1' : '', alpha: pal.alpha ? '1' : '', egg: pal.egg ? '1' : '', place: pal.place, placeLabel: pal.placeLabel,
       holderUid: pal.holderUid, holder: pal.holder, baseId: pal.baseId, lastOwner: pal.lastOwner, skillIds: pal.skills.join('|'),
       eggItemId: pal.eggItemId ?? '', ownedAt: pal.ownedAt ?? '',
+      // 魂の強化と状態（server の share-extras）。タマゴは分からない（''）
+      soul: pal.egg ? '' : soulCell(pal.soul), condition: pal.egg ? '' : conditionCell(pal.condition),
     };
     for (let i = 0; i < 4; i++) value[`passive${i + 1}`] = pal.passiveNames[i] ?? '';
     return OWNED_FIELDS.map((field) => value[field] ?? '');
@@ -1108,12 +1157,21 @@ export function sharedUpload(owned) {
   return {
     // プレイヤーの Lv とプレイ中（save-extras）は players の JSON の中に足す（古い GAS は捨てるだけで、共有は止まらない）。
     // 分からない値（Lv 0・プレイ中 null）は送らない
-    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）も同じく players の中に、候補のプレイヤーにだけ付ける
-    players: owned.players.map((player) => ({
-      uid: player.uid, name: player.name,
-      ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
-      ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
-      ...(Number.isInteger(player.dpsGap) && player.dpsGap > 0 ? { dpsGap: Math.min(player.dpsGap, OWNED_DPS_GAP_MAX) } : {}),
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）も同じく players の中に、候補のプレイヤーにだけ付ける。
+    // キャラクターの InstanceId（server の identity）も、分かるプレイヤーにだけ付ける（参加者の画面がプレイヤーの鍵 i: を引くため）。
+    // 捕獲数（captures。server の share-extras）も、読めたプレイヤーにだけ付け、GAS と同じ関数でセルに入るよう縮めてから送る（後ろの人から
+    // 捕獲数を外す。送る中身と GAS が残す中身をそろえ、中身の印とずれないように。farms と同じ）
+    players: fitOwnedPlayers(owned.players.map((player) => {
+      const instanceId = playerGuid(player.instanceId);
+      const captures = cleanOwnedCaptures(player.captures);
+      return {
+        uid: player.uid, name: player.name,
+        ...(Number.isInteger(player.level) && player.level > 0 ? { level: player.level } : {}),
+        ...(typeof player.online === 'boolean' ? { online: player.online } : {}),
+        ...(Number.isInteger(player.dpsGap) && player.dpsGap > 0 ? { dpsGap: Math.min(player.dpsGap, OWNED_DPS_GAP_MAX) } : {}),
+        ...(instanceId ? { instanceId } : {}),
+        ...(captures ? { captures } : {}),
+      };
     })),
     bases: owned.bases.map((base) => ({ id: base.id, label: base.label })),
     // 牧場の情報がなければ送らない（「牧場なし」と区別するため）。牧場ごとにタマゴの数（n）と中身（eggs。20 個まで）を足し、セルに入るよう
@@ -1123,6 +1181,32 @@ export function sharedUpload(owned) {
     columns: OWNED_FIELDS,
     rows,
   };
+}
+
+// 在庫の数の上限（owned-shared.js の cleanOwnedItems と同じ。合計がこれを超えるアイテムを捨てさせないよう、送る前に丸める）
+const SHARED_ITEM_COUNT_MAX = 1000000;
+/**
+ * 画面用の在庫（stockOf の形。アイテム ID → { total, places }）を共有の形（[{ id, t, p?: [{ l, n }] }]。owned-shared.js の cleanOwnedItems）に
+ * する。アイテム ID の順。在庫を読む前のデータは null（送らない）
+ */
+function sharedItems(items) {
+  if (!isObject(items)) return null;
+  const count = (value) => Math.min(SHARED_ITEM_COUNT_MAX, value);
+  return Object.keys(items).sort(textOrder).map((id) => {
+    const places = Array.isArray(items[id]?.places) ? items[id].places : [];
+    return { id, t: count(items[id]?.total), ...(places.length ? { p: places.map((place) => ({ l: place.label, n: count(place.count) })) } : {}) };
+  });
+}
+
+/**
+ * 共有の world に入れる追加の情報（server。GAS は OwnedWorlds の列 extras に 1 つの JSON で残す。owned-shared.js の cleanOwnedExtras）:
+ * セーブの種類（saveKind。手元のデータの登録から決まるので呼ぶ側が渡す）・ワールドが動いた通算の時間（clock）・以前の持ち主（formers）・
+ * アイテムの在庫（items。share-extras）。GAS と同じ関数でセルに入るよう縮めてから返し（送る中身と GAS が残す中身をそろえる。在庫は中身の
+ * 印に入る）、分からない項目（'' と null）は送らない
+ */
+export function sharedExtras(owned, saveKind) {
+  const extras = fitOwnedExtras(cleanOwnedExtras({ saveKind, clock: owned.world?.clock, formers: owned.formers, items: sharedItems(owned.items) }));
+  return Object.fromEntries(Object.entries(extras ?? {}).filter(([, value]) => value !== '' && value !== null));
 }
 
 // 鍵の名前の順に並べ直した写し（配列の中の順は変えない）
@@ -1141,12 +1225,14 @@ const sortedRowTexts = (rows) => rows.map((row) => JSON.stringify(Array.isArray(
 
 /**
  * 共有の中身の印（world.contentHash。送る側が UTF-8 の SHA-256 にする。web/js/owned.js）の元にする文字列（sync-fixes の share-upload）。
- * upload は送る形 { worldId, world: { name, hostName, inGameDay? }, players, bases, farms?, columns, rows }（古い GAS に合わせて列を
+ * upload は送る形 { worldId, world: { name, hostName, inGameDay?, items? }, players, bases, farms?, columns, rows }（古い GAS に合わせて列を
  * 狭めたときは狭めた後の形）。次の順の配列を JSON にする:
- *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns, rows]
+ *   [worldId, world.name, world.hostName, world.inGameDay（数でなければ null）, players, bases, farms（送らなければ null）, columns,
+ *    world.items（在庫。配列のときだけ。ないときは要素ごと入れない）, rows]
  * - 入れないもの: world の識別の項目（saveStamp・contentHash・format・fileCount・missingCount・force）、saveUpdatedAt（セーブのファイルの
- *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる
- * - 並びによらない: 行は行の JSON の順（先頭のセルが個体 ID なので、ほぼ個体 ID の順）、players・bases・farms は要素の JSON の順に
+ *   更新日時。SaveSync の同期で中身が同じでも変わる）、userId（送った人）。同じセーブの同じ中身なら、どの PC・いつ送っても同じになる。
+ *   world の追加の情報（server）のうち saveKind・clock・formers も入れない（同じセーブなら同じ値で、所持パルの中身ではない）
+ * - 並びによらない: 行は行の JSON の順（先頭のセルが個体 ID なので、ほぼ個体 ID の順）、players・bases・farms・items は要素の JSON の順に
  *   並べ直し、object の鍵は名前の順にする（個体の並びは登録したファイルの順〔_dps.sav など〕で変わり、PC ごとに登録の順が違うことが
  *   ある）。列の並びは中身なので変えない
  * - 列の名前と行のセルは文字列にする（シートには文字列で残る。null・undefined は ''）
@@ -1161,6 +1247,8 @@ export function ownedContentText(upload) {
     sortedList(Array.isArray(source.bases) ? source.bases : []),
     Array.isArray(source.farms) ? sortedList(source.farms) : null,
     Array.isArray(source.columns) ? source.columns.map(cellText) : [],
+    // 在庫のない形（在庫を送らない画面）は前と同じ文字列にする
+    ...(Array.isArray(world.items) ? [sortedList(world.items)] : []),
   ]);
   // 行は最後の要素。並べた行の JSON をつないで、配列ごとの JSON と同じ文字列にする
   const rows = Array.isArray(source.rows) ? sortedRowTexts(source.rows) : [];
@@ -1179,14 +1267,22 @@ function sharedFarms(value, palsById) {
     id: farm.id, baseId: farm.baseId, parents: farm.s === 'u' ? [] : farm.parents, status: farm.s === 'u' ? 'uncertain' : 'ok',
     eggs: Array.isArray(farm.eggs) ? farm.eggs.map((egg) => ({ id: egg.id, palId: palsById.has(egg.p) ? egg.p : '', mutant: egg.m === 1 })) : null,
     eggCount: Number.isInteger(farm.n) ? farm.n : Array.isArray(farm.eggs) ? farm.eggs.length : 0,
-    // ケーキは共有しない（ホストの画面だけ。save-extras）
-    cakes: null,
+    // ケーキ（c。server の share-extras）。c のない古い共有・セルに入らず外したときは分からない（null）
+    cakes: Array.isArray(farm.c) ? farm.c.map((cake) => ({ itemId: cake.i, count: cake.n })) : null,
   }));
   return {
     farms,
     farmsPartial: raw.some((farm) => Number.isInteger(farm.of) && farm.of > raw.length),
     farmsCounted: raw.length === 0 || raw.some((farm) => Number.isInteger(farm.n)),
   };
+}
+
+// 共有の在庫（cleanOwnedItems の形）を、画面用の形（アイテム ID → { total, places: [{ label, count }] }。stockOf と同じ）に戻す。
+// 場所の内訳を外した在庫（セルに入らず縮めた）は places が空（在庫の文は数だけ）
+function itemsFromShared(items) {
+  return Object.fromEntries(items.map((item) => [item.id, {
+    total: item.t, places: Array.isArray(item.p) ? item.p.map((place) => ({ label: place.l, count: place.n })) : [],
+  }]));
 }
 
 /**
@@ -1202,11 +1298,24 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
   const index = new Map(columns.map((field, i) => [field, i]));
   // 列の位置は 1 回だけ引き、行ごとには位置で読む（20,000 行で列名を何度も探さない）
   const at = (field) => index.get(field) ?? -1;
-  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS, EGG_ITEM, OWNED_AT] = [
+  const [ID, PAL_ID, PAL_NAME, CHARACTER, NICKNAME, GENDER, LEVEL_AT, RANK_AT, STARS, PASSIVE_IDS, HP, SHOT, DEFENSE, LUCKY, ALPHA, EGG, PLACE, PLACE_LABEL, HOLDER_UID, HOLDER, BASE_ID, LAST_OWNER, SKILL_IDS, EGG_ITEM, OWNED_AT, SOUL_AT, CONDITION_AT] = [
     'instanceId', 'palId', 'palName', 'characterId', 'nickname', 'gender', 'level', 'rank', 'stars', 'passiveIds', 'talentHp', 'talentShot', 'talentDefense',
-    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds', 'eggItemId', 'ownedAt',
+    'lucky', 'alpha', 'egg', 'place', 'placeLabel', 'holderUid', 'holder', 'baseId', 'lastOwner', 'skillIds', 'eggItemId', 'ownedAt', 'soul', 'condition',
   ].map(at);
   const PASSIVE_NAMES = [at('passive1'), at('passive2'), at('passive3'), at('passive4')];
+  // 魂の強化と状態のセルは、同じ文字（多くの個体で '0|0|0|0'・'||100'）を 1 回だけ読む（20,000 行で行ごとに配列と object を作らない。
+  // 読んだ値はどこからも書き換えないので、同じ文字の個体で使い回す）。'' は読まずに null（分からない）
+  const cellReader = (parse) => {
+    const cache = new Map();
+    return (cell) => {
+      if (!cell) return null;
+      let value = cache.get(cell);
+      if (value === undefined) cache.set(cell, (value = parse(cell)));
+      return value;
+    };
+  };
+  const readSoul = cellReader(parseSoulCell);
+  const readCondition = cellReader(parseConditionCell);
   const entries = [];
   const seen = new Set();
   // 読み戻した共有の行は、要素ごとに形を確かめる（配列でない行・個体 ID（1〜64 字）がない行・同じ ID の後の行は捨てる）
@@ -1250,26 +1359,44 @@ export function ownedFromShared(shared, { pals, passives, humans = humanList }) 
       // 共有には位置の列がないので、placeLabel の文字から読む（パルボックス・パル次元ストレージ。書式の違う古い共有は null で、文字だけを出す）
       box: parseBoxLabel(placeLabel, kind),
       holderUid: get(HOLDER_UID), holder: text(get(HOLDER), 60) || '不明', lastOwnerUid: '', lastOwner: get(LAST_OWNER), baseId: get(BASE_ID),
-      // ownedAt は後から足した列（save-extras）。列のない共有（GAS の setup() の前・古い画面）では空。魂の強化と状態は共有しない（null）
-      ownedAt: ownedTime(get(OWNED_AT)), soul: null, condition: null,
+      // ownedAt は後から足した列（save-extras）。列のない共有（GAS の setup() の前・古い画面）では空。魂の強化と状態（soul・condition。
+      // server の share-extras）も後から足した列で、列のない共有・タマゴでは分からない（null）
+      ownedAt: ownedTime(get(OWNED_AT)),
+      soul: egg ? null : readSoul(get(SOUL_AT)), condition: egg ? null : readCondition(get(CONDITION_AT)),
     });
   }
   const farmData = sharedFarms(world.farms, palsById);
   attachFarms(entries, farmData.farms);
+  // 追加の情報（server。GAS の列 extras を world に広げたもの）。列のない GAS・古いホストの画面の共有では分からない（null）
+  const extras = cleanOwnedExtras(world);
   return {
-    // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）
-    world: { name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay) },
+    // inGameDay は後から足したワールドの列（save-extras。列のない GAS・古いホストの画面の共有では null）。
+    // saveKind（セーブの種類）と clock（ワールドが動いた通算の時間）は追加の情報（分からなければ ''）
+    world: {
+      name: text(world.worldName, 100), hostName: text(world.hostName, 50), inGameDay: cleanDay(world.inGameDay),
+      saveKind: extras?.saveKind ?? '', clock: extras?.clock ?? '',
+    },
     // Lv とプレイ中は players の JSON の中（save-extras。古い共有では Lv 0・プレイ中 null＝分からない）。
-    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある
+    // パル次元ストレージの読み漏れの数（dpsGap。dps-missing）は、ホストの画面が候補にしたプレイヤーにだけある。
+    // キャラクターの InstanceId（server の identity）と捕獲数（captures。share-extras。自分の分を ownCaptures で引く）は、分かるプレイヤーに
+    // だけある（古い共有・古い GAS・セルに入らず捕獲数を外したプレイヤーでは付かない）
     players: cleanSharedPlayers(world.players).map((player) => ({
       uid: player.uid, name: player.name || '不明', ...playerExtras(player), ...(player.dpsGap ? { dpsGap: player.dpsGap } : {}),
+      ...(player.instanceId ? { instanceId: player.instanceId } : {}), ...(player.captures ? { captures: player.captures } : {}),
     })),
     bases: cleanSharedBases(world.bases).map((base) => ({ id: base.id, label: base.label || '拠点' })),
     pals: entries,
     // 牧場を共有する前の GAS・ホストの画面から受けたデータには farms がない（null: 牧場の情報がない）
     ...farmData,
-    // アイテムの在庫は共有しない（ホストの画面だけ。implants）
-    items: null,
+    // アイテムの在庫（追加の情報の items。share-extras）を itemStock が引く形に戻す。在庫のない古い共有では分からない（null）。
+    // 種類の上限まで届いていれば、届かなかったアイテムがあるかもしれない（itemsPartial。見つからないアイテムを「在庫なし」にしない）
+    items: Array.isArray(extras?.items) ? itemsFromShared(extras.items) : null,
+    itemsPartial: Array.isArray(extras?.items) && extras.items.length >= OWNED_ITEMS_MAX,
+    // ワールドにいない UID（以前の持ち主。共有には uid と数だけ）。古い共有では分からない（null）。formersPartial はセルに入らず一部だけのとき
+    formers: extras?.formers
+      ? extras.formers.map((former) => ({ uid: former.uid, kind: former.uid === HOST_UID ? 'host' : 'unknown', pals: former.pals, farms: former.farms }))
+      : null,
+    formersPartial: extras?.formersPartial === true,
     stats: {},
   };
 }

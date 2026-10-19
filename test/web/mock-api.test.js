@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import pals from '../../web/data/pals.js';
 import { createDevelopmentApi, VIEWER_WORLD_ID } from '../../dev/mock-api.js';
 import { createApi } from '../../web/js/api.js';
+import { OWNED_FIELDS, OWNED_FORMERS_MAX, OWNED_EXTRAS_MAX_CHARS, ownedExtrasText } from '../../web/js/core/owned-shared.js';
 
 const ids = pals.filter((pal) => pal.active).slice(0, 5).map((pal) => pal.id);
 const input = (overrides = {}) => ({ id: crypto.randomUUID(), parent1Id: ids[0], parent2Id: ids[1], childId: ids[2],
@@ -287,6 +288,12 @@ test('モック（roles）: as=viewer なら、ホスト（Alice）が 3 分前�
   assert.ok(minutes > 2.5 && minutes < 3.5, String(minutes));
   const shared = await api(ownedRequest('owned', { worldId: VIEWER_WORLD_ID }));
   assert.equal(shared.rows.length, 30);
+  // ホストの画面だけだった情報（server の share-extras）: 捕獲数・ケーキ・在庫・魂の強化と状態（GAS と同じ検査を通した値）
+  assert.deepEqual([world.players[0].captures, world.farms.map((farm) => farm.c), world.saveKind, world.items.length], [
+    { SheepBall: 12, PinkCat: 3 }, [[{ i: 'Cake02', n: 51 }], [], undefined], 'coop', 2,
+  ]);
+  const soulAt = shared.columns.indexOf('soul');
+  assert.deepEqual(shared.rows[0].slice(soulAt), ['0|0|0|0', '||100']);
   assert.deepEqual((await createDevelopmentApi({ as: 'host' })(ownedRequest('ownedWorlds'))).worlds, []);
   assert.deepEqual((await createDevelopmentApi()(ownedRequest('ownedWorlds'))).worlds, []);
 });
@@ -316,4 +323,65 @@ test('モック（page-presence）: ページを開いている PC はページ�
   assert.equal((await api(ownedRequest('ownedSince', { uploadedAt: '' }))).presence.length, 2);
   // presence の操作で形が違えば VALIDATION
   assert.equal((await api(ownedRequest('presence', { presence: page('alice-page-0003', { role: 'admin' }) }))).code, 'VALIDATION');
+});
+
+test('モック（server）: 共有のワールドの追加の情報（world の中の saveKind・clock・formers・items）を GAS と同じ関数で整えて world に広げて返す。分からない共有では付けない', async () => {
+  const api = createDevelopmentApi();
+  const worldId = 'ABCDEF0123456789ABCDEF0123456789';
+  const H = '00000000-0000-0000-0000-000000000001';
+  const ownedRequest = (action, extra = {}) => ({ action, passcode: 'ローカル動作確認', ...extra });
+  const send = (world, saveUpdatedAt) => api(ownedRequest('ownedUpload', {
+    userId: 'サーバー', worldId, world: { name: 'World9', hostName: '', ...world }, saveUpdatedAt, players: [], bases: [], columns: OWNED_FIELDS,
+    rows: [OWNED_FIELDS.map((field) => (field === 'instanceId' ? 'p1' : ''))],
+  }));
+  const extras = { saveKind: 'server', clock: '638650000000000005', formers: [{ uid: H, pals: 66, farms: 2 }], items: [{ id: 'PalGenderReverse', t: 3 }] };
+  const stored = await send({ ...extras, formers: [{ uid: H, kind: 'host', pals: 66, farms: 2 }, { uid: '', pals: 1, farms: 0 }] }, '2026-10-18T10:00:00.000Z');
+  assert.equal(stored.stored, true);
+  const pick = (world) => Object.fromEntries(['saveKind', 'clock', 'formers', 'formersPartial', 'items'].filter((key) => key in world).map((key) => [key, world[key]]));
+  assert.deepEqual(pick(stored.world), extras);
+  assert.deepEqual(pick((await api(ownedRequest('ownedWorlds'))).worlds[0]), extras);
+  assert.deepEqual(pick((await api(ownedRequest('owned', { worldId }))).world), extras);
+  assert.deepEqual(pick((await api(ownedRequest('ownedSince', { worldId, uploadedAt: '' }))).world), extras);
+  // セルに入るよう縮める（GAS と同じ fitOwnedExtras）
+  const formers = Array.from({ length: OWNED_FORMERS_MAX }, (_, i) => ({ uid: `u${String(i).padStart(39, '0')}`, pals: 20000, farms: 20000 }));
+  const big = await send({ saveKind: 'server', formers }, '2026-10-18T10:01:00.000Z');
+  assert.equal(big.world.formersPartial, true);
+  assert.ok(ownedExtrasText(big.world.uploadedAt, pick(big.world)).length <= OWNED_EXTRAS_MAX_CHARS);
+  // 追加の情報を送らない古い画面の共有では付けない（前の値も残さない）
+  const old = await send({}, '2026-10-18T10:02:00.000Z');
+  assert.deepEqual([pick(old.world), pick((await api(ownedRequest('ownedWorlds'))).worlds[0])], [{}, {}]);
+});
+
+test('モック（server の mapping）: プレイヤーの対応を GAS と同じ規則で扱い（ID の表記・ノートにない ID・onlyMissing・外した印・上限）、本物の API クライアントで読める。ID の変更で対応の ID も変える', async () => {
+  const api = createApi({ transport: createDevelopmentApi() });
+  const call = (action, input) => api.request(action, 'ローカル動作確認', input);
+  const worldId = 'ABCDEF0123456789ABCDEF0123456789';
+  const key = (n) => `i:11111111-2222-4333-8444-${String(n).padStart(12, '0')}`;
+  const H_KEY = 'u:00000000-0000-0000-0000-000000000001';
+  const set = (entries, extra = {}) => call('playerMapSet', { userId: 'Bob', worldId, entries, ...extra });
+  const shape = (entries) => entries.map((entry) => [entry.key, entry.userId, entry.updatedBy]);
+  await call('signup', { userId: 'Taro' });
+  await call('signup', { userId: 'Hanako' });
+  assert.deepEqual((await call('playerMap', { worldId })).entries, []);
+  const stored = await set([{ key: key(1), userId: 'ＴＡＲＯ', playerName: 'Alice', updatedBy: '送らない' }, { key: H_KEY, userId: 'Hanako' }]);
+  assert.deepEqual([stored.changed, stored.skipped, shape(stored.entries)], [2, 0, [[key(1), 'Taro', 'Bob'], [H_KEY, 'Hanako', 'Bob']]]);
+  assert.equal(stored.entries[0].playerName, 'Alice');
+  await assert.rejects(set([{ key: key(2), userId: '未登録' }]), (error) => {
+    assert.deepEqual([error.code, error.response.errors], ['VALIDATION', [{ field: 'entries.0.userId', code: 'USER_NOT_FOUND' }]]);
+    return true;
+  });
+  await assert.rejects(set([{ key: 'u:', userId: 'Taro' }]), { code: 'VALIDATION' });
+  const cleared = await set([{ key: H_KEY, userId: '' }]);
+  const migrated = await set([{ key: H_KEY, userId: 'Taro' }, { key: key(2), userId: 'Taro' }], { onlyMissing: true });
+  assert.deepEqual([cleared.changed, migrated.changed, migrated.skipped], [1, 1, 1]);
+  assert.deepEqual(shape((await call('playerMap', { worldId: worldId.toLowerCase() })).entries), [[key(1), 'Taro', 'Bob'], [H_KEY, '', 'Bob'], [key(2), 'Taro', 'Bob']]);
+  // 1 ワールド 200 の鍵まで（外した印を含む）
+  for (let start = 3; start < 200; start += 50) await set(Array.from({ length: Math.min(50, 200 - start) }, (_, i) => ({ key: key(start + i), userId: '' })));
+  assert.equal((await call('playerMap', { worldId })).entries.length, 200);
+  await assert.rejects(set([{ key: key(999), userId: '' }]), (error) => error.response.errors[0].code === 'TOO_MANY');
+  // ID の変更で、対応の ID と書いた人の ID も新しい ID にする
+  await set([{ key: key(1), userId: 'Hanako' }], { userId: 'taro' });
+  await call('rename', { userId: 'Taro', newUserId: 'Jiro' });
+  const renamed = (await call('playerMap', { worldId })).entries.slice(0, 3);
+  assert.deepEqual(shape(renamed), [[key(1), 'Hanako', 'Jiro'], [H_KEY, '', 'Bob'], [key(2), 'Jiro', 'Bob']]);
 });

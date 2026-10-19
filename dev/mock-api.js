@@ -2,7 +2,10 @@
 const webRoot = new URL(import.meta.url.startsWith('file:') ? '../web/' : '../', import.meta.url);
 const [
   { default: pals }, { normalizeRecord, identityKey, pairKey }, { validateRecordInput }, { validateUserId, userIdKey },
-  { OWNED_FIELDS, OWNED_PRESENCE_MAX, OWNED_PRESENCE_TTL_S, validateOwnedUpload, ownedWorldId, decideOwnedUpload, cleanPresenceInput },
+  {
+    OWNED_FIELDS, OWNED_PRESENCE_MAX, OWNED_PRESENCE_TTL_S, validateOwnedUpload, ownedWorldId, decideOwnedUpload, cleanPresenceInput,
+    validatePlayerMapSet, planPlayerMapSet, cleanPlayerMapEntries,
+  },
 ] = await Promise.all([
   import(new URL('data/pals.js', webRoot)), import(new URL('js/core/pair.js', webRoot)), import(new URL('js/core/validate.js', webRoot)), import(new URL('js/core/user.js', webRoot)),
   import(new URL('js/core/owned-shared.js', webRoot)),
@@ -17,6 +20,8 @@ const fields = {
   ownedUpload: ['userId', 'worldId', 'world', 'saveUpdatedAt', 'players', 'bases', 'farms', 'columns', 'rows'],
   // 共有が変わったか・ページを開いている PC（GAS の ownedSince・presence と同じ動き。owned-gas）
   ownedSince: ['worldId', 'uploadedAt', 'presence'], presence: ['worldId', 'presence'],
+  // プレイヤーの対応（GAS の playerMap・playerMapSet と同じ規則。server の mapping）
+  playerMap: ['worldId'], playerMapSet: ['userId', 'worldId', 'entries', 'onlyMissing'],
 };
 const inputFields = ['parent1Id', 'parent2Id', 'childId', 'parent1Gender', 'parent2Gender', 'registrant', 'memo'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +40,9 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
   const ownedWorlds = new Map();
   // ページを開いている PC（ワールド ID → ページの ID → { entry, at }）。GAS の CacheService と同じく 6 時間・1 ワールド 50 件
   const presences = new Map();
+  // プレイヤーの対応（ワールド ID → 鍵 → { key, userId, playerName, updatedBy, updatedAt }）。GAS のシート PlayerMap と同じく、外した対応は
+  // userId '' の印として残す
+  const playerMaps = new Map();
   const palIds = new Set(pals.map((pal) => pal.id));
   let revision = 0;
   let acceptedPasscode = passcode?.trim();
@@ -167,9 +175,9 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
   if (as === 'viewer') seedViewerWorld();
   function seedViewerWorld() {
     const now = Date.now();
-    // Lv とプレイ中（save-extras。players の JSON の中）。Alice と Bob はプレイ中
+    // Lv とプレイ中（save-extras。players の JSON の中）。Alice と Bob はプレイ中。Alice には捕獲数（server の share-extras）
     const players = [
-      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice', level: 52, online: true },
+      { uid: '00000000-0000-0000-0000-00000000a11c', name: 'Alice', level: 52, online: true, captures: { SheepBall: 12, PinkCat: 3 } },
       { uid: '00000000-0000-0000-0000-00000000b0b0', name: 'Bob', level: 47, online: true },
       { uid: '00000000-0000-0000-0000-00000000ca01', name: 'Carol', level: 31, online: false },
     ];
@@ -197,26 +205,31 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
         holderUid: atBase ? '' : holder.uid, holder: atBase ? base.label : holder.name, baseId: atBase ? base.id : '', lastOwner: atBase ? holder.name : '', skillIds: '',
         // 入手した時刻（save-extras）。後の個体ほど新しい（最後の個体は共有の 6 分前）
         ownedAt: new Date(now - (6 + (26 - index) * 37) * 60 * 1000).toISOString(),
+        // 魂の強化と状態（server の share-extras）。拠点の個体は空腹か病気
+        soul: index === 7 ? '10|0|0|1' : '0|0|0|0', condition: atBase && index % 8 === 3 ? '|Starvation|62' : atBase ? 'Cold||88' : '||100',
       };
       return OWNED_FIELDS.map((field) => value[field] ?? '');
     });
     // 牧場の短い鍵（farm-data）: n はタマゴの数、eggs は中身（m: 1 は突然変異）
     const egg = (index) => ({ id: `viewer-${String(index).padStart(3, '0')}`, p: species[index % species.length] });
+    // c はケーキ（server の share-extras。[] はケーキ切れ）
     const farms = [
-      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'], n: 3, eggs: [egg(27), { ...egg(28), m: 1 }, egg(29)] },
-      { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'], n: 0, eggs: [] },
+      { id: 'farm-1', baseId: 'base-1', parents: ['viewer-000', 'viewer-001'], n: 3, eggs: [egg(27), { ...egg(28), m: 1 }, egg(29)], c: [{ i: 'Cake02', n: 51 }] },
+      { id: 'farm-2', baseId: 'base-1', parents: ['viewer-002'], n: 0, eggs: [], c: [] },
       { id: 'farm-3', baseId: 'base-2', parents: [], n: 0, eggs: [] },
     ];
+    // 在庫（server の share-extras。world の中で受けて列 extras に入る）
+    const items = [{ id: 'PalGenderReverse', t: 4, p: [{ l: '拠点 1 の箱', n: 3 }, { l: 'Alice の所持品', n: 1 }] }, { id: 'PalPassiveSkillChange_Rare', t: 1 }];
     const checked = validateOwnedUpload({
-      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice', inGameDay: 123 }, saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(),
-      players, bases, farms, columns: OWNED_FIELDS, rows,
+      worldId: VIEWER_WORLD_ID, world: { name: 'みんなのワールド', hostName: 'Alice', inGameDay: 123, saveKind: 'coop', items },
+      saveUpdatedAt: new Date(now - 4 * 60 * 1000).toISOString(), players, bases, farms, columns: OWNED_FIELDS, rows,
     });
     if (!checked.ok) return;
     const input = checked.value;
     const world = {
       worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
       uploadedAt: new Date(now - 3 * 60 * 1000).toISOString(), uploadedBy: 'Alice', palCount: input.rows.length, players: input.players, bases: input.bases, farms: input.farms,
-      inGameDay: input.inGameDay, saveStamp: '',
+      inGameDay: input.inGameDay, saveStamp: '', ...(input.extras ?? {}),
     };
     ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: null });
   }
@@ -268,6 +281,8 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
         worldId: input.worldId, worldName: input.worldName, hostName: input.hostName, saveUpdatedAt: input.saveUpdatedAt,
         uploadedAt, uploadedBy, palCount: input.rows.length, players: input.players, bases: input.bases,
         farms: input.farms, inGameDay: input.inGameDay, saveStamp: input.identity ? input.identity.stamp : '',
+        // 追加の情報（server。GAS の列 extras）は、分かるときだけ world に広げる（validateOwnedUpload でセルに入るよう縮めてある）
+        ...(input.extras ?? {}),
       };
       ownedWorlds.set(input.worldId, { world, rows: input.rows, identity: input.identity });
       return { stored: true, result: decision.result, world, cleanup: true, serverTime: uploadedAt };
@@ -302,7 +317,29 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
     return { world: entry?.world ?? null, columns: OWNED_FIELDS, rows: entry?.rows ?? [], serverTime };
   }
 
-  // 名前の変更。配合の登録者名と所持パルの共有者名も新しい名前にそろえる（GAS の actionRename_ と同じ判定）。
+  // プレイヤーの対応の読み書き（GAS の gas/PlayerMap.js と同じ規則。検査と書き込みの規則は core/owned-shared.js の関数）
+  function playerMap(request) {
+    const serverTime = new Date(clock()).toISOString();
+    if (request.action === 'playerMap') {
+      const worldId = ownedWorldId(request.worldId);
+      if (!worldId) return invalid('worldId', 'INVALID_WORLD');
+      return { worldId, entries: cleanPlayerMapEntries([...(playerMaps.get(worldId)?.values() ?? [])]), serverTime };
+    }
+    const checked = validatePlayerMapSet(request, {
+      checkUserId: validateUserId,
+      findUser: (userId) => users.find((user) => userIdKey(user) === userIdKey(userId)) ?? '',
+    });
+    if (!checked.ok) return { ok: false, code: 'VALIDATION', errors: checked.errors };
+    const input = checked.value;
+    const current = playerMaps.get(input.worldId) ?? new Map();
+    const plan = planPlayerMapSet([...current.values()], input, serverTime);
+    if (!plan.ok) return { ok: false, code: 'VALIDATION', errors: plan.errors };
+    for (const entry of plan.writes) current.set(entry.key, entry);
+    playerMaps.set(input.worldId, current);
+    return { worldId: input.worldId, entries: cleanPlayerMapEntries(plan.entries), changed: plan.changed, skipped: plan.skipped, serverTime };
+  }
+
+  // 名前の変更。配合の登録者名と所持パルの共有者名、プレイヤーの対応の ID（userId・updatedBy）も新しい名前にそろえる（GAS の actionRename_ と同じ判定）。
   function rename(request) {
     if (!uuid.test(request.opId ?? '')) return invalid('opId', 'INVALID_UUID');
     const current = validateUserId(request.userId);
@@ -318,6 +355,13 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
     const from = userIdKey(current.value);
     for (const record of records.values()) if (userIdKey(record.registrant) === from) publish({ ...record, registrant: next.value });
     for (const { world } of ownedWorlds.values()) if (userIdKey(world.uploadedBy) === from) world.uploadedBy = next.value;
+    for (const entries of playerMaps.values()) {
+      for (const entry of entries.values()) {
+        // 外した印（userId が ''）は対象にならない
+        if (entry.userId && userIdKey(entry.userId) === from) entry.userId = next.value;
+        if (entry.updatedBy && userIdKey(entry.updatedBy) === from) entry.updatedBy = next.value;
+      }
+    }
     users[index] = next.value;
     const result = { userId: next.value };
     operations.set(key, result);
@@ -330,12 +374,22 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
     // ローカルの初回入力をセッションのコードとし、以後の誤入力も検証できるようにする。
     if (acceptedPasscode === undefined) acceptedPasscode = request.passcode.trim();
     if (request.passcode.trim() !== acceptedPasscode) return fail('AUTH');
+    // 認証の後の失敗にも env を付ける（GAS の handleRequest_ と同じ）
+    const response = await authenticated(request);
+    return response?.ok === false ? { ...response, env: 'test' } : response;
+  };
+
+  async function authenticated(request) {
     const unknown = Object.keys(request).find((key) => !['action', 'passcode', ...fields[request.action]].includes(key));
     if (unknown) return invalid(unknown, 'UNKNOWN_FIELD');
     const base = { ok: true, env: 'test', api: 'pal-note-local-v1' };
     if (request.action === 'snapshot') return { ...base, ...snapshot() };
     if (request.action.startsWith('owned') || request.action === 'presence') {
       const result = owned(request);
+      return structuredClone(result.ok === false ? result : { ...base, ...result });
+    }
+    if (request.action === 'playerMap' || request.action === 'playerMapSet') {
+      const result = playerMap(request);
       return structuredClone(result.ok === false ? result : { ...base, ...result });
     }
     if (request.action === 'rename') {
@@ -372,5 +426,5 @@ export function createDevelopmentApi({ seed, passcode, as, now: clock = () => Da
     if (!['delete', 'restore'].includes(request.action)) delete output.record.deleted;
     operations.set(key, structuredClone(output));
     return structuredClone({ ...base, ...output, snapshot: snapshot() });
-  };
+  }
 }

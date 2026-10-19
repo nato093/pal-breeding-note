@@ -1,4 +1,4 @@
-// この端末にだけあるデータ（下書き・目標と観測・通知の既読・自動登録の通知・登録者の対応）の書き出しの組み立てと、読み込みの検証・併合
+// この端末にだけあるデータ（下書き・目標と観測・通知の既読・自動登録の通知・前の版の登録者の対応）の書き出しの組み立てと、読み込みの検証・併合
 //（settings。F081）。DOM・保存先は持たない（書き込みは各ストアの関数が行う。キャッシュと別のタブの決まりを守るため）。
 // 含めないもの: パスワード・記録のキャッシュ・所持パル（セーブから読み直せる）・自動登録の牧場の記録（端末をまたぐと照合を取り違える）・
 // 理想個体の計画の記憶・画面の状態。読み込むファイルは信用しない（大きさ・形・版・環境を確かめ、各項目を今の検証で整える）
@@ -33,7 +33,8 @@ export function deviceFileName(env, now = new Date()) {
 
 /**
  * 書き出す値を組み立てる（各ストアの今の値を受け取る）。drafts はストアの下書き（親の性別つき）で、保存の形（性別なし）と
- * 性別の対応（draftGenders）に分けて書く。mappings は { worldId: { playerUid: userId } }（空のワールドは書かない）
+ * 性別の対応（draftGenders）に分けて書く。mappings は前の版の対応 { worldId: { playerUid: userId } }（空のワールドは書かない。GAS のプレイヤーの
+ * 対応〔server の mapping〕はノートにあるので含めない。読み込んだ分は前の版の対応に足し、GAS で動いていれば auto-register.js が GAS にない分だけ上げる）
  */
 export function buildDeviceData({ env, userId, drafts = [], goals = [], observations = null, read = [], notices = [], mappings = {}, now = Date.now }) {
   const draftGenders = {};

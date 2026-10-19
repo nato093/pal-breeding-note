@@ -92,14 +92,14 @@ test('名前の変更: 他の人の名前・同じ名前・未登録・不正な
   const state = () => JSON.stringify(['Users_test', 'Breedings_test', 'Log_test'].map((name) => env.sheet(name).data));
   const before = state();
   for (const [input, expected] of [
-    [{ userId: 'Taro', newUserId: 'ｈａｎａｋｏ' }, { ok: false, code: 'USER_EXISTS' }],
-    [{ userId: 'Taro', newUserId: 'Taro' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'SAME_ID' }] }],
-    [{ userId: '未登録', newUserId: '新しい名前' }, { ok: false, code: 'USER_NOT_FOUND' }],
-    [{ userId: 'Taro', newUserId: '' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'REQUIRED' }] }],
-    [{ userId: 'Taro', newUserId: 'あ'.repeat(21) }, { ok: false, code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'TOO_LONG' }] }],
-    [{ userId: '', newUserId: 'Jiro' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'userId', code: 'REQUIRED' }] }],
-    [{ userId: 'Taro', newUserId: 'Jiro', extra: 1 }, { ok: false, code: 'VALIDATION', errors: [{ field: 'extra', code: 'UNKNOWN_FIELD' }] }],
-    [{ userId: 'Taro', newUserId: 'Jiro', opId: 'x' }, { ok: false, code: 'VALIDATION', errors: [{ field: 'opId', code: 'INVALID_UUID' }] }],
+    [{ userId: 'Taro', newUserId: 'ｈａｎａｋｏ' }, { ok: false, env: 'test', code: 'USER_EXISTS' }],
+    [{ userId: 'Taro', newUserId: 'Taro' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'SAME_ID' }] }],
+    [{ userId: '未登録', newUserId: '新しい名前' }, { ok: false, env: 'test', code: 'USER_NOT_FOUND' }],
+    [{ userId: 'Taro', newUserId: '' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'REQUIRED' }] }],
+    [{ userId: 'Taro', newUserId: 'あ'.repeat(21) }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'newUserId', code: 'TOO_LONG' }] }],
+    [{ userId: '', newUserId: 'Jiro' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'userId', code: 'REQUIRED' }] }],
+    [{ userId: 'Taro', newUserId: 'Jiro', extra: 1 }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'extra', code: 'UNKNOWN_FIELD' }] }],
+    [{ userId: 'Taro', newUserId: 'Jiro', opId: 'x' }, { ok: false, env: 'test', code: 'VALIDATION', errors: [{ field: 'opId', code: 'INVALID_UUID' }] }],
   ]) {
     assert.deepEqual(env.call('rename', input), expected);
     assert.equal(state(), before);
@@ -200,4 +200,70 @@ test('名前の変更: 対象の行がなくても書き込みを呼ばずに終
   assert.equal(env.sheet('Breedings_test').log.some((entry) => entry.op === 'getRangeList'), false);
   const busy = fixture({ lockAvailable: false });
   assert.equal(busy.call('rename', { userId: 'Taro', newUserId: 'Jiro' }).code, 'BUSY');
+});
+
+// プレイヤーの対応（server の mapping。gas/PlayerMap.js）
+const MAP_HEADERS = ['worldId', 'key', 'userId', 'playerName', 'updatedBy', 'updatedAt'];
+const mapKey = (n) => `i:11111111-2222-4333-8444-${String(n).padStart(12, '0')}`;
+const seedMap = (env, name, rows) => { env.sheet(name).data = [[...MAP_HEADERS], ...rows]; };
+const mapIds = (env, name = 'PlayerMap_test') => env.sheet(name).data.slice(1).map((line) => [line[2], line[4]]);
+
+test('名前の変更: プレイヤーの対応（PlayerMap）の userId・updatedBy も新しい名前にする（表記ゆれも）。外した印・ほかの人の行・本番は変えない', () => {
+  const env = fixture();
+  env.call('signup', { userId: 'Taro' });
+  env.call('signup', { userId: 'Hanako' });
+  seedMap(env, 'PlayerMap_test', [
+    [WORLD, mapKey(1), 'Taro', 'Alice', 'taro', TIME],
+    [WORLD, mapKey(2), 'ＴＡＲＯ', "'=Bob", 'Hanako', TIME],
+    [WORLD, mapKey(3), '', '', 'Taro', TIME],
+    [WORLD, mapKey(4), 'Hanako', '', 'Hanako', TIME],
+    [WORLD, mapKey(5), 'Taro2', '', 'Taro2', TIME],
+  ]);
+  seedMap(env, 'PlayerMap', [[WORLD, mapKey(1), 'Taro', '', 'Taro', TIME]]);
+  const prod = JSON.stringify(env.sheet('PlayerMap').data);
+  assert.equal(env.call('rename', { userId: 'Taro', newUserId: 'Jiro' }).userId, 'Jiro');
+  assert.deepEqual(mapIds(env), [['Jiro', 'Jiro'], ['Jiro', 'Hanako'], ['', 'Jiro'], ['Hanako', 'Hanako'], ['Taro2', 'Taro2']]);
+  // 対象外のセル（数式除けの引用符付きの名前・時刻）は書き直さない
+  const lines = env.sheet('PlayerMap_test').data.slice(1);
+  assert.equal(lines[1][3], "'=Bob");
+  assert.ok(lines.every((line) => line[5] === TIME));
+  assert.equal(JSON.stringify(env.sheet('PlayerMap').data), prod);
+  assert.deepEqual(env.call('playerMap', { worldId: WORLD }).entries.map((entry) => entry.userId), ['Jiro', 'Jiro', '', 'Hanako', 'Taro2']);
+});
+
+test('名前の変更: PlayerMap のシートがなくても（setup() の前）成功し、見出しが壊れていれば何も書き換えずに SHEET_HEADER', () => {
+  const env = fixture();
+  env.call('signup', { userId: 'Taro' });
+  env.seedRecords([record(1)]);
+  env.spreadsheet.deleteSheet(env.sheet('PlayerMap_test'));
+  assert.equal(env.call('rename', { userId: 'Taro', newUserId: 'Jiro' }).userId, 'Jiro');
+  assert.deepEqual(registrants(env), ['Jiro']);
+  const broken = fixture();
+  broken.call('signup', { userId: 'Taro' });
+  broken.seedRecords([record(1)]);
+  seedMap(broken, 'PlayerMap_test', [[WORLD, mapKey(1), 'Taro', '', 'Taro', TIME]]);
+  broken.sheet('PlayerMap_test').data[0][4] = 'by';
+  const state = () => JSON.stringify(['Users_test', 'Breedings_test', 'Log_test', 'PlayerMap_test'].map((name) => broken.sheet(name).data));
+  const before = state();
+  assert.deepEqual(broken.call('rename', { userId: 'Taro', newUserId: 'Jiro' }), { ok: false, env: 'test', code: 'SHEET_HEADER' });
+  assert.equal(state(), before);
+});
+
+test('名前の変更: 対応を書き換える前に止まっても、同じ opId で続きから行える（Users は最後）', () => {
+  const env = fixture();
+  env.call('signup', { userId: 'Taro' });
+  env.seedRecords([record(1)]);
+  seedMap(env, 'PlayerMap_test', [[WORLD, mapKey(1), 'Taro', '', 'Taro', TIME]]);
+  const opId = crypto.randomUUID();
+  const write = env.gas.writeCells_;
+  env.gas.writeCells_ = (sheet, ...rest) => {
+    if (sheet.getName() === 'PlayerMap_test') throw new Error('中断');
+    return write(sheet, ...rest);
+  };
+  assert.equal(env.call('rename', { opId, userId: 'Taro', newUserId: 'Jiro' }).code, 'INTERNAL');
+  assert.deepEqual([registrants(env), mapIds(env), env.call('snapshot').users], [['Jiro'], [['Taro', 'Taro']], ['Taro']]);
+  env.gas.writeCells_ = write;
+  assert.equal(env.call('rename', { opId, userId: 'Taro', newUserId: 'Jiro' }).userId, 'Jiro');
+  assert.deepEqual([mapIds(env), env.call('snapshot').users], [[['Jiro', 'Jiro']], ['Jiro']]);
+  assert.deepEqual(env.logRows().map((line) => line[1]), ['rename', 'renamed']);
 });

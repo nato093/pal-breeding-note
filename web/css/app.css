@@ -1845,6 +1845,8 @@ button.route-partner-chip:hover { background: var(--state-hover); }
 .owned-world-state { flex: 0 0 auto; }
 .owned-world-label { flex: 1 1 16em; overflow-wrap: anywhere; }
 .owned-world-details[open] > .owned-breeding, .owned-world-details[open] > .owned-world-pals { margin-top: 8px; padding: 8px 0 4px; border-top: 1px solid var(--line); }
+/* 前にブラウザで登録した専用サーバーのセーブの行: 削除を勧める 1 行（閉じたままでも見えるよう、行の幅いっぱいの 2 段目） */
+.owned-server-note { grid-column: 1 / -1; flex-basis: 100%; margin: 0 0 4px; color: var(--warning); }
 /* 登録・編集のモーダル: ① パスと ② ドロップを同じ幅で縦に並べる */
 .world-dialog .owned-step { display: grid; gap: 6px; margin: 0 0 14px; }
 .world-dialog .owned-path, .world-dialog .owned-drop { width: 100%; max-width: none; box-sizing: border-box; }
@@ -3336,6 +3338,8 @@ button.ideal-reverser-pal:hover { text-decoration: underline; }
 .owned-breeding-player { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 14px; }
 .owned-breeding-player span { min-width: 8em; font-weight: 700; overflow-wrap: anywhere; }
 .owned-breeding-player select { flex: 1 1 12em; max-width: 100%; }
+/* プレイヤーにいない UID（以前のホストなど。server の mapping）の行の「拠点 n 体・牧場 m か所」は名前の下に小さく */
+.owned-breeding-player .owned-former-count { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 
 /* ---------- 画面の骨組み・細部の動き（2026-10 のデザイン刷新で追加） ---------- */
 /* 左にナビゲーションを固定し、その幅だけ中身を右へ寄せる */

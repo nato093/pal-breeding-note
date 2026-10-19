@@ -1372,9 +1372,10 @@ test('画面: 理想個体の「設定で選ぶ」で設定へ移ると、「こ
   const select = document.activeElement;
   assert.equal(select.getAttribute('aria-label'), 'このワールドでの自分');
   assert.deepEqual(select.children.map((node) => node.textContent), ['未設定（自分の個体を判定しません）', 'アリス']);
-  select.value = PLAYER;
+  // 選択肢の値と保存する値はプレイヤーの鍵（server の identity。InstanceId のない共有のプレイヤーは 'u:<uid>'）
+  select.value = `u:${PLAYER}`;
   await select.dispatch('change');
-  assert.equal(values.get(`pal-note.ideals.self.test.架空データ.${WORLD_A}`), PLAYER);
+  assert.equal(values.get(`pal-note.ideals.self.test.架空データ.${WORLD_A}`), `u:${PLAYER}`);
   assert.equal(JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A].complete, true);
 });
 
@@ -1405,6 +1406,49 @@ test('画面: 別のタブで「登録者の対応」を変えたら（storage �
   assert.ok(selectHaving('mine'));
 });
 
+test('画面（server の mapping）: 別のタブが GAS のプレイヤーの対応の写しを書き換えたら（storage イベント）、本人の変化として理想個体を描き直す', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_A);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', worlds: {} }];
+  const { values, events } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals) }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const status = () => byClass('ideal-goal-status').textContent;
+  assert.equal(status(), '未確認');
+  // 別のタブが GAS から読んだ対応（アリスのプレイヤーをログイン中の ID に）を写しに書いた
+  const key = `pal-note.autoBreeding.playerMap.test.${WORLD_A}`;
+  values.set(key, JSON.stringify({ v: 1, entries: { [`u:${PLAYER}`]: '架空データ' }, fetchedAt: Date.now() }));
+  events.get('storage')({ key });
+  assert.match(status(), /^完成済み: アリス/);
+});
+
+test('画面（server の mapping）: 10 秒ごとのタイマーは、表のタブなら表示しているワールドのプレイヤーの対応を 5 分に 1 回読み直す（裏のタブでは読まない）', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-16T00:00:00.000Z') });
+  const development = createDevelopmentApi({ seed: '2' });
+  await shareWorld(development, WORLD_A);
+  // 設定の画面（描くたびに 15 秒で読み直す）は開かない
+  const { intervals, calls } = await boot(t, { initial: signedIn, api: development, hash: '#/search' });
+  for (let i = 0; i < 10; i++) await flush();
+  const reads = () => calls.filter((call) => call.action === 'playerMap').map((call) => call.worldId);
+  const tick = async (visibility, ms = 10 * 1000) => {
+    t.mock.timers.tick(ms);
+    document.visibilityState = visibility;
+    intervals[0].fn();
+    for (let i = 0; i < 10; i++) await flush();
+  };
+  const before = reads().length;
+  assert.equal(before, 0);
+  await tick('visible');
+  assert.deepEqual(reads().slice(before), [WORLD_A]);
+  // 5 分たつまでは読まない
+  for (let i = 0; i < 5; i++) await tick('visible');
+  assert.equal(reads().length, before + 1);
+  await tick('hidden', 5 * 60 * 1000);
+  assert.equal(reads().length, before + 1);
+  await tick('visible');
+  assert.equal(reads().length, before + 2);
+});
+
 test('画面: ID の変更中は「このワールドでの自分」を選べず、変更中に別のタブで自分が変わったら、変更が終わってから 1 回判定し直す（通知は出さない）', async (t) => {
   const development = createDevelopmentApi({ seed: '2' });
   const BOB = '00000000000000000000000000000002';
@@ -1423,8 +1467,9 @@ test('画面: ID の変更中は「このワールドでの自分」を選べず
   Object.defineProperty(window.localStorage, 'length', { get: () => values.size });
   window.localStorage.key = (index) => [...values.keys()][index] ?? null;
   const selfSelect = () => find((node) => node.tagName === 'select' && node.getAttribute('aria-label') === 'このワールドでの自分');
-  for (let i = 0; i < 50 && !selfSelect()?.children.some((option) => option.value === BOB); i++) await flush();
-  assert.equal(selfSelect().value, BOB);
+  // 前の版の値（プレフィックスのない UID）は、そのプレイヤーの鍵（'u:<uid>'）の選択肢に合わせる
+  for (let i = 0; i < 50 && !selfSelect()?.children.some((option) => option.value === `u:${BOB}`); i++) await flush();
+  assert.equal(selfSelect().value, `u:${BOB}`);
   const judged = () => JSON.parse(values.get('pal-note.ideals.test.架空データ'))[0].worlds[WORLD_A];
   assert.equal(judged().complete, false);
   const before = Number(byClass('notification-badge').textContent);
@@ -1449,7 +1494,53 @@ test('画面: ID の変更中は「このワールドでの自分」を選べず
   assert.deepEqual([after.complete, after.completedAt], [true, '']);
   assert.equal(Number(byClass('notification-badge').textContent), before);
   assert.equal(selfSelect().disabled, false);
-  assert.equal(selfSelect().value, PLAYER);
+  assert.equal(selfSelect().value, `u:${PLAYER}`);
+});
+
+test('画面: 前の版の「このワールドでの自分」（UID）を、共有のプレイヤーのキャラクターの鍵（i:）に移す。H は参加者の画面では移さない（server の identity）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const HOST = '00000000-0000-0000-0000-000000000001';
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  const IID_HOST = '66666666-7777-8888-9999-aaaaaaaaaaaa';
+  // 共有のプレイヤーに InstanceId がある（新しい画面のホストが共有した）
+  await shareWorld(development, WORLD_A, {}, [{ uid: PLAYER, name: 'アリス', instanceId: IID_ALICE }, { uid: HOST, name: 'ホスト', instanceId: IID_HOST }]);
+  await shareWorld(development, WORLD_B, {}, [{ uid: PLAYER, name: 'アリス', instanceId: IID_ALICE }, { uid: HOST, name: 'ホスト', instanceId: IID_HOST }]);
+  const selfKey = (world) => `pal-note.ideals.self.test.架空データ.${world}`;
+  const { values } = await boot(t, { initial: { ...signedIn, [selfKey(WORLD_A)]: PLAYER, [selfKey(WORLD_B)]: HOST, 'pal-note.owned.bridge': JSON.stringify({ viewWorldId: WORLD_A }) }, api: development, hash: '#/settings' });
+  for (let i = 0; i < 50 && values.get(selfKey(WORLD_A)) === PLAYER; i++) await flush();
+  // 移す前の UID は、InstanceId のない共有で引くために '|' の後ろに覚える（self-player.js）
+  assert.equal(values.get(selfKey(WORLD_A)), `i:${IID_ALICE}|${PLAYER}`);
+  const selfSelect = () => find((node) => node.tagName === 'select' && node.getAttribute('aria-label') === 'このワールドでの自分');
+  for (let i = 0; i < 50 && selfSelect()?.value !== `i:${IID_ALICE}`; i++) await flush();
+  assert.equal(selfSelect().value, `i:${IID_ALICE}`);
+  // 表示するワールドを B に替えると、H の前の値もその回のプレイヤーに引けて選ばれるが、参加者の画面（共有のデータ）では書き直さない
+  const worldSelect = find((node) => node.tagName === 'select' && node.children.some((option) => option.value === WORLD_B));
+  worldSelect.value = WORLD_B;
+  await worldSelect.dispatch('change');
+  for (let i = 0; i < 50 && selfSelect()?.value !== `i:${IID_HOST}`; i++) await flush();
+  assert.equal(selfSelect().value, `i:${IID_HOST}`);
+  assert.equal(values.get(selfKey(WORLD_B)), HOST);
+});
+
+test('画面: 保存した「このワールドでの自分」がキャラクターの鍵（i:）で共有に InstanceId がない（版 12 の GAS・古い画面）ときは、覚えた UID で自分を決め、同じ名前の別の人にしない（server の identity）', async (t) => {
+  const development = createDevelopmentApi({ seed: '2' });
+  const IID_ALICE = '11111111-2222-3333-4444-555555555555';
+  // 共有のプレイヤーに InstanceId がない。ログインしている「架空データ」と同じ名前の別の人がいる（モコロンは持っていない）
+  await shareWorld(development, WORLD_A, {}, [{ uid: PLAYER, name: 'アリス' }, { uid: '00000000000000000000000000000002', name: '架空データ' }]);
+  const goals = [{ id: 'goal-1', name: 'モコロン', palId: 'SheepBall', passives: [], mode: 'include', targets: { hp: 0, shot: 0, defense: 0 }, cake: 'none', order: 'next', worlds: {} }];
+  const key = `pal-note.ideals.self.test.架空データ.${WORLD_A}`;
+  const { values, events } = await boot(t, { initial: { ...signedIn, 'pal-note.ideals.test.架空データ': JSON.stringify(goals), [key]: `i:${IID_ALICE}` }, api: development, hash: '#/ideal?to=SheepBall' });
+  await untilShared();
+  await byClass('ideal-goals-button').dispatch('click');
+  const status = () => byClass('ideal-goal-status').textContent;
+  // 覚えた UID がなければ見分けられない（同じ名前の「架空データ」を自分にしない）
+  assert.equal(status(), '未確認');
+  // 覚えた UID（アリス）があれば、アリスを自分にする
+  values.set(key, `i:${IID_ALICE}|${PLAYER}`);
+  events.get('storage')({ key });
+  assert.match(status(), /^完成済み: アリス/);
+  // InstanceId のない共有では書き直さない
+  assert.equal(values.get(key), `i:${IID_ALICE}|${PLAYER}`);
 });
 
 test('画面: 設定を開いたまま設定の行き先のリンク（ヘッダーのセーブ連携の「設定を開く」）を押しても、履歴を増やさずにその場で行き先へ移る', async (t) => {
