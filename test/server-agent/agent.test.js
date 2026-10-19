@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createKvStorage } from '../../tools/server-agent/kv-storage.mjs';
 import { createAgent, withUploadLimit, uploadChars, GAS_MAX_UPLOAD_CHARS } from '../../tools/server-agent/agent.mjs';
 import { createGasClient } from '../../tools/server-agent/gas-client.mjs';
+import { listWorldFiles } from '../../tools/server-agent/discover.mjs';
 import {
   W, PASS, U1, U2, T0, SHEEP, registered, snapshotOf, serverWorld, gasOf, memoryLog, instanceOf, clockAt,
 } from '../helpers/server-agent.js';
@@ -67,7 +68,7 @@ function fakeWatch() {
 }
 
 // 1 台の常駐（KV は kvFile。同じ kvFile で作り直すと再起動）
-function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 'state.json'), server = fakeServer(), current, uploadLimit, env = 'test', kvFs }) {
+function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 'state.json'), server = fakeServer(), current, uploadLimit, env = 'test', kvFs, listFiles }) {
   const pc = { current, reads: [], watch: fakeWatch(), server, log: memoryLog(), clock, site, kvFile };
   pc.kv = createKvStorage({ file: kvFile, setTimer: clock.setTimer, clearTimer: clock.clearTimer, ...(kvFs ? { fs: kvFs } : {}) });
   pc.agent = createAgent({
@@ -84,6 +85,7 @@ function agentOf({ gas, clock, site, kvFile = path.join(site.dataDir, 'test', 's
     },
     watch: pc.watch.factory, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer,
     ...(uploadLimit ? { uploadLimit } : {}),
+    ...(listFiles ? { listFiles } : {}),
   });
   // 次のセーブ（30 秒後に保存した中身）。ファイルの更新日時を進め、見張りの知らせで読む
   pc.save = async ({ minutes, day = 10, eggs = [], players = [U1] }) => {
@@ -1171,4 +1173,26 @@ test('常駐: --once の期限はログイン・presence を待つ間にも効�
   assert.equal(await quiet.agent.settle({ deadline: Date.now() - 1 }), false);
   assert.equal(await quiet.agent.settle({ timeoutMs: 5_000 }), true);
   await quiet.agent.close();
+});
+
+test('常駐: --once の期限は attach（ワールドのファイルの一覧）を待つ間にも効き、期限の後に一覧が返っても読まない', { timeout: 30_000 }, async (t) => {
+  // ワールドのファイルの一覧が期限より遅く返る（サーバーは動いている）
+  const SLOW_MS = 2_000;
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const slowList = new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+  const pc = agentOf({ gas, clock, site, listFiles: async (dir) => { await slowList; return listWorldFiles(dir); } });
+  pc.current = snapshotOf({ seconds: 0, minutes: 100, day: 10 });
+  const startedAt = Date.now();
+  assert.equal(await pc.agent.runOnce({ timeoutMs: 100 }), 1);
+  assert.ok(Date.now() - startedAt < SLOW_MS * 0.75, `一覧を待たない（${Date.now() - startedAt} ms）`);
+  assert.equal(pc.log.text().match(/once-timeout/g).length, 1);
+  // 止めた後に一覧が返っても、登録・読み込み・見張りを始めない
+  await slowList;
+  await realTurns();
+  assert.equal(pc.agent.attached(), false);
+  assert.deepEqual(pc.reads, []);
+  assert.doesNotMatch(pc.log.text(), /attached/);
+  assert.equal(gas.writes('ownedUpload').length, 0);
 });

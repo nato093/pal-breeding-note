@@ -508,8 +508,10 @@ export function createAgent({
   let reading = null;
   let attachWaitLogged = false;
 
+  // 待つ間に止めた（close。--once の期限・stop.request）なら、登録・読み込み・見張りを始めずに false
   async function attach() {
     const files = await listFiles(world.worldDir);
+    if (stopped) return false;
     if (!files['Level.sav'] || !files['LevelMeta.sav']) {
       if (!attachWaitLogged) log.warn('attach-waiting', { reason: 'Level.sav・LevelMeta.sav がまだありません' });
       attachWaitLogged = true;
@@ -518,6 +520,7 @@ export function createAgent({
     attachWaitLogged = false;
     // 名前は設定の worldName があれば明示する（サーバーのセーブの名前は汎用の Autosave_W なので、なければ前の共有の名前。owned.js の worldNameOf）
     await source.commit({ worldId, steamId: SERVER_SAVE_ID, files: fileHandles(files), name: config.worldName, nameSet: Boolean(config.worldName) });
+    if (stopped) return false;
     // 前に動いていた間に読んだセーブは使わない（読み直したものから使う）
     freshStamps.clear();
     generation++;
@@ -870,11 +873,11 @@ export function createAgent({
   }
 
   async function onceSteps({ dryRun, timeoutMs }) {
-    // ログイン・稼働の確認・読み込み・共有・自動登録・presence の待ちのすべてに、1 つの期限（実際の時間）を使う
+    // ログイン・稼働の確認・attach・読み込み・共有・自動登録・presence の待ちのすべてに、1 つの期限（実際の時間）を使う
     const deadline = Date.now() + timeoutMs;
     let timedOut = false;
     const timeout = () => {
-      if (!timedOut) log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '期限までにログイン・読み込み・共有・自動登録・presence が終わりませんでした' });
+      if (!timedOut) log.warn('once-timeout', { seconds: timeoutMs / 1000, reason: '期限までにログイン・ワールドの登録・読み込み・共有・自動登録・presence が終わりませんでした' });
       timedOut = true;
     };
     // 期限までに終わらなければ TIMED_OUT（待つのをやめるだけ。後で届いた応答の後の送信は、close の後なので gate が止める）
@@ -896,7 +899,10 @@ export function createAgent({
     lastServer = checked;
     let code = 0;
     if (forceHost || dryRun || lastServer.active) {
-      if (!(await attach())) return 2;
+      // ワールドのファイルの一覧・登録を待つ間も期限で切る（期限の後に返っても、close の後なので attach は何も始めない）
+      const ready = await within(attach());
+      if (ready === TIMED_OUT) return 1;
+      if (!ready) return 2;
       code = (await settled()) ? onceUploadCode() : 1;
     } else {
       log.info('once-skipped', { reason: 'サーバーが動いていないため読みません', state: lastServer.state });
