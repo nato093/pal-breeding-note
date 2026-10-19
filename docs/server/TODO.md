@@ -83,18 +83,27 @@
 
 ## T6 統合・GAS 版 13・配信
 
-- 状態: 未着手
-- [ ] 最終レビュー（Codex と観点別のエージェント）・`TZ=UTC npm test`・`npm run test:perf`・`git grep`
-- [ ] CI の `fetch-depth: 0` と互換テストの必須化
-- [ ] release-notes（1〜2 件）・OPERATIONS.md・SAVE_FORMAT.md・README.md
-- [ ] GAS: build:gas → gas:push（2026-10-19 に済み。HEAD だけ。本番とテスト用は版 12 のまま）→ setup()（ユーザー）→ 版 13 → テスト用 deployment → api-check
-- [ ] 常駐をこの PC の test 環境で（ユーザーが参加）・GAS の負荷と容量
-- [ ] ユーザーへの報告と承認 → 本番の GAS → 画面 → 全員のタブの読み込み直し
+- 状態: 実機の確認（test 環境）まで済み。最終レビュー中（作業フォルダ Claude outputs/worktrees/server-final・ブランチ fix/server-final-review）
+- [x] 文書（OPERATIONS.md の新しい章「専用サーバー（ServerSync）と常駐（server-agent）」と「プレイヤーの対応（PlayerMap）」・SAVE_FORMAT.md・README）・release-notes 2 件（2026-10-19-server・2026-10-19-share-extras）・CI の fetch-depth: 0 と互換テストの必須化（feature/docs。マージ eb55981）
+- [x] GAS: build:gas → gas:push（HEAD）→ setup()（2026-10-19 にユーザーが実行）→ 版 13 → テスト用 deployment（説明 "server test"）を -V 13 → api-check すべて OK（プレイヤーの対応の読み書きを含む）。本番は版 12 のまま
+- [x] 常駐をこの PC の test 環境で（2026-10-19 の 10:55〜12:06。ID「サーバー」は --signup で Users_test に作った。データの場所は Claude outputs/server/agent-data）
+  - サーバーの起動を検知して attach → 30 秒ごとに共有（1 回約 10 秒・約 69〜72 万字・結果は newer）・presence（resident・サーバー稼働中）
+  - ユーザーが参加（11:26〜11:32）→ 共有の players の「プレイ中」が 1 人になり、退出の後の保存で 0 人
+  - 参加者の画面（テスト用の deployment につないだ作業フォルダ Claude outputs/worktrees/server-test-page を 5193 で配り、playwright で test にログイン）: 「サーバーの PC の常駐プログラムが共有した所持パルを表示しています」・「「LC9」（サーバー）」・「● サーバー（常駐） · サーバー稼働中／停止中」・「プレイ中 〈名前〉（サーバーのセーブ 11:26 の時点）」・プレイヤーの対応の欄に「以前のホスト（0000…0001）· 拠点 62 体」
+  - 閲覧者の画面から以前のホスト・2 人のプレイヤーの対応を選び、GAS（PlayerMap_test）に保存された（updatedBy も入る）。名前の不一致の案内は GAS の文になり、対応を選ぶと消えた
+  - サーバーを止めた: 猶予 → 最後の保存を共有 → stopped で detach（lastUpload="sent"）→ presence だけ（サーバー停止中）。参加者の画面は警告にならない
+  - stop.request で 2 秒以内に止まり、終了コード 0。記録・KV・標準出力にパスワードは出ていない
+  - 見つけて直したこと: 設定の「プレイヤーの対応」の欄が、対応を読み終えてもすぐ出なかった（fix/players-render。マージ 4a0e703）
+  - 実機で見られなかったこと: 牧場の新しいタマゴの自動登録（30 分待っても無人の牧場はタマゴを産まなかった。誰も近くにいないと拠点の牧場は進まないとみられる。仕組みは画面と同じで、常駐の結合テストで確かめてある。本番で遊ぶときに常駐の記録で見る）
+- [x] REST（8212）の待ち受け: **0.0.0.0**（LAN の中から届く）。ファイアウォールに PalServer の実行ファイルを許可する規則がある。ServerSync のローカル API は 127.0.0.1 と ::1 だけ。→ サブ PC では 8212 をルーターで転送しない・外からの 8212 をファイアウォールで閉じるのを勧める（報告で提案）
+- [ ] 最終レビュー（観点別 3 体＋Codex → 反証 → 直し）
+- [ ] GAS の負荷: owned-bench は共有と読み直しだけ（対応の書き込み・自動登録を重ねる道具は未実装）。版 13 の形での計測は、本番の配信の後に Apps Script の実行数を見る形にする（実機で 30 秒ごとの共有は約 10 秒で通った）
+- [ ] ユーザーへの報告と承認 → 本番の GAS（-V 13）→ 画面の配信 → 全員のタブの読み込み直し
 - [ ] サブ PC の導入の手順（ユーザー）
 
 ## 次にやること
 
-- **2026-10-19（セッション 4ca854cd）: T1〜T5 を統合ブランチにマージした（0391621）。GAS は HEAD に push した（版 12 のまま）。ユーザーが GAS の編集画面で setup() を実行するのを待っている。文書（OPERATIONS.md・SAVE_FORMAT.md・README・release-notes・CI）は feature/docs〔作業フォルダ Claude outputs/worktrees/server-docs〕でワークフローが書いている。**
-- setup() の後: create-version（13）→ テスト用 deployment（"owned-gas test (sync-fixes)"）を -V 13 -d "server test" に → PAL_API_URL=<テスト用> node scripts/api-check.mjs → Users_test に「サーバー」（常駐の --signup。test）→ テストのサーバーを起動し、この PC で常駐を test 環境で動かす（node --env-file=.env.local tools/server-agent/main.mjs --env test --user サーバー --verbose。データの場所は scratchpad か Claude outputs）→ ユーザーが参加 → 画面（テスト用の deployment につないだ作業フォルダの dev サーバーを、ブラウザの自動操作で test にログイン）で共有・対応・捕獲数などを確かめる → REST 8212 の待ち受けのアドレス → GAS の負荷の計測。
-- その後: 最終レビュー → ユーザーへの報告と承認 → 本番の GAS（-V 13）→ 画面の配信 → サブ PC の導入（ユーザー）。
+- **2026-10-19（セッション 4ca854cd）: 実機の確認（test 環境・版 13）まで済んだ。最終レビューのワークフローが作業フォルダ Claude outputs/worktrees/server-final（ブランチ fix/server-final-review）で動いている。** 終わったら直しを確かめて integrate/server へマージし、ユーザーに全体を報告して本番の配信の承認をもらう。
+- 本番の配信の手順は docs/OPERATIONS.md の「GAS 版 13 の反映と巻き戻し」。テスト用 deployment（"server test"・版 13）は確かめ終わるまで残す。
+- 片づけ: 作業フォルダ（Claude outputs/worktrees/server-docs・server-test-page・server-final）は使い終わったら git worktree remove。test 環境の Users_test の「サーバー」「検証A」と PlayerMap_test の行・OwnedWorlds_test のワールドは残してよい（test 環境）。
 - 始める前に、ほかのセッションが同じ作業ツリーで動いていないかを `ListAgents` と `git status` で確かめる。
