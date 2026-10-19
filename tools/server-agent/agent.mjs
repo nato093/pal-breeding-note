@@ -229,6 +229,15 @@ export function createAgent({
     freshStamps.add(stamp);
     while (freshStamps.size > FRESH_MAX) freshStamps.delete(freshStamps.values().next().value);
   };
+  // 解析を終えたセーブの保存時刻 → 解析を始めたときの attach の世代（始めたときと同じ世代のうちに解析を終えたものだけ）。freshStamps に
+  // 足すのは、今の世代に解析を始めて終えたセーブだけ（unknown の detach は解析の終わりを待たないので、前の attach の間に始めた古いセーブの
+  // 解析が次の attach の後に終わっても、今の attach の間に読んだものにしない。その間に別の PC が公開した新しい系統と照らして止めないため）
+  const parsedIn = new Map();
+  const noteParsed = (stamp) => {
+    parsedIn.delete(stamp);
+    parsedIn.set(stamp, generation);
+    while (parsedIn.size > FRESH_MAX) parsedIn.delete(parsedIn.keys().next().value);
+  };
   const refusalOf = (code, message) => Object.assign(new Error(message), { code });
   // 共有を断る理由（送ってよければ null）。古い系統の判定の前と、送る直前（判定を待つ間に止まった・最後の送信の期限が過ぎた・次の attach に
   // 替わった送信を送らないため）と、実際に送る 1 回ごと（sendRefusal）で確かめる
@@ -318,6 +327,16 @@ export function createAgent({
   // ---- 所持パル（画面と同じストア） ----
 
   const source = createHandleSource({ persist: memoryPersist(), key: `${namespace}.owned.handles` });
+  // owned.js に渡す解析。始めたときと同じ attach の世代のうちに終えたセーブだけを parsedIn に残す。ファイルを読んでいる間に世代が替わった
+  // ときは、owned.js が読む前と後のファイルの印を比べて、変わっていれば採用しない（変わっていなければ今のディスクの中身と同じ）ので、
+  // 解析を始めたとき（ファイルを読み終えた直後。間に待ちはない）の世代で足りる
+  const importInGeneration = async (files, onProgress) => {
+    const started = generation;
+    const result = await runImport(files, onProgress);
+    const stamp = ownedSaveStamp(result?.world?.savedAtTicks);
+    if (stamp && started === generation) noteParsed(stamp);
+    return result;
+  };
   // owned.js の予約（読み直し・送り直し・行の数の読み直し）。止まっている間に来た予約は、次に動いたときまで預かる（owned.js の予約の印を
   // 残したまま捨てると、動いた後の予約が通らないため）
   const parked = new Set();
@@ -346,7 +365,7 @@ export function createAgent({
   };
   const gate = watchGate(watch);
   const owned = createOwnedStore({
-    persist: memoryPersist(), settings: kv, namespace, runImport, handles: source, now, server,
+    persist: memoryPersist(), settings: kv, namespace, runImport: importInGeneration, handles: source, now, server,
     schedule, cancel, hidden: () => false, watch: gate.factory, pageId, resident: true,
   });
 
@@ -430,14 +449,14 @@ export function createAgent({
     else log.info('upload', fields);
     uploadKey = next;
   }
-  // 読み込んだ手元のデータ（読むたびに別のオブジェクト）。attach の間に読んだものの保存時刻を freshStamps に足す
+  // 読み込んだ手元のデータ（読むたびに別のオブジェクト）。今の attach の間に解析を始めて終えたもの（parsedIn）の保存時刻を freshStamps に足す
   let seenLocal = null;
   owned.subscribe(() => {
     const local = owned.state.local;
     if (local && local !== seenLocal) {
       seenLocal = local;
       const stamp = ownedSaveStamp(local.snapshot?.world?.savedAtTicks);
-      if ((attached || finalWindow) && local.world.id === worldId && stamp) markFresh(stamp);
+      if ((attached || finalWindow) && local.world.id === worldId && stamp && parsedIn.get(stamp) === generation) markFresh(stamp);
     }
     autoRegister?.evaluate();
     noteOwned();
@@ -521,8 +540,9 @@ export function createAgent({
     // 名前は設定の worldName があれば明示する（サーバーのセーブの名前は汎用の Autosave_W なので、なければ前の共有の名前。owned.js の worldNameOf）
     await source.commit({ worldId, steamId: SERVER_SAVE_ID, files: fileHandles(files), name: config.worldName, nameSet: Boolean(config.worldName) });
     if (stopped) return false;
-    // 前に動いていた間に読んだセーブは使わない（読み直したものから使う）
+    // 前に動いていた間に読んだセーブ・解析を始めたセーブは使わない（読み直したものから使う）
     freshStamps.clear();
+    parsedIn.clear();
     generation++;
     attached = true;
     log.info('attached', { worldId, files: Object.keys(files).length });

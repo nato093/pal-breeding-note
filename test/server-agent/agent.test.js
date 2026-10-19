@@ -1196,3 +1196,45 @@ test('常駐: --once の期限は attach（ワールドのファイルの一覧�
   assert.doesNotMatch(pc.log.text(), /attached/);
   assert.equal(gas.writes('ownedUpload').length, 0);
 });
+
+test('常駐（2 台）: unknown で detach した間も続いた前の attach の解析の結果は、次の attach の間に読んだものとして使わない（新しい正しいセーブを止めない）', async (t) => {
+  const clock = virtualClock();
+  const gas = await gasOf({ now: clock.now });
+  const site = serverWorld(t);
+  const a = agentOf({ gas, clock, site });
+  // A のセーブ（100 分）の解析が終わらないまま、動いているか確かめられなくなる
+  let release;
+  a.importGate = new Promise((resolve) => { release = resolve; });
+  a.current = snapshotOf({ seconds: 0, minutes: 100, day: 10 });
+  site.save(clock.now());
+  assert.equal(await a.agent.login(), 'ok');
+  await a.agent.tick();
+  for (let i = 0; i < 200 && !a.reads.length; i++) await realTurns(1);
+  assert.equal(a.reads.length, 1);
+  a.server.state = 'unknown';
+  await a.agent.tick();
+  assert.equal(a.agent.attached(), false);
+  // 別の PC の B が、受け取った続き（150 分）を公開する
+  await clock.advance(60_000);
+  const b = agentOf({ gas, clock, site: serverWorld(t) });
+  await b.start({ minutes: 150, day: 11 });
+  await b.agent.close();
+  assert.equal((await gas.published()).clock, clockAt(150));
+  // A の PC が同期で受け取った続き（200 分）で、動いていると確かめられて attach する。その後に、前の attach の解析（100 分）が終わる
+  a.server.state = 'running';
+  await clock.advance(60_000);
+  a.current = snapshotOf({ seconds: (clock.now() - T0) / 1000, minutes: 200, day: 12 });
+  site.save(clock.now());
+  await a.agent.tick();
+  assert.equal(a.agent.attached(), true);
+  release();
+  a.importGate = null;
+  await a.agent.settle();
+  await clock.advance(30_000);
+  await a.agent.settle();
+  assert.notEqual(a.agent.guard.status(W).state, 'blocked', '前の attach の解析の結果（100 分）で止めない');
+  assert.doesNotMatch(a.log.text(), /lineage-blocked/);
+  assert.ok(gas.writes('ownedUpload').every((item) => item.request.world.clock !== clockAt(100)), '前の attach の解析の結果を送らない');
+  assert.deepEqual([a.agent.owned.state.upload.status, (await gas.published()).clock], ['done', clockAt(200)]);
+  await a.agent.close();
+});
