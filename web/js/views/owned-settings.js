@@ -848,8 +848,13 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     renderRegistered(owned.state);
     renderSelf();
   }) ?? (() => {});
-  // 自動登録の候補が変わったら（読み込んで判定した・破棄した・対応や設定を変えた）、登録待ちの行だけ書き直す
-  const unsubscribeAuto = autoRegister?.subscribe?.(renderPending) ?? (() => {});
+  // 自動登録の候補が変わったら（読み込んで判定した・破棄した・対応や設定を変えた）、登録待ちの行を書き直す。GAS の対応を読み終えた
+  //（playerMaps の知らせ。auto-register.js の changed）ときは、前の版の扱いから GAS の欄に替わるので、プレイヤーの対応の欄も描き直す
+  //（中身が同じなら renderPlayers は何もしない）
+  const unsubscribeAuto = autoRegister?.subscribe?.(() => {
+    renderPlayers(owned.state);
+    renderPending();
+  }) ?? (() => {});
   render(owned.state);
   owned.load().catch(() => {});
   return {
