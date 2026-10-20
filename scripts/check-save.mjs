@@ -80,15 +80,20 @@ async function main() {
   const playerName = (uid) => owned.players.find((p) => p.uid === uid)?.name || uid.slice(0, 8) || '不明';
   const sign = { Male: '♂', Female: '♀' };
   const short = { Male: 'M', Female: 'F' };
-  console.log(`配合牧場: ${snapshot.breedFarms.length} か所`);
-  for (const farm of snapshot.breedFarms) {
-    if (!farm.parents.length && !farm.eggs.length) continue;
-    const parents = farm.parents.map((p) => `${p.characterId}${sign[p.gender] ?? ''}（預けた人 ${playerName(p.depositorUid)}）`).join(' × ') || '親なし';
-    const [a, b] = farm.parents;
-    const expected = farm.parents.length === 2 ? breedChild(table, species(a.characterId).palId, short[a.gender], species(b.characterId).palId, short[b.gender]) || '不明' : '-';
-    const eggs = farm.eggs.map((e) => `${e.characterId}${/^PalEgg_MutationPal/i.test(e.itemId ?? '') ? '（突然変異）' : ''}`).join(', ') || 'なし';
-    console.log(`  ${farm.status === 'ok' ? '' : '[読めない] '}${parents} → 表の子 ${expected} / タマゴ ${eggs}`);
-  }
+  // 配合牧場と古代文明の配合器（breeder。中のタマゴには、入れて孵化させているものも混ざる）は同じ形
+  const printFarms = (title, unit, farms) => {
+    console.log(`${title}: ${farms.length} ${unit}`);
+    for (const farm of farms) {
+      if (!farm.parents.length && !farm.eggs.length) continue;
+      const parents = farm.parents.map((p) => `${p.characterId}${sign[p.gender] ?? ''}（預けた人 ${playerName(p.depositorUid)}）`).join(' × ') || '親なし';
+      const [a, b] = farm.parents;
+      const expected = farm.parents.length === 2 ? breedChild(table, species(a.characterId).palId, short[a.gender], species(b.characterId).palId, short[b.gender]) || '不明' : '-';
+      const eggs = farm.eggs.map((e) => `${e.characterId}${/^PalEgg_MutationPal/i.test(e.itemId ?? '') ? '（突然変異）' : ''}`).join(', ') || 'なし';
+      console.log(`  ${farm.status === 'ok' ? '' : '[読めない] '}${parents} → 表の子 ${expected} / タマゴ ${eggs}`);
+    }
+  };
+  printFarms('配合牧場', 'か所', snapshot.breedFarms);
+  printFarms('古代文明の配合器', '台', snapshot.breeders ?? []);
   // 画面用の形（正規化の後。farm-data）の牧場ごとのタマゴの数と突然変異の数（共有では 1 牧場 20 個までの中身と数を送る）
   const farms = owned.farms ?? [];
   const eggTotal = farms.reduce((sum, farm) => sum + farm.eggCount, 0);

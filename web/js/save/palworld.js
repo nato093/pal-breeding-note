@@ -323,6 +323,78 @@ function decodeBreedFarm(raw) {
   return { modelId, eggMapObjectIds };
 }
 
+// ---- 古代文明の配合器（MapObjectId が MultiElectricHatchingPalEggWithBreed。配合して、産んだタマゴをそのまま孵化させる）----
+
+const BREEDER_MAP_OBJECT = 'multielectrichatchingpaleggwithbreed';
+// 中のタマゴの数（実セーブでは 10 個まで）と親の数の上限。超えたら形が違うとみなす
+const MAX_BREEDER_EGGS = 64;
+const MAX_BREEDER_PARENTS = 2;
+// 中のタマゴの SaveParameter は読まない（中身は入れ物の ItemContainer から既存のタマゴと同じく読む）
+const SKIP_ALL = () => true;
+
+/**
+ * 配合器の ConcreteModel.RawData（2026-10-19 に手元のセーブの 16 台で、末尾まで読み切れることを確認）:
+ * 具象 ID(16)・モデル ID(16)・4 バイト・u32 タマゴの数・{ i32 スロット・GUID(16)・SaveParameter のプロパティ列・28 バイト } × 数・
+ * 4 バイト・f32 配合の進み・f32 配合にかかる時間・u32 親の数・{ PlayerUId(16)・親の InstanceId(16) } × 数・GUID(16)・4 バイト。
+ * 末尾まで読み切れなければ形が違うとみなす（ゲームの更新で項目が増えたときに、親を読み違えない）
+ */
+function decodeBreeder(raw) {
+  const r = new GvasReader(raw, { skip: SKIP_ALL });
+  r.skipBytes(16); // concrete_model_instance_id
+  const modelId = r.guid();
+  r.skipBytes(4);
+  const eggs = r.u32();
+  if (eggs > MAX_BREEDER_EGGS) throw r.error(`breeder egg count ${eggs} is out of range`);
+  for (let i = 0; i < eggs; i++) {
+    r.skipBytes(4 + 16);
+    r.readProperties('');
+    r.skipBytes(28);
+  }
+  r.skipBytes(4 + 4 + 4);
+  const count = r.u32();
+  if (count > MAX_BREEDER_PARENTS) throw r.error(`breeder parent count ${count} is out of range`);
+  const parentInstanceIds = [];
+  for (let i = 0; i < count; i++) {
+    r.skipBytes(16); // PlayerUId（親の預けた人と同じ。手元のセーブで確認。誰の配合かは牧場と同じく親の OldOwnerPlayerUIds で決める）
+    parentInstanceIds.push(uid(r.guid()));
+  }
+  r.skipBytes(16 + 4);
+  if (r.remaining !== 0) throw r.error(`breeder has ${r.remaining} unknown byte(s)`);
+  return { modelId, parentInstanceIds };
+}
+
+/**
+ * 配合器ごとに、配合している親の個体 ID と、中のタマゴの入れ物（ModuleMap の ItemContainer）を集める。
+ * 読めない・食い違う配合器は status: 'uncertain'（自動登録に使わない）
+ */
+function parseBreeders(ws, malformed) {
+  const breeders = [];
+  for (const mo of ws.MapObjectSaveData || []) {
+    if (str(mo.MapObjectId).toLowerCase() !== BREEDER_MAP_OBJECT) continue;
+    const breeder = { id: '', baseCampId: '', status: 'ok', parentInstanceIds: [], eggContainerIds: [] };
+    try {
+      const model = decodeMapModel(mo.Model.RawData);
+      breeder.id = model.instanceId;
+      breeder.baseCampId = model.baseCampId;
+      const concrete = decodeBreeder(mo.ConcreteModel.RawData);
+      if (concrete.modelId !== breeder.id) throw new Error('breeder model id mismatch');
+      const ids = concrete.parentInstanceIds;
+      // uid() はゼロ GUID を '' にする
+      if (ids.includes('') || new Set(ids).size !== ids.length) throw new Error('breeder parent id is zero or duplicated');
+      breeder.parentInstanceIds = ids;
+      const module = ((mo.ConcreteModel && mo.ConcreteModel.ModuleMap) || []).find((x) => x.key === ITEM_CONTAINER_MODULE);
+      const containerRaw = module && module.value && module.value.RawData;
+      if (!(containerRaw instanceof Uint8Array) || containerRaw.length < 16) throw new Error('breeder has no item container');
+      breeder.eggContainerIds = [uid(guidAt(containerRaw, 0))];
+    } catch {
+      bump(malformed, 'breeders');
+      breeder.status = 'uncertain';
+    }
+    if (breeder.id) breeders.push(breeder);
+  }
+  return breeders;
+}
+
 /** rawdata/work.py: 作業の持ち主（建物のモデル ID）。id(16)・workable_bounds(112)・base_camp_id(16) の後。 */
 function decodeWorkOwner(raw) {
   const r = new GvasReader(raw);
@@ -683,6 +755,7 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
 
   // 配合牧場（自動登録の照合に使う）。ケーキの入れ物を下のスロットのループで読むので先に集める
   const breedFarms = parseBreedFarms(ws, malformed);
+  const breeders = parseBreeders(ws, malformed);
   // 牧場の入れ物 ID → ケーキ（アイテム ID → 個数。スロットの順）。入れ物が見つからない牧場はケーキが分からない（null のまま）。
   // 読めないスロットがあった入れ物（unreadCakes）も数を確かめられないので分からない（null。「ケーキ切れ」と出さない）
   const farmCakes = new Map(breedFarms.filter((farm) => farm.cakeContainerId).map((farm) => [farm.cakeContainerId, null]));
@@ -811,6 +884,7 @@ export function parseLevel(gvasBytes, { extraPalFields = [] } = {}) {
     itemOwners,
     inLockerInstanceIds,
     breedFarms,
+    breeders,
     counts: {
       characters: (ws.CharacterSaveParameterMap || []).length,
       dynamicItems,
@@ -1254,7 +1328,8 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     if (!eggsByContainer.has(egg.containerId)) eggsByContainer.set(egg.containerId, []);
     eggsByContainer.get(egg.containerId).push(egg);
   }
-  const breedFarms = (level.breedFarms || []).map((f) => {
+  // 親とタマゴの引き当て（牧場と配合器で同じ）。親が引けなければ uncertain
+  const parentsOf = (f) => {
     let status = f.status;
     const parents = [];
     for (const instanceId of f.parentInstanceIds) {
@@ -1266,13 +1341,19 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
       // 預けた人が分からないときは空のまま（ログイン中のユーザーで登録する）。持ち主で代わりにしない
       parents.push({ instanceId, characterId: p.characterId, gender: p.gender, depositorUid: p.lastOwnerUid });
     }
-    const eggs = f.eggContainerIds.flatMap((id) => (eggsByContainer.get(id) || [])
-      // itemId はタマゴのアイテム（突然変異タマゴは PalEgg_MutationPal_*）
-      .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw, itemId: egg.staticId })));
+    return { status, parents };
+  };
+  const eggsOf = (f) => f.eggContainerIds.flatMap((id) => (eggsByContainer.get(id) || [])
+    // itemId はタマゴのアイテム（突然変異タマゴは PalEgg_MutationPal_*）
+    .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw, itemId: egg.staticId })));
+  const breedFarms = (level.breedFarms || []).map((f) => {
+    const { status, parents } = parentsOf(f);
     // ケーキ（牧場の入れ物のケーキの種類と個数。[] はケーキ切れ、null は入れ物が読めない。ホストの画面だけ・共有しない。save-extras）
     const cakes = Array.isArray(f.cakes) ? f.cakes.map((cake) => ({ itemId: cake.itemId, count: cake.count })) : null;
-    return { id: f.id, baseId: f.baseCampId, status, parents, eggs, cakes };
+    return { id: f.id, baseId: f.baseCampId, status, parents, eggs: eggsOf(f), cakes };
   });
+  // 古代文明の配合器（自動登録の照合だけに使う。画面用の形〔normalizeOwned〕と共有には入れない）
+  const breeders = (level.breeders || []).map((f) => ({ id: f.id, baseId: f.baseCampId, ...parentsOf(f), eggs: eggsOf(f) }));
 
   // アイテムの在庫（implants。ホストの画面だけ・共有しない）: 数えた入れ物のうち、ギルド保管庫・プレイヤーの所持品と、拠点の中のマップオブジェクト
   //（baseCampId のある拠点の箱・配合牧場・ほかの設備）の入れ物だけを、アイテムと場所ごとに合わせる。拠点の外の入れ物（ワールドの宝箱
@@ -1315,6 +1396,7 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     bases,
     pals,
     breedFarms,
+    breeders,
     // アイテムの在庫（[{ itemId, count, where: 'base'|'guild'|'player', id: 拠点・ギルド・プレイヤーの ID, object: 'chest'|'farm'|'other'|'' }]。
     // 場所の呼び名は画面の側〔core/owned.js の normalizeOwned〕が付ける。implants）
     items: [...stock.values()],

@@ -30,6 +30,7 @@ test('自動登録の照合: 初めて読んだセーブは記録するだけで
       pair: { a: { palId: 'SwordCutlassfish', gender: 'M', depositorUid: P1 }, b: { palId: 'SheepBall', gender: 'F', depositorUid: P1 } },
     } },
     eggs: ['e1'],
+    breeders: {},
   });
 });
 
@@ -99,7 +100,7 @@ test('自動登録の照合: 親が 1 体・同じ性別・uncertain の牧場�
 });
 
 test('自動登録の照合: breedFarms のない古いデータは空', () => {
-  assert.deepEqual(findNewBreedings({ pals: [] }, { ...deps, history: {} }), { candidates: [], anomalies: [], history: { farms: {}, eggs: [] } });
+  assert.deepEqual(findNewBreedings({ pals: [] }, { ...deps, history: {} }), { candidates: [], anomalies: [], history: { farms: {}, eggs: [], breeders: {} } });
 });
 
 test('自動登録の照合: 産まれてすぐ拾われ、牧場の外で初めて見つかったタマゴは、中身が表の子になる牧場の親の配合とみなす', () => {
@@ -164,6 +165,137 @@ test('自動登録の照合: 前に読んだときの親の組が同じ性別（
 test('自動登録の照合: タマゴを拾ってすぐ牧場を撤去しても、前に読んだときの親で照合する', () => {
   const { candidates } = observe([farm('f1', sheep(), [])], [], { eggsAfter: [looseEgg('x1', 'GuardianDog')] });
   assert.deepEqual(candidates.map((c) => [c.record.parent1Id, c.record.parent2Id, c.record.childId, c.evidence[0].farmId]), [['SheepBall', 'SwordCutlassfish', 'GuardianDog', 'f1']]);
+});
+
+// ---- 古代文明の配合器（snapshot.breeders。牧場と同じ形） ----
+const breeder = farm;
+const frogs = () => [parent('KendoFrog', 'Male'), parent('KendoFrog_Dark', 'Female')];
+const ghostPair = () => [parent('GhostDragon_Fire', 'Male'), parent('BOSS_GhostDragon_Fire', 'Female')];
+function observeBreeders(before, after, { eggsBefore = [], eggsAfter = [], farmsBefore = [], farmsAfter = [] } = {}) {
+  const { history } = findNewBreedings({ breedFarms: farmsBefore, breeders: before, pals: eggsBefore }, { ...deps, history: null });
+  return findNewBreedings({ breedFarms: farmsAfter, breeders: after, pals: eggsAfter }, { ...deps, history });
+}
+const pairText = (c) => `${c.record.parent1Id}(${c.record.parent1Gender})×${c.record.parent2Id}(${c.record.parent2Gender})>${c.record.childId}`;
+
+test('配合器: 初めて読んだ配合器は記録するだけで、記録は牧場（farms）と分けて breeders に持つ', () => {
+  const result = findNewBreedings({ breedFarms: [], breeders: [breeder('d1', sheep(), [egg('e1', 'GuardianDog')])] }, { ...deps, history: null });
+  assert.deepEqual([result.candidates, result.anomalies], [[], []]);
+  assert.deepEqual(result.history.farms, {});
+  assert.deepEqual(result.history.breeders.d1.eggs, ['e1']);
+  assert.equal(result.history.breeders.d1.parents, 'BOSS_SheepBall-Female|SwordCutlassfish-Male');
+  assert.deepEqual(result.history.eggs, ['e1']);
+});
+
+test('配合器: 配合器の記録のない記録（前の版のタブが書き戻した）からは、配合器を記録するだけ', () => {
+  const { history } = findNewBreedings({ breedFarms: [], breeders: [breeder('d1', sheep(), [])] }, { ...deps, history: null });
+  const { candidates, history: next } = findNewBreedings({ breedFarms: [], breeders: [breeder('d1', sheep(), [egg('e1', 'GuardianDog')])], pals: [] },
+    { ...deps, history: { farms: history.farms, eggs: history.eggs } });
+  assert.deepEqual(candidates, []);
+  assert.deepEqual(next.breeders.d1.eggs, ['e1']);
+});
+
+test('配合器: 親が同じ配合器に新しく現れたタマゴは、中身が表の子ならその親の配合（根拠は配合器）', () => {
+  const { candidates, anomalies } = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', sheep(), [egg('e1', 'GuardianDog')])]);
+  assert.deepEqual(anomalies, []);
+  assert.deepEqual(candidates.map(pairText), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog']);
+  assert.deepEqual(candidates[0].evidence, [{ farmId: 'd1', eggLocalId: 'e1', depositorUids: [P1, P1] }]);
+});
+
+test('配合器: 中身が親の表の子と合わないタマゴ（入れて孵化させているもの）は、異常として知らせず、牧場の外のタマゴと同じに牧場の親と照合する', () => {
+  // 手元のセーブで、親がノクサージュのままの配合器にベラルージュのタマゴが 10 個入っていた（2026-10-19）
+  const alone = observeBreeders([breeder('d1', ghostPair(), [])], [breeder('d1', ghostPair(), [egg('e1', 'GuardianDog')])]);
+  assert.deepEqual([alone.candidates, alone.anomalies], [[], []]);
+  // 牧場で産まれてすぐ拾われ、配合器に入れられたタマゴ（main の前の動きと同じ）
+  const fromFarm = observeBreeders([breeder('d1', ghostPair(), [])], [breeder('d1', ghostPair(), [egg('e1', 'GuardianDog')])], {
+    farmsBefore: [farm('f1', sheep(), [])], farmsAfter: [farm('f1', sheep(), [])], eggsAfter: [looseEgg('e1', 'GuardianDog')],
+  });
+  assert.deepEqual(fromFarm.anomalies, []);
+  assert.deepEqual(fromFarm.candidates.map((c) => [pairText(c), c.evidence.map((e) => e.farmId)]), [['SheepBall(F)×SwordCutlassfish(M)>GuardianDog', ['f1']]]);
+});
+
+test('配合器: どこかで前に見たタマゴ（牧場の上・所持品）を入れても、新しいタマゴと数えない', () => {
+  const { candidates } = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', sheep(), [egg('f-egg', 'GuardianDog'), egg('loose', 'GuardianDog')])], {
+    farmsBefore: [farm('f1', [parent('GuardianDog', 'Male'), parent('GuardianDog', 'Female')], [egg('f-egg', 'GuardianDog')])],
+    eggsBefore: [looseEgg('loose', 'GuardianDog')],
+  });
+  assert.deepEqual(candidates, []);
+});
+
+test('配合器: 前からあるタマゴは見ない', () => {
+  const old = egg('old', 'GuardianDog');
+  const { candidates } = observeBreeders([breeder('d1', sheep(), [old])], [breeder('d1', sheep(), [old])]);
+  assert.deepEqual(candidates, []);
+});
+
+test('配合器: 親が同じなら、突然変異タマゴは親の組み合わせの配合（表の子）とみなす', () => {
+  const mutation = egg('m1', 'BOSS_DomeArmorDragon', 'PalEgg_MutationPal_05');
+  const { candidates, anomalies } = observeBreeders([breeder('d1', ghostPair(), [])], [breeder('d1', ghostPair(), [mutation])]);
+  assert.deepEqual(anomalies, []);
+  assert.deepEqual(candidates.map(pairText), ['GhostDragon_Fire(M)×GhostDragon_Fire(F)>GhostDragon_Fire']);
+});
+
+test('配合器: 親を入れ替えていても、前の親かいまの親のどちらか 1 組だけの表の子なら、その配合とみなす', () => {
+  // 前の親（SheepBall×SwordCutlassfish → GuardianDog）が産んでから入れ替えた
+  const prev = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', ghostPair(), [egg('e1', 'GuardianDog')])]);
+  assert.deepEqual(prev.candidates.map(pairText), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog']);
+  assert.deepEqual(prev.candidates[0].evidence.map((e) => e.farmId), ['d1']);
+  // いまの親（ヘルバーン）が、入れ替えた後の保存までに産んだ
+  const next = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', ghostPair(), [egg('e1', 'GhostDragon_Fire')])]);
+  assert.deepEqual(next.candidates.map(pairText), ['GhostDragon_Fire(M)×GhostDragon_Fire(F)>GhostDragon_Fire']);
+  // 親を外した後でも、前の親で照合する
+  const removed = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', [], [egg('e1', 'GuardianDog')])]);
+  assert.deepEqual(removed.candidates.map(pairText), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog']);
+});
+
+test('配合器: 親を入れ替えたとき、前の親もいまの親も同じ子になる（違う組み合わせ）なら、どちらか決められないので見ない', () => {
+  // SheepBall×SwordCutlassfish も KendoFrog×KendoFrog_Dark も GuardianDog
+  const { candidates } = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', frogs(), [egg('e1', 'GuardianDog')])]);
+  assert.deepEqual(candidates, []);
+});
+
+test('配合器: 親を入れ替えたときの突然変異タマゴは、どの親か決められないので見ない', () => {
+  const mutation = egg('m1', 'BOSS_DomeArmorDragon', 'PalEgg_MutationPal_05');
+  const { candidates } = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', ghostPair(), [mutation])]);
+  assert.deepEqual(candidates, []);
+});
+
+test('配合器: 配合器の親（いまの親・撤去した配合器の前の親）は、牧場の外のタマゴの照合に使わない', () => {
+  const now = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', sheep(), [])], { eggsAfter: [looseEgg('x1', 'GuardianDog')] });
+  assert.deepEqual(now.candidates, []);
+  const removed = observeBreeders([breeder('d1', sheep(), [])], [], { eggsAfter: [looseEgg('x1', 'GuardianDog')] });
+  assert.deepEqual(removed.candidates, []);
+});
+
+test('配合器: 配合器の中のタマゴは、牧場の外のタマゴとして牧場の親と二重に照合しない', () => {
+  const { candidates } = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', sheep(), [egg('e1', 'GuardianDog')])], {
+    farmsBefore: [farm('f1', sheep(), [])], farmsAfter: [farm('f1', sheep(), [])], eggsAfter: [looseEgg('e1', 'GuardianDog')],
+  });
+  assert.deepEqual(candidates[0].evidence.map((e) => e.farmId), ['d1']);
+});
+
+test('配合器: 親が 1 体・uncertain の配合器は、親が同じでも照合しない', () => {
+  for (const [parents, status] of [[[parent('SheepBall', 'Female')], 'ok'], [sheep(), 'uncertain']]) {
+    const { candidates, anomalies } = observeBreeders([breeder('d1', parents, [], status)], [breeder('d1', parents, [egg('e1', 'GuardianDog')], status)]);
+    assert.deepEqual([candidates, anomalies], [[], []], JSON.stringify([parents.length, status]));
+  }
+});
+
+test('配合器: いまの親が読めない（uncertain）配合器では、前に読んだときの親でも決めない（Codex のレビュー）', () => {
+  const { candidates } = observeBreeders([breeder('d1', sheep(), [])], [breeder('d1', sheep(), [egg('e1', 'GuardianDog')], 'uncertain')]);
+  assert.deepEqual(candidates, []);
+});
+
+test('配合器: 同じ配合になる別の人の親に入れ替えたときは、両方の親を根拠に残す（登録者は resolveRegistrant が決める。Codex のレビュー）', () => {
+  const of = (depositor) => [
+    { instanceId: `sheep-${depositor}`, characterId: 'SheepBall', gender: 'Female', depositorUid: depositor },
+    { instanceId: `sword-${depositor}`, characterId: 'SwordCutlassfish', gender: 'Male', depositorUid: depositor },
+  ];
+  const { candidates } = observeBreeders([breeder('d1', of(P1), [])], [breeder('d1', of(P2), [egg('e1', 'GuardianDog')])]);
+  assert.deepEqual(candidates.map(pairText), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog']);
+  assert.deepEqual(candidates[0].evidence.map((e) => e.depositorUids).sort(), [[P1, P1], [P2, P2]]);
+  // 2 人が別のユーザーなら、登録者はログイン中のユーザー
+  const people = [{ uid: P1, name: 'Dave' }, { uid: P2, name: 'Frank' }];
+  assert.deepEqual(resolveRegistrant(candidates[0], { players: people, users: ['dave', 'frank', 'me'], currentUserId: 'me' }), { userId: 'me' });
 });
 
 const candidate = (...pairs) => ({ evidence: pairs.map((depositorUids) => ({ farmId: 'f', eggLocalId: 'e', depositorUids })) });

@@ -204,7 +204,7 @@ const objectsOf = (items, keep = () => true) => (Array.isArray(items) ? items.fi
  * IndexedDB から読んだ手元のセーブのデータ。形が違えば null（データなし。登録したファイルから読み直せる）。
  * 個体ごとの値は、画面用の変換（core/owned.js の normalizeOwned）で確かめる。ただし、案内（ui/owned-status.js）・設定の登録者の対応
  * （views/owned-settings.js）・自動登録（auto-register.js・core/auto-breeding.js）は解析結果をそのまま読むので、
- * プレイヤー・個体・拠点・ギルド・牧場は object の要素だけ（プレイヤーは uid が文字列のものだけ）に絞っておく
+ * プレイヤー・個体・拠点・ギルド・牧場・古代文明の配合器は object の要素だけ（プレイヤーは uid が文字列のものだけ）に絞っておく
  */
 function cleanLocalData(value) {
   if (!isObject(value) || value.version !== DATA_VERSION || !isObject(value.world) || !isObject(value.snapshot)
@@ -216,6 +216,7 @@ function cleanLocalData(value) {
     ...snapshot,
     players: objectsOf(snapshot.players, (player) => typeof player.uid === 'string'),
     pals: objectsOf(snapshot.pals), bases: objectsOf(snapshot.bases), guilds: objectsOf(snapshot.guilds), breedFarms: objectsOf(snapshot.breedFarms),
+    breeders: objectsOf(snapshot.breeders),
   };
   // 古い版で保存したデータは、Level.sav から読んだものなのでホスト扱い
   return { ...value, snapshot: cleaned, importedAt: isoTime(value.importedAt), source: text(value.source, 20), world: { ...value.world, id, role: value.world.role || 'host' } };
