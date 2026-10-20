@@ -20,7 +20,7 @@
 - ゲームのインストール先（`steamapps\common\Palworld`）にはセーブはない。
 - 協力プレイではホストの PC にだけワールドがある（ホストの PlayerUId は `00000000…0001`）。
 - 参加している側の PC には、ホストのワールド ID と同じ名前のフォルダに `LocalData.sav` だけが置かれる（`Level.sav` はない）。このアプリは、`Level.sav` があればホスト、`LocalData.sav` だけなら参加している側と判定する（2026-10-05、ユーザーの PC で別の Steam アカウントどうしのフォルダ名が一致することを確認）。ただし、前にホストしたワールドに参加すると、同じフォルダに古い `Level.sav` が残ったまま `LocalData.sav` だけが新しくなるため、更新日時でも判定する（下の「注意」）。
-- 専用サーバーは `…\SaveGames\0\<ワールド ID>\` に同じ構成で置かれる。
+- 専用サーバーは `…\SaveGames\0\<ワールド ID>\` に同じ構成で置かれる（違いは下の「専用サーバー（ServerSync）のセーブ」）。
 
 ## ファイルの形式
 
@@ -96,7 +96,7 @@
 ### 牧場のタマゴの画面と共有（farm-data。2026-10-15）
 
 - 画面用の形（`web/js/core/owned.js` の `normalizeOwned`）: 牧場ごとに `eggs: [{ id: タマゴの localId, palId: 中身〔マスターにないものは空〕, mutant: 突然変異 }]`（セーブの順・64 個まで）と `eggCount`。突然変異は、タマゴのアイテム ID が `PalEgg_MutationPal_*` のもの（`web/js/core/owned-shared.js` の `isMutationEggItem`。自動登録の照合も同じ関数）。2026-10-15 の手元のセーブ（`npm run check:save`）では牧場 7 か所・タマゴ 34 個（1 か所に 19 個）。
-- 共有（スプレッドシートのワールドの行の `farms` の 1 セル）: 牧場ごとに短い鍵 `n`（タマゴの数）・`eggs: [{ id, p: パル ID, m: 1〔突然変異〕 }]`（1 牧場 20 個まで）と、読めない牧場は `s: 'u'` と、どの個体にも当たらない仮の親 2 つ（`OWNED_FARM_UNREADABLE_PARENTS` の `?1`・`?2`。`cleanOwnedFarms` が置き換えるので、GAS も決まりを守らない送り主の親を残さない）で送る（古い GAS・古い画面が `s` を捨てても、置いてある組にも空き牧場にもならない。親を空にしていたときは、古い画面が空き牧場に数えて「空いた牧場に置くなら」を勧めた。フェーズ 3 の終わりのレビュー。受け取った新しい画面は親を捨てる）。JSON にした後 45,000 字（`OWNED_FARMS_MAX_CHARS`）を超えたら、全部の牧場の `eggs` を外して `n` だけにし、それでも超えたら牧場を先頭から入る分だけにして `of`（元の牧場の数）を付ける（`fitOwnedFarms`。画面・GAS・開発用 API の `validateOwnedUpload` で同じ）。今の 200 件の上限では、ID が ASCII なら 2 段目で収まる（1 牧場 約 210 字。`"`・`\` や孤立したサロゲートの ID は JSON で字数が増え、3 段目になることがある。どの場合も 45,000 字以下）。200 件の上限で切ったときも、残した牧場に `of`（元の数）を付ける（受け取った側は「一部だけ」）。
+- 共有（スプレッドシートのワールドの行の `farms` の 1 セル）: 牧場ごとに短い鍵 `n`（タマゴの数）・`eggs: [{ id, p: パル ID, m: 1〔突然変異〕 }]`（1 牧場 20 個まで）と、読めない牧場は `s: 'u'` と、どの個体にも当たらない仮の親 2 つ（`OWNED_FARM_UNREADABLE_PARENTS` の `?1`・`?2`。`cleanOwnedFarms` が置き換えるので、GAS も決まりを守らない送り主の親を残さない）で送る（古い GAS・古い画面が `s` を捨てても、置いてある組にも空き牧場にもならない。親を空にしていたときは、古い画面が空き牧場に数えて「空いた牧場に置くなら」を勧めた。フェーズ 3 の終わりのレビュー。受け取った新しい画面は親を捨てる）。JSON にした後 45,000 字（`OWNED_FARMS_MAX_CHARS`）を超えたら、全部の牧場の `eggs` を外して `n` だけにし、それでも超えたら全部の牧場のケーキ（`c`。2026-10-19 の server から）を外し、それでも超えたら牧場を先頭から入る分だけにして `of`（元の牧場の数）を付ける（`fitOwnedFarms`。画面・GAS・開発用 API の `validateOwnedUpload` で同じ）。今の 200 件の上限では、ID が ASCII なら 2 段目で収まる（1 牧場 約 210 字。`"`・`\` や孤立したサロゲートの ID は JSON で字数が増え、3 段目になることがある。どの場合も 45,000 字以下）。200 件の上限で切ったときも、残した牧場に `of`（元の数）を付ける（受け取った側は「一部だけ」）。
 - 受け取る側（`ownedFromShared`）: `eggs` がなければ中身が分からない（`eggs: null`）。`n` のない古い形（古い GAS・古いホストの画面）は「タマゴの情報なし」で、`farmsCounted: false`（理想個体は空き牧場を数えない）。`of` が受け取った数より多ければ `farmsPartial: true`（理想個体は交換推奨・空き牧場・使用中の判定を保留）。中身だけを省いたときは保留しない。
 - GAS に新しい列は要らない（`farms` の列のまま）。反映は `npm run gas:push` だけ（`setup()` は `farms` の列がないシートのときだけ）。
 - タマゴのアイテム ID（farm-board。2026-10-15）: 個体の `location.itemId`（タマゴのとき）を画面用の `eggItemId` に残し、共有は個体の列の末尾に `eggItemId` を足した（`OWNED_ADDED_FIELDS`。GAS は `setup()` をやり直してシートに列が足されるまで書かずに読む。足す前の画面からの共有も受け付ける）。名前はゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_PalEgg_*`（56 件。`npm run extract:skills` → `web/data/items.js`。セーブの ID と大文字小文字が違うことがあるので小文字にそろえて引く）。突然変異は `PalEgg_MutationPal_*`（名前は「突然変異タマゴ」など）。
@@ -132,7 +132,7 @@
 
 - `Rank_HP`・`Rank_Attack`・`Rank_Defence`・`Rank_CraftSpeed`（ByteProperty。段階の数）: `Level.sav` では既定（0）のとき書かれない（手元で `Level` に書かれていたのは `Rank_CraftSpeed` の 1 体だけ）。パル次元ストレージ・グローバルパルボックスでは全部書かれる（例 10）。
 - `WorkerSick`（EnumProperty `EPalBaseCampWorkerSickType::None` など）・`HungerType`（EnumProperty `EPalStatusHungerType::Default`・`Starvation` など）・`SanityValue`（FloatProperty。書かれないときは 100）。`Level.sav` で病気の個体は手元のワールドでは 0 体（別のワールドで 15 体）、空腹は 5 体、SAN が 100 でない個体は 10〜14 体。
-- 画面は個体の `soul: { hp, attack, defense, craft }`・`condition: { sick, hunger, sanity }`（種類はゲームの内部名のまま。日本語の表は取り込んでいない）。個体の詳細のドロワーの「魂の強化と状態」の節と、拠点・手持ちの行の「病気」「空腹」の印。**共有しない**（参加者の画面では `null`）。
+- 画面は個体の `soul: { hp, attack, defense, craft }`・`condition: { sick, hunger, sanity }`（種類はゲームの内部名のまま。日本語の表は取り込んでいない）。個体の詳細のドロワーの「魂の強化と状態」の節と、拠点・手持ちの行の「病気」「空腹」の印。前は共有しなかったが、2026-10-19 の server の share-extras（ユーザーの決定 8）から `OwnedPals` の列 `soul`（`hp|attack|defense|craft`）・`condition`（`病気|空腹|SAN`。SAN は 0〜100 の整数に丸める）で共有し、参加者の画面にも出す（`core/owned.js` の `soulCell`・`conditionCell` と `ownedFromShared`。タマゴ・列のない古い共有・版 12 の GAS では `null`）。
 - `IsFavoritePal`・`CraftSpeeds` は手元のセーブのどの個体にもなかった。
 
 ### プレイ中の仲間とゲーム内の日数
@@ -152,7 +152,7 @@
 ### 配合牧場のケーキ
 
 - 牧場（`BreedFarm`）の `ConcreteModel.ModuleMap` に `ItemContainer`（`RawData` 34 バイト。先頭 16 バイトが入れ物 ID）と `Workee` がある。手元の 7 か所すべてに入れ物があり、ケーキが入っていた。**1 か所に複数の種類が入っていることがある**（例 `Cake03`×18 と `Cake02`×51）。
-- → スナップショットの牧場に `cakes: [{ itemId, count }]`（ケーキ〔`Cake`・`Cake02`〜`Cake05`〕だけ・同じ種類は合わせる・スロットの順）。空の入れ物は `[]`（ケーキ切れ）、入れ物が見つからないとき・入れ物に読めないスロットが 1 つでもあるとき（数を確かめられない。`malformed.itemSlots` にも数える。2026-10-16 のフェーズ 4 の終わりのレビューで、全部のスロットが読めなくても `[]`〈ケーキ切れ〉になっていたのを直した）は `null`（分からない）。**共有しない**（ホストの画面だけ）。名前はゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_Cake*`（`web/data/items.js` の `CAKE_NAMES`。ケーキ・キノコケーキ・野菜ケーキ・豪華野菜ケーキ・スペシャルケーキ）。
+- → スナップショットの牧場に `cakes: [{ itemId, count }]`（ケーキ〔`Cake`・`Cake02`〜`Cake05`〕だけ・同じ種類は合わせる・スロットの順）。空の入れ物は `[]`（ケーキ切れ）、入れ物が見つからないとき・入れ物に読めないスロットが 1 つでもあるとき（数を確かめられない。`malformed.itemSlots` にも数える。2026-10-16 のフェーズ 4 の終わりのレビューで、全部のスロットが読めなくても `[]`〈ケーキ切れ〉になっていたのを直した）は `null`（分からない）。前は共有しなかった（ホストの画面だけ）が、2026-10-19 の server の share-extras から共有の牧場の JSON の `c`（`[{ i: アイテム ID, n: 数 }]`。`[]` はケーキ切れ）で参加者の画面にも出す（セルに入らないときは、タマゴの中身の次に外す。外した・古い共有では `null`）。名前はゲーム本体の `DT_ItemNameText_Common` の `ITEM_NAME_Cake*`（`web/data/items.js` の `CAKE_NAMES`。ケーキ・キノコケーキ・野菜ケーキ・豪華野菜ケーキ・スペシャルケーキ）。
 
 ### 見送ったもの（調べた結果）
 
@@ -171,27 +171,80 @@
 
 ## アイテムの在庫（implants。2026-10-16）
 
-インプラントとパルリバーサーの在庫（理想個体の足りないパッシブのパル手術台の案内・目標の一覧の「手術で完成できる」に添える。後のパルリバーサーの案内も使う）。**ホストの画面だけ**（手元でセーブを読んだときだけ。共有しない）。
+インプラントとパルリバーサーの在庫（理想個体の足りないパッシブのパル手術台の案内・目標の一覧の「手術で完成できる」に添える。後のパルリバーサーの案内も使う）。前はホストの画面だけ（手元でセーブを読んだときだけ）だったが、2026-10-19 の server の share-extras から共有の `OwnedWorlds` の列 `extras` の `items` で参加者の画面にも出す（下の「画面」）。
 
 - 数えるアイテム: `ItemContainerSaveData` のスロットの `staticId` が `PalPassiveSkillChange_*`（インプラント `PalPassiveSkillChange_〈パッシブ〉`・使い切り `PalPassiveSkillChange_Consumable_〈パッシブ〉`）と `PalGenderReverse`（パルリバーサー）。`parseLevel` の牧場のケーキと同じスロットのループで、入れ物ごと・アイテムごとに数える（`itemCounts`。0 個のスロットは数えない）。
 - 入れ物の持ち主: 数えた入れ物を持つ MapObject（`ModuleMap` の `ItemContainer` の `RawData` の先頭 16 バイト）と、その `Model.RawData` の `baseCampId` を `itemOwners` に取る。**タマゴの入れ物の持ち主（`containerOwners`）とは別に持ち**、タマゴの場所の判定は前と同じ入れ物・同じ順（最初に見つかった MapObject）で決める（同じ箱にタマゴとインプラントが入っていても、タマゴの場所は変わらない。合成のセーブで、在庫のアイテムのないワールドとスナップショットの個体が同じことを `test/save/implants-stock.test.js` で、手元のワールド 4 つで前の版と個体・統計・牧場が同じことを確かめた）。
 - 在庫に数える入れ物（`buildSnapshot`）: ギルド保管庫（`GuildItemStorage`）・プレイヤーの所持品（`InventoryInfo` の `*ContainerId`。`Common`・`Essential` など全部）・`baseCampId` のある MapObject（拠点の箱 `ItemChest*`・配合牧場 `BreedFarm`・ほかの設備〔`AncientRelicRecycler` など〕）。**`baseCampId` が空の MapObject（拠点の外の宝箱 `TreasureBox_*`）と、持ち主の分からない入れ物は数えない**（数えると手元のセーブでパルリバーサーが 12 個から 97 個に化ける）。
 - スナップショット: `items: [{ itemId, count, where: 'base'|'guild'|'player', id: 拠点・ギルド・プレイヤーの ID, object: 'chest'|'farm'|'other'|'' }]`（アイテムと場所ごとに合わせる）。在庫を読む前のスナップショットにはない。
-- 画面（`web/js/core/owned.js` の `normalizeOwned`）: `items: { 〈アイテム ID〉: { total, places: [{ label, count }] } }`（場所は数の多い順に 3 つまで。呼び名は「拠点 1 の箱」「拠点 1 の配合牧場」「拠点 1 の設備」「ギルド保管庫」「Alice の所持品」）。在庫を読む前のスナップショットは `null`（分からない）。大文字小文字の違う同じアイテムは合わせる。共有のデータ（`ownedFromShared`）はいつも `null`。引くのは `itemStock(owned, itemId)` → `{ total, places } | null`（読んだデータにないアイテムは `{ total: 0, places: [] }`＝在庫なし）、文は `stockText(stock)`（「在庫 5（拠点 1 の箱）」「在庫 7（拠点 1 の箱 5・ギルド保管庫 2）」「在庫なし」。`{ short: true }` は「在庫 5」）。
+- 画面（`web/js/core/owned.js` の `normalizeOwned`）: `items: { 〈アイテム ID〉: { total, places: [{ label, count }] } }`（場所は数の多い順に 3 つまで。呼び名は「拠点 1 の箱」「拠点 1 の配合牧場」「拠点 1 の設備」「ギルド保管庫」「Alice の所持品」）。在庫を読む前のスナップショットは `null`（分からない）。大文字小文字の違う同じアイテムは合わせる。共有（2026-10-19 から）は `extras.items`（`[{ id, t: 合計, p?: [{ l: 場所の呼び名, n: 数 }] }]`。場所は多い順に 3 か所まで。200 種まで。セルに入らなければ場所の内訳を外す）で送り、共有のデータ（`ownedFromShared`）は同じ形に戻す。在庫を送らない古い共有では `null`、200 種の上限まで届いた共有は `itemsPartial: true`（見つからないアイテムを「在庫なし」にしない）。引くのは `itemStock(owned, itemId)` → `{ total, places } | null`（読んだデータにないアイテムは `{ total: 0, places: [] }`＝在庫なし）、文は `stockText(stock)`（「在庫 5（拠点 1 の箱）」「在庫 7（拠点 1 の箱 5・ギルド保管庫 2）」「在庫なし」。`{ short: true }` は「在庫 5」）。
 - 手元のセーブ（2026-10-16）: 31 種・321 個（拠点の箱 288・拠点の設備 8・ギルド保管庫 12〔パルリバーサーだけ〕・所持品 13）。拠点の外の宝箱の 85 個（全部パルリバーサー）は数えない。`npm run check:save` の通常の出力に「アイテムの在庫（インプラント・パルリバーサー。拠点の外の宝箱は数えない）: 321 個・31 種（うちパルリバーサー 12 個）」の 1 行。
 - 解析の時間: 同じセーブの写しを前の版と交互に 12 回ずつ読んだ中央値で、手元のワールド（1,558 体）625 → 615 ms、別のワールド（1,032 体）115 → 114 ms（差は揺れの範囲。スロットのループは 1 回のまま）。
 
 ## 捕獲数（RecordData。paldex。2026-10-16）
 
-自分が捕まえた数（パル詳細の「捕獲 n 回（自分）」と図鑑のマスの「捕獲 n」）。**ホストの画面だけ**（手元でセーブを読んだときだけ。共有しない）。
+自分が捕まえた数（パル詳細の「捕獲 n 回（自分）」と図鑑のマスの「捕獲 n」）。前はホストの画面だけ（手元でセーブを読んだときだけ）だったが、2026-10-19 の server の share-extras から共有の `players` の JSON の `captures` で参加者の画面にも出す（下の「画面」）。
 
 - 場所: `Players/<uid>.sav` の `SaveData.RecordData.PalCaptureCount`。MapProperty<NameProperty, IntProperty>（キーはキャラクター ID、値は捕まえた回数）。`npm run check:save -- "<ワールドのフォルダ>" --probe` の [7] で形を確かめた（2026-10-16。手元のワールドのプレイヤー 2 人で 246 件・224 件、マスターで引けないのはどちらも `Human` だけ）。読み取りの許可リスト `PLAYER_SKIP` は `.SaveData` に `RecordData`、`.SaveData.RecordData` に `PalCaptureCount` だけを足した。**`PaldeckUnlockFlag`（図鑑の登録。MapProperty<NameProperty, BoolProperty>）は画面で使わないので読まない**（--probe の [7] では件数を出す）。`RecordData` のほかの項目も読まない。
 - 解析（`web/js/save/palworld.js` の `parsePlayer`）: `captures: [{ id: キャラクター ID, count }]`（セーブのキーのまま。0 回は省く・2,000 件まで）。`RecordData`・`PalCaptureCount` がない（古いセーブ）・形が違う（値が整数でない項目しかない、Map でない）なら `null`（分からない）。壊れた Map（要素の数がデータより多いなど）は `readGvas` の回復で飛ばし、`malformed.properties` に数える（後ろの項目と所持パルの取り込みは続く。スナップショットの `stats.malformed['player.properties']`）。
 - スナップショット（`buildSnapshot`）: 捕獲数を読めたプレイヤーだけ `players[].captures` に写す（読めなかったプレイヤー・古いスナップショットには項目がない）。
-- 画面（`web/js/core/owned.js` の `normalizeOwned`）: プレイヤーの `captures: { 〈パル ID〉: 回数 }`。キャラクター ID は `createSpeciesResolver` で引く（大文字小文字の違い〔例 セーブの `WereWolf_Ice` → マスターの `Werewolf_Ice`〕・`BOSS_` などの接頭辞もそろえ、同じ種族は合わせる）。`Human` などマスターにないキーと 0 回は捨てる。形の違う値（配列でない・空でないのに形の合う項目〔文字列の id・0 以上の整数の count〕が 1 つもない）は項目を付けない（「捕獲 0 回」と区別する。空の配列は `{}`＝捕まえていない）。共有のデータ（`ownedFromShared`）には付けない（`sharedUpload` も送らない。`cleanSharedPlayers` は uid・name・Lv・プレイ中だけを残す）。自分の分は `ownCaptures(players, uids)`（`ideals.selfUids()` のプレイヤーの分を合わせた `Map`。自分が分からない・捕獲数のあるプレイヤーがいなければ `null`）。
+- 画面（`web/js/core/owned.js` の `normalizeOwned`）: プレイヤーの `captures: { 〈パル ID〉: 回数 }`。キャラクター ID は `createSpeciesResolver` で引く（大文字小文字の違い〔例 セーブの `WereWolf_Ice` → マスターの `Werewolf_Ice`〕・`BOSS_` などの接頭辞もそろえ、同じ種族は合わせる）。`Human` などマスターにないキーと 0 回は捨てる。形の違う値（配列でない・空でないのに形の合う項目〔文字列の id・0 以上の整数の count〕が 1 つもない）は項目を付けない（「捕獲 0 回」と区別する。空の配列は `{}`＝捕まえていない）。共有（2026-10-19 の server から。前は送らなかった）: `sharedUpload` が `players` の JSON の `captures`（`{ パル ID: 回数 }`。1,000 種まで）で送り、`ownedFromShared` が戻す（`cleanSharedPlayers` が写す）。`players` のセルが 45,000 字を超えるときは、後ろのプレイヤーから捕獲数だけを外す（`core/owned-shared.js` の `fitOwnedPlayers`。外したプレイヤー・古い共有では項目を付けない）。自分の分は `ownCaptures(players, uids)`（`ideals.selfUids()` のプレイヤーの分を合わせた `Map`。自分が分からない・捕獲数のあるプレイヤーがいなければ `null`）。
 - 手元のセーブ（2026-10-16）: `npm run check:save` の通常の出力に「捕獲数: 〈プレイヤー〉 245 種・合計 15334（引けないキー 1: Human）, …」の 1 行（名前は手元の console にだけ出る）。もう 1 人は 223 種。
 - 解析の時間: 同じセーブの写しを前の版（統合ブランチの HEAD）と交互に 13 回ずつ読んだ中央値（1 回目を除く）で、手元のワールド（1,558 体）605 → 601 ms（差は揺れの範囲。プレイヤーのファイルは小さい）。
-- 捕獲ボーナスのしきい値（10 回など）はゲームのデータで確かめていないので出さない。仲間の捕獲数の共有もしない。
+- 捕獲ボーナスのしきい値（10 回など）はゲームのデータで確かめていないので出さない。画面に出すのは自分の分だけ（共有に全員の分が入るのは、参加者が自分の分を見るため）。
+
+## 専用サーバー（ServerSync）のセーブ（server。2026-10-18 に調べた）
+
+ServerSync（Steam。SaveSync と同じ開発元）のインスタンスのセーブを、テストのインスタンスと協力プレイのワールドで読み取りだけで比べ、P0 で動かして測った（`docs/server/README.md` の「調査の結果」「P0 の結果」）。読み込むのはサーバーの PC の常駐（`tools/server-agent/`）だけで、ブラウザでは登録しない（`docs/OPERATIONS.md` の「専用サーバー（ServerSync）と常駐（server-agent）」）。
+
+### 置き場所
+
+```
+<インスタンス>\                          ServerSync のインスタンスのフォルダ（一覧は %LOCALAPPDATA%\ServerSync\instances.json）
+  bin\                                   PalServer.exe のフォルダ
+  bin\Pal\Saved\                         （<インスタンス>\save はここへのジャンクション）
+    Config\WindowsServer\
+      GameUserSettings.ini               [/Script/Pal.PalGameLocalSettings] の DedicatedServerName がワールド ID
+      PalWorldSettings.ini               ゲームの設定（OptionSettings）。パスワードを含むので常駐は読まない
+    SaveGames\0\<ワールド ID>\
+      Level.sav・LevelMeta.sav
+      Players\<PlayerUId>.sav・<PlayerUId>_dps.sav
+      Players\savesync.sav               SaveSync が書く（H の枠の人の本当の UID。読み込まない）
+      LocalData.sav                      ServerSync が写した古いもの（サーバーは書かない。使わない）
+      backup\world\<日時>\                保存のたびに増え、古いものは消える（3〜7 個。読み込まない）
+```
+
+- Steam ID のフォルダが `0`。ワールド ID は変換の元の協力プレイと同じ（共有の行は同じワールドとして続く）。サーバーの見分けはこの `0` だけで行う（`web/js/save/handles.js` の `SERVER_SAVE_ID`・`isServerWorld`。中身では判定しない）。
+- 必須は `Level.sav`・`LevelMeta.sav` だけで、役割はホストに固定する（`requiredFiles`・`usesFile`。`LocalData.sav`・`GlobalPalStorage.sav` は使わない）。
+- `GlobalPalStorage.sav` はない（グローバルパルボックスは各自の PC にある）。サーバーのワールドではグローバルパルボックスを出さない。
+- `WorldOption.sav` は写されない（ServerSync は作成のときに持ち込まない）ので、ゲームの設定は ini で協力プレイに合わせる（`docs/OPERATIONS.md` の「ゲームの設定の合わせ込み」）。
+
+### 変換（協力プレイ → サーバー）で変わるもの
+
+- H（`00000000…0001`）が、作成者の Steam から決まる UID（U）に置き換わる: `Level.sav` のプレイヤーのキー・パルの `OwnerPlayerUId`・ギルドのメンバー・`RawData` の中の GUID、プレイヤーの `.sav`、`_dps.sav` の `OwnerPlayerUId`。`Players` のファイル名も U になる。仲間の UID は変わらない。
+- **個体の `OldOwnerPlayerUIds` は H のまま残る**（テストのインスタンスで拠点の 115 体中 66 体、牧場 2 か所の親）。`_dps.sav` のキーの `PlayerUId` も H のまま。→ 「預けた人」がプレイヤーにいない UID になる（下の「以前の持ち主」）。
+- キャラクターの `InstanceId` は変わらない（往復しても同じ人を指す手がかり）。
+
+### サーバーが保存すると
+
+- `LevelMeta.sav` の `WorldName` が汎用の `Autosave_W` になり、ホスト名が消える。→ 汎用の名前は名前にしない（`web/js/save/world-name.js` の `isGenericWorldName`）。ワールド名は「登録・設定の名前 → セーブの名前（汎用の名前を除く）→ 前の共有の名前」の順で決め、ホスト名は空。
+- `LocalData.sav` を書かない。
+- 誰も接続していなくても 30 秒ごとに保存する（P0 の M1。無人 33 回の中央値 30.02 秒・接続中 94 回の中央値 30.0 秒）。1 回の保存は `Level.sav` → `LevelMeta.sav` → `Players` の 4 ファイルが 6 ms の間にそろう（M2）。
+- 状態（SAN・空腹など）は保存のたびに変わる（無人でも）。状態を除いた共有の中身も、無人の 17 分で 5 回変わった（牧場のタマゴなど。無人でもワールドは動く。M3）。→ 常駐は「同じ中身なら送らない」を入れていない。
+- オフラインの人の `Players` も毎回書き直す。`_dps.sav` は中身が同じでも更新日時だけ変わる。FName の大文字と小文字が保存のたびに変わることがある（種族の引き当ては小文字にそろえるので影響はない）。
+- `Level.sav` の `Timestamp`（保存時刻）はサーバーの PC のローカル時刻（協力プレイと同じ。新旧の比べ方 `compareSaves` はそのまま使える）。`RealDateTimeTicks` は壁の時計と同じだけ進んだ（P0 では PC のスリープの間も進んだ）。`GameDateTimeTicks` も進む。
+- **預け直すと、預けた人が直る**: 牧場の親を拠点から取り出して置き直すと、`OldOwnerPlayerUIds` の最後（預けた人）が今のプレイヤーになった（6 体すべて。前は 4 体が H。M6）。
+- ギルドのメンバーの `last_online_real_time` による「プレイ中」はサーバーでも正しい（退出から約 37 秒後の保存で 0 人）。`core/playing.js` の「ゲーム中」の推定（保存が続いているか）は、サーバーが動いている間はいつも真になる（常駐の presence の playing は「サーバー稼働中」の意味で使う）。
+- 参加者の PC は、協力プレイと同じワールド ID のフォルダの `LocalData.sav` だけを 30 秒ごとに書く（`Level.sav`・`Players`・`GlobalPalStorage.sav` は変わらない。M7）。→ 今の `judgeRole` のままで「参加」になる。
+- 解析は今の `readWorldFiles` でそのまま読めた（テストのインスタンスで 1,767〜1,770 体・約 0.8〜1.2 秒）。
+
+### プレイヤーの同一性と以前の持ち主（server の identity）
+
+- スナップショットの `players[].instanceId`: キャラクターの InstanceId（`Level.sav` のプレイヤーのキー、なければ `Players/<uid>.sav` の `IndividualId`。ギルドだけの人は `''`）。共有の `players` の JSON にも載せる（GUID の形のときだけ）。プレイヤーの鍵は `i:<InstanceId>`、なければ `u:<PlayerUId>`（`core/owned-shared.js` の `playerKeyOf`。プレイヤーの対応と「このワールドでの自分」が使う）。テストのインスタンスと協力プレイのワールドで、2 人の InstanceId が一致した（UID が替わったのは作成者の 1 人だけ）。
+- スナップショットの `world.clock`: `RealDateTimeTicks` の 10 進の文字列（共有の `extras` の `clock`。常駐の古い系統の守りが比べる）。
+- 以前の持ち主（`core/owned.js` の `normalizeOwned` の `formers`）: 拠点・観賞用ケージの個体の預けた人（`OldOwnerPlayerUIds` の最後）と牧場の親を預けた人のうち、プレイヤーにいない UID ごとの `{ uid, kind: 'host'（H）| 'unknown', pals, farms }`。名前は H なら「以前のホスト」、ほかは「不明なプレイヤー（頭 8 字）」（`formerLabel`）。共有の `extras` の `formers`（`{ uid, pals, farms }`）で送り、プレイヤーの対応の行に出す。テストのインスタンスでは、変換の直後に H（拠点 66・牧場 2）、P0 の預け直しの後は H（拠点 62・牧場 0）。協力プレイに戻した後は U が以前の持ち主になる。
+- H の決め打ち（グローバルパルボックスの持ち主など。`HOST_UID`）は、H がプレイヤーにいるワールド（協力プレイ）だけにした（`hostIsPlayer`）。
+- 共有の `extras` の `saveKind`: 登録のパスの Steam ID が `0` なら `server`、ほかは `coop`（`web/js/owned.js` の読み込みが `isServerWorld` で決める）。画面のサーバー向けの文言は、最後の共有のこれで決める。
 
 ## 注意
 

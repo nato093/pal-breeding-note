@@ -4,7 +4,7 @@ import { el, button, link, runButton, formatShortTime } from './dom.js';
 import { toast } from './toast.js';
 import {
   dateTime, worldName, timeLines, permissionNotice, grantWithReport, refreshNow, roleSummary, presenceItems, dimensionNotice, uploadNotice, watchSummary,
-  playSummary, shareLagNotice, openPagesLines,
+  playSummary, shareLagNotice, openPagesLines, mappingOptions,
 } from './owned-status.js';
 import { createPopover } from './popover.js';
 import { settingsHash } from '../router.js';
@@ -154,7 +154,7 @@ export function saveStatus({ owned, autoRegister, store, now = () => Date.now(),
       const items = [];
       // この PC: 1 行目にゲーム中の推定（ホストは「ホスト中（推定）」と「ホスト用のセーブあり」を分ける。host-rotation）、続けて役割の説明
       //（ホスト・参加者・共有を見ている人。roles）。前は「ゲーム」の別の行で、「ゲーム内」と紛らわしかった
-      const role = roleSummary(state, { userId: store?.state?.userId ?? '', now });
+      const role = roleSummary(state, { userId: store?.state?.userId ?? '', now, ...mappingOptions(autoRegister, state) });
       const playing = playSummary(state, { now });
       const self = [playing, role?.text, role?.hint].filter(Boolean);
       if (self.length) items.push(['この PC', self.join('\n')]);

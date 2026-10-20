@@ -3,6 +3,7 @@
 // 参照: palsav (PalworldSaveTools, MIT) の rawdata/*.py。
 
 import { GvasReader, GvasError, readGvas, readGvasHeader, guidAt, ZERO_GUID } from './gvas.js';
+import { isGenericWorldName } from './world-name.js';
 
 // ---------------------------------------------------------------------------
 // .sav ラッパー（圧縮ヘッダ）
@@ -1187,23 +1188,28 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     if (gs.containerId) itemContainer.set(gs.containerId, { kind: 'egg-guild', playerUid: '', guildId: gs.guildId });
   }
 
-  // プレイヤー一覧（Level のキャラクター → ギルドのメンバー名 → プレイヤーセーブの順で補完）
+  // プレイヤー一覧（Level のキャラクター → ギルドのメンバー名 → プレイヤーセーブの順で補完）。
+  // instanceId はキャラクターの InstanceId（Level のプレイヤーのキー、なければ Players/<uid>.sav の IndividualId。ギルドだけの人は ''）。
+  // 協力プレイとサーバーを往復して PlayerUId が入れ替わっても変わらない（server の identity。プレイヤーの鍵 i: に使う）
   const playerMap = new Map();
   for (const p of level.players) {
-    if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: p.name, level: p.level });
+    if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: p.name, level: p.level, instanceId: p.instanceId || '' });
   }
   for (const g of level.guilds) {
     for (const m of g.players) {
       if (!m.uid) continue;
       const cur = playerMap.get(m.uid);
-      if (!cur) playerMap.set(m.uid, { uid: m.uid, name: m.name, level: 0 });
+      if (!cur) playerMap.set(m.uid, { uid: m.uid, name: m.name, level: 0, instanceId: '' });
       else if (!cur.name) cur.name = m.name;
     }
   }
   for (const p of playerSaves) {
-    if (p.uid && !playerMap.has(p.uid)) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0 });
+    if (!p.uid) continue;
+    const cur = playerMap.get(p.uid);
+    if (!cur) playerMap.set(p.uid, { uid: p.uid, name: '', level: 0, instanceId: p.instanceId || '' });
+    else if (!cur.instanceId) cur.instanceId = p.instanceId || '';
   }
-  // 捕獲数（paldex。ホストの画面だけ・共有しない）。読めたプレイヤーだけに付ける（古いセーブ・読めなかったプレイヤーには項目がない）
+  // 捕獲数（paldex。共有の players の captures で参加者にも届く）。読めたプレイヤーだけに付ける（古いセーブ・読めなかったプレイヤーには項目がない）
   for (const p of playerSaves) {
     if (p.uid && Array.isArray(p.captures)) playerMap.get(p.uid).captures = p.captures.map(({ id, count }) => ({ id, count }));
   }
@@ -1348,14 +1354,14 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
     .map((egg) => ({ localId: egg.localId, characterId: (egg.pal && egg.pal.characterId) || egg.characterIdRaw, itemId: egg.staticId })));
   const breedFarms = (level.breedFarms || []).map((f) => {
     const { status, parents } = parentsOf(f);
-    // ケーキ（牧場の入れ物のケーキの種類と個数。[] はケーキ切れ、null は入れ物が読めない。ホストの画面だけ・共有しない。save-extras）
+    // ケーキ（牧場の入れ物のケーキの種類と個数。[] はケーキ切れ、null は入れ物が読めない。共有の farms の c。save-extras）
     const cakes = Array.isArray(f.cakes) ? f.cakes.map((cake) => ({ itemId: cake.itemId, count: cake.count })) : null;
     return { id: f.id, baseId: f.baseCampId, status, parents, eggs: eggsOf(f), cakes };
   });
   // 古代文明の配合器（自動登録の照合だけに使う。画面用の形〔normalizeOwned〕と共有には入れない）
   const breeders = (level.breeders || []).map((f) => ({ id: f.id, baseId: f.baseCampId, ...parentsOf(f), eggs: eggsOf(f) }));
 
-  // アイテムの在庫（implants。ホストの画面だけ・共有しない）: 数えた入れ物のうち、ギルド保管庫・プレイヤーの所持品と、拠点の中のマップオブジェクト
+  // アイテムの在庫（implants。共有の列 extras の items で参加者にも届く）: 数えた入れ物のうち、ギルド保管庫・プレイヤーの所持品と、拠点の中のマップオブジェクト
   //（baseCampId のある拠点の箱・配合牧場・ほかの設備）の入れ物だけを、アイテムと場所ごとに合わせる。拠点の外の入れ物（ワールドの宝箱
   // TreasureBox_* など。baseCampId が空）と持ち主の分からない入れ物は数えない（数えると実セーブでパルリバーサーが 3 個から 88 個に化けた）
   const stock = new Map();
@@ -1379,13 +1385,17 @@ export function buildSnapshot({ level, players = [], dps = [], globalStorage = n
   // ゲーム内の日数は LevelMeta.sav の InGameDay。読めなければ Level.sav のゲーム内の時刻から（floor(GameDateTimeTicks ÷ 864e9) と一致する）
   const gameTicks = Number(level.gameDateTimeTicks);
   const world = {
-    name: m ? m.worldName : '',
+    // サーバー（ServerSync）が保存すると、ワールド名が汎用の名前（Autosave_W）になる。名前として使わない（server の identity）
+    name: m && !isGenericWorldName(m.worldName) ? m.worldName : '',
     hostName: m ? m.hostPlayerName : '',
     savedAt: ticksToIso(level.savedAtTicks) || (m ? ticksToIso(m.timestampTicks) : ''),
     // Level.sav の中の保存時刻の生のティック（10 進の文字列。読めなければ ''）。ISO の savedAt は日本時間の PC で 9 時間ずれ、ミリ秒より
     // 細かい桁も落ちるので、同じセーブの見分けと新旧はこちらで比べる（core/owned-shared.js の compareSaves。sync-fixes の owned-gas）
     savedAtTicks: ticksText(level.savedAtTicks),
     inGameDay: m && m.inGameDay > 0 ? m.inGameDay : Number.isFinite(gameTicks) && gameTicks > 0 ? Math.floor(gameTicks / TICKS_PER_DAY) : 0,
+    // ワールドが動いた通算の時間（Level.sav の GameTimeSaveData.RealDateTimeTicks。10 進の文字列。読めなければ ''）。保存のたびに進み、
+    // 協力プレイとサーバーを往復しても続くので、どちらが新しい系統のワールドかを比べる手がかりにする（server の identity）
+    clock: ticksText(level.realDateTimeTicks),
   };
 
   return {

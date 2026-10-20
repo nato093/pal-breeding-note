@@ -54,17 +54,29 @@ export function guestAutoText(host = '') {
   return `この PC では読み込みません。配合牧場の自動登録は${host ? ' ' : ''}${subject}の画面が行います（${subject}が自動登録をオンにしていて、プレイヤーの対応であなたが選ばれているとき）。`;
 }
 
+// ---- サーバーのワールド（server の participant-ui） ----
+/**
+ * 表示しているデータがサーバー（Palworld の専用サーバー）のセーブか（owned.js の meta.saveKind。共有のデータなら共有された値）。
+ * サーバーと協力プレイを往復するので、最後の共有で決める。協力プレイ・古い共有（saveKind なし）は今までの文
+ */
+export const isServerSave = (meta) => meta?.saveKind === 'server';
+// サーバーのワールドの参加者の 1 行（設定の参加のワールドの行と、参加者の 1 行）。サーバーで遊んでいる間は、サーバーの PC の常駐プログラムが
+// 共有と配合牧場の自動登録を行う（ホストの画面は要らない）
+export const SERVER_AUTO_TEXT = 'この PC では読み込みません。配合牧場の自動登録は、サーバーの PC の常駐プログラムが行います（プレイヤーの対応であなたが選ばれているとき）。';
+
 /**
  * 役割ごとの 1 行。ホスト・参加者（role 'guest'）・未連携で共有を見ている人。共有を見ていない未連携の人は null
  *（「セーブ未登録」の案内は所持パルの案内に任せる）。参加者・共有を見ている人で、共有のプレイヤーにログイン中の ID と同じ名前の人が
- * いなければ hint に 1 行（X-07。一致したときは出さない）。
+ * いなければ hint に 1 行（X-07。一致したとき・GAS のプレイヤーの対応〔mapping。mappingMode が 'gas'〕で自分の ID に対応づいた人が
+ * いるときは出さない）。
  * 参加者の文は、最後に共有した人を今のホストと決めつけない（ホストは仲間内で交代する。sync-fixes の host-rotation）: 新しい共有を別の人が
  * 送ったときだけその人の名前で言い、古い共有（SHARED_STALE_MS より前）・自分が送った共有では「ホスト」と言って、共有した PC を添える。
  * 古い共有は警告の短い文にするが、共有が止まっている案内（shareLagNotice）が出るときは古さをそちらに任せ、info の形にする（同じ内容の
- * 警告を 2 つ並べない）
+ * 警告を 2 つ並べない）。
+ * 最後の共有がサーバーのセーブなら、サーバーの PC の常駐プログラムの文（serverSummary）
  * @returns {null | { text: string, kind: 'info' | 'warning', hint: string }}
  */
-export function roleSummary(state, { userId = '', now = Date.now } = {}) {
+export function roleSummary(state, { userId = '', now = Date.now, mapping = {}, mappingMode = 'legacy' } = {}) {
   if (!state) return null;
   if (state.role === 'host') return { text: HOST_SUMMARY, kind: 'info', hint: '' };
   const meta = state.meta ?? {};
@@ -73,7 +85,8 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
   const sharedAt = meta.sharedAt || meta.saveUpdatedAt || '';
   const ago = shared ? timeAgo(sharedAt, now()) : '';
   const stale = shared && Number.isFinite(Date.parse(sharedAt)) && now() - Date.parse(sharedAt) > SHARED_STALE_MS;
-  const hint = shared ? nameMismatch(state.owned?.players ?? [], userId) : '';
+  const hint = shared ? nameMismatch(state.owned?.players ?? [], userId, { mapping, mappingMode }) : '';
+  if (shared && isServerSave(meta)) return serverSummary(state, { ago, stale, hint, now });
   if (state.role === 'guest') {
     if (!shared) return { text: guestAutoText(host), kind: 'info', hint: '' };
     // 共有した PC（送った人は ID で比べる。分からなければ添えない）
@@ -89,6 +102,17 @@ export function roleSummary(state, { userId = '', now = Date.now } = {}) {
   }
   if (!shared) return null;
   return { text: `${host ? `${host} が` : 'ホストが'}共有した所持パルを表示しています · 最後の共有 ${ago}`, kind: stale ? 'warning' : 'info', hint };
+}
+
+// サーバーのワールドの共有を見ている参加者・閲覧者の 1 行。共有はサーバーの PC の常駐プログラムが送る（送った人は常駐の ID なので名指し
+// しない）。サーバーは遊ぶときだけ動かす（決定 4）ので、古い共有はふつうのこととして info。警告は、常駐の応答ではサーバーが稼働中なのに
+// 共有が古いときだけ（共有が止まっている案内〔shareLagNotice〕が出るときはそちらに任せる）
+function serverSummary(state, { ago, stale, hint, now }) {
+  if (stale && serverRunning(state, { now }) && !shareLagNotice(state, { now })) {
+    return { text: `サーバーは稼働中ですが、最後の共有は ${ago}です。サーバーの PC の常駐プログラムを確かめてください。`, kind: 'warning', hint };
+  }
+  const lead = state.role === 'guest' ? SERVER_AUTO_TEXT.replace(/。$/, '') : 'サーバーの PC の常駐プログラムが共有した所持パルを表示しています';
+  return { text: `${lead} · 最後の共有 ${ago}`, kind: 'info', hint };
 }
 
 // ---- ゲーム中の推定と、共有が止まっていることの案内（sync-fixes の host-rotation） ----
@@ -114,6 +138,11 @@ export function playSummary(state, { now = Date.now } = {}) {
   return state?.role === 'guest' && playing ? '参加中（推定）' : '';
 }
 
+// 共有が止まっている案内の直し方。協力プレイは今のホストの PC のページ。サーバーのワールド（最後の共有がサーバーのセーブ）は、まずサーバーの
+// PC の常駐プログラムを確かめ、協力プレイに戻した場合（往復する。決定 5）の直し方も添える
+const COOP_LAG_HELP = '今のホストの PC でこのページが開いているか確かめてください。あなたがホストなら、このワールドの編集で Level.sav・LevelMeta.sav・Players のファイルを足してください。';
+const SERVER_LAG_HELP = `サーバーで遊んでいるなら、サーバーの PC で常駐プログラムが動いているか確かめてください。協力プレイに戻したなら、${COOP_LAG_HELP}`;
+
 /**
  * 参加者がゲーム中なのに、共有が止まっている（共有のセーブが SHARE_LAG_MS より古い・このワールドの共有がない）ときの案内。所持パルの案内
  *（［ワールドを編集］のボタン）とヘッダーのチップ（「共有が止まっています」、共有がなければ「共有されていません」）に同じ文で出す。ヘッダーには
@@ -129,7 +158,7 @@ export function shareLagNotice(state, { now = Date.now } = {}) {
   if (shared.error || shared.fetchedWorldId !== state.linkedWorldId || !Number.isFinite(checked) || time - checked > SHARE_CHECKED_MS) return null;
   const meta = state.meta ?? {};
   // ページを開いているほかの PC の短い一覧を添える（分からなければ添えない。page-presence）
-  const help = `今のホストの PC でこのページが開いているか確かめてください。あなたがホストなら、このワールドの編集で Level.sav・LevelMeta.sav・Players のファイルを足してください。${openPagesBrief(state, { now: () => time })}`;
+  const help = `${isServerSave(meta) ? SERVER_LAG_HELP : COOP_LAG_HELP}${openPagesBrief(state, { now: () => time })}`;
   if (meta.source !== 'shared') return { text: `ゲーム中のようですが、このワールドはまだ共有されていません。${help}`, kind: 'warning', action: 'editWorld' };
   const saved = Date.parse(meta.saveUpdatedAt ?? '');
   if (Number.isFinite(saved) && time - saved < SHARE_LAG_MS) return null;
@@ -150,10 +179,14 @@ const PAGE_ROLE_TEXT = { host: ['ホスト中', 'ホスト用のセーブあり'
  * 今のワールド（表示しているワールド）でページを開いている PC。PC（device）ごとにまとめ、3 分以内に応答があった PC を先に、応答の新しい順。
  * 一覧が分からない（古い GAS・まだ受け取っていない・別のワールドの一覧）なら null。経過はサーバーの時刻で測る（受け取ったときのサーバーの
  * 時刻＋その後に経った時間。PC の時計がずれていても境目がずれない）。
- * @returns {null | { device: string, user: string, name: string, tags: string[], labels: string[], fresh: boolean, self: boolean, at: string,
- *   time: number, ago: string, role: string, playing: boolean, canShare: boolean }[]}
- *   tags は「PC 2」（同じ人の 2 台目から。番号は今の一覧〔6 時間以内〕に残る PC の ID の順なので、見る人によって入れ替わらない。ID の順で先の
- *   古い PC が一覧から消えると繰り上がることがある）・「この PC」、name は user に tags を添えたもの。
+ * サーバーの PC の常駐プログラム（presence の resident。server の participant-ui）は、ログインの ID によらず「サーバー」と呼び、tags の先頭に
+ *「常駐」、labels は「サーバー稼働中」（常駐が送る playing＝サーバーが保存を続けている）か「サーバー停止中」だけにする。サーバーは遊ぶときだけ
+ * 動かすので、停止中はふつうのこと（警告にしない）
+ * @returns {null | { device: string, user: string, label: string, name: string, tags: string[], labels: string[], fresh: boolean, self: boolean,
+ *   resident: boolean, at: string, time: number, ago: string, role: string, playing: boolean, canShare: boolean }[]}
+ *   tags は「常駐」・「PC 2」（同じ人の 2 台目から。常駐は常駐どうしで数える。番号は今の一覧〔6 時間以内〕に残る PC の ID の順なので、見る人に
+ *   よって入れ替わらない。ID の順で先の古い PC が一覧から消えると繰り上がることがある）・「この PC」、label は呼び名（user。常駐は「サーバー」）、
+ *   name は label に tags を添えたもの。
  *   role・playing・canShare・labels（「ホスト中」「共有できる」）は、その PC の 3 分以内のページの応答だけでまとめたもの（古い PC は ''・false・[]）
  */
 export function openPages(state, { now = Date.now } = {}) {
@@ -174,31 +207,39 @@ export function openPages(state, { now = Date.now } = {}) {
     const newest = list.reduce((best, page) => (page.time > best.time ? page : best));
     const recent = list.filter((page) => current - page.time <= PAGE_FRESH_MS);
     const role = PAGE_ROLES.find((value) => recent.some((page) => page.role === value)) ?? '';
+    const resident = list.some((page) => page.resident === true);
     return {
       device, user: typeof newest.user === 'string' ? newest.user : '', time: newest.time, at: newest.at, fresh: recent.length > 0,
-      self: Boolean(pages.device) && device === pages.device, role,
-      playing: recent.some((page) => page.role === role && page.playing === true), canShare: recent.some((page) => page.canShare === true),
+      self: Boolean(pages.device) && device === pages.device, role, resident,
+      playing: recent.some((page) => (resident ? page.resident === true : page.role === role) && page.playing === true),
+      canShare: recent.some((page) => page.canShare === true),
     };
   });
+  // 番号を数える組（同じ人。常駐はどの ID でも「サーバー」と出すので、常駐どうしで数え、同じ ID のページと混ぜない）
+  const groupOf = (pc) => (pc.resident ? '\u0000resident' : userIdKey(pc.user));
   const sameUser = new Map();
-  for (const pc of pcs) {
-    const key = userIdKey(pc.user);
-    sameUser.set(key, [...(sameUser.get(key) ?? []), pc.device].sort());
-  }
+  for (const pc of pcs) sameUser.set(groupOf(pc), [...(sameUser.get(groupOf(pc)) ?? []), pc.device].sort());
   return pcs
     .sort((a, b) => Number(b.fresh) - Number(a.fresh) || b.time - a.time || a.device.localeCompare(b.device))
     .map((pc) => {
-      const number = sameUser.get(userIdKey(pc.user)).indexOf(pc.device) + 1;
-      const tags = [...(number > 1 ? [`PC ${number}`] : []), ...(pc.self ? ['この PC'] : [])];
+      const number = sameUser.get(groupOf(pc)).indexOf(pc.device) + 1;
+      const tags = [...(pc.resident ? ['常駐'] : []), ...(number > 1 ? [`PC ${number}`] : []), ...(pc.self ? ['この PC'] : [])];
       const [active, idle] = PAGE_ROLE_TEXT[pc.role] ?? PAGE_ROLE_TEXT.none;
-      const labels = pc.fresh ? [pc.playing ? active : idle, ...(pc.canShare ? ['共有できる'] : [])] : [];
-      return { ...pc, name: `${pc.user || '名前なし'}${tags.length ? `（${tags.join('・')}）` : ''}`, tags, labels, ago: timeAgo(pc.at, current) };
+      const labels = !pc.fresh ? []
+        : pc.resident ? [pc.playing ? 'サーバー稼働中' : 'サーバー停止中'] : [pc.playing ? active : idle, ...(pc.canShare ? ['共有できる'] : [])];
+      const label = pc.resident ? 'サーバー' : pc.user || '名前なし';
+      return { ...pc, label, name: `${label}${tags.length ? `（${tags.join('・')}）` : ''}`, tags, labels, ago: timeAgo(pc.at, current) };
     });
+}
+
+/** 3 分以内に応答した常駐のどれかが、サーバーが保存を続けている（playing）と送っているか（サーバー稼働中。決定 14 で常駐は 2 台以上もありうる） */
+export function serverRunning(state, { now = Date.now } = {}) {
+  return (openPages(state, { now }) ?? []).some((pc) => pc.resident && pc.fresh && pc.playing);
 }
 
 /**
  * ヘッダーのセーブ連携のパネルの「ページを開いている PC」の行（1 台 1 行。表の幅いっぱい）。「● Alice · 1 分前 · ホスト中 · 共有できる」
- *「○ Bob · 最近の応答なし（3 時間前）」。分からない・6 時間以内の応答がなければ []
+ *「○ Bob · 最近の応答なし（3 時間前）」「● サーバー（常駐） · たった今 · サーバー稼働中」。分からない・6 時間以内の応答がなければ []
  */
 export function openPagesLines(state, { now = Date.now } = {}) {
   return (openPages(state, { now }) ?? []).map((pc) => (pc.fresh
@@ -214,15 +255,30 @@ export function openPagesBrief(state, { now = Date.now } = {}) {
   if (!pcs) return '';
   const others = pcs.filter((pc) => pc.fresh && !pc.self);
   if (!others.length) return 'ほかの PC のこのページからは、3 分以内の応答がありません。';
-  return `3 分以内に応答があったほかの PC: ${others.map((pc) => `${pc.user || '名前なし'}（${[...pc.tags, ...pc.labels].join('・')}）`).join('、')}。`;
+  return `3 分以内に応答があったほかの PC: ${others.map((pc) => `${pc.label}（${[...pc.tags, ...pc.labels].join('・')}）`).join('、')}。`;
 }
 
-// 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人がいないときの 1 行
-function nameMismatch(players, userId) {
+// 共有のプレイヤーにログイン中の ID と同じ名前（userIdKey で比べる）の人も、プレイヤーの対応で自分の ID に対応づいた人もいないときの 1 行。
+// mapping は表示しているワールドの対応（uid → ID。auto-register.js の mapping）。mappingMode が 'gas' なら対応はノートにあり、どの PC からでも
+// 選べる（server の mapping）。'legacy'（前の版）なら、ホストの PC の対応だけが効く（mapping はこの PC の対応なので、出す・出さないに使わない）
+function nameMismatch(players, userId, { mapping = {}, mappingMode = 'legacy' } = {}) {
   if (!userId || !players.length || players.some((player) => player.name && userIdKey(player.name) === userIdKey(userId))) return '';
+  if (mappingMode === 'gas' && players.some((player) => typeof mapping[player.uid] === 'string' && userIdKey(mapping[player.uid]) === userIdKey(userId))) return '';
   const names = [...new Set(players.map((player) => player.name).filter(Boolean))];
   const shown = names.length > 5 ? `${names.slice(0, 5).join('・')} ほか` : names.join('・');
-  return `このワールドに「${userId}」という名前のプレイヤーがいません（${shown}）。あなたが親 2 体を預けた配合は、ホストに設定の「プレイヤーの対応」で ${userId} を選んでもらうまで登録されません（「このワールドでの自分」を選んでも、ホストの対応は変わりません）。`;
+  const lead = `このワールドに「${userId}」という名前のプレイヤーがいません（${shown}）。あなたが親 2 体を預けた配合は、`;
+  if (mappingMode === 'gas') return `${lead}設定の「プレイヤーの対応」で自分のプレイヤーに ${userId} を選ぶと登録されます（どの PC からでも選べます）。`;
+  return `${lead}ホストに設定の「プレイヤーの対応」で ${userId} を選んでもらうまで登録されません（「このワールドでの自分」を選んでも、ホストの対応は変わりません）。`;
+}
+
+/**
+ * 表示しているワールドのプレイヤーの対応（roleSummary・ownedNotices に渡す mapping と mappingMode。auto-register.js の mapping・mappingMode）。
+ * 自動登録がない・表示しているワールドがなければ {}（前の版の文になる）
+ */
+export function mappingOptions(autoRegister, state) {
+  const worldId = state?.meta?.worldId;
+  if (typeof autoRegister?.mapping !== 'function' || !worldId) return {};
+  return { mapping: autoRegister.mapping(worldId) ?? {}, mappingMode: autoRegister.mappingMode?.(worldId) ?? 'legacy' };
 }
 
 /**
@@ -263,8 +319,8 @@ const LEVELS_SHOWN = 8;
  * 表示中のデータのプレイ中・日数・Lv。データがなければ null。
  * @returns {null | { day: number | null, known: boolean, online: object[], levels: object[], at: string, label: string, fresh: boolean }}
  *   known はプレイ中が分かるプレイヤーがいるか（古いデータ・古い共有では false）、at は添える時刻（プレイ中はその保存の時点の状態なので、
- *   共有でも共有した時刻ではなくホストのセーブの時刻。Codex のレビュー）、label は「セーブ」「ホストのセーブ」、fresh はその保存が新しい
- *  （いまもプレイ中とみなせる）か
+ *   共有でも共有した時刻ではなくホストのセーブの時刻。Codex のレビュー）、label は「セーブ」「ホストのセーブ」（最後の共有がサーバーのセーブ
+ *   なら「サーバーのセーブ」）、fresh はその保存が新しい（いまもプレイ中とみなせる）か
  */
 export function presenceOf(state, { now = Date.now } = {}) {
   const owned = state?.owned;
@@ -281,7 +337,7 @@ export function presenceOf(state, { now = Date.now } = {}) {
     online: players.filter((player) => player.online === true),
     levels: players.filter((player) => Number.isInteger(player.level) && player.level > 0),
     at: meta.saveUpdatedAt || '',
-    label: shared ? 'ホストのセーブ' : 'セーブ',
+    label: !shared ? 'セーブ' : isServerSave(meta) ? 'サーバーのセーブ' : 'ホストのセーブ',
     fresh,
   };
 }
@@ -296,8 +352,8 @@ export function onlineUids(state, { now = Date.now } = {}) {
 export const onlineKey = (state, options) => [...onlineUids(state, options)].sort().join(',');
 
 /**
- * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（セーブ 03:07 の時点）」。参加者は「ホストのセーブ」。
- * 分からなければ出さない）・
+ * ヘッダーのセーブ連携のパネルの行 [見出し, 文]。ゲーム内の日数・プレイ中（「Alice・Bob（セーブ 03:07 の時点）」。参加者は「ホストのセーブ」、
+ * サーバーのワールドは「サーバーのセーブ」。分からなければ出さない）・
  * Lv（「Alice 52 · Bob 47」。分かる人だけ）
  */
 export function presenceItems(state, { now = Date.now } = {}) {
@@ -323,15 +379,21 @@ export function dateTime(value) {
     ? new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(time) : '不明';
 }
 
+/**
+ * ワールドの呼び名（「「名前」（ホスト Alice）」。名前がなければ「ワールド 頭 8 字」）。サーバーのワールド（isServerSave。サーバーのセーブには
+ * ホスト名がない）は「（サーバー）」を添える
+ */
 export function worldName(meta) {
   if (!meta) return '';
   const name = meta.worldName || meta.name ? `「${meta.worldName || meta.name}」` : `ワールド ${String(meta.worldId ?? meta.id ?? '').slice(0, 8)}`;
-  return `${name}${meta.hostName ? `（ホスト ${meta.hostName}）` : ''}`;
+  return `${name}${isServerSave(meta) ? '（サーバー）' : meta.hostName ? `（ホスト ${meta.hostName}）` : ''}`;
 }
 
 export function roleLabel(state) {
-  return state.role === 'host' ? 'ホスト（この PC にワールドのセーブがあります）'
-    : state.role === 'guest' ? '参加者（ホストが共有した所持パルを表示します）' : '';
+  if (state.role === 'host') return 'ホスト（この PC にワールドのセーブがあります）';
+  if (state.role !== 'guest') return '';
+  return state.meta?.source === 'shared' && isServerSave(state.meta)
+    ? '参加者（サーバーの PC の常駐プログラムが共有した所持パルを表示します）' : '参加者（ホストが共有した所持パルを表示します）';
 }
 
 /**
@@ -443,9 +505,10 @@ export function dimensionNotice(state, { selfUids = new Set() } = {}) {
  * 所持パルのタブの上に出す案内。対応が要るものだけ（読み込み中・確認中・共有中は出さない。ヘッダーのセーブ連携の状態が知らせる）。
  * 案内は 1 文と行き先のボタン（「設定タブの〜」とだけ書かない。copy-dead-ends）。action はボタンの名前（views/owned.js の noticeActions。
  * grant＝読む許可・register＝ワールドの登録のモーダル・settings＝設定のセーブ連携〔読んでいるワールドの行〕へ・editWorld＝読んでいるワールドの
- * 編集のモーダル・unknownPlace＝場所の分からないパル）。selfUids は自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dimensionNotice）
+ * 編集のモーダル・unknownPlace＝場所の分からないパル・mapping＝設定のプレイヤーの対応〔表示しているワールドの未設定の行〕へ）。selfUids は
+ * 自分のプレイヤー（参加者のパル次元ストレージの読み漏れの案内。dimensionNotice）
  */
-export function ownedNotices(state, { userId = '', now = Date.now, selfUids = new Set() } = {}) {
+export function ownedNotices(state, { userId = '', now = Date.now, selfUids = new Set(), mapping = {}, mappingMode = 'legacy' } = {}) {
   const notices = [];
   if (!state.ready) return notices;
   const auto = state.auto ?? {};
@@ -467,8 +530,10 @@ export function ownedNotices(state, { userId = '', now = Date.now, selfUids = ne
   const lag = shareLagNotice(state, { now });
   if (state.role === 'guest' && !hasData) notices.push(lag ?? { text: 'ホストがまだこのワールドの所持パルを共有していません。', kind: 'info' });
   if (state.role === 'guest' && hasData) {
-    const summary = roleSummary(state, { userId, now });
-    if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}) });
+    const summary = roleSummary(state, { userId, now, mapping, mappingMode });
+    // 名前が合わない 2 行目が GAS の対応の文（本人が設定で選べる）なら、行き先のボタン（プレイヤーの対応を開く。最終レビュー）
+    const pick = summary?.hint && mappingMode === 'gas' ? { action: 'mapping' } : {};
+    if (summary) notices.push({ text: summary.text, kind: summary.kind, ...(summary.hint ? { hint: summary.hint } : {}), ...pick });
     if (lag) notices.push(lag);
   }
   // パル次元ストレージの読み漏れ（共有を出しているとき。自分が候補のときだけ。この PC で読んだセーブの分は、下の読めなかったファイルの後）

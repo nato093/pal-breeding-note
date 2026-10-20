@@ -131,7 +131,7 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
   // 所持の 1 行（所持パルのデータがある人だけ。O-41・F075）
   const ownedLine = el('p', 'pal-owned-line');
   ownedLine.hidden = true;
-  // 自分の捕獲数（ホストの画面で、自分のプレイヤーのセーブに捕獲数があるときだけ。参加者・共有・古いデータでは出さない。paldex）
+  // 自分の捕獲数（自分のプレイヤーに捕獲数があるときだけ。共有の捕獲数で参加者にも出る。自分が分からない・古いデータでは出さない。paldex）
   const captureLine = el('p', 'pal-capture-line');
   captureLine.hidden = true;
   info.append(ownedLine, captureLine);
@@ -240,7 +240,7 @@ export function palDetail(context, palId, { mode = 'page', onSwitch } = {}) {
     captureLine.hidden = !captures;
     captureLine.replaceChildren();
     if (!captures) return;
-    captureLine.title = 'このワールドで自分のプレイヤーが捕まえた数（ホストのセーブから。仲間の分は数えません）';
+    captureLine.title = 'このワールドで自分のプレイヤーが捕まえた数（ワールドのセーブから。仲間の分は数えません）';
     captureLine.append(el('span', 'pal-owned-label', '捕獲'), el('span', 'pal-capture-count', `${text} 回`), el('span', 'pal-capture-note', '（自分）'));
   }
 

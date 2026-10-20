@@ -21,7 +21,7 @@ import os from 'node:os';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { OWNED_FIELDS } from '../web/js/core/owned-shared.js';
+import { OWNED_FIELDS, OWNED_ADDED_FIELDS } from '../web/js/core/owned-shared.js';
 
 const MODES = { normal: 30000, load: 15000 };
 // 3 ワールドの体数（計 4600 行）
@@ -325,14 +325,18 @@ export async function runRehearsal({
   }
   const stats = newStats();
   const call = createCaller({ url, passcode, fetcher, now, stats });
-  const upload = (id, gen, withIdentity, count = size) => call('ownedUpload', {
-    userId: 'owned-bench', worldId: id, saveUpdatedAt: new Date(now()).toISOString(),
-    world: {
-      name: `bench g${gen}`, hostName: 'bench',
-      ...(withIdentity ? { saveStamp: String(TICK_BASE + BigInt(gen)), contentHash: randomBytes(32).toString('hex'), format: 1, fileCount: 6, missingCount: 0 } : {}),
-    },
-    players: [], bases: [], columns: OWNED_FIELDS, rows: benchRows(0, gen, count),
-  });
+  // 古い版の書き込み（legacy-write）は、後から足した列のない 26 列で送る（どの版の GAS も受ける。新しい列を足した後の 31 列は古い版が断る）
+  const upload = (id, gen, withIdentity, count = size) => {
+    const width = withIdentity ? OWNED_FIELDS.length : OWNED_FIELDS.length - OWNED_ADDED_FIELDS.length;
+    return call('ownedUpload', {
+      userId: 'owned-bench', worldId: id, saveUpdatedAt: new Date(now()).toISOString(),
+      world: {
+        name: `bench g${gen}`, hostName: 'bench',
+        ...(withIdentity ? { saveStamp: String(TICK_BASE + BigInt(gen)), contentHash: randomBytes(32).toString('hex'), format: 1, fileCount: 6, missingCount: 0 } : {}),
+      },
+      players: [], bases: [], columns: OWNED_FIELDS.slice(0, width), rows: benchRows(0, gen, count).map((cells) => cells.slice(0, width)),
+    });
+  };
   const readBack = async (id, gen, count = size) => {
     const owned = await readAgain(() => call('owned', { worldId: id }));
     if (!owned.ok) return `読めません（${owned.code}）`;

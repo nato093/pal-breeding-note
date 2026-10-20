@@ -170,6 +170,26 @@ test('所持パルの共有（owned-gas）: セーブの中の保存時刻（sav
   assert.equal(cleanPresenceList(Array.from({ length: 60 }, () => item)).length, 50);
   assert.equal(cleanPresenceList(null), null);
   assert.equal(cleanPresenceList({}), null);
+  // サーバーの PC の常駐プログラムの印（server の participant-ui）は true のときだけ写す（ほかは鍵ごと付けない）
+  assert.deepEqual(cleanPresenceList([{ ...item, resident: true }, { ...item, resident: false }, { ...item, resident: 'true' }, item]), [
+    { ...item, resident: true }, item, item, item,
+  ]);
+});
+
+test('所持パルの共有（server）: GAS が列 extras から広げた追加の情報は、分かることがあれば GAS と同じ決まった形で写し、なければ付けない（API の応答とキャッシュの復元で同じ）', () => {
+  const H = '00000000-0000-0000-0000-000000000001';
+  const extras = { saveKind: 'server', clock: '638650000000000005', formers: [{ uid: H, pals: 3, farms: 2 }], items: null };
+  const [world] = cleanOwnedWorlds([sharedWorld(extras)]);
+  assert.deepEqual(world, sharedWorld(extras));
+  assert.deepEqual(cleanOwnedPayload({ world: sharedWorld(extras), columns: OWNED_FIELDS, rows: [] }).world, sharedWorld(extras));
+  // 形の違う値は整える（知らない鍵は落とし、分からない項目は '' と null）
+  const [broken] = cleanOwnedWorlds([sharedWorld({ saveKind: 'cloud', clock: 'x', formers: [{ uid: H, pals: '3', farms: 2 }, { uid: H, pals: 1, farms: 0, kind: 'host' }], formersPartial: 1 })]);
+  assert.deepEqual([broken.saveKind, broken.clock, broken.formers, 'formersPartial' in broken, broken.items], ['', '', [{ uid: H, pals: 1, farms: 0 }], false, null]);
+  // 列のない GAS・古い GAS の応答・前のキャッシュ（分かることがない）は今と同じ形
+  for (const value of [{}, { saveKind: '', formers: null, items: 'x' }]) {
+    const [plain] = cleanOwnedWorlds([sharedWorld(value)]);
+    assert.deepEqual(['saveKind', 'clock', 'formers', 'formersPartial', 'items'].filter((key) => key in plain), [], JSON.stringify(value));
+  }
 });
 
 test('所持パルの共有（dps-missing）:プレイヤーのパル次元ストレージの読み漏れの数（dpsGap）は 1〜上限の整数だけ写す。API の応答とキャッシュの復元で同じ', () => {
@@ -180,6 +200,23 @@ test('所持パルの共有（dps-missing）:プレイヤーのパル次元ス�
   const expected = [{ uid: 'u1', name: 'Alice', dpsGap: 27 }, { uid: 'u2', name: 'Bob' }, { uid: 'u3', name: 'Carol' }, { uid: 'u4', name: 'Dave' }, { uid: 'u5', name: 'Erin' }, { uid: 'u6', name: 'Frank', dpsGap: OWNED_DPS_GAP_MAX }];
   assert.deepEqual(cleanOwnedWorlds([sharedWorld({ players })])[0].players, expected);
   assert.deepEqual(cleanOwnedPayload({ world: sharedWorld({ players }), columns: OWNED_FIELDS, rows: [] }).world.players, expected);
+});
+
+test('所持パルの共有（server の share-extras）: プレイヤーの捕獲数（captures）と牧場のケーキ（c）は GAS と同じ検査で写す（壊れた値は付けない）。API の応答とキャッシュの復元で同じ', () => {
+  const players = [
+    { uid: 'u1', name: 'Alice', captures: { SheepBall: 12, 'bad id': 3 } }, { uid: 'u2', name: 'Bob', captures: {} },
+    { uid: 'u3', name: 'Carol', captures: 'x' }, { uid: 'u4', name: 'Dave', captures: { SheepBall: 0 } },
+  ];
+  const farms = [
+    { id: 'F1', baseId: 'b1', parents: ['p1', 'p2'], n: 0, c: [{ i: 'Cake02', n: 51 }, { i: 'bad id', n: 1 }] },
+    { id: 'F2', baseId: 'b1', parents: [], n: 0, c: [] },
+    { id: 'F3', baseId: 'b1', parents: [], n: 0, c: [{ i: 'Cake02', n: -1 }] },
+  ];
+  const expectedPlayers = [{ uid: 'u1', name: 'Alice', captures: { SheepBall: 12 } }, { uid: 'u2', name: 'Bob', captures: {} }, { uid: 'u3', name: 'Carol' }, { uid: 'u4', name: 'Dave' }];
+  const expectedFarms = [{ ...farms[0], c: [{ i: 'Cake02', n: 51 }] }, farms[1], { id: 'F3', baseId: 'b1', parents: [], n: 0 }];
+  for (const world of [cleanOwnedWorlds([sharedWorld({ players, farms })])[0], cleanOwnedPayload({ world: sharedWorld({ players, farms }), columns: OWNED_FIELDS, rows: [] }).world]) {
+    assert.deepEqual([world.players, world.farms], [expectedPlayers, expectedFarms]);
+  }
 });
 
 test('所持パルの共有: 1 ワールドの行を列の幅にそろえ、壊れた行と重複を捨て、セルの長さと行数を限る', () => {

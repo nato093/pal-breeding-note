@@ -8,7 +8,7 @@ import { segmented } from '../ui/segmented.js';
 import { searchSelect } from '../ui/search-select.js';
 import { createPopover } from '../ui/popover.js';
 import { icon } from '../ui/icons.js';
-import { ownedNotices, noticeList, grantWithReport, onlineUids, onlineKey } from '../ui/owned-status.js';
+import { ownedNotices, noticeList, grantWithReport, onlineUids, onlineKey, mappingOptions } from '../ui/owned-status.js';
 import { virtualRows } from '../ui/virtual-list.js';
 import { farmBoard, cakesOut } from '../ui/farm-board.js';
 import { withTransition } from '../ui/motion.js';
@@ -749,6 +749,11 @@ export function ownedView(context, route) {
       },
     },
     unknownPlace: { label: '見る', run: () => changeRoute(context, buildHash('owned', { place: 'unknown' })) },
+    // 参加者の名前が合わない 2 行目（GAS の対応）: 表示しているワールドのプレイヤーの対応の、未設定の行へ
+    mapping: {
+      label: 'プレイヤーの対応を開く',
+      run: () => context.navigate(settingsHash(owned.state.meta?.worldId || owned.state.linkedWorldId || '', 'registrant')),
+    },
   };
   summary.append(notices);
 
@@ -1098,7 +1103,7 @@ export function ownedView(context, route) {
       return;
     }
     const eggs = data.farmsCounted === false ? null : farms.reduce((sum, farm) => sum + farm.eggCount, 0);
-    // ケーキ切れの牧場の数（ホストの画面だけ。閉じたままでも気づけるように警告の色で。フェーズ 4 の終わりのレビュー）
+    // ケーキ切れの牧場の数（ケーキの分かる牧場だけ。閉じたままでも気づけるように警告の色で。フェーズ 4 の終わりのレビュー）
     const out = farms.filter(cakesOut).length;
     const text = `配合牧場（${farms.length} か所${eggs === null ? '' : ` · タマゴ ${eggs} 個`}`;
     if (farmToggleText.textContent !== `${text}${out ? ` · ケーキ切れ ${out}` : ''}）`) {
@@ -1192,7 +1197,9 @@ export function ownedView(context, route) {
   let noticesKey = null;
   function renderSummary(state) {
     if (noticesKey !== null && (state.busy || state.auto?.status === 'checking')) return;
-    const list = ownedNotices(state, { userId: context.store.state.userId, selfUids: context.ideals?.selfUids?.() ?? new Set() });
+    const list = ownedNotices(state, {
+      userId: context.store.state.userId, selfUids: context.ideals?.selfUids?.() ?? new Set(), ...mappingOptions(context.autoRegister, state),
+    });
     const key = JSON.stringify(list);
     if (key === noticesKey) return;
     // 案内の帯はパネルより上にあるので、出入りすると下の一覧が上下する（一覧は overflow-anchor: none）。一覧の先頭がパネルの下に

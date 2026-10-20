@@ -116,5 +116,30 @@ for (const id of created) {
 const after = await call('snapshot');
 check('後片付け後、作成したレコードが残っていない', created.every((id) => !after.records.some((r) => r.id === id)), `警告 ${after.warnings.length} 件`);
 
+// 9. プレイヤーの対応（server の mapping。版 13 から。setup() の後）。テスト用のダミーのワールド ID と決まった鍵で読み書きし、毎回同じ行を
+// 書き直す（行は消せないので、最後は外した印〔userId が ''〕にして終える）。対応に使う ID は Users_test の 1 人目（いなければ一部を飛ばす）
+const MAP_WORLD = '00000000000000000000000000C0FFEE';
+const MAP_KEYS = ['i:00000000-0000-4000-8000-00000000c0de', 'u:00000000-0000-0000-0000-00000000c0de'];
+const mapUser = after.users?.[0] ?? '';
+const writer = 'api-check';
+const mapEntry = (res, key) => res.entries?.find((entry) => entry.key === key);
+const map0 = await call('playerMap', { worldId: MAP_WORLD });
+check('対応を読める', map0.ok === true && map0.worldId === MAP_WORLD && Array.isArray(map0.entries), map0.code);
+if (mapUser) {
+  const set1 = await call('playerMapSet', { userId: writer, worldId: MAP_WORLD, entries: [{ key: MAP_KEYS[0], userId: mapUser, playerName: '=テスト' }] });
+  check('対応を書ける（ノートの ID・名前の数式が文字のまま）', set1.ok === true && mapEntry(set1, MAP_KEYS[0])?.userId === mapUser
+    && mapEntry(set1, MAP_KEYS[0])?.playerName === '=テスト' && mapEntry(set1, MAP_KEYS[0])?.updatedBy === writer, set1.code);
+  const map1 = await call('playerMap', { worldId: MAP_WORLD });
+  check('書いた対応を読み直せる', mapEntry(map1, MAP_KEYS[0])?.userId === mapUser, map1.code);
+  const kept = await call('playerMapSet', { userId: writer, worldId: MAP_WORLD, onlyMissing: true, entries: [{ key: MAP_KEYS[0], userId: '' }] });
+  check('onlyMissing はある鍵を書き換えない', kept.ok === true && kept.skipped === 1 && kept.changed === 0 && mapEntry(kept, MAP_KEYS[0])?.userId === mapUser, kept.code);
+} else {
+  console.log('SKIP  対応を書く（Users_test に ID がない）');
+}
+const missing = await call('playerMapSet', { userId: writer, worldId: MAP_WORLD, entries: [{ key: MAP_KEYS[1], userId: `x${randomUUID().slice(0, 18)}` }] });
+check('ノートにない ID は USER_NOT_FOUND で断る', missing.code === 'VALIDATION' && missing.errors?.[0]?.code === 'USER_NOT_FOUND', missing.code);
+const cleared = await call('playerMapSet', { userId: writer, worldId: MAP_WORLD, entries: MAP_KEYS.map((key) => ({ key, userId: '' })) });
+check('外した対応は印（userId が空）として残る', cleared.ok === true && MAP_KEYS.every((key) => mapEntry(cleared, key)?.userId === ''), cleared.code);
+
 check("想定外の応答（env なし）がない", unexpected.length === 0, unexpected.join(" / "));
 process.exit(failed ? 1 : 0);

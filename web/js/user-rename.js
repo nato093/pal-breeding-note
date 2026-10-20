@@ -69,14 +69,26 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
       try { storage.removeItem(from); } catch { /* 消せなくても、移し先が先に読まれる。 */ }
     }
   }
-  // 自動登録の、セーブのプレイヤーと登録者の対応表（ワールドごと）
-  const mappingPrefix = `${namespace}.autoBreeding.players.${env}.`;
-  for (const key of storageKeys(storage).filter((item) => item.startsWith(mappingPrefix))) {
-    const mapping = readJson(storage, key);
-    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) continue;
+  // 自動登録の、セーブのプレイヤーと登録者の対応表（ワールドごと）と、それを GAS へ上げた印（同じ形。書き換えないと、もう一度上げ直す）
+  const renameMapping = (mapping) => {
+    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return null;
     const entries = Object.entries(mapping);
-    if (!entries.some(([, userId]) => isOld(userId))) continue;
-    ok = writeJson(storage, key, Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId]))) && ok;
+    return entries.some(([, userId]) => isOld(userId)) ? Object.fromEntries(entries.map(([uid, userId]) => [uid, isOld(userId) ? newId : userId])) : null;
+  };
+  for (const key of storageKeys(storage).filter((item) => item.startsWith(`${namespace}.autoBreeding.players.${env}.`))) {
+    const next = renameMapping(readJson(storage, key));
+    if (next) ok = writeJson(storage, key, next) && ok;
+  }
+  // 印と、GAS から読んだプレイヤーの対応の写し（player-map.js の { v, entries: 鍵 → ID, fetchedAt }。GAS の rename も同じく書き換える）は、
+  // 書けなくても ID の変更を止めない（印は上げ直すだけ・写しは次に GAS から読み直すだけ）
+  for (const key of storageKeys(storage).filter((item) => item.startsWith(`${namespace}.autoBreeding.playersMigrated.${env}.`))) {
+    const next = renameMapping(readJson(storage, key));
+    if (next) writeJson(storage, key, next);
+  }
+  for (const key of storageKeys(storage).filter((item) => item.startsWith(`${namespace}.autoBreeding.playerMap.${env}.`))) {
+    const copy = readJson(storage, key);
+    const entries = copy && typeof copy === 'object' && !Array.isArray(copy) ? renameMapping(copy.entries) : null;
+    if (entries) writeJson(storage, key, { ...copy, entries });
   }
   // オブジェクトの形のキー（下書きの親の性別〔drafts.js〕・目標の観測〔ideals.js の goalsObs〕・所持パルの NEW の基準〔owned-seen.js〕）。
   // 移し先と合わせ、同じ id は移す元を優先する（NEW の基準は同じワールドの新しい方）
@@ -118,7 +130,7 @@ export function moveUserStorage(storage, namespace, env, oldId, newId) {
       } catch { ok = false; }
     }
   }
-  // このワールドでの自分（self-player.js。ワールドごとに UID の文字列 1 つ）。移し先に値があっても、改名した本人の設定で上書きする
+  // このワールドでの自分（self-player.js。ワールドごとにプレイヤーの鍵〔と覚えた UID〕の文字列 1 つ）。移し先に値があっても、改名した本人の設定で上書きする
   const selfFrom = `${namespace}.ideals.self.${env}.${oldKey}.`;
   const selfTo = `${namespace}.ideals.self.${env}.${newKey}.`;
   if (selfFrom !== selfTo) {

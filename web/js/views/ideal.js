@@ -225,7 +225,7 @@ function goalGap(goal, near) {
   return parts.join(' · ');
 }
 // 手術で完成できる個体の 1 行（implants の X-26）: 「アヌビス♂ Lv52（P4 · 2-5）＋神速（在庫 4）」。2 体以上なら「 · ほか n 体」。
-// 目標の一覧の状態の欄は狭いので、付けるものの括弧は在庫（手元で読んだホストのデータ〔data の items〕のときだけ）か、在庫が分からなければ
+// 目標の一覧の状態の欄は狭いので、付けるものの括弧は在庫（在庫の分かるデータ〔data の items。共有の在庫で参加者にも〕のときだけ）か、在庫が分からなければ
 // インプラントの種類の 1 つだけにし（前は「使い切りインプラント・在庫 4」で、920px で 5 行に折れた。フェーズ 4 の終わりのレビューの操作性 7）、
 // 種類と在庫の両方は title に出す。アイテム名は「使い切りインプラント：〈パッシブ〉」でパッシブ名と重なるので出さない。
 // パルボックス・パル次元ストレージの場所は行と同じ短い形（P4 · 2-5・次元 P4 · 2-5）
@@ -714,7 +714,7 @@ export function idealView(context, route) {
     const value = plan && flip?.key === plan.key && !isFlipHidden(plan.flipTarget) ? flip.value : null;
     const show = Boolean(value?.hints.length);
     const hints = show ? value.hints.map((hint) => ({ ...hint, pal: latestPal(plan.data, hint.pal), partner: latestPal(plan.data, hint.partner) })) : [];
-    // 在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
+    // 在庫は在庫の分かるデータのときだけ（在庫を読む前のデータ・在庫のない古い共有は添えない）
     const stock = show ? stockText(itemStock(plan.data, GENDER_REVERSE_ITEM)) : '';
     const signature = show ? JSON.stringify([plan.flipTarget, value.before === null, value.more, stock, Boolean(context.drawer),
       hints.map((hint) => [hint.to, hint.either, ...[hint.pal, hint.partner].map((pal) => [pal.id, palBrief(pal), talentLine(pal), pal.passives])])]) : '';
@@ -1101,7 +1101,7 @@ export function idealView(context, route) {
   }
   // パル手術台の案内の文（チップの後ろ。implants の X-20）: 「: パル手術台で付けられます（[アイコン]使い切りインプラント：神速） · 在庫 4（拠点 1 の箱）」。
   // アイテムのない行は「（インプラント不要）」、インプラント（使い切りでないもの）は 1 個あれば何度でも使える旨を添える。付けられないものは
-  //「: 手術台では付けられません」。在庫は手元で読んだホストのデータのときだけ（参加者・在庫を読む前のデータは添えない）
+  //「: 手術台では付けられません」。在庫は在庫の分かるデータのときだけ（在庫を読む前のデータ・在庫のない古い共有は添えない）
   function surgeryText(id) {
     const entry = implantOf(id);
     if (!entry) return [el('span', '', ': 手術台では付けられません')];
@@ -1229,7 +1229,7 @@ export function idealView(context, route) {
       inUse: complete ? farmsInUse(all, new Set(own.map((farm) => farm.id))) : new Map(),
       empties: complete && data.farmsCounted !== false ? emptyFarms(all) : [],
       baseLabel: (baseId) => labels.get(baseId) || '拠点',
-      // 牧場 ID → ケーキ（[{ itemId, count }]。ホストの画面だけ。共有・ケーキを読む前のセーブは null。save-extras）
+      // 牧場 ID → ケーキ（[{ itemId, count }]。ケーキを読む前のセーブ・ケーキのない古い共有は null。save-extras）
       cakes: new Map(all.map((farm) => [farm.id, farm.cakes ?? null])),
     };
   }
@@ -1271,7 +1271,7 @@ export function idealView(context, route) {
   // 帯の 1 か所: [牧場の名前][♂の絵]＋[♀の絵]→[✓ 2 番｜✓ そのまま｜⇄ 1 番へ｜—]。移る組がなければ押せない（D15）。
   // 絵の「♂＋♀」は読ませず、見た目は隠した文で「（名前♂＋名前♀）」と読ませる（押せないセルは aria-label がないので、どの組か分かるように）。
   // 親の組の記号は用語表の「＋」（copy-dead-ends。前は「×」）
-  // cakeOut はその牧場のケーキ切れ（ホストの画面だけ。交換推奨の判定は変えず、印だけ添える。フェーズ 4 の終わりのレビューの操作性 4）
+  // cakeOut はその牧場のケーキ切れ（ケーキの分かる牧場だけ。交換推奨の判定は変えず、印だけ添える。フェーズ 4 の終わりのレビューの操作性 4）
   function stripCell({ item, name, state, key, cakeOut }) {
     const cell = key ? button('', () => jumpTo(key), `ideal-farm-cell ${item.status}`) : el('div', `ideal-farm-cell ${item.status} is-static`);
     if (key) cell.setAttribute('data-focus-key', `farm-cell:${item.farm.id}`);
@@ -1380,7 +1380,7 @@ export function idealView(context, route) {
     // 交換を見送った「そのまま」（D15）は、チップの横に理由
     if (!pending && state.skipped) main.append(el('span', 'ideal-farm-reason', '入れ替えても全体の速さの目安が上がりません'));
     row.append(main);
-    // その牧場のケーキの残り（ホストの画面だけ。save-extras。ケーキ切れは上の行のチップ）
+    // その牧場のケーキの残り（ケーキの分かる牧場だけ。save-extras。ケーキ切れは上の行のチップ）
     const cakes = cakeOut ? null : cakeLine(view.farm?.cakes?.get(item.farm.id), { className: 'ideal-farm-cakes' });
     if (cakes) row.append(cakes);
     if (pending) return row;

@@ -413,9 +413,10 @@ test('palworld: synthetic world → snapshot', async () => {
   const meta = parseLevelMeta(finishGvas(mw));
 
   const snap = buildSnapshot({ level, players: [player], dps: [{ playerUid: P1, data: dps }], meta });
-  assert.deepEqual(snap.world, { name: 'テスト', hostName: 'Alice', savedAt: '1970-01-01T00:00:01.000Z', savedAtTicks: '621355968010000000', inGameDay: 3 });
-  // GameTimeSaveData のないセーブでは、プレイ中かは分からない（null。save-extras）
-  assert.deepEqual(snap.players, [{ uid: P1, name: 'Alice', level: 10, online: null }]);
+  // GameTimeSaveData のないセーブでは、ワールドの通算の時間（clock。server の identity）は分からない（''）
+  assert.deepEqual(snap.world, { name: 'テスト', hostName: 'Alice', savedAt: '1970-01-01T00:00:01.000Z', savedAtTicks: '621355968010000000', inGameDay: 3, clock: '' });
+  // GameTimeSaveData のないセーブでは、プレイ中かは分からない（null。save-extras）。instanceId は Level のプレイヤーのキー（server の identity）
+  assert.deepEqual(snap.players, [{ uid: P1, name: 'Alice', level: 10, instanceId: id(101), online: null }]);
   assert.deepEqual(snap.guilds, [{ id: GUILD, name: 'ギルド', baseIds: [BASE2, BASE1], playerUids: [P1] }]);
   assert.deepEqual(snap.bases.map((b) => [b.id, b.number, b.containerId, b.position.x]), [[BASE2, 1, id(15), 200], [BASE1, 2, C_BASE, 100]]);
   const byChar = Object.fromEntries(snap.pals.map((p) => [p.characterId, p]));

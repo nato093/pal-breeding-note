@@ -3,14 +3,16 @@
 import { el, button, link, runButton, statusChip, setChipTone, setDisabled, downloadBlob, dateStamp } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import { confirmDialog, openDialog } from '../ui/dialog.js';
-import { dateTime, worldName, roleLabel, permissionNotice, grantWithReport, refreshNow, HOST_SUMMARY, guestAutoText } from '../ui/owned-status.js';
+import {
+  dateTime, worldName, roleLabel, permissionNotice, grantWithReport, refreshNow, HOST_SUMMARY, guestAutoText, SERVER_AUTO_TEXT,
+} from '../ui/owned-status.js';
 import { palIcon, palsById } from '../ui/pal-icon.js';
 import { buildHash } from '../router.js';
 import { ownedRows, rowsToCsv, shortUid } from '../core/owned.js';
-import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES } from '../save/handles.js';
+import { parseWorldPath, handlesFromDrop, handleDropSupported, REQUIRED_FILES, isServerWorld } from '../save/handles.js';
 import { mappedUser } from '../core/auto-breeding.js';
-import { ownPlayerUids } from '../core/ideal-goals.js';
-import { ownedWorldId } from '../core/owned-shared.js';
+import { ownPlayerUids, selfPlayerUid } from '../core/ideal-goals.js';
+import { ownedWorldId, playerKeyOf, HOST_UID, formerLabel } from '../core/owned-shared.js';
 import { syncOptions } from './shared.js';
 
 function option(value, label) {
@@ -24,6 +26,8 @@ const AUTO_STATES = { checking: '確認中…', ready: '読み込み済み', per
 const AUTO_TONES = { ready: 'ready', permission: 'warning', empty: 'error', error: 'error' };
 const WORLD_STATES = { permission: '許可が必要', missing: 'ファイルが見つかりません', error: '読めません' };
 const SAVE_ROOT = '%LOCALAPPDATA%\\Pal\\Saved\\SaveGames';
+// プレイヤーの対応の欄を描くときに、GAS の対応（server の mapping）を読み直す間隔（auto-register.js の refreshMapping）
+const MAPPING_FRESH = 15 * 1000;
 
 const shortName = (world) => (world.name ? worldName(world) : `ワールド ${String(world.id).slice(0, 8)}`);
 
@@ -82,11 +86,17 @@ function dropZone(text, onDrop) {
   return zone;
 }
 
-// 交代でホストする人にも足してもらうファイル（ホストの組のうち LocalData.sav 以外の必須と Players。sync-fixes の host-rotation）
+// 協力プレイで交代でホストする人にも足してもらうファイル（ホストの組のうち LocalData.sav 以外の必須と Players。sync-fixes の host-rotation。
+// サーバーのワールドはサーバーの PC の常駐プログラムが読むので、「協力プレイで」と付けて区別する。server の participant-ui）
 const ROTATION_FILES = `${REQUIRED_FILES.host.filter((p) => p !== 'LocalData.sav').join('・')}・Players のファイル`;
+// 専用サーバーのセーブ（…\SaveGames\0\<ワールド ID>）は、ブラウザでは登録しない（サーバーの PC の常駐プログラムだけが読む。決定 16）。
+// 貼ったパスの判定の 1 行と、ドロップを受けないときのトースト
+const SERVER_PATH_TEXT = '専用サーバーのセーブは、サーバーの PC の常駐プログラムが読み込みます（ブラウザでは登録しません）';
+// この変更の前にブラウザで登録したサーバーのセーブ（steamId '0'）の行の 1 行（共有と自動登録が常駐と重なる）
+const SERVER_RECORD_TEXT = '専用サーバーのセーブの登録です。共有と自動登録がサーバーの PC の常駐プログラムと重なるため、この登録は削除してください。';
 
 function previewText(previewed) {
-  if (previewed.kind !== 'host') return `参加者として登録します（交代でホストするなら ${ROTATION_FILES}も足すと、ホストしたときに共有と自動登録が動きます）`;
+  if (previewed.kind !== 'host') return `参加者として登録します（協力プレイで交代でホストするなら ${ROTATION_FILES}も足すと、ホストしたときに共有と自動登録が動きます）`;
   const name = `${worldName({ worldName: previewed.name, hostName: previewed.hostName, worldId: previewed.worldId })} · ${previewed.palCount} 体`;
   return previewed.role === 'guest' ? `${name}（LocalData.sav の方が新しいため、いまは参加者と判定します）` : name;
 }
@@ -108,6 +118,8 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   let draft = null;
   let previewed = null;
   let checking = 0;
+  // ① に貼ったパスが専用サーバーのセーブ（登録しない。draft は作らない）
+  let serverPath = false;
   // 保存の途中は、ドロップ・パスの変更・もう一度の保存を受け付けない（二重に登録しない）
   let saving = false;
   const pathInput = el('input', 'owned-path');
@@ -172,8 +184,8 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
   }, 'button primary');
 
   // ドロップするファイル。2 つの組に分ける: 全員（LocalData.sav）と、ホストする PC（Level.sav・LevelMeta.sav・Players\ ・GlobalPalStorage.sav。
-  // ホストは仲間内で交代するので、交代でホストする人も足す。host-rotation）。LocalData.sav だけで参加と判定したら、ホストの組を薄くして
-  // 「なくても参加者として登録できます」（C-27・C-28）
+  // 協力プレイではホストは仲間内で交代するので、交代でホストする人も足す。host-rotation）。LocalData.sav だけで参加と判定したら、ホストの組を
+  // 薄くして「なくても参加者として登録できます」（C-27・C-28）
   function renderDraft() {
     draftList.replaceChildren();
     fileDrop.classList.toggle('disabled', !draft || saving);
@@ -199,7 +211,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const everyone = group('全員');
     item(everyone.list, 'LocalData.sav', has('LocalData.sav'), 'LocalData.sav');
     const guestOnly = Boolean(previewed && previewed.kind !== 'host');
-    const host = group(guestOnly ? 'ホストする PC（交代でホストする人も。なくても参加者として登録できます）' : 'ホストする PC（交代でホストする人も）', guestOnly ? 'is-dim' : '');
+    const host = group(guestOnly ? 'ホストする PC（協力プレイで交代でホストする人も。なくても参加者として登録できます）' : 'ホストする PC（協力プレイで交代でホストする人も）', guestOnly ? 'is-dim' : '');
     for (const path of REQUIRED_FILES.host.filter((file) => file !== 'LocalData.sav')) item(host.list, path, has(path), path);
     const players = paths.filter((path) => path.startsWith('Players/')).length;
     // 次元ストレージの Players\<UID>_dps.sav は、使い始めたときにできる（登録の後にできた分は読まれない。dps-missing）ので、ここから足せると添える
@@ -215,8 +227,9 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     const value = pathInput.value.trim();
     const shortSteam = (id) => (id.length > 10 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id);
     const [text, state] = !value ? ['', '']
-      : draft ? [`✓ Steam ${shortSteam(draft.steamId)} ／ ワールド ${draft.worldId.slice(0, 4)}…${known ? '（登録済みのワールドです。ファイルを足します）' : ''}`, 'ok']
-        : ['…\\SaveGames\\<数字>\\<32 桁の英数字> まで含めて貼ってください', 'todo'];
+      : serverPath ? [SERVER_PATH_TEXT, 'todo']
+        : draft ? [`✓ Steam ${shortSteam(draft.steamId)} ／ ワールド ${draft.worldId.slice(0, 4)}…${known ? '（登録済みのワールドです。ファイルを足します）' : ''}`, 'ok']
+          : ['…\\SaveGames\\<数字>\\<32 桁の英数字> まで含めて貼ってください', 'todo'];
     if (pathStatus.textContent !== text) pathStatus.textContent = text;
     pathStatus.className = `owned-path-status${state ? ` ${state}` : ''}`;
   }
@@ -250,7 +263,7 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     if (target && draft !== target) { toast('パスを変えたため、さっきドロップしたファイルは使いません。もう一度ドロップしてください'); return; }
     if (!dropped.supported) { toast('このブラウザでは、ファイルを登録できません', { kind: 'error' }); return; }
     if (saving) { toast('保存しています。終わってからドロップしてください'); return; }
-    if (!draft) { toast('先に ① にワールドのフォルダのパスを貼ってください'); return; }
+    if (!draft) { toast(serverPath ? SERVER_PATH_TEXT : '先に ① にワールドのフォルダのパスを貼ってください'); return; }
     if (dropped.failed) toast('フォルダは登録できません。フォルダを開いて、中のファイルを選んでドロップしてください', { kind: 'error' });
     if (dropped.duplicates.length) toast(`同じ名前のファイルが 2 つ以上あります（${dropped.duplicates.join('、')}）。1 つずつドロップしてください`);
     if (dropped.ignored.length) toast(`対象外のファイルは登録しません（${dropped.ignored.join('、')}）`);
@@ -266,14 +279,19 @@ export function openWorldDialog(context, { world = null, win = globalThis } = {}
     check();
   }
   pathInput.addEventListener('input', () => {
-    setTarget(parseWorldPath(pathInput.value));
+    const target = parseWorldPath(pathInput.value);
+    // 専用サーバーのセーブは登録しない（判定の文を出し、ドロップと保存を受けない）
+    serverPath = Boolean(target) && isServerWorld(target.steamId);
+    setTarget(serverPath ? null : target);
     // 読み取れないパスのままの書き換え（同じ null のまま）でも判定の文を合わせる
     renderPathStatus();
   });
-  // 編集: 登録したワールドのパスを入れておく（足したいファイルをドロップするだけでよい）
+  // 編集: 登録したワールドのパスを入れておく（足したいファイルをドロップするだけでよい）。前に登録した専用サーバーのセーブは、ファイルを
+  // 足せない（判定の文を出す。行の案内で削除を勧める）
   if (world) {
     pathInput.value = world.steamId ? `${SAVE_ROOT}\\${world.steamId}\\${world.id}` : '';
-    draft = { worldId: world.id, steamId: world.steamId ?? '', folder: pathInput.value, files: new Map() };
+    serverPath = isServerWorld(world.steamId);
+    if (!serverPath) draft = { worldId: world.id, steamId: world.steamId ?? '', folder: pathInput.value, files: new Map() };
   }
 
   if (supported) modal.body.append(pathField, dropField, result);
@@ -327,11 +345,12 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     // 古代文明の配合器で産まれたタマゴも登録する（breeder）
     panel.append(el('p', 'owned-step-title', '配合牧場・配合器からの自動登録'));
     if (world.kind === 'guest') {
-      // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06）。交代でホストするなら、ホストの組のファイルを足しておく
-      //（足しておけば、ホストしたときにこの PC の画面が共有と自動登録を行う。host-rotation）
+      // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06。最後の共有がサーバーのセーブなら、サーバーの PC の常駐
+      // プログラムが登録する。server の participant-ui）。協力プレイで交代でホストするなら、ホストの組のファイルを足しておく（足しておけば、
+      // ホストしたときにこの PC の画面が共有と自動登録を行う。host-rotation）
       panel.append(
-        el('p', 'owned-help muted owned-role-note', guestAutoText()),
-        el('p', 'owned-help muted owned-rotation-note', `交代でホストするなら、［編集］で ${ROTATION_FILES}を足してください（ホストしたときに共有と自動登録が動きます）。`),
+        el('p', 'owned-help muted owned-role-note', view.server ? SERVER_AUTO_TEXT : guestAutoText()),
+        el('p', 'owned-help muted owned-rotation-note', `協力プレイで交代でホストするなら、［編集］で ${ROTATION_FILES}を足してください（ホストしたときに共有と自動登録が動きます）。`),
       );
       return panel;
     }
@@ -351,43 +370,112 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   }
 
   // ---- プレイヤーの対応（セーブのプレイヤー → ノートの名前。roles で、ワールドの行の中から「使うワールド」の下の独立した欄にした。C-03・C-04）。
-  // 選べるのは、この PC がホストで、読み込んでいるワールドのプレイヤーが分かるときだけ（自動登録はホストの PC でしか動かないので、参加者が
-  // 選んでも登録には効かない）。参加者には、ホストの PC で設定することと「このワールドでの自分」を案内する。登録待ち（autoreg-visibility）もこの欄の上
+  // GAS で動いているとき（server の mapping。対応はノートのシート PlayerMap）は、ログインしていて表示しているワールドにプレイヤーがいれば
+  // 誰でも（ホスト・参加者・共有を見ている人）選べる。行は表示しているデータのプレイヤーと、プレイヤーにいない UID（以前の持ち主。formers）。
+  // 前の版（古い GAS・まだ読めていない）で動いているときは、この PC がホストで、読み込んでいるワールドのプレイヤーが分かるときだけ選べる
+  //（自動登録はホストの PC でしか動かないので、参加者が選んでも登録には効かない）。参加者には、ホストの PC で設定することと「このワールドでの
+  // 自分」を案内する。登録待ち（autoreg-visibility。この PC の候補なので、ホストとして手元のデータを読んでいるワールドだけ）もこの欄の上
   const playersSection = el('section', 'owned-players');
   playersSection.hidden = true;
   // 設定の行き先（reveal の registrant・auto）がフォーカスする未設定の選択（読み込んでいるワールドの分）
   let playerParts = { worldId: '', registrants: [] };
   let renderedPlayers = null;
+  // 対応を選んでいる途中（setMapping の中で知らせが来ても、選んだ select を作り直さない）
+  let choosing = false;
+  const sameWorld = (a, b) => Boolean(a) && (a === b || (Boolean(ownedWorldId(a)) && ownedWorldId(a) === ownedWorldId(b)));
   function playersView(state) {
-    const env = context.store.state.env;
+    const { env, passcode, userId } = context.store.state;
     const users = env ? context.store.state.users ?? [] : [];
+    const shownWorld = state.meta?.worldId ?? '';
+    const shownPlayers = state.owned?.players ?? [];
+    const gas = Boolean(autoRegister && env && passcode && userId && shownWorld && shownPlayers.length && autoRegister.mappingMode?.(shownWorld) === 'gas');
+    if (gas) {
+      const present = new Set(shownPlayers.map((player) => player.uid));
+      const formers = (state.owned?.formers ?? []).filter((former) => former && !present.has(former.uid));
+      const mapping = autoRegister.mapping(shownWorld);
+      const localWorld = state.local?.world.id ?? '';
+      const pendingWorld = state.role === 'host' && sameWorld(localWorld, shownWorld) ? localWorld : '';
+      return {
+        mode: 'gas', role: state.role, worldId: shownWorld, players: shownPlayers, formers, users, mapping, pendingWorld,
+        signature: JSON.stringify(['gas', state.role, shownWorld, shownPlayers.map((player) => [player.uid, player.name, playerKeyOf(player)]),
+          formers.map((former) => [former.uid, former.pals, former.farms]), users, mapping, pendingWorld]),
+      };
+    }
     const worldId = state.local?.world.id ?? '';
     const players = env && state.role === 'host' && worldId ? state.local?.snapshot?.players ?? [] : [];
     const mapping = autoRegister && env && worldId ? autoRegister.mapping(worldId) : {};
-    return { role: state.role, worldId, players, users, mapping, signature: JSON.stringify([state.role, worldId, players.map((player) => [player.uid, player.name]), users, mapping, Boolean(autoRegister)]) };
+    return {
+      mode: 'legacy', role: state.role, worldId, players, formers: [], users, mapping, pendingWorld: worldId,
+      signature: JSON.stringify([state.role, worldId, players.map((player) => [player.uid, player.name]), users, mapping, Boolean(autoRegister)]),
+    };
+  }
+  // 対応を選んだ（GAS では先に反映して送る。失敗したらトーストで知らせ、元に戻った対応で欄を作り直す）
+  function choose(uid, select, worldId) {
+    let result;
+    choosing = true;
+    try {
+      result = autoRegister.setMapping(uid, select.value, worldId);
+    } finally {
+      choosing = false;
+    }
+    // 選択はもう新しい対応になっているので、この変更では欄を作り直さない（作り直すと、選んだ select からフォーカスが外れる）
+    renderedPlayers = playersView(owned.state).signature;
+    Promise.resolve(result).catch((error) => {
+      toast(error?.message || 'プレイヤーの対応を保存できませんでした', { kind: 'error' });
+      renderedPlayers = '';
+      renderPlayers(owned.state);
+    });
+    // 対応表は自分のプレイヤーの決め方にも使う（このワールドでの自分を選んでいないとき）。本人の変化として知らせる（app.js が同じセーブの
+    // まま判定し直し、理想個体・所持パル・この画面の自分の自動の名前が描き直る。別のタブで変えたときも同じ経路。app.js の storage イベント）
+    if (context.self?.changed) context.self.changed();
+    else context.ideals?.identityChanged?.();
+  }
+  // 1 人分の行（label: 見える名前・detail: 名前の下の小さな文・sameName: 同じ名前のユーザー）。未設定（対応も同じ名前のユーザーもない）＝
+  // 自動登録で「プレイヤーの対応が未設定です」になる
+  function playerRow(list, view, { uid, label, detail = '', sameName = '' }) {
+    const select = el('select');
+    select.setAttribute('aria-label', `${label}のノートの ID`);
+    select.append(option('', sameName ? `${sameName}（同じ名前）` : '未設定（登録しない）'));
+    for (const user of view.users) select.append(option(user, user));
+    select.value = view.users.includes(view.mapping[uid]) ? view.mapping[uid] : '';
+    select.addEventListener('change', () => choose(uid, select, view.worldId));
+    playerParts.registrants.push({ select, unmapped: () => select.value === '' && !sameName });
+    const name = el('span', '', label);
+    if (detail) name.append(el('small', 'owned-former-count', detail));
+    const row = el('label', 'owned-breeding-player');
+    row.append(name, select);
+    list.append(row);
   }
   function renderPlayers(state) {
+    // GAS の対応は欄を描くたびに、15 秒より古ければ読み直す（前の版で動いているときも、GAS で動けるようになったかを確かめる）
+    const shownWorld = state.meta?.worldId;
+    if (shownWorld && context.store.state.passcode) autoRegister?.refreshMapping?.(shownWorld, MAPPING_FRESH)?.catch?.(() => {});
     const view = playersView(state);
+    if (choosing) renderedPlayers = view.signature;
     if (view.signature === renderedPlayers) return;
     renderedPlayers = view.signature;
     playerParts = { worldId: view.worldId, registrants: [] };
     pendingBoxes = new Map();
     pendingShown.clear();
-    const shown = Boolean(autoRegister) && (view.role === 'host' || view.role === 'guest');
+    const shown = view.mode === 'gas' || (Boolean(autoRegister) && (view.role === 'host' || view.role === 'guest'));
     playersSection.hidden = !shown;
     if (!shown) { playersSection.replaceChildren(); return; }
     const nodes = [el('h3', '', 'プレイヤーの対応（セーブのプレイヤー → ノートの ID）')];
-    if (view.role === 'guest') {
+    if (view.mode === 'legacy' && view.role === 'guest') {
       nodes.push(el('p', 'owned-help muted', 'プレイヤーの対応はホストの PC で設定します。自分の個体は「このワールドでの自分」で選べます。'));
       playersSection.replaceChildren(...nodes);
       return;
     }
-    nodes.push(el('p', 'owned-help muted', '配合の自動登録の登録者と、理想個体の「自分の個体」に使います。'));
+    nodes.push(el('p', 'owned-help muted', view.mode === 'gas'
+      ? '配合の自動登録の登録者と、理想個体の「自分の個体」に使います。ノートに保存し、仲間と共有します（どの PC からでも選べます）。'
+      : '配合の自動登録の登録者と、理想個体の「自分の個体」に使います。'));
     // 登録されずに残っている候補（中身は renderPending が書く）
-    const pendingBox = el('div', 'owned-pending');
-    pendingBox.hidden = true;
-    if (view.worldId) pendingBoxes.set(view.worldId, pendingBox);
-    nodes.push(pendingBox);
+    if (view.pendingWorld) {
+      const pendingBox = el('div', 'owned-pending');
+      pendingBox.hidden = true;
+      pendingBoxes.set(view.pendingWorld, pendingBox);
+      nodes.push(pendingBox);
+    }
     if (!view.players.length) {
       nodes.push(el('p', 'owned-help muted', 'このワールドを読み込むと、プレイヤーの対応を選べます。'));
       playersSection.replaceChildren(...nodes);
@@ -396,29 +484,16 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     // プレイヤーの名前は「このワールドでの自分」・所持者の選択肢と同じ（名前がない・同じ名前が 2 人以上なら UID の頭 8 字を添える）
     const nameOf = playerLabels(view.players);
     const list = el('div', 'owned-breeding-players');
-    for (const player of view.players) {
-      const select = el('select');
-      select.setAttribute('aria-label', `${nameOf(player)}のノートの ID`);
-      const sameName = mappedUser(player, { users: view.users });
-      select.append(option('', sameName ? `${sameName}（同じ名前）` : '未設定（登録しない）'));
-      for (const user of view.users) select.append(option(user, user));
-      select.value = view.users.includes(view.mapping[player.uid]) ? view.mapping[player.uid] : '';
-      select.addEventListener('change', () => {
-        autoRegister.setMapping(player.uid, select.value, view.worldId);
-        // 選択はもう新しい対応になっているので、この変更では欄を作り直さない（作り直すと、選んだ select からフォーカスが外れる）
-        renderedPlayers = playersView(owned.state).signature;
-        // 対応表は自分のプレイヤーの決め方にも使う（このワールドでの自分を選んでいないとき）。本人の変化として知らせる（app.js が同じセーブの
-        // まま判定し直し、理想個体・所持パル・この画面の自分の自動の名前が描き直る。別のタブで変えたときも同じ経路。app.js の storage イベント）
-        if (context.self?.changed) context.self.changed();
-        else context.ideals?.identityChanged?.();
-      });
-      // 未設定（対応も同じ名前のユーザーもない）＝自動登録で「プレイヤーの対応が未設定です」になる
-      playerParts.registrants.push({ select, unmapped: () => select.value === '' && !sameName });
-      const row = el('label', 'owned-breeding-player');
-      row.append(el('span', '', nameOf(player)), select);
-      list.append(row);
+    for (const player of view.players) playerRow(list, view, { uid: player.uid, label: nameOf(player), sameName: mappedUser(player, { users: view.users }) });
+    // プレイヤーにいない UID（以前のホスト・不明なプレイヤー）は、拠点・牧場に預けた数を添える（同じ名前のユーザーはいない）
+    for (const former of view.formers) {
+      const counts = [former.pals ? `拠点 ${former.pals} 体` : '', former.farms ? `牧場 ${former.farms} か所` : ''].filter(Boolean).join('・');
+      playerRow(list, view, { uid: former.uid, label: former.uid === HOST_UID ? '以前のホスト（0000…0001）' : formerLabel(former.uid), detail: counts });
     }
     nodes.push(list);
+    if (view.formers.length) {
+      nodes.push(el('p', 'owned-help muted owned-former-note', '以前のホスト・不明なプレイヤーは、今はワールドにいない「預けた人」です。牧場の登録者を正確にしたいときは、親を預け直してください。'));
+    }
     playersSection.replaceChildren(...nodes);
   }
 
@@ -506,7 +581,9 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
       renderSelf();
       return;
     }
-    if (!context.self.set(selfWorld, selfSelect.value) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）', { kind: 'error' });
+    // 選んだプレイヤーの UID も渡す（i: のとき、InstanceId のない共有で引くために覚える。self-player.js）
+    const chosen = (owned.state.owned?.players ?? []).find((player) => playerKeyOf(player) === selfSelect.value);
+    if (!context.self.set(selfWorld, selfSelect.value, { uid: chosen?.uid ?? '' }) && context.self.saveFailed) toast('この端末に保存できませんでした（ページを閉じると消えます）', { kind: 'error' });
   });
   // 出すのは、ログイン中で、表示しているワールド（ホストでも参加者でも。参加者は共有から来たプレイヤー）にプレイヤーがいるときだけ
   function renderSelf() {
@@ -531,14 +608,19 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     const auto = ownPlayerUids(players, { userId, users, mapping: autoRegister && state.meta?.worldId ? autoRegister.mapping(state.meta.worldId) : {} });
     const label = playerLabels(players);
     const autoNames = players.filter((player) => auto.has(player.uid)).map(label);
-    selfAuto = autoNames.length > 0;
+    // 選択肢の値はプレイヤーの鍵（キャラクターの InstanceId の i:、なければ u:。server の identity）。保存した値（前の版の UID も）は
+    // その回のプレイヤーに引いてから選ぶ。InstanceId のない共有で、選んだ自分を見分けられない（null）ときは自動の規則も使わない（ownPlayerUids）
     const saved = context.self.get(worldId);
-    const value = players.some((player) => player.uid === saved) ? saved : '';
-    const signature = JSON.stringify([worldId, players.map((player) => [player.uid, player.name]), saved, autoNames, users]);
+    const savedUid = selfPlayerUid(players, saved, context.self.lastUid(worldId));
+    selfAuto = savedUid !== null && autoNames.length > 0;
+    const value = savedUid ? playerKeyOf(players.find((player) => player.uid === savedUid)) : '';
+    const signature = JSON.stringify([worldId, players.map((player) => [player.uid, player.name, playerKeyOf(player)]), saved, savedUid, autoNames, users]);
     if (signature === renderedSelf) return;
     renderedSelf = signature;
-    const choices = [['', selfAuto ? `自動（${autoNames.join('・')}）` : '未設定（自分の個体を判定しません）'],
-      ...players.map((player) => [player.uid, label(player)])];
+    const first = savedUid === null ? '選んだ自分（この共有では見分けられません）'
+      : selfAuto ? `自動（${autoNames.join('・')}）` : '未設定（自分の個体を判定しません）';
+    const choices = [['', first],
+      ...players.map((player) => [playerKeyOf(player), label(player)])];
     // 選んでいる途中（フォーカス中）は作り直さず、離れてから作り直す（views/shared.js の syncOptions）
     syncOptions(selfSelect, choices, () => {
       optionsWorld = worldId;
@@ -548,8 +630,7 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // このワールドでの自分が決まっていない（選んでいない〔選んだプレイヤーがいない〕・登録者の対応も同じ名前もない）
   const selfUnknown = () => {
     if (selfRow.hidden || selfAuto) return false;
-    const saved = context.self.get(selfWorld);
-    return !saved || !(owned.state.owned?.players ?? []).some((player) => player.uid === saved);
+    return !selfPlayerUid(owned.state.owned?.players ?? [], context.self.get(selfWorld), context.self.lastUid(selfWorld));
   };
 
   const cardTitle = el('h2', '', 'セーブ連携');
@@ -570,11 +651,15 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // 行に描く内容と、その署名（署名に busy は入れない。読み込みのたびに一覧を 2 回作り直していた。busy はボタンの disabled だけで表す）
   function registeredViews(state) {
     const sharedAt = new Map((state.shared.worlds ?? []).map((world) => [world.worldId, world.uploadedAt ?? '']));
+    const sharedKind = new Map((state.shared.worlds ?? []).map((world) => [world.worldId, world.saveKind ?? '']));
     const views = state.auto.worlds.map((world) => ({
       label: registeredLabel(world),
       enabled: autoRegister ? autoRegister.enabled(world.id) : false,
       // 共有した時刻（共有した所持パルの削除を出すか）
       sharedAt: sharedAt.get(world.id) ?? '',
+      // 最後の共有がサーバーのセーブか（参加のワールドの行の文。往復で切り替わったら描き直す）と、前にブラウザで登録したサーバーのセーブか
+      server: sharedKind.get(world.id) === 'server',
+      serverRecord: isServerWorld(world.steamId),
     }));
     // 参加のチップは kind と role で決まる
     return { views, signature: JSON.stringify([state.auto.worlds.map((w) => [w.id, w.kind, w.role]), views, Boolean(autoRegister)]) };
@@ -622,6 +707,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
         // 共有した所持パルの削除があるときだけ「所持パル」の欄を出す
         if (views[index].sharedAt && world.kind !== 'guest') details.append(ownedPanel(world, views[index]));
         item.append(details, actions);
+        // 前にブラウザで登録した専用サーバーのセーブ（決定 16 の前の登録）は、閉じたままでも見える 1 行で削除を勧める（動きは変えない）
+        if (views[index].serverRecord) item.append(el('p', 'owned-help owned-server-note', SERVER_RECORD_TEXT));
         registered.append(item);
       });
     }
@@ -762,8 +849,13 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
     renderRegistered(owned.state);
     renderSelf();
   }) ?? (() => {});
-  // 自動登録の候補が変わったら（読み込んで判定した・破棄した・対応や設定を変えた）、登録待ちの行だけ書き直す
-  const unsubscribeAuto = autoRegister?.subscribe?.(renderPending) ?? (() => {});
+  // 自動登録の候補が変わったら（読み込んで判定した・破棄した・対応や設定を変えた）、登録待ちの行を書き直す。GAS の対応を読み終えた
+  //（playerMaps の知らせ。auto-register.js の changed）ときは、前の版の扱いから GAS の欄に替わるので、プレイヤーの対応の欄も描き直す
+  //（中身が同じなら renderPlayers は何もしない）
+  const unsubscribeAuto = autoRegister?.subscribe?.(() => {
+    renderPlayers(owned.state);
+    renderPending();
+  }) ?? (() => {});
   render(owned.state);
   owned.load().catch(() => {});
   return {

@@ -5,7 +5,7 @@ import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { buildIndex } from '../../web/js/core/index.js';
 import { buildCarrierGraph } from '../../web/js/core/route.js';
-import { normalizeOwned } from '../../web/js/core/owned.js';
+import { normalizeOwned, ownedFromShared, sharedUpload, sharedExtras } from '../../web/js/core/owned.js';
 import { parseHash, buildHash } from '../../web/js/router.js';
 import { idealView } from '../../web/js/views/ideal.js';
 import { ownedRow, filterFromParams } from '../../web/js/views/owned.js';
@@ -599,7 +599,7 @@ test('理想個体画面: 産まれたタマゴは候補にせず、孵化を読
 test('理想個体画面: 所持者（すべて／自分のプレイヤー名／各プレイヤー）で親の候補とパッシブの所持数を絞り、既定は自分。選んだプレイヤーがいなくなったら既定（自分）に戻す（D29）', async (t) => {
   install(t);
   const P2 = 'abcd1234-0000-0000-0000-000000000000';
-  const BASE = 'b6800a4a-4b60-f0bb-f425-53bf17b07603';
+  const BASE = 'fedcba98-7654-3210-fedc-ba9876543210';
   const list = [
     palworldPal('a1', 'SheepBall', 'Male', ['Rare']),
     palworldPal('a2', 'SheepBall', 'Female', ['Rare']),
@@ -2953,7 +2953,7 @@ const setTalent = (view, label, value) => {
   node.dispatch('input');
 };
 
-test('理想個体画面（パルリバーサー）: 性別を変えると 1 番より 1 割以上早く完成する個体を、ケーキの行の印と押すと開く板に、上位 3 行と「ほか n 件」で数値なしに出す（同じ 2 体を向きだけ変えた 2 つは 1 行）。在庫はホストの画面だけ', (t) => {
+test('理想個体画面（パルリバーサー）: 性別を変えると 1 番より 1 割以上早く完成する個体を、ケーキの行の印と押すと開く板に、上位 3 行と「ほか n 件」で数値なしに出す（同じ 2 体を向きだけ変えた 2 つは 1 行）。在庫は在庫の分かるデータだけ（共有の在庫で参加者にも）', (t) => {
   const { body } = install(t);
   const owned = fakeOwned(reverserPals, reverserStock);
   const view = idealView(context(owned), parseHash('#/ideal?to=SheepBall&p=Rare'));
@@ -3003,11 +3003,19 @@ test('理想個体画面（パルリバーサー）: 性別を変えると 1 番
   assert.equal(reverserBox(view), null);
   assert.equal(toggle.getAttribute('aria-expanded'), 'false');
   view.destroy();
-  // 参加者・在庫を読む前のデータ（在庫が分からない）は在庫を添えない
+  // 在庫を読む前のデータ・在庫のない古い共有（在庫が分からない）は在庫を添えない
   const guest = idealView(context(fakeOwned(reverserPals)), parseHash('#/ideal?to=SheepBall&p=Rare'));
   assert.equal(reverserSlot(guest).hidden, false);
   assert.equal(openReverser(guest).querySelector('.ideal-reverser-stock'), null);
   guest.destroy();
+  // 共有の在庫（server の share-extras）を受けた参加者の画面には、ホストと同じ在庫を添える
+  const host = fakeOwned(reverserPals, reverserStock).state.owned;
+  const member = fakeOwned(reverserPals);
+  const upload = sharedUpload(host);
+  member.state.owned = ownedFromShared({ world: { worldName: 'テスト', players: upload.players, ...sharedExtras(host, 'coop') }, ...upload }, { pals, passives });
+  const memberView = idealView(context(member), parseHash('#/ideal?to=SheepBall&p=Rare'));
+  assert.equal(openReverser(memberView).querySelector('.ideal-reverser-stock').textContent, ' · 在庫 3（ギルド保管庫）');
+  memberView.destroy();
 });
 
 test('理想個体画面（パルリバーサー）: 4 行以上なら上位 3 行と「ほか n 件」（まとめた行で数える）', (t) => {

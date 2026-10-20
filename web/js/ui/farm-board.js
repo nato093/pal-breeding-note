@@ -15,9 +15,9 @@ export const FARM_EGGS_SHOWN = 20;
 export const FARM_EGG_CAP = 0;
 
 /**
- * 牧場のケーキの 1 行（save-extras。N-09・F051。ホストの画面だけ）: ケーキの種類ごとにゲームのアイコン（読めなければ文字だけ）と
+ * 牧場のケーキの 1 行（save-extras。N-09・F051。共有のケーキ〔server の share-extras〕で参加者にも出る）: ケーキの種類ごとにゲームのアイコン（読めなければ文字だけ）と
  * 「キノコケーキ ×51」。入れ物にケーキがなければ「ケーキ切れ」（警告の状態チップ。ケーキがないとタマゴを産まない）。
- * cakes が配列でない（ケーキを読む前のセーブ・共有のデータ。ケーキは共有しない）なら null（出さない）
+ * cakes が配列でない（ケーキを読む前のセーブ・ケーキのない古い共有）なら null（出さない）
  * @param {{ itemId: string, count: number }[] | null | undefined} cakes
  */
 export function cakeLine(cakes, { className = '' } = {}) {
@@ -42,7 +42,7 @@ export function cakeLine(cakes, { className = '' } = {}) {
   return line;
 }
 
-/** ケーキ切れの牧場か（入れ物にケーキがない。cakes が [] のときだけ。null〈読めない・ケーキを読む前・共有のデータ〉は分からないので違う） */
+/** ケーキ切れの牧場か（入れ物にケーキがない。cakes が [] のときだけ。null〈読めない・ケーキを読む前・ケーキのない古い共有〉は分からないので違う） */
 export const cakesOut = (farm) => Array.isArray(farm?.cakes) && farm.cakes.length === 0;
 
 /**
@@ -130,7 +130,9 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     if (FARM_EGG_CAP > 0 && farm.eggCount >= FARM_EGG_CAP - 2) head.append(statusChip(`もうすぐいっぱい（${farm.eggCount}/${FARM_EGG_CAP}）`, 'warning', 'farm-eggs-full'));
     box.append(head);
     if (!farm.eggs) {
-      if (farm.eggCount) box.append(el('p', 'farm-eggs-note', '中身はホストの画面で見られます'));
+      // 共有のセルの上限で中身を省いた牧場（core/owned-shared.js の fitOwnedFarms）。サーバーのワールドには見られる画面がないので、
+      // どこで見られるかは言わない（server の participant-ui）
+      if (farm.eggCount) box.append(el('p', 'farm-eggs-note', '中身は共有に入りきらないため省いています'));
       return box;
     }
     if (!farm.eggs.length) return box;
@@ -195,7 +197,7 @@ export function farmBoard(context, { mode = 'drawer' } = {}) {
     else if (!farm.parents.length) parents.append(el('p', 'farm-parents-note', '親を置いていません'));
     else parents.append(...farm.parents.map((id) => parentNode(id, byId)));
     card.append(parents, eggsNode(farm, data, byId));
-    // ケーキの残り（ホストの画面だけ。「タマゴ n 個」の下。save-extras）
+    // ケーキの残り（「タマゴ n 個」の下。save-extras。分からなければ出さない）
     const cakes = cakeLine(farm.cakes);
     if (cakes) card.append(cakes);
     const records = recordsNode(farm, byId);

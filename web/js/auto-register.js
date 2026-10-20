@@ -14,7 +14,9 @@ import { createSpeciesResolver } from './core/owned.js';
 import { findConflict } from './core/index.js';
 import { userIdKey } from './core/user.js';
 import { isObject, isoTime, text, idText, list, screenHref } from './core/boundary.js';
-import { compareSaves, ownedSaveStamp } from './core/owned-shared.js';
+import {
+  compareSaves, ownedSaveStamp, ownedWorldId, HOST_UID, hostIsPlayer, formerLabel, playerGuid, playerKeyOf, playerMapKey,
+} from './core/owned-shared.js';
 import { isPlaying } from './core/playing.js';
 import { buildHash, settingsHash } from './router.js';
 import { notificationTags } from './notifications.js';
@@ -51,6 +53,8 @@ const VERDICT_KINDS = { done: 'mine', same: 'same', stale: 'stale' };
 const VERDICTS_MAX = 20;
 // セーブのプレイヤーと登録者の対応（ワールドごと）。プレイヤーは共有と同じ 100 人まで、uid 40 字・ノートの ID 20 字
 const MAPPING_MAX = 100;
+// プレイヤーの対応（GAS。server の mapping）を読み直す間隔: 自動登録の判定のたび（写しがこれより古ければ読む）
+const MAPPING_RUN_AGE = 60 * 1000;
 // 前の版の「照合が合いません」は、親を入れ替える前の古いタマゴを誤って知らせていたので出さない
 const LEGACY_NOTICE = /^auto-breed:[^:]*:mismatch:/;
 const RECORD_FIELDS = ['parent1Id', 'parent1Gender', 'parent2Id', 'parent2Gender', 'childId'];
@@ -209,15 +213,25 @@ function judge(unit, verdict) {
   return unit.playing ? { ...unit, state: OK } : unit;
 }
 
+/** 牧場ごとの前に見た親とタマゴ・まだ登録を終えていない候補の保存先のキー（ワールド・環境ごと。常駐の古い系統の受け入れも捨てる） */
+export const autoRegisterFarmsKey = (namespace, env, worldId) => `${namespace}.autoBreeding.farms.${env}.${worldId}`;
+
+/**
+ * playerMaps: プレイヤーの対応の GAS のストア（player-map.js の createPlayerMapStore）。渡さなければ、前の版と同じくこの端末の対応だけを使う
+ * paused: 古い系統の守り（常駐の tools/server-agent/lineage-guard.mjs。server の T5）。paused(worldId, stamp) が真なら、そのセーブの候補を
+ * 取り込まず、登録も送らない。ページは渡さない（今の動きのまま）
+ */
 export function createAutoRegister({
   store, owned, storage, namespace = 'pal-note', toast = () => {}, onNotice = () => {}, navigate = () => {},
-  loadTable = () => import('../data/breeding.js'), now = Date.now,
+  loadTable = () => import('../data/breeding.js'), now = Date.now, playerMaps = null, paused = null,
 }) {
   const resolveSpecies = createSpeciesResolver(pals);
   const settingsKey = `${namespace}.autoBreeding.settings`;
+  // 前の版のプレイヤーの対応（この端末の uid → ID）と、それを GAS へ上げた印（上げた対応の JSON。server の mapping の移行）
   const mappingKey = (env, worldId) => `${namespace}.autoBreeding.players.${env}.${worldId}`;
+  const migratedKey = (env, worldId) => `${namespace}.autoBreeding.playersMigrated.${env}.${worldId}`;
   // 牧場ごとの前に見た親とタマゴ・まだ登録を終えていない候補（ワールド・環境ごと。読み込み直しても続きから）
-  const farmsKey = (env, worldId) => `${namespace}.autoBreeding.farms.${env}.${worldId}`;
+  const farmsKey = (env, worldId) => autoRegisterFarmsKey(namespace, env, worldId);
   const noticeKey = (env, userId) => `${namespace}.autoBreeding.notices.${env}.${userIdKey(userId)}`;
   // 登録できた配合の通知（旧版のタブが知らないキー。名前の変更では user-rename.js が既存のキーと同じく移す）
   const registeredKey = (env, userId) => `${namespace}.autoBreeding.registered.${env}.${userIdKey(userId)}`;
@@ -287,6 +301,11 @@ export function createAutoRegister({
   }
   const same = (a, b) => Boolean(b) && a.env === b.env && a.userId === b.userId
     && a.worldId === b.worldId && a.importedAt === b.importedAt;
+  // 古い系統の守り（常駐の paused）で、そのセーブを止めているか。確かめられなければ止める
+  const isPaused = (ctx) => {
+    if (!paused) return false;
+    try { return Boolean(paused(ctx.worldId, ctx.saveStamp)); } catch { return true; }
+  };
 
   // 保存した記録は別のタブや古い版が書いたものもあるので、形を確かめ、おかしい牧場・候補の分だけ捨てる
   // （捨てた牧場は、初めて読んだものとして記録し直す）
@@ -537,11 +556,16 @@ export function createAutoRegister({
     palId: candidate.record.parent1Id,
   });
   const unmappedId = (ctx, uid) => `auto-breed:${ctx.env}:unmapped:${ctx.worldId}:${uid}`;
+  // プレイヤーにいない UID（以前の持ち主）は、設定の欄の行と同じ名前（formerLabel。H は「以前のホスト」）
+  const playerName = (uid, players) => {
+    const player = players.find((p) => p.uid === uid);
+    return player ? player.name || 'セーブのプレイヤー' : formerLabel(uid);
+  };
   const unmappedNotice = (ctx, uid, players) => ({
     id: unmappedId(ctx, uid), date: ctx.importedAt,
     title: 'プレイヤーの対応が未設定です',
     // 呼び名は設定の欄と同じ「プレイヤーの対応」（roles。C-04）
-    body: `${players.find((p) => p.uid === uid)?.name || 'セーブのプレイヤー'}の配合を登録できません。設定の「プレイヤーの対応」で選んでください。`,
+    body: `${playerName(uid, players)}の配合を登録できません。設定の「プレイヤーの対応」で選んでください。`,
     // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする
     href: settingsHash(ctx.worldId, 'registrant'),
   });
@@ -558,23 +582,42 @@ export function createAutoRegister({
   async function run(ctx) {
     const table = await getTable();
     if (!same(ctx, current())) return;
+    // 古い系統の守り（常駐）: そのセーブの判定が済むまで・止めている間は、候補を取り込まない（牧場の記録も進めないので、解除の後の判定で前の記録と
+    // 比べて取り込む）。前に登録してよいと決めた候補も送らない
+    if (isPaused(ctx)) return;
     const started = generation;
     const { pending: units, anomalies } = absorb(ctx, table);
     // 登録するのは、登録してよい候補だけ（配合のキーごとに証拠をまとめる）
     const pending = readyCandidates(units);
     // 異常なタマゴは記録したので、次からは「前に見たタマゴ」になる。登録の途中でセーブが変わっても失わないよう、すぐ知らせる
     if (anomalies.length) saveNotices(ctx, anomalies.map((m) => anomalyNotice(ctx, m)));
+    // この PC がホストとして遊んでいるか（同期で受け取った仲間のホストのセーブの H は、この PC の人ではない。反証のレビュー）
+    const playing = hostPlaying(ctx.worldId);
+    // プレイヤーの対応（GAS）を、写しが 60 秒より古ければ読み、前の版の対応を一度だけ上げる（H の対応は、遊んでいるときだけこのスナップショットの
+    // H のキャラクターに移す）。牧場の記録は通信を待たずに済ませておく（GAS が遅い・失敗しても記録は止めない。反証のレビュー）
+    if (playerMaps) {
+      await syncPlayerMap(ctx.env, ctx.worldId, ctx.snapshot.players ?? [], { hostLocal: playing, maxAge: MAPPING_RUN_AGE });
+      if (!same(ctx, current())) {
+        changed();
+        return;
+      }
+    }
     const players = ctx.snapshot.players ?? [];
+    // 判定には GAS に書けたと分かっている対応だけを使う（送っている途中の対応は表示だけ。Codex のレビュー）
+    const options = { confirmed: true, playing };
     const notices = [];
     let registered = 0;
     // トーストの「見る」の行き先（1 件ならその組、2 件以上なら更新日の新しい順の配合を探す。成功の通知と同じ）
     let lastRecord = null;
     for (const candidate of pending) {
       if (failedAt.get(candidate.key) === ctx.importedAt) continue;
+      // プレイヤーの対応を送っている間は、書けたかが決まるまで待つ（書けなければ、その対応では登録しない。Codex のレビュー）
+      if (playerMaps?.saving(ctx.env, ctx.worldId)) await playerMaps.settled(ctx.env, ctx.worldId);
       // 1 件ごとに、始めたときと同じ ID・環境・セーブ・設定のままかを確かめる。
       // ほかの操作の送信待ちがある間は、確定していない登録で判定しないよう、送り終わってから続ける
       if (!same(ctx, current()) || generation !== started || store.state.syncing) break;
-      const mapping = mappingOf(ctx.env, ctx.worldId);
+      // 対応は、その回のセーブのプレイヤーで鍵から引く（docs/server/README.md の「テーマ間の取り決め」）
+      const mapping = mappingFor(ctx.env, ctx.worldId, players, options);
       const who = resolveRegistrant(candidate, { players, mapping, users: store.state.users, currentUserId: store.state.userId });
       // 登録者が決まらない・登録済みと食い違う候補は残し、対応づけや登録が変わったら次の判定で登録する
       if (who.unmapped) {
@@ -592,6 +635,8 @@ export function createAutoRegister({
         notices.push(conflictNotice(ctx, candidate, conflict.existing));
         continue;
       }
+      // 送る直前にも確かめる（取り込んだ後に止めた。共有のエラーだけでは、前に登録してよいと決めた候補が送られるため）
+      if (isPaused(ctx)) break;
       try {
         await store.mutate('create', allowDifferentChild ? { record, allowDifferentChild } : { record });
         finish(ctx, candidate.key);
@@ -622,9 +667,11 @@ export function createAutoRegister({
         else if (generation === started) failedAt.set(candidate.key, ctx.importedAt);
       }
     }
-    // 対応づけが済んだプレイヤーの「未設定」の通知は消す
-    const mapping = mappingOf(ctx.env, ctx.worldId);
-    const resolved = new Set(players.filter((p) => mappedUser(p, { mapping, users: store.state.users })).map((p) => unmappedId(ctx, p.uid)));
+    // 対応づけが済んだプレイヤーの「未設定」の通知は消す（プレイヤーにいない UID〔以前のホストなど〕も、対応を決めたら消す）
+    const mapping = mappingFor(ctx.env, ctx.worldId, players, options);
+    const uids = new Set([...players.map((p) => p.uid), ...Object.keys(mapping)]);
+    const resolved = new Set([...uids].filter((uid) => mappedUser(players.find((p) => p.uid === uid) ?? { uid, name: '' }, { mapping, users: store.state.users }))
+      .map((uid) => unmappedId(ctx, uid)));
     if (same(ctx, current())) saveNotices(ctx, notices, resolved);
     if (registered) {
       const href = registered === 1 && lastRecord ? buildHash('search', { p1: lastRecord.parent1Id, p2: lastRecord.parent2Id }) : buildHash('search', { sort: 'updated' });
@@ -654,17 +701,151 @@ export function createAutoRegister({
     });
   }
 
-  // 形の合わない対応（数値・長すぎる ID など）は、その対応だけ無視する
-  function mappingOf(env, worldId) {
+  // 前の版の対応（この端末の uid → ID）。形の合わない対応（数値・長すぎる ID など）は、その対応だけ無視する
+  function legacyMappingOf(env, worldId) {
     const value = readJson(mappingKey(env, worldId), {});
     if (!isObject(value)) return {};
     const entries = Object.entries(value).filter(([uid, userId]) => idText(uid, 40) && idText(userId, 20));
     return Object.fromEntries(entries.slice(0, MAPPING_MAX));
   }
+  function writeLegacyMapping(env, worldId, uid, userId) {
+    const next = { ...legacyMappingOf(env, worldId) };
+    if (userId) next[uid] = userId;
+    else delete next[uid];
+    storage.set(mappingKey(env, worldId), JSON.stringify(next));
+  }
+  const sameWorld = (a, b) => Boolean(a) && (a === b || (Boolean(ownedWorldId(a)) && ownedWorldId(a) === ownedWorldId(b)));
+  // 表示と設定の欄の対応に使うプレイヤー: 今表示しているデータ（共有でも手元でも）がそのワールドならそのプレイヤー。そうでなければ手元の
+  // スナップショット（そのワールドのとき）。協力プレイの古い H が手元に残り、共有では U になっているときに、表示と食い違わないため
+  function playersOf(worldId) {
+    const o = owned.state;
+    if (sameWorld(o.meta?.worldId, worldId) && Array.isArray(o.owned?.players)) return o.owned.players;
+    return sameWorld(o.local?.world.id, worldId) ? o.local.snapshot?.players ?? [] : [];
+  }
+  // GAS の対応で動いているか（古い GAS・まだ読めていなければ前の版の対応）。confirmed は送っている途中の対応を重ねない（判定用）
+  const sharedEntries = (env, worldId, { confirmed = false } = {}) => (playerMaps && env && worldId ? playerMaps.entries(env, worldId, { confirmed }) : null);
+  // この PC がホストとしてそのワールドを遊んでいるか（手元のセーブの保存が続けて見えている。core/playing.js）。同期で受け取った仲間のホストの
+  // セーブ（ゲームをしていない PC でも役割は host）の H は仲間のキャラクターなので、前の版の H の対応（この PC がホストしたときの人）を当てない
+  function hostPlaying(worldId) {
+    const o = owned.state;
+    const id = o.local?.world.id ?? '';
+    return o.role === 'host' && sameWorld(id, worldId) && isPlaying(o.play, { worldId: id, role: 'host' }, now());
+  }
+
+  // 前の版の対応を GAS へ上げた印（上げた対応の JSON。ファイルの読み込み・ID の変更で前の対応が変われば、もう一度上げる）。
+  // 'all'（全部上げた）・'host'（H だけ残した。H はこの PC がホストとして遊んでいるときに上げる）・''（まだ）
+  const migratedMemory = new Map();
+  const withoutHost = (legacy) => Object.fromEntries(Object.entries(legacy).filter(([uid]) => uid !== HOST_UID));
+  function migration(env, worldId, legacy) {
+    if (!Object.keys(legacy).length) return 'all';
+    const key = migratedKey(env, worldId);
+    const marks = [storage.get(key), migratedMemory.get(key)];
+    if (marks.includes(JSON.stringify(legacy))) return 'all';
+    return Object.hasOwn(legacy, HOST_UID) && marks.includes(JSON.stringify(withoutHost(legacy))) ? 'host' : '';
+  }
+
+  /**
+   * 鍵から UID への解決（ここだけで行う。docs/server/README.md の「テーマ間の取り決め」）。players はその回のセーブ・表示しているデータの
+   * プレイヤー。返す形は今までどおり uid → ノートの ID（core/auto-breeding.js の mappedUser・core/ideal-goals.js の ownPlayerUids が引く）。
+   * - GAS の対応: プレイヤーごとに 'i:<InstanceId>'、なければ（H でないときだけ）'u:<uid>'。値 '' は外した印（同じ名前の規則に戻る）。
+   *   'u:H' は H がプレイヤーにいないとき（サーバーのワールドの以前のホスト）だけ効く（協力プレイのホストを以前のホストと取り違えない）。
+   *   プレイヤーにいない 'u:' の鍵（以前の持ち主）も uid で返す。前の版の対応を上げ終えるまでは、GAS に鍵のないプレイヤー（H を除く）に
+   *   前の版の対応を使う（上げ終えるまでの間に「未設定」にならないように）。H は、playing（判定で、この PC がホストとして遊んでいる）の
+   *   ときだけ、上げ終えるまで前の版の H を使う（前の版と同じ動き）
+   * - 古い GAS・まだ読めていない: 前の版の対応。H の対応は H がプレイヤーにいるワールドだけ（サーバーのワールドの H は以前のホストで、
+   *   この PC の人ではない）
+   * confirmed: 送っている途中の対応を重ねない（判定用）
+   */
+  function mappingFor(env, worldId, players, { confirmed = false, playing = false } = {}) {
+    const list = (Array.isArray(players) ? players : []).filter((player) => isObject(player) && typeof player.uid === 'string' && player.uid);
+    const legacy = env && worldId ? legacyMappingOf(env, worldId) : {};
+    const shared = sharedEntries(env, worldId, { confirmed });
+    if (!shared) {
+      if (!hostIsPlayer(list)) delete legacy[HOST_UID];
+      return legacy;
+    }
+    const state = migration(env, worldId, legacy);
+    // 上げ終えるまでの前の版の対応: H 以外はまだ上げていないとき、H は判定で遊んでいて H をまだ上げていないとき
+    const fallback = (uid) => {
+      if (uid === HOST_UID) return playing && state !== 'all' ? legacy[uid] : undefined;
+      return state === '' ? legacy[uid] : undefined;
+    };
+    const pick = (key) => (key && Object.hasOwn(shared, key) ? shared[key] : undefined);
+    const out = {};
+    const present = new Set();
+    for (const player of list) {
+      present.add(player.uid.toLowerCase());
+      const instanceId = playerGuid(player.instanceId);
+      const host = player.uid === HOST_UID;
+      const chosen = pick(instanceId ? `i:${instanceId}` : '') ?? (host ? undefined : pick(playerMapKey(`u:${player.uid}`))) ?? fallback(player.uid);
+      if (chosen) out[player.uid] = chosen;
+    }
+    for (const [key, userId] of Object.entries(shared)) {
+      if (userId && key.startsWith('u:') && !present.has(key.slice(2))) out[key.slice(2)] = userId;
+    }
+    return out;
+  }
+
+  // 前の版の対応（uid → ID）を GAS の鍵にする。ノートにない ID は捨てる。H は hostLocal（この PC がホストとして遊んでいる手元のデータ）で、
+  // そのデータの H に InstanceId があるときだけ 'i:'（協力プレイの H はその PC がホストしていたときの本人）。上げられない H は hostLeft で
+  // 返す（印から外し、ホストとして遊んでいるときに上げる）。H 以外は InstanceId があれば 'i:'、なければ 'u:'（H 以外の UID は人ごとに変わらない）
+  function migrationEntries(legacy, players, { hostLocal }) {
+    const users = store.state.users ?? [];
+    const list = (Array.isArray(players) ? players : []).filter((player) => isObject(player) && typeof player.uid === 'string');
+    const entries = [];
+    let hostLeft = false;
+    for (const [uid, userId] of Object.entries(legacy)) {
+      const user = users.find((item) => userIdKey(item) === userIdKey(userId));
+      if (!user) continue;
+      const player = list.find((item) => item.uid === uid);
+      const instanceId = playerGuid(player?.instanceId);
+      const key = uid !== HOST_UID ? (player ? playerKeyOf(player) : playerMapKey(`u:${uid}`))
+        : hostLocal && instanceId ? `i:${instanceId}` : '';
+      if (key) entries.push({ key, userId: user, playerName: text(player?.name, 50) });
+      else if (uid === HOST_UID) hostLeft = true;
+    }
+    return { entries, hostLeft };
+  }
+
+  /**
+   * GAS の対応の写しを maxAge より古ければ読み（player-map.js の ensure）、前の版の対応がまだ上がっていなければ一度だけ onlyMissing で上げる
+   *（GAS にある鍵〔外した印を含む〕は上書きしない）。上げられたら印を書く。H を上げられない（hostLocal でない）ときは、H を除いた印にして
+   * H だけ残し、hostLocal のときに H だけを上げる（最初の移行が共有の表示のときでも、後でホストとして遊べば上がる。反証のレビュー）。
+   * 古い GAS・読めない・ノートの一覧がまだないときは何もしない（印を書かず、次の機会にやり直す）。失敗しても例外にしない。送れなかったら
+   * MAPPING_RUN_AGE の間は送り直さない（先に反映した分を戻した知らせで判定し直し、また送る、を繰り返さないため）
+   */
+  const migrations = new Map();
+  const migrationRetry = new Map();
+  async function syncPlayerMap(env, worldId, players, { hostLocal = false, maxAge = 0 } = {}) {
+    if (!playerMaps || !env || !worldId) return;
+    await playerMaps.ensure(env, worldId, { maxAge });
+    if (!sharedEntries(env, worldId)) return;
+    const legacy = legacyMappingOf(env, worldId);
+    const state = migration(env, worldId, legacy);
+    if (state === 'all' || (state === 'host' && !hostLocal) || !store.state.users?.length) return;
+    const key = migratedKey(env, worldId);
+    if (!migrations.has(key)) {
+      if (migrationRetry.get(key) > now()) return;
+      const task = (async () => {
+        const { entries, hostLeft } = migrationEntries(state === 'host' ? { [HOST_UID]: legacy[HOST_UID] } : legacy, players, { hostLocal });
+        if (entries.length) await playerMaps.set(env, worldId, entries, { onlyMissing: true });
+        const mark = JSON.stringify(hostLeft ? withoutHost(legacy) : legacy);
+        migratedMemory.set(key, mark);
+        storage.set(key, mark);
+      })().catch(() => { migrationRetry.set(key, now() + MAPPING_RUN_AGE); }).finally(() => migrations.delete(key));
+      migrations.set(key, task);
+    }
+    await migrations.get(key);
+  }
 
   // 設定（オン・オフ・登録者の対応）の変化を知らせる先（ヘッダーのセーブ連携の状態）
   const listeners = new Set();
   const changed = () => listeners.forEach((listener) => listener());
+  // GAS の対応が変わった（このタブ・ほかの PC で決めた対応を読み直した）: 知らせて判定し直す（保留していた未設定の候補を次の判定で登録する）
+  playerMaps?.subscribe(() => {
+    changed();
+    evaluate();
+  });
 
   return {
     evaluate,
@@ -688,29 +869,72 @@ export function createAutoRegister({
       changed();
       evaluate();
     },
-    mapping(worldId = owned.state.local?.world.id ?? '') {
+    /** そのワールドの対応（uid → ノートの ID）。今表示しているデータのプレイヤーで鍵から引く（mappingFor） */
+    mapping(worldId = linkedWorld()) {
       const env = store.state.env;
-      return env && worldId ? mappingOf(env, worldId) : {};
+      return env && worldId ? mappingFor(env, worldId, playersOf(worldId)) : {};
+    },
+    /** 対応がどこにあるか: 'gas'（GAS のシート。誰の画面からでも選べる）・'legacy'（前の版。この端末だけ） */
+    mappingMode(worldId = linkedWorld()) {
+      return sharedEntries(store.state.env, worldId) ? 'gas' : 'legacy';
     },
     /**
-     * 別のタブの storage イベント。今の環境の登録者の対応表のキーなら、設定の変化として知らせて true を返す（対応表はキャッシュせず
-     * 読むたびに保存先から読むので、捨てるものはない）。対応表は自分のプレイヤーの決め方にも使うので、app.js は true のとき
-     * 本人の変化として知らせる（self-player.js の changed）。登録し直し（evaluate）は、変えたタブが行う
+     * GAS の対応を、写しが maxAge より古ければ読み直す（設定の欄は 15 秒、app.js の 10 秒ごとのタイマーは表のタブで 5 分）。前の版の対応が
+     * まだ上がっていなければ上げる（H は、この PC がホストとして遊んでいる手元のデータを表示しているときだけ）。失敗しても例外にしない
+     */
+    refreshMapping(worldId = linkedWorld(), maxAge = 0) {
+      const s = store.state;
+      if (!playerMaps || !s.passcode || !s.env || !worldId) return Promise.resolve();
+      const o = owned.state;
+      const hostLocal = sameWorld(o.meta?.worldId, worldId) && o.meta?.source === 'local' && hostPlaying(worldId);
+      return syncPlayerMap(s.env, worldId, playersOf(worldId), { hostLocal, maxAge });
+    },
+    /**
+     * 別のタブの storage イベント。今の環境の前の版の対応（と GAS へ上げた印）のキーなら、設定の変化として知らせて true を返す（対応表は
+     * キャッシュせず読むたびに保存先から読むので、捨てるものはない）。対応表は自分のプレイヤーの決め方にも使うので、app.js は true のとき
+     * 本人の変化として知らせる（self-player.js の changed）。登録し直し（evaluate）は、変えたタブが行う。GAS の対応の写しは player-map.js の reload
      */
     reload(key) {
       const env = store.state.env;
-      if (!env || typeof key !== 'string' || !key.startsWith(`${namespace}.autoBreeding.players.${env}.`)) return false;
+      const prefixes = [`${namespace}.autoBreeding.players.${env}.`, `${namespace}.autoBreeding.playersMigrated.${env}.`];
+      if (!env || typeof key !== 'string' || !prefixes.some((prefix) => key.startsWith(prefix))) return false;
       changed();
       return true;
     },
-    // セーブのプレイヤーを、登録者にするアプリのユーザーに対応づける（空にすると同じ名前のユーザーに戻す）
-    setMapping(playerUid, userId, worldId = owned.state.local?.world.id ?? '') {
+    /**
+     * セーブのプレイヤー（またはプレイヤーにいない UID）を、登録者にするアプリのユーザーに対応づける（空にすると同じ名前のユーザーに戻す）。
+     * GAS で動いているときは、設定の欄と同じプレイヤー（表示しているデータ）から鍵を作って GAS に書く（先に反映し、失敗したら戻して投げる）。
+     * 前の版で動いているときは、この端末に書く
+     * @returns {Promise<void>}
+     */
+    setMapping(playerUid, userId, worldId = linkedWorld()) {
+      const env = store.state.env;
+      if (!env || !worldId) return Promise.resolve();
+      if (!sharedEntries(env, worldId)) {
+        writeLegacyMapping(env, worldId, playerUid, userId);
+        changed();
+        evaluate();
+        return Promise.resolve();
+      }
+      const player = playersOf(worldId).find((item) => item?.uid === playerUid);
+      const key = player ? playerKeyOf(player) : playerMapKey(`u:${playerUid}`);
+      // 協力プレイのホスト（H がプレイヤー）は InstanceId の鍵でだけ決める（'u:H' は以前のホストの鍵）
+      if (!key || (player && key === `u:${HOST_UID}`)) {
+        return Promise.reject(Object.assign(new Error('このプレイヤーは今のデータでは見分けられないため、対応を選べません。'), { code: 'PLAYER_KEY' }));
+      }
+      const user = userId ? (store.state.users ?? []).find((item) => userIdKey(item) === userIdKey(userId)) ?? userId : '';
+      return playerMaps.set(env, worldId, [{ key, userId: user, playerName: text(player?.name, 50) }]).then(() => {});
+    },
+    /** 前の版の対応（この端末のデータの書き出し用。device-data.js の形 v1） */
+    legacyMapping(worldId = linkedWorld()) {
+      const env = store.state.env;
+      return env && worldId ? legacyMappingOf(env, worldId) : {};
+    },
+    /** 前の版の対応に 1 件足す（この端末のデータの読み込み。GAS で動いていれば、次の syncPlayerMap が onlyMissing で上げる） */
+    setLegacyMapping(playerUid, userId, worldId = linkedWorld()) {
       const env = store.state.env;
       if (!env || !worldId) return;
-      const next = { ...mappingOf(env, worldId) };
-      if (userId) next[playerUid] = userId;
-      else delete next[playerUid];
-      storage.set(mappingKey(env, worldId), JSON.stringify(next));
+      writeLegacyMapping(env, worldId, playerUid, userId);
       changed();
       evaluate();
     },
@@ -725,13 +949,15 @@ export function createAutoRegister({
       const summary = { unmapped: [], conflict: [] };
       if (!s.passcode || !s.env || !s.userId || !worldId) return summary;
       const pending = readyCandidates(readFarms({ env: s.env, worldId }).pending);
-      const players = owned.state.local?.world.id === worldId ? owned.state.local.snapshot?.players ?? [] : [];
-      const mapping = mappingOf(s.env, worldId);
+      // 設定の欄と同じプレイヤー・対応で分ける
+      const players = playersOf(worldId);
+      const mapping = mappingFor(s.env, worldId, players);
       for (const candidate of pending) {
         const parents = [candidate.record.parent1Id, candidate.record.parent2Id];
         const who = resolveRegistrant(candidate, { players, mapping, users: s.users, currentUserId: s.userId });
         if (who.unmapped) {
-          summary.unmapped.push({ uid: who.unmapped, name: players.find((p) => p.uid === who.unmapped)?.name ?? '', parents });
+          const player = players.find((p) => p.uid === who.unmapped);
+          summary.unmapped.push({ uid: who.unmapped, name: player ? player.name ?? '' : formerLabel(who.unmapped), parents });
           continue;
         }
         const record = { ...candidate.record, registrant: who.userId };
@@ -762,6 +988,19 @@ export function createAutoRegister({
       const added = registered.added + others.added;
       if (added) onNotice();
       return { added, skipped: registered.skipped + others.skipped };
+    },
+    /**
+     * そのワールドの牧場の記録（前に見た親とタマゴ・候補・判定）を捨てる（常駐の古い系統の受け入れ）。次の読み込みは、最初の読み込みと同じく
+     * 記録するだけ。実行中の登録は止める
+     */
+    forgetFarms(worldId, env = store.state.env) {
+      if (!env || !worldId) return;
+      const key = farmsKey(env, worldId);
+      memory.delete(key);
+      finished.delete(key);
+      storage.remove(key);
+      generation++;
+      changed();
     },
     /** 登録待ちの候補を 1 件捨てる（設定の「登録待ち」の「破棄」。id は pendingSummary の id。登録を終えた候補と同じく外し、このタブでは送り直さない）。捨てたら true */
     discardPending(id, worldId = linkedWorld()) {

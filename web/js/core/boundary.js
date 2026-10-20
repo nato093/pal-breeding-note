@@ -10,7 +10,8 @@
 // - 後から足す項目は intOrNull などで「不明」（null）を表し、欠けと 0 を区別する
 import { sanitizeText } from './validate.js';
 import {
-  OWNED_MAX_ROWS, OWNED_DPS_GAP_MAX, OWNED_PRESENCE_MAX, OWNED_PRESENCE_ROLES, cleanOwnedFarms, ownedWorldId, ownedSaveStamp,
+  OWNED_MAX_ROWS, OWNED_DPS_GAP_MAX, OWNED_PRESENCE_MAX, OWNED_PRESENCE_ROLES, cleanOwnedFarms, ownedWorldId, ownedSaveStamp, playerGuid,
+  cleanOwnedExtras, cleanOwnedCaptures,
 } from './owned-shared.js';
 
 export const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -156,7 +157,8 @@ const DAY_MAX = 1000000;
 /**
  * 共有のプレイヤー（uid 40 字・名前 50 字。uid が空・40 字を超えるものは捨てる。uid は個体の所持者と比べるので切り詰めない）。
  * save-extras で足した Lv（1〜999 の整数）とプレイ中（true・false）、dps-missing で足したパル次元ストレージの読み漏れの数
- *（dpsGap。1〜OWNED_DPS_GAP_MAX の整数）は、形が合うときだけ写す（古い共有にはない）
+ *（dpsGap。1〜OWNED_DPS_GAP_MAX の整数）、server の identity で足したキャラクターの InstanceId（GUID の形のときだけ小文字で）、
+ * share-extras で足した捕獲数（captures。GAS と同じ cleanOwnedCaptures）は、形が合うときだけ写す（古い共有にはない）
  */
 export const cleanSharedPlayers = (value) => list(value, {
   max: PLAYERS_MAX,
@@ -166,6 +168,10 @@ export const cleanSharedPlayers = (value) => list(value, {
     if (Number.isInteger(player.level) && player.level > 0 && player.level <= PLAYER_LEVEL_MAX) clean.level = player.level;
     if (typeof player.online === 'boolean') clean.online = player.online;
     if (Number.isInteger(player.dpsGap) && player.dpsGap > 0 && player.dpsGap <= OWNED_DPS_GAP_MAX) clean.dpsGap = player.dpsGap;
+    const instanceId = playerGuid(player.instanceId);
+    if (instanceId) clean.instanceId = instanceId;
+    const captures = cleanOwnedCaptures(player.captures);
+    if (captures) clean.captures = captures;
     return clean;
   },
 });
@@ -193,14 +199,18 @@ function cleanWorld(value) {
   // セーブの中の保存時刻（生のティック。owned-gas。新旧の比べ方 compareSaves に使う）。識別を知らない古い GAS の応答・前のキャッシュには
   // 項目がないので付けない（今と同じ形のまま）。新しい GAS は識別がなければ '' を返す（前の値を残さないよう、'' も写す）
   if (typeof value.saveStamp === 'string') world.saveStamp = ownedSaveStamp(value.saveStamp);
-  return world;
+  // 追加の情報（saveKind・clock・formers・items。GAS が列 extras から広げたもの。server）。分かることがなければ付けない（列のない GAS・古い GAS の
+  // 応答・前のキャッシュは今と同じ形のまま）。分かることがあれば GAS と同じ決まった形（分からない項目は '' か null）
+  const extras = cleanOwnedExtras(value);
+  return extras ? Object.assign(world, extras) : world;
 }
 
 const PRESENCE_DEVICE = /^[A-Za-z0-9_-]{8,64}$/;
 
 /**
  * ページを開いている PC の一覧（GAS の ownedSince・presence の応答の presence）。配列でなければ null（分からない）。
- * 要素は { user 20 字, device, role（host・guest・none）, playing, canShare, at（ISO） }。形の違う要素は捨て、最大 OWNED_PRESENCE_MAX 件
+ * 要素は { user 20 字, device, role（host・guest・none）, playing, canShare, at（ISO）, resident? }。resident（サーバーの PC の常駐
+ * プログラム。server の participant-ui）は true のときだけ付ける。形の違う要素は捨て、最大 OWNED_PRESENCE_MAX 件
  */
 export function cleanPresenceList(value) {
   if (!Array.isArray(value)) return null;
@@ -210,7 +220,7 @@ export function cleanPresenceList(value) {
       if (!isObject(item) || typeof item.device !== 'string' || !PRESENCE_DEVICE.test(item.device) || !isoTime(item.at)) return null;
       return {
         user: text(item.user, 20), device: item.device, role: oneOf(item.role, OWNED_PRESENCE_ROLES, 'none'),
-        playing: item.playing === true, canShare: item.canShare === true, at: item.at,
+        playing: item.playing === true, canShare: item.canShare === true, at: item.at, ...(item.resident === true ? { resident: true } : {}),
       };
     },
   });

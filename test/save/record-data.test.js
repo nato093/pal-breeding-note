@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { ZERO_GUID } from '../../web/js/save/gvas.js';
 import { parseLevel, parsePlayer, buildSnapshot } from '../../web/js/save/palworld.js';
 import { normalizeOwned, ownCaptures, ownedFromShared, sharedUpload } from '../../web/js/core/owned.js';
+import { validateOwnedUpload } from '../../web/js/core/owned-shared.js';
+import { cleanOwnedWorlds } from '../../web/js/core/boundary.js';
 import pals from '../../web/data/pals.js';
 import passives from '../../web/data/passives.js';
 import { GvasWriter, gvasWithHeader, finishGvas } from '../helpers/gvas-writer.js';
@@ -119,14 +121,22 @@ test('捕獲数: スナップショットは読めたプレイヤーだけに ca
   assert.deepEqual([...ownCaptures(odd.players, new Set([P4]))], []);
 });
 
-test('捕獲数は共有しない: 送る形（sharedUpload）に入れず、共有から作る画面のデータ（ownedFromShared）にもない', () => {
-  const snap = buildSnapshot({ level: level(), players: [player(P1, captureMap([['SheepBall', 12]]))] });
+test('捕獲数の共有（server の share-extras）: players の JSON の captures で送り（読めたプレイヤーだけ）、GAS の検査を通って参加者の画面に戻り、自分の分を引ける', () => {
+  const snap = buildSnapshot({ level: level(), players: [player(P1, captureMap([['SheepBall', 12], ['BOSS_Anubis', 2], ['Human', 4]])), player(P2, captureMap([]))] });
   const owned = normalizeOwned(snap, { pals, passives });
   const upload = sharedUpload(owned);
-  assert.doesNotMatch(JSON.stringify(upload), /captures|SheepBall"?:\s*12/);
-  // 捕獲数を足して送る画面があっても、共有から作るデータには入れない
-  const shared = ownedFromShared({ world: { players: upload.players.map((p) => ({ ...p, captures: { SheepBall: 12 } })), bases: [] }, rows: [] }, { pals, passives });
-  assert.deepEqual(shared.players.map((p) => p.uid), [P1, P2]);
-  assert.equal(shared.players.some((p) => 'captures' in p), false);
-  assert.equal(ownCaptures(shared.players, new Set([P1])), null);
+  // 人間は捨て、パル ID ごとに合わせる。捕まえていない人は {}
+  assert.deepEqual(upload.players.map((p) => [p.uid, p.captures]), [[P1, { SheepBall: 12, Anubis: 2 }], [P2, {}]]);
+  const checked = validateOwnedUpload({ worldId: 'ABCDEF0123456789ABCDEF0123456789', world: { name: 'W' }, saveUpdatedAt: '2026-10-18T10:00:00.000Z', ...upload });
+  assert.deepEqual(checked.value.players, upload.players);
+  // 参加者の画面（一覧のキャッシュの検査 cleanOwnedWorlds も通る）
+  const [world] = cleanOwnedWorlds([{ worldId: 'ABCDEF0123456789ABCDEF0123456789', players: checked.value.players }]);
+  const shared = ownedFromShared({ world, rows: [] }, { pals, passives });
+  assert.deepEqual(shared.players.map((p) => [p.uid, p.captures]), [[P1, { SheepBall: 12, Anubis: 2 }], [P2, {}]]);
+  assert.deepEqual([...ownCaptures(shared.players, new Set([P1]))], [['SheepBall', 12], ['Anubis', 2]]);
+  assert.deepEqual([...ownCaptures(shared.players, new Set([P2]))], []);
+  // 捕獲数のない古い共有・古い GAS では分からない（null。出さない）
+  const legacy = ownedFromShared({ world: { players: upload.players.map(({ captures: _captures, ...p }) => p), bases: [] }, rows: [] }, { pals, passives });
+  assert.equal(legacy.players.some((p) => 'captures' in p), false);
+  assert.equal(ownCaptures(legacy.players, new Set([P1])), null);
 });

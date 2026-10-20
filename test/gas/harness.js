@@ -10,6 +10,9 @@ const GAS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.
 
 // ---- Spreadsheet の偽物 -------------------------------------------------
 
+// 1 セルの字数の上限（Google スプレッドシートの上限）
+const CELL_MAX_CHARS = 50000;
+
 class FakeRange {
   constructor(sheet, row, col, numRows, numCols) {
     Object.assign(this, { sheet, row, col, numRows, numCols });
@@ -121,6 +124,8 @@ class FakeSheet {
     return this.stripQuotes && typeof value === 'string' && value.startsWith("'") ? value.slice(1) : value;
   }
   setCell(r, c, v) {
+    // 本物と同じく、1 セル 50,000 字を超える値は書けない（players・farms・extras の JSON はセルに入るよう縮めてから書く）
+    if (typeof v === 'string' && v.length > CELL_MAX_CHARS) throw new Error(`Your input contains more than the maximum of ${CELL_MAX_CHARS} characters in a single cell.`);
     while (this.data.length < r) this.data.push([]);
     const line = this.data[r - 1];
     while (line.length < c) line.push('');

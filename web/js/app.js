@@ -11,6 +11,7 @@ import { createOwnedSeen } from './owned-seen.js';
 import { createReverserHidden } from './reverser-hidden.js';
 import { createOwnedStore, idbPersist } from './owned.js';
 import { createAutoRegister } from './auto-register.js';
+import { createPlayerMapStore } from './player-map.js';
 import { createAttention } from './attention.js';
 import { createRenamer } from './user-rename.js';
 import { startRouter, buildHash, parseHash, sameScreen, routeKey, SETTINGS_OPEN } from './router.js';
@@ -53,6 +54,8 @@ import { ownedWorldId } from './core/owned-shared.js';
 
 // 所持パルを読み直す間隔（全画面で 1 本。表のタブなら共有も、裏のタブでは登録したセーブだけ。share-fetch）
 const SAVE_POLL_INTERVAL = 10 * 1000;
+// 表のタブでプレイヤーの対応（GAS）を読み直す間隔（server の mapping）
+const MAPPING_REFRESH_INTERVAL = 5 * 60 * 1000;
 // スクロールした位置を今の履歴のエントリに書くまでの間引き
 const SCROLL_SAVE_DELAY = 300;
 // 画面ごとに保存する条件（viewState の中の入れ物の名前。'' は viewState そのもの）と、その形（各画面が export する）
@@ -94,20 +97,35 @@ async function boot() {
     },
   });
   let ownedScope = '';
+  // プレイヤーの対応（GAS のシート PlayerMap。server の mapping）。古い GAS なら、この端末の前の版の対応で動く
+  const playerMaps = createPlayerMapStore({
+    // 書いた人の ID（playerMapSet の userId）はログイン中の ID
+    request: (action, input) => store.call(action, { userId: store.state.userId, ...input }),
+    scope: () => (store.state.passcode && store.state.userId && store.state.env ? store.state.env : ''),
+    endpoint: () => (transport ? 'local' : API_URL),
+    storage: safeStorage(browserStorage), namespace,
+  });
   // 配合牧場からの自動登録（ホストのセーブを読み込んだとき）。合わなかったものは通知に出す。
   const autoRegister = createAutoRegister({
-    store, owned, storage: safeStorage(browserStorage), namespace, toast, onNotice: () => notifications.changed(),
+    store, owned, storage: safeStorage(browserStorage), namespace, toast, onNotice: () => notifications.changed(), playerMaps,
     // 成功のトーストの「見る」（context は後で作るので、押したときに引く）
     navigate: (hash) => context.navigate(hash),
   });
   // このワールドでの自分（設定で選ぶ。この端末に ID・環境・ワールドごと）
   const self = createSelfStore({ store, storage: browserStorage, namespace });
+  // プレイヤーの対応は自分のプレイヤーの決め方にも使う。変わったら（このタブで選んだ・ほかの PC で決めた分を読み直した）本人の変化として知らせる
+  playerMaps.subscribe(() => self.changed());
   // 登録した理想個体（この端末に ID・環境ごと）。自分の個体で完成を判定して知らせる。
   // 自分のプレイヤーは「このワールドでの自分」、なければ配合牧場の自動登録と同じ「登録者の対応」（なければ同じ名前）で決める
   const ideals = createIdealStore({
     store, owned, storage: browserStorage, namespace,
-    identity: (worldId) => ({ userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId), selfUid: self.get(worldId) }),
+    identity: (worldId) => ({
+      userId: store.state.userId, users: store.state.users, mapping: autoRegister.mapping(worldId), self: self.get(worldId), selfLastUid: self.lastUid(worldId),
+    }),
   });
+  // 前の版の「このワールドでの自分」（UID）を、表示しているデータのプレイヤーのキャラクターの鍵（i:）に移し、引けた UID を覚える
+  //（server の identity。H は、この PC がホストとして遊んでいる手元のデータのときだけ。self-player.js の migrateShown）
+  owned.subscribe((state) => self.migrateShown(state));
   // 本人が変わったら（このワールドでの自分・登録者の対応。別のタブの変更も）、同じセーブのまま完成を判定し直す（そのとき完成している
   // ものは知らせない）。ID の変更中は判定し直せない（ideals.js）ので、変更中に来た分は、変更が終わった store の通知で 1 回だけ判定し直す
   //（この store の購読は ideals より後に足すので、変更中に届いた新しいセーブの判定〔完成を知らせる〕が先に済む）
@@ -888,6 +906,8 @@ async function boot() {
     // 登録者の対応（自動登録の対応表）は自分のプレイヤーの決め方にも使うので、本人の変化として知らせる（このタブで変えたときと同じく、
     // 判定し直しと理想個体・所持パル・設定の描き直し）
     if (autoRegister.reload(event.key)) self.changed();
+    // プレイヤーの対応の写し（GAS から読んだもの）。変わっていれば playerMaps の購読（本人の変化・自動登録）が知らせる
+    playerMaps.reload(event.key);
     notifications.reload(event.key);
   });
   // 配信された版（version.json）を 5 分ごとと、タブに戻ったときに確かめる。版の無いローカルでは確かめない。
@@ -905,9 +925,13 @@ async function boot() {
   // 知らせるので、ここでのセーブの読み直しは安全網（見張りの Worker を作れないブラウザでは、これだけで読む。save-watch）。
   // 古いデータの印（時刻で変わる）も、このときに確かめ直す。
   // ページを開いている PC（page-presence）は読み直しの後に送る（1 分ごと。共有の読み直しの ownedSince に載せた回は送らない。裏のタブでも送る）
+  // プレイヤーの対応（GAS）は、表のタブなら表示しているワールドの分を 5 分に 1 回読み直す（ほかの PC で変えた対応を、理想個体の「自分」に
+  // 合わせるため。ownedSince には載せない。server の mapping）
   setInterval(() => {
     const refreshing = document.visibilityState === 'hidden' ? owned.pollAuto() : owned.autoRefresh();
     refreshing.catch(() => {}).then(() => owned.reportPresence()).catch(() => {});
+    const shown = owned.state.meta?.worldId;
+    if (document.visibilityState === 'visible' && shown) autoRegister.refreshMapping(shown, MAPPING_REFRESH_INTERVAL).catch(() => {});
     save.update();
   }, SAVE_POLL_INTERVAL);
   document.addEventListener('visibilitychange', () => {

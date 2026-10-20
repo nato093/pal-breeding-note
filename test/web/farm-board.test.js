@@ -91,7 +91,9 @@ test('配合牧場ボード: タマゴの数と中身の絵（突然変異は印
   const shared = data();
   shared.farms = shared.farms.map((farm) => ({ ...farm, eggs: null }));
   const noContents = farmBoard(context(shared));
-  assert.match(byClass(noContents.element, 'farm-card')[0].textContent, /タマゴ 3 個中身はホストの画面で見られます/);
+  // サーバーのワールドでも意味が通る文（見られる画面を言わない。server の participant-ui）
+  assert.match(byClass(noContents.element, 'farm-card')[0].textContent, /タマゴ 3 個中身は共有に入りきらないため省いています/);
+  assert.doesNotMatch(byClass(noContents.element, 'farm-card')[0].textContent, /ホストの画面/);
   noContents.destroy();
   shared.farmsCounted = false;
   const legacy = farmBoard(context(shared));

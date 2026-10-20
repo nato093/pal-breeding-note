@@ -163,15 +163,21 @@ export function mappedUser(player, { mapping = {}, users = [] }) {
 }
 
 /**
- * 誰の登録にするか。親 2 体を同じ人が拠点に預けていればその人に対応するユーザー、
- * 預けた人が違う・分からない（牧場ごとに食い違う場合も）ならログイン中のユーザー。
+ * 誰の登録にするか。親 2 体を同じ人が拠点に預けていればその人に対応するユーザー。2 体の預けた人の UID が違っても、どちらも同じユーザーに
+ * 対応していればそのユーザー（サーバーのワールドで、以前のホスト〔H〕と作成者の今の UID が預けた親など。server の identity）。
+ * 預けた人が違う・分からない（牧場ごとに食い違う場合も）ならログイン中のユーザー。同じ人が預けたのに対応するユーザーがいなければ未設定。
  * @returns {{ userId: string } | { unmapped: string }}
  */
 export function resolveRegistrant(candidate, { players = [], mapping = {}, users = [], currentUserId }) {
-  const owners = new Set(candidate.evidence.map(({ depositorUids: [x, y] }) => (x && x === y ? x : '')));
-  const [owner] = owners;
-  if (owners.size !== 1 || !owner) return { userId: currentUserId };
-  const player = players.find((p) => p.uid === owner) ?? { uid: owner, name: '' };
-  const userId = mappedUser(player, { mapping, users });
-  return userId ? { userId } : { unmapped: owner };
+  const userOf = (uid) => mappedUser(players.find((p) => p.uid === uid) ?? { uid, name: '' }, { mapping, users });
+  // 証拠ごとの登録者（キーは 'id:' ＋ユーザーの ID・対応のない同じ人は 'uid:' ＋ UID・分からなければ ''）。全部が 1 つにまとまればその人
+  const registrants = new Map();
+  for (const { depositorUids: [x, y] } of candidate.evidence) {
+    const user = x && y ? userOf(x) : '';
+    if (user && (x === y || userIdKey(userOf(y)) === userIdKey(user))) registrants.set(`id:${userIdKey(user)}`, { userId: user });
+    else if (x && x === y) registrants.set(`uid:${x}`, { unmapped: x });
+    else registrants.set('', null);
+  }
+  const [[key, registrant] = ['', null]] = registrants;
+  return registrants.size === 1 && key ? registrant : { userId: currentUserId };
 }
