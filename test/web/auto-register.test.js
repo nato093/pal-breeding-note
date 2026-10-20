@@ -1998,3 +1998,62 @@ test('自動登録（server の T5 古い系統の守り）: forgetFarms は牧�
   await t.run();
   assert.deepEqual(registered(t.store), [SHEEP]);
 });
+
+// ---- 古代文明の配合器（snapshot.breeders。core/auto-breeding.js の breeder） ----
+
+const sheepBreeder = (eggs) => farm('d1', [parent('SheepBall', 'Female'), parent('SwordCutlassfish', 'Male')], eggs);
+// 配合器と牧場の外のタマゴだけのセーブを読む
+const readBreeders = (t, at, breeders, pals = []) => {
+  t.owned.state.local = { ...t.owned.state.local, importedAt: at, snapshot: { players: [{ uid: P1, name: '自分' }], breedFarms: [], breeders, pals } };
+};
+
+test('自動登録（配合器）: 配合器に新しく現れたタマゴを親の配合として登録し、通知の場所は拠点（分からなければ「古代文明の配合器」）', async () => {
+  for (const [state, place] of [[{}, '古代文明の配合器'], [{ meta: { worldId: 'W1' }, owned: { bases: [{ id: 'b', label: '拠点 1' }] } }, '拠点 1']]) {
+    const t = await setup({ farms: [] });
+    Object.assign(t.owned.state, state);
+    readBreeders(t, '2026-10-06T01:00:00.000Z', [sheepBreeder([])]);
+    await t.run();
+    readBreeders(t, '2026-10-06T01:00:30.000Z', [sheepBreeder(['GuardianDog'])]);
+    await t.run();
+    assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分']);
+    assert.deepEqual(t.auto.notices().map((n) => n.body), [`モコロン♀＋オオタチウオ♂ → ヤクモマル（${place}）`]);
+  }
+});
+
+test('自動登録（配合器）: 中身が親と合わないタマゴは、登録せず、照合が合わないとも知らせない', async () => {
+  const t = await setup({ farms: [] });
+  readBreeders(t, '2026-10-06T01:00:00.000Z', [sheepBreeder([])]);
+  await t.run();
+  readBreeders(t, '2026-10-06T01:00:30.000Z', [sheepBreeder(['Anubis'])]);
+  await t.run();
+  assert.deepEqual([t.creates, t.auto.notices()], [[], []]);
+});
+
+test('自動登録（配合器）: 撤去した配合器の前の親は、保存した記録から読んでも、牧場の外のタマゴの照合に使わない', async () => {
+  const t = await setup({ farms: [] });
+  readBreeders(t, '2026-10-06T01:00:00.000Z', [sheepBreeder([])]);
+  await t.run();
+  // 配合器の記録は牧場（farms）と分けて breeders に持つ
+  const stored = JSON.parse(t.storage.get('t.autoBreeding.farms.test.W1'));
+  assert.deepEqual([stored.farms.d1, stored.breeders.d1.eggs], [undefined, []]);
+  readBreeders(t, '2026-10-06T01:00:30.000Z', [], [{ instanceId: 'x1', source: 'egg', characterId: 'GuardianDog', location: { kind: 'egg-incubator', itemId: 'PalEgg_Earth_01' } }]);
+  await t.run();
+  assert.equal(t.creates.length, 0);
+});
+
+test('自動登録（配合器）: 前の版のタブが記録を書き戻して配合器の記録が消えても、誤って登録せず、次の読み込みから登録する（Codex のレビュー）', async () => {
+  const t = await setup({ farms: [] });
+  readBreeders(t, '2026-10-06T01:00:00.000Z', [sheepBreeder([])]);
+  await t.run();
+  // 前の版の画面は breeders を知らないので、書き戻すと欄ごと消える
+  const key = 't.autoBreeding.farms.test.W1';
+  const { breeders, ...old } = JSON.parse(t.storage.get(key));
+  assert.ok(breeders);
+  t.storage.set(key, JSON.stringify({ ...old, rev: old.rev + 1 }));
+  readBreeders(t, '2026-10-06T01:00:30.000Z', [sheepBreeder(['GuardianDog'])], [{ instanceId: 'd1-0', source: 'egg', characterId: 'GuardianDog', location: { kind: 'egg-incubator', itemId: 'PalEgg_Earth_01' } }]);
+  await t.run();
+  assert.equal(t.creates.length, 0);
+  readBreeders(t, '2026-10-06T01:01:00.000Z', [sheepBreeder(['GuardianDog', 'GuardianDog'])]);
+  await t.run();
+  assert.deepEqual(registered(t.store), ['SheepBall(F)×SwordCutlassfish(M)>GuardianDog:自分']);
+});

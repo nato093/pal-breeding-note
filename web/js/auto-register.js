@@ -1,5 +1,6 @@
 // 配合牧場からの自動登録。ホストのセーブを読み込むたびに、牧場の親 2 体と産んだタマゴを見て、
-// 前に読んだときと親が同じ牧場に新しく現れたタマゴを、その親の配合として登録する（子は配合表で決める）。
+// 前に読んだときと親が同じ牧場に新しく現れたタマゴを、その親の配合として登録する（子は配合表で決める）。古代文明の配合器の中のタマゴも
+// 同じように見る（core/auto-breeding.js の breeder）。
 // 証拠を集めることと、登録してよいと決めることは分ける（sync-fixes の host-rotation）: 読んだセーブの証拠は「配合のキー＋そのセーブの
 // 保存時刻（saveStamp）」の候補として保留し、そのセーブの共有の結果（owned.js の state.upload）で、自分のプレイの証拠なら登録してよい、
 // 別の PC の担当なら捨てる、と決める（同期で受け取ったセーブを、ゲームをしていない PC のページが登録しないため）。
@@ -377,13 +378,16 @@ export function createAutoRegister({
     const stored = readJson(key, null);
     const kept = memory.get(key) ?? null;
     const value = !stored || (kept && isNewer(kept, stored)) ? kept ?? stored : stored;
-    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', saveStamp: '', farms: null, seenEggs: null, verdicts: [], pending: [] };
+    if (!value || typeof value !== 'object') return { rev: 0, importedAt: '', savedAt: '', saveStamp: '', farms: null, seenEggs: null, breeders: null, verdicts: [], pending: [] };
     return {
       rev: Number.isInteger(value.rev) ? value.rev : 0,
       importedAt: isText(value.importedAt) ? value.importedAt : '',
       savedAt: isText(value.savedAt) ? value.savedAt : '',
       saveStamp: ownedSaveStamp(value.saveStamp),
       farms: cleanFarms(value.farms),
+      // 古代文明の配合器ごとの前に見た親とタマゴ（牧場と同じ形。前の版の記録にはない・前の版のタブが書き戻すと消える。そのときは、
+      // いまの配合器を記録するだけ）
+      breeders: cleanFarms(value.breeders),
       // 見たことのあるタマゴ（前の版の記録にはない。そのときは、いまのタマゴを記録するだけ）
       seenEggs: Array.isArray(value.seenEggs) && value.seenEggs.every(isText) ? value.seenEggs : null,
       // 共有の結果の判定（host-rotation。前の版の記録にはない）。読み込み直しの後に読んだ候補にも当てる
@@ -413,7 +417,7 @@ export function createAutoRegister({
     if (saved.importedAt === ctx.importedAt) return { pending: saved.pending, anomalies: [] };
     // 別のタブが新しいセーブで書いた記録を、このタブの古い（同じ）セーブで書き換えない
     if ((saved.savedAt || saved.saveStamp) && !(compareSaves(saveOf(ctx), saveOf(saved)) > 0)) return { pending: saved.pending, anomalies: [] };
-    const previous = saved.farms ? { farms: saved.farms, eggs: saved.seenEggs } : null;
+    const previous = saved.farms ? { farms: saved.farms, eggs: saved.seenEggs, breeders: saved.breeders } : null;
     const { candidates, anomalies, history } = findNewBreedings(ctx.snapshot, { resolveSpecies, table, history: previous });
     const pending = unexpired(saved.pending);
     // 読んだときにこのページがホスト中（推定）だったか（別の人が新しいセーブを共有済み〔stale〕のときに、自分のプレイの証拠とみなすため）
@@ -435,7 +439,7 @@ export function createAutoRegister({
       if (decided) pending.push(decided);
     }
     const next = {
-      importedAt: ctx.importedAt, savedAt: ctx.savedAt, saveStamp: ctx.saveStamp, farms: history.farms, seenEggs: history.eggs,
+      importedAt: ctx.importedAt, savedAt: ctx.savedAt, saveStamp: ctx.saveStamp, farms: history.farms, seenEggs: history.eggs, breeders: history.breeders,
       verdicts: saved.verdicts, pending: pending.slice(-PENDING_MAX),
     };
     // 書いた記録（別のタブが足した判定を当て直した後）の候補で登録する
@@ -565,12 +569,14 @@ export function createAutoRegister({
     // 押すと設定のそのワールドの行を開き、未設定の登録者の選択にフォーカスする
     href: settingsHash(ctx.worldId, 'registrant'),
   });
-  // 登録した配合の牧場がある拠点の名前（例「拠点 1」）。表示中の所持パルが同じワールドのときだけ引き、分からなければ「配合牧場」
+  // 登録した配合の牧場（配合器）がある拠点の名前（例「拠点 1」）。表示中の所持パルが同じワールドのときだけ引き、分からなければ
+  // 「配合牧場」（配合器なら「古代文明の配合器」）
   const farmLabel = (ctx, candidate) => {
     const farmId = candidate.evidence[0]?.farmId;
-    const baseId = (ctx.snapshot.breedFarms ?? []).find((farm) => farm?.id === farmId)?.baseId;
+    const breeder = (ctx.snapshot.breeders ?? []).find((item) => item?.id === farmId);
+    const baseId = (breeder ?? (ctx.snapshot.breedFarms ?? []).find((farm) => farm?.id === farmId))?.baseId;
     const base = baseId && owned.state.meta?.worldId === ctx.worldId ? owned.state.owned?.bases?.find((b) => b.id === baseId) : null;
-    return base?.label || '配合牧場';
+    return base?.label || (breeder ? '古代文明の配合器' : '配合牧場');
   };
 
   async function run(ctx) {

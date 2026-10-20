@@ -5,6 +5,9 @@
 // - 牧場の外（孵化器・所持品など。産まれてすぐ拾われたもの）: 中身が、牧場の親（いま、または前に読んだときの）から
 //   配合表で求めた子と一致すれば、その組み合わせの配合とみなす。同じ子になる組み合わせが複数あれば、どれも候補にする
 // 子は配合表で決める。タマゴの中身は、表と合うかの確かめにだけ使う。
+// 古代文明の配合器（snapshot.breeders。産んだタマゴを中で孵化させる）は、中に新しく現れたタマゴのうち、中身が配合器の親（いま、
+// または前に読んだときの）の表の子と合うものをその親の配合とみなす。合わないものは牧場の外のタマゴと同じに扱う（ほかで産まれた
+// タマゴを入れて孵化させることもあるため。breeder）。
 import { breedChild } from './breeding.js';
 import { identityKey, normalizeRecord } from './pair.js';
 import { userIdKey } from './user.js';
@@ -29,8 +32,10 @@ function pairOf(farm, resolveSpecies) {
 /**
  * @param {object} snapshot buildSnapshot の結果（breedFarms がない古いものは空として扱う）
  * @param {{ resolveSpecies: (characterId: string) => { palId: string }, table: object,
- *   history: { farms: Record<string, { parents: string, eggs: string[], pair?: object }>, eggs: string[] | null } | null }} deps
- *   history は前に読んだときの記録（牧場ごとの親とタマゴ、見たことのあるタマゴ）。null なら初めて読むので、記録するだけ
+ *   history: { farms: Record<string, { parents: string, eggs: string[], pair?: object }>, eggs: string[] | null,
+ *     breeders?: Record<string, { parents: string, eggs: string[], pair?: object }> | null } | null }} deps
+ *   history は前に読んだときの記録（牧場ごとの親とタマゴ、見たことのあるタマゴ、配合器ごとの親とタマゴ）。null なら初めて読むので、記録するだけ
+ *   （breeders がない記録〔前の版が書いたもの〕では、配合器は記録するだけ）
  * @returns {{ candidates: object[], anomalies: object[], history: object }}
  *   anomalies: 牧場の上の新しいふつうのタマゴなのに表と合わないもの（ゲームの更新に表が追いついていないなど）
  */
@@ -46,12 +51,14 @@ export function findNewBreedings(snapshot, { resolveSpecies, table, history }) {
     byKey.get(key).evidence.push({ ...evidence, depositorUids: [a.depositorUid, b.depositorUid] });
   };
 
+  // 親の個体（並びは問わない）。読めない牧場・配合器は空にして、次に読んだときの比べ先にもしない
+  const parentsKeyOf = (farm) => (farm.status === 'ok' ? farm.parents.map((p) => p.instanceId).sort().join('|') : '');
+
   // ---- 牧場の上のタマゴ ----
   const pairs = []; // 牧場の外のタマゴの照合に使う親の組（いまと、前に読んだとき）
   const farmEggIds = new Set();
   for (const farm of snapshot?.breedFarms ?? []) {
-    // 親の個体（並びは問わない）。読めない牧場は空にして、次に読んだときの比べ先にもしない
-    const parentsKey = farm.status === 'ok' ? farm.parents.map((p) => p.instanceId).sort().join('|') : '';
+    const parentsKey = parentsKeyOf(farm);
     const pair = pairOf(farm, resolveSpecies);
     farms[farm.id] = { parents: parentsKey, eggs: farm.eggs.map((e) => e.localId), ...(pair ? { pair } : {}) };
     for (const egg of farm.eggs) farmEggIds.add(egg.localId);
@@ -71,6 +78,49 @@ export function findNewBreedings(snapshot, { resolveSpecies, table, history }) {
         continue;
       }
       add(pair, expected, evidence);
+    }
+  }
+
+  // ---- 古代文明の配合器の中のタマゴ ----
+  // 配合器は孵化器でもあり、牧場などで産まれたタマゴを入れて孵化させることもある（手元のセーブで、親がノクサージュのままの配合器に
+  // ベラルージュのタマゴが 10 個入っていた。2026-10-19）。そこで、どこかで前に見たタマゴは新しいと数えず、新しく現れたタマゴのうち、
+  // 中身が配合器の親の配合表の子と同じものだけを、その親の配合とみなす。前に読んだときと親が同じなら、突然変異タマゴもその親の配合
+  //（表の子）とみなす。親を何度も入れ替えて使うので、親が入れ替わっていても、前の親といまの親のうち、表の子が中身と同じになる配合
+  //（配合のキー）が 1 つだけなら、その配合とみなす。いまの親が読めない配合器では決めない。
+  // 配合器の親で決まらなかったタマゴは、異常として知らせず、前と同じく牧場の外のタマゴとして牧場の親と照合する（牧場で産まれてすぐ
+  // 拾われ、配合器に入れられたタマゴかもしれない）。配合器の親は、牧場の外のタマゴの照合には使わない。
+  // 記録は牧場（farms）と分けて breeders に持つ（前の版の画面は breeders を知らないので、撤去した牧場の親として照合に使わない）
+  const breeders = {};
+  const seenBefore = new Set(history?.eggs ?? []);
+  for (const farm of [...Object.values(history?.farms ?? {}), ...Object.values(history?.breeders ?? {})]) for (const id of farm?.eggs ?? []) seenBefore.add(id);
+  const childOf = (p) => breedChild(table, p.a.palId, p.a.gender, p.b.palId, p.b.gender);
+  for (const breeder of snapshot?.breeders ?? []) {
+    const parentsKey = parentsKeyOf(breeder);
+    const pair = pairOf(breeder, resolveSpecies);
+    breeders[breeder.id] = { parents: parentsKey, eggs: breeder.eggs.map((e) => e.localId), ...(pair ? { pair } : {}) };
+    const before = history?.breeders?.[breeder.id];
+    if (!before || breeder.status !== 'ok') continue;
+    const same = Boolean(pair) && before.parents === parentsKey;
+    const options = same ? [pair] : [pair, validPair(before.pair) ? before.pair : null].filter(Boolean);
+    for (const egg of breeder.eggs) {
+      if (seenBefore.has(egg.localId)) continue;
+      const evidence = { farmId: breeder.id, eggLocalId: egg.localId };
+      if (isMutationEgg(egg)) {
+        const child = same ? childOf(pair) : '';
+        if (child) {
+          add(pair, child, evidence);
+          farmEggIds.add(egg.localId);
+        }
+        continue;
+      }
+      const actual = resolveSpecies(egg.characterId).palId;
+      const matches = actual ? options.filter((p) => childOf(p) === actual) : [];
+      // 入れ替える前と後が同じ種族の組み合わせなら、同じ配合（同じキー）なので 1 つと数える。そのときは両方の親を根拠に残す
+      //（預けた人が違えば、登録者は resolveRegistrant が決める）
+      const records = new Set(matches.map((p) => identityKey(normalizeRecord({ parent1Id: p.a.palId, parent1Gender: p.a.gender, parent2Id: p.b.palId, parent2Gender: p.b.gender, childId: actual }))));
+      if (records.size !== 1) continue;
+      for (const p of matches) add(p, actual, evidence);
+      farmEggIds.add(egg.localId);
     }
   }
 
@@ -96,8 +146,9 @@ export function findNewBreedings(snapshot, { resolveSpecies, table, history }) {
     }
   }
   // 見たことのあるタマゴは、前に見たものも残す（一度見えなくなってから別の場所に現れても、新しいタマゴと数えない）
-  const seen = [...new Set([...(history?.eggs ?? []), ...eggs.map((e) => e.instanceId), ...farmEggIds])].slice(-SEEN_EGGS_MAX);
-  return { candidates: [...byKey.values()], anomalies, history: { farms, eggs: seen } };
+  const breederEggIds = Object.values(breeders).flatMap((breeder) => breeder.eggs);
+  const seen = [...new Set([...(history?.eggs ?? []), ...eggs.map((e) => e.instanceId), ...farmEggIds, ...breederEggIds])].slice(-SEEN_EGGS_MAX);
+  return { candidates: [...byKey.values()], anomalies, history: { farms, eggs: seen, breeders } };
 }
 
 /**

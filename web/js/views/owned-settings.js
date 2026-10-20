@@ -342,7 +342,8 @@ export function ownedSettingsCard(context, { win = globalThis } = {}) {
   // parts: 設定の行き先（reveal）がフォーカスする部品（自動登録のチェック）を入れる
   function breedingPanel(world, view, onToggle, parts) {
     const panel = el('div', 'owned-breeding');
-    panel.append(el('p', 'owned-step-title', '配合牧場からの自動登録'));
+    // 古代文明の配合器で産まれたタマゴも登録する（breeder）
+    panel.append(el('p', 'owned-step-title', '配合牧場・配合器からの自動登録'));
     if (world.kind === 'guest') {
       // 参加者に「自動登録は動きません」と言わない（ホストの画面が登録する。X-06。最後の共有がサーバーのセーブなら、サーバーの PC の常駐
       // プログラムが登録する。server の participant-ui）。協力プレイで交代でホストするなら、ホストの組のファイルを足しておく（足しておけば、
